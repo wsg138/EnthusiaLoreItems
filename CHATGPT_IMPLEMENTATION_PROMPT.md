@@ -1,6 +1,14 @@
-# Prompt for the first implementation chat
+# Phase-one implementation prompt
 
-Copy everything below into a new ChatGPT chat with the GitHub connector enabled.
+The permanent entrypoint for all new ChatGPT development chats is now [`CHATGPT_START_HERE.md`](CHATGPT_START_HERE.md).
+
+For normal use, send this universal message in a new ChatGPT chat with the GitHub connector enabled:
+
+> Use the GitHub connector to open `wsg138/EnthusiaLoreItems`, read `CHATGPT_START_HERE.md`, determine the next unfinished safe step, and begin it. Follow the repository documents as binding requirements. Do not ask me to restate the project.
+
+The universal entrypoint inspects the live repository and PR state and will select PR 1 automatically when it is the next unfinished phase.
+
+The text below is retained as the explicit phase-one scope reference.
 
 ---
 
@@ -17,11 +25,11 @@ Your task is **PR 1 — Foundation and durable core only**. Do not attempt the c
 
 Before changing code:
 
-1. Read `README.md`, `REQUIREMENTS.md`, `docs/architecture.md`, and `docs/implementation-plan.md` in full.
+1. Read `README.md`, `CHATGPT_START_HERE.md`, `REQUIREMENTS.md`, `docs/architecture.md`, and `docs/implementation-plan.md` in full.
 2. Inspect the relevant architecture, build, lifecycle, persistence, testing, and static-analysis patterns in EnthusiaStaff.
-3. Confirm the current head of `main` and inspect all existing files and commits.
+3. Confirm the current head of `main` and inspect all existing files, commits, open PRs, review comments, and visible CI state.
 4. State any conflict you find between the documents. Otherwise treat them as binding requirements.
-5. Create a feature branch and a draft pull request. Do not commit directly to `main`.
+5. Reuse an existing PR 1 branch if one exists. Otherwise create a feature branch and draft pull request. Do not commit directly to `main`.
 
 Implement the complete PR 1 scope from `docs/implementation-plan.md`:
 
@@ -71,7 +79,7 @@ PR requirements:
 - Explain the module graph, database schema, state machines, thread boundaries, queue bounds, and deferred features in the PR body.
 - List exact commands/checks run and their results.
 - Clearly identify anything not verified.
-- Do not merge the PR.
+- Do not merge the PR without explicit user authorization.
 
 Stop after PR 1 is complete. Return:
 
