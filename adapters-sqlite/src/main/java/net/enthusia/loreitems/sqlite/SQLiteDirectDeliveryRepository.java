@@ -77,9 +77,11 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         String sql = clearClaim
                 ? "UPDATE direct_deliveries SET state = ?, claim_token = NULL, "
                         + "claim_expires_at = NULL, updated_at = ? "
-                        + "WHERE delivery_id = ? AND state = ? AND claim_token = ?"
+                        + "WHERE delivery_id = ? AND state = ? AND claim_token = ? "
+                        + "AND claim_expires_at > ?"
                 : "UPDATE direct_deliveries SET state = ?, updated_at = ? "
-                        + "WHERE delivery_id = ? AND state = ? AND claim_token = ?";
+                        + "WHERE delivery_id = ? AND state = ? AND claim_token = ? "
+                        + "AND claim_expires_at > ?";
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, target.name());
@@ -87,19 +89,21 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 statement.setString(3, deliveryId.toString());
                 statement.setString(4, expected.name());
                 statement.setString(5, claimToken);
+                statement.setLong(6, now.toEpochMilli());
                 return statement.executeUpdate() == 1;
             }
         });
     }
 
     @Override
-    public CompletionStage<Integer> moveExpiredReservationsToReview(Instant now) {
+    public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now) {
         Objects.requireNonNull(now, "now");
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
                             + "claim_expires_at = NULL, updated_at = ? "
-                            + "WHERE state = 'RESERVED' AND claim_expires_at <= ?")) {
+                            + "WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                            + "AND claim_expires_at <= ?")) {
                 statement.setLong(1, now.toEpochMilli());
                 statement.setLong(2, now.toEpochMilli());
                 return statement.executeUpdate();
