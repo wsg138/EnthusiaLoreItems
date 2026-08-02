@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -86,7 +85,7 @@ final class FoundationConfigurationLoader {
             if (stream == null) {
                 throw new IOException("Missing packaged config.yml");
             }
-            Files.copy(stream, destination, StandardCopyOption.COPY_ATTRIBUTES);
+            Files.copy(stream, destination);
         }
     }
 
