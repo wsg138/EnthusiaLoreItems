@@ -57,7 +57,7 @@ class SQLiteDirectDeliveryRepositoryTest {
     }
 
     @Test
-    void claimTokenFencesStateTransitions() throws Exception {
+    void claimTokenAndLiveLeaseFenceStateTransitions() throws Exception {
         Path database = temporaryDirectory.resolve("claim.db");
         SQLiteStorageRuntime runtime = start(database);
         try {
@@ -98,6 +98,14 @@ class SQLiteDirectDeliveryRepositoryTest {
                             Instant.ofEpochMilli(3_000L))
                     .toCompletableFuture()
                     .join());
+            assertFalse(repository.transitionClaimed(
+                            deliveryId,
+                            DirectDeliveryState.RESERVED,
+                            DirectDeliveryState.APPLIED,
+                            "worker-a",
+                            Instant.ofEpochMilli(32_001L))
+                    .toCompletableFuture()
+                    .join());
             assertTrue(repository.transitionClaimed(
                             deliveryId,
                             DirectDeliveryState.RESERVED,
@@ -112,7 +120,7 @@ class SQLiteDirectDeliveryRepositoryTest {
     }
 
     @Test
-    void expiredReservationBecomesReviewRequiredAfterRestart() throws Exception {
+    void expiredClaimBecomesReviewRequiredAfterRestart() throws Exception {
         Path database = temporaryDirectory.resolve("restart.db");
         SQLiteStorageRuntime firstRuntime = start(database);
         seedDefinition(firstRuntime, "restart-safe");
@@ -138,7 +146,7 @@ class SQLiteDirectDeliveryRepositoryTest {
             SQLiteDirectDeliveryRepository secondRepository =
                     new SQLiteDirectDeliveryRepository(secondRuntime);
             int recovered = secondRepository
-                    .moveExpiredReservationsToReview(Instant.ofEpochMilli(2_011L))
+                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L))
                     .toCompletableFuture()
                     .join();
             Page<DirectDeliveryRecord> remaining = secondRepository
