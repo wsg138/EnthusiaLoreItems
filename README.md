@@ -30,6 +30,8 @@ The reusable user message is:
 
 > Use the GitHub connector to open `wsg138/EnthusiaLoreItems`, read `CHATGPT_START_HERE.md`, determine the next unfinished safe step, and begin it. Follow the repository documents as binding requirements. Do not ask me to restate the project.
 
+The entrypoint does not authorize automatic merging. A chat may create or continue draft PRs, fix CI/review defects, and mark work ready for review, but it must wait for explicit user authorization before merging.
+
 ## Planning documents
 
 - [Universal ChatGPT entrypoint](CHATGPT_START_HERE.md)
