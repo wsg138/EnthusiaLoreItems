@@ -9,6 +9,7 @@ public enum DirectDeliveryState {
     APPLIED,
     VERIFIED,
     COMPLETED,
+    CANCELLED,
     REVIEW_REQUIRED;
 
     public boolean canTransitionTo(DirectDeliveryState target) {
@@ -23,16 +24,12 @@ public enum DirectDeliveryState {
     }
 
     private Set<DirectDeliveryState> allowedTargets() {
-        if (this == COMPLETED || this == REVIEW_REQUIRED) {
-            return Set.of();
-        }
-        DirectDeliveryState next = switch (this) {
-            case PENDING -> RESERVED;
-            case RESERVED -> APPLIED;
-            case APPLIED -> VERIFIED;
-            case VERIFIED -> COMPLETED;
-            case COMPLETED, REVIEW_REQUIRED -> throw new IllegalStateException("Terminal state");
+        return switch (this) {
+            case PENDING -> EnumSet.of(RESERVED, CANCELLED, REVIEW_REQUIRED);
+            case RESERVED -> EnumSet.of(APPLIED, REVIEW_REQUIRED);
+            case APPLIED -> EnumSet.of(VERIFIED, REVIEW_REQUIRED);
+            case VERIFIED -> EnumSet.of(COMPLETED, REVIEW_REQUIRED);
+            case COMPLETED, CANCELLED, REVIEW_REQUIRED -> Set.of();
         };
-        return EnumSet.of(next, REVIEW_REQUIRED);
     }
 }

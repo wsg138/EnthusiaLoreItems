@@ -25,6 +25,20 @@ class DirectDeliveryStateTest {
     }
 
     @Test
+    void permitsSafeCancellationBeforeReservation() {
+        assertEquals(
+                DirectDeliveryState.CANCELLED,
+                DirectDeliveryState.PENDING.transitionTo(DirectDeliveryState.CANCELLED));
+    }
+
+    @Test
+    void rejectsCancellationAfterReservation() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> DirectDeliveryState.RESERVED.transitionTo(DirectDeliveryState.CANCELLED));
+    }
+
+    @Test
     void rejectsSkippingVerification() {
         assertThrows(
                 IllegalStateException.class,

@@ -36,10 +36,21 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 String definitionKey,
                 UUID playerId,
                 String externalOperationId) {
+            String safeOperationId = externalOperationId == null ? "" : externalOperationId.strip();
+            if (definitionKey == null
+                    || definitionKey.isBlank()
+                    || playerId == null
+                    || safeOperationId.isEmpty()) {
+                return CompletableFuture.completedFuture(
+                        new LoreDeliveryResult(
+                                LoreDeliveryStatus.VALIDATION_FAILURE,
+                                safeOperationId,
+                                "Definition key, player UUID, and external operation ID are required."));
+            }
             return CompletableFuture.completedFuture(
                     new LoreDeliveryResult(
                             LoreDeliveryStatus.SERVICE_UNAVAILABLE,
-                            externalOperationId,
+                            safeOperationId,
                             "The durable delivery runtime is not active in the foundation bootstrap."));
         }
     }

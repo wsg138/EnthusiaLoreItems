@@ -10,6 +10,11 @@ dependencies {
 }
 
 tasks {
+    processResources {
+        filesMatching("plugin.yml") {
+            expand("version" to project.version)
+        }
+    }
     shadowJar {
         archiveClassifier.set("")
     }
