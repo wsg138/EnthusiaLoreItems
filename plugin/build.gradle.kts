@@ -2,8 +2,6 @@ plugins {
     id("com.gradleup.shadow")
 }
 
-val pluginVersion = project.version.toString()
-
 dependencies {
     implementation(project(":api"))
     implementation(project(":adapters-paper"))
@@ -13,10 +11,9 @@ dependencies {
 
 tasks {
     processResources {
-        inputs.property("version", pluginVersion)
-        filesMatching("plugin.yml") {
-            expand("version" to pluginVersion)
-        }
+        val expansion = mapOf("version" to project.version.toString())
+        inputs.properties(expansion)
+        expand(expansion)
     }
     shadowJar {
         archiveClassifier.set("")
