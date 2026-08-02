@@ -100,6 +100,8 @@ public final class SQLiteStorageRuntime {
     }
 
     public static final class StorageUnavailableException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
         public StorageUnavailableException(String message) {
             super(message);
         }
