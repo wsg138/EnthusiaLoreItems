@@ -22,11 +22,20 @@ The repository is currently in the architecture and requirements phase. No produ
 6. Maintain clear hexagonal boundaries and strong automated test coverage.
 7. Keep every queue, cache, worker, retry, query, and per-tick mutation budget bounded.
 
+## Start a new ChatGPT development chat
+
+Use [the universal ChatGPT entrypoint](CHATGPT_START_HERE.md). It tells a new chat to inspect the live repository and pull-request state, determine the first unfinished safe phase, continue an existing PR when appropriate, and leave a durable handoff.
+
+The reusable user message is:
+
+> Use the GitHub connector to open `wsg138/EnthusiaLoreItems`, read `CHATGPT_START_HERE.md`, determine the next unfinished safe step, and begin it. Follow the repository documents as binding requirements. Do not ask me to restate the project.
+
 ## Planning documents
 
+- [Universal ChatGPT entrypoint](CHATGPT_START_HERE.md)
 - [Production requirements](REQUIREMENTS.md)
 - [Architecture](docs/architecture.md)
 - [Staged implementation plan](docs/implementation-plan.md)
-- [Prompt for the first implementation chat](CHATGPT_IMPLEMENTATION_PROMPT.md)
+- [Phase-one implementation prompt](CHATGPT_IMPLEMENTATION_PROMPT.md)
 
-Implementation is intentionally split into reviewable pull requests. The first implementation chat must complete only the foundation and durable-core phase, then stop for independent review.
+Implementation is intentionally split into reviewable pull requests. Each implementation chat must remain within the current planned phase and stop before beginning the next phase.
