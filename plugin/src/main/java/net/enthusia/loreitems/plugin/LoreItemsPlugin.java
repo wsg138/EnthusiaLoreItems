@@ -135,12 +135,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
             }
 
             SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
-            int recovered = repository.moveExpiredReservationsToReview(Instant.now())
+            int recovered = repository.moveExpiredClaimsToReview(Instant.now())
                     .toCompletableFuture()
                     .join();
             if (recovered > 0) {
                 getLogger().warning(
-                        "Moved " + recovered + " expired delivery reservations to REVIEW_REQUIRED.");
+                        "Moved " + recovered + " expired delivery claims to REVIEW_REQUIRED.");
             }
             serviceDelegate.set(new FoundationLoreItemsService(
                     new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())));
