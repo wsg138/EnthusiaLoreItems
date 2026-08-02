@@ -1,57 +1,203 @@
 package net.enthusia.loreitems.plugin;
 
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
 import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
+import net.enthusia.loreitems.application.AtomicConfiguration;
+import net.enthusia.loreitems.application.FoundationConfiguration;
+import net.enthusia.loreitems.application.MetricsPort;
+import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
+import net.enthusia.loreitems.application.StorageState;
+import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
+import net.enthusia.loreitems.sqlite.MigrationRunner;
+import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
+import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
+import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LoreItemsPlugin extends JavaPlugin {
-    private final LoreItemsServiceV1 unavailableService = new UnavailableService();
+    private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
+            new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
+    private final AtomicReference<AtomicConfiguration> configuration =
+            new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
+    private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
+    private final ThreadPoolExecutor lifecycleExecutor = new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(4),
+            runnable -> {
+                Thread thread = new Thread(runnable, "loreitems-lifecycle");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+
+    private volatile SQLiteStorageRuntime storageRuntime;
+    private volatile boolean stopping;
 
     @Override
     public void onEnable() {
-        getServer()
-                .getServicesManager()
-                .register(
-                        LoreItemsServiceV1.class,
-                        unavailableService,
-                        this,
-                        ServicePriority.Normal);
-        getLogger().info(
-                "Foundation bootstrap enabled; durable delivery remains unavailable until initialized.");
+        getServer().getServicesManager().register(
+                LoreItemsServiceV1.class,
+                registeredService,
+                this,
+                ServicePriority.Normal);
+        Path dataDirectory = getDataFolder().toPath();
+        try {
+            lifecycleExecutor.execute(() -> initialize(dataDirectory));
+        } catch (RejectedExecutionException exception) {
+            serviceDelegate.set(new UnavailableService("Foundation lifecycle queue rejected startup."));
+            getLogger().severe("LoreItems startup was rejected: " + exception.getMessage());
+        }
+        getLogger().info("Foundation bootstrap enabled; durable storage is initializing off-thread.");
     }
 
     @Override
     public void onDisable() {
+        stopping = true;
+        serviceDelegate.set(new UnavailableService("The plugin is stopping."));
         getServer().getServicesManager().unregisterAll(this);
+
+        SQLiteStorageRuntime runtime = storageRuntime;
+        if (runtime != null) {
+            int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
+            boolean drained = runtime.close(Duration.ofSeconds(timeoutSeconds));
+            if (!drained) {
+                getLogger().warning("Database shutdown exceeded the configured bounded drain timeout.");
+            }
+        }
+        lifecycleExecutor.shutdownNow();
+    }
+
+    public CompletionStage<AtomicConfiguration.ReloadResult> reloadFoundationConfiguration() {
+        CompletableFuture<AtomicConfiguration.ReloadResult> result = new CompletableFuture<>();
+        try {
+            lifecycleExecutor.execute(() -> {
+                try {
+                    FoundationConfiguration candidate =
+                            new FoundationConfigurationLoader(getDataFolder().toPath()).loadOrCreate();
+                    result.complete(configuration.get().replace(candidate));
+                } catch (Exception exception) {
+                    result.complete(new AtomicConfiguration.ReloadResult(
+                            false,
+                            exception.getClass().getSimpleName() + ": " + safeMessage(exception)));
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            result.complete(new AtomicConfiguration.ReloadResult(
+                    false, "The lifecycle queue is not accepting reload work."));
+        }
+        return result;
+    }
+
+    private void initialize(Path dataDirectory) {
+        try {
+            FoundationConfiguration loaded =
+                    new FoundationConfigurationLoader(dataDirectory).loadOrCreate();
+            configuration.set(new AtomicConfiguration(loaded));
+
+            MetricsPort metrics = MetricsPort.noOp();
+            BoundedDatabaseExecutor databaseExecutor = new BoundedDatabaseExecutor(
+                    "loreitems-database", loaded.databaseQueueCapacity(), metrics);
+            SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
+                    new SQLiteConnectionFactory(
+                            dataDirectory.resolve("loreitems.db"), loaded.databaseBusyTimeoutMillis()),
+                    new MigrationRunner(),
+                    databaseExecutor,
+                    metrics);
+            storageRuntime = runtime;
+            SQLiteStorageRuntime.StartupResult startup = runtime.start().toCompletableFuture().join();
+            if (stopping) {
+                runtime.close(Duration.ofSeconds(loaded.databaseShutdownTimeoutSeconds()));
+                return;
+            }
+            if (startup.state() != StorageState.READ_WRITE) {
+                serviceDelegate.set(new UnavailableService(
+                        "LoreItems is in degraded read-only mode: " + startup.detail()));
+                getLogger().severe("LoreItems entered degraded read-only mode: " + startup.detail());
+                return;
+            }
+
+            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+            int recovered = repository.moveExpiredReservationsToReview(Instant.now())
+                    .toCompletableFuture()
+                    .join();
+            if (recovered > 0) {
+                getLogger().warning(
+                        "Moved " + recovered + " expired delivery reservations to REVIEW_REQUIRED.");
+            }
+            serviceDelegate.set(new FoundationLoreItemsService(
+                    new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())));
+            getLogger().info(
+                    "Durable foundation storage is active; physical inventory delivery remains deferred.");
+        } catch (Exception exception) {
+            serviceDelegate.set(new UnavailableService(
+                    "Foundation initialization failed: " + safeMessage(exception)));
+            getLogger().severe(
+                    "LoreItems foundation initialization failed; writes remain unavailable: "
+                            + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
+        }
+    }
+
+    private static String safeMessage(Exception exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? "no detail" : message;
+    }
+
+    private static final class DelegatingService implements LoreItemsServiceV1 {
+        private final AtomicReference<LoreItemsServiceV1> delegate;
+
+        private DelegatingService(AtomicReference<LoreItemsServiceV1> delegate) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public CompletionStage<LoreDeliveryResult> queueDelivery(
+                String definitionKey, UUID playerId, String externalOperationId) {
+            return delegate.get().queueDelivery(definitionKey, playerId, externalOperationId);
+        }
     }
 
     private static final class UnavailableService implements LoreItemsServiceV1 {
+        private final String detail;
+
+        private UnavailableService(String detail) {
+            this.detail = Objects.requireNonNull(detail, "detail");
+        }
+
         @Override
         public CompletionStage<LoreDeliveryResult> queueDelivery(
-                String definitionKey,
-                UUID playerId,
-                String externalOperationId) {
+                String definitionKey, UUID playerId, String externalOperationId) {
             String safeOperationId = externalOperationId == null ? "" : externalOperationId.strip();
             if (definitionKey == null
                     || definitionKey.isBlank()
                     || playerId == null
                     || safeOperationId.isEmpty()) {
-                return CompletableFuture.completedFuture(
-                        new LoreDeliveryResult(
-                                LoreDeliveryStatus.VALIDATION_FAILURE,
-                                safeOperationId,
-                                "Definition key, player UUID, and external operation ID are required."));
+                return CompletableFuture.completedFuture(new LoreDeliveryResult(
+                        LoreDeliveryStatus.VALIDATION_FAILURE,
+                        safeOperationId,
+                        "Definition key, player UUID, and external operation ID are required."));
             }
-            return CompletableFuture.completedFuture(
-                    new LoreDeliveryResult(
-                            LoreDeliveryStatus.SERVICE_UNAVAILABLE,
-                            safeOperationId,
-                            "The durable delivery runtime is not active in the foundation bootstrap."));
+            return CompletableFuture.completedFuture(new LoreDeliveryResult(
+                    LoreDeliveryStatus.SERVICE_UNAVAILABLE,
+                    safeOperationId,
+                    detail));
         }
     }
 }
