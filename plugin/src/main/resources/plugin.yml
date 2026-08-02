@@ -1,0 +1,7 @@
+name: EnthusiaLoreItems
+version: ${version}
+main: net.enthusia.loreitems.plugin.LoreItemsPlugin
+api-version: "1.21"
+authors:
+  - wsg138
+description: Durable lore-item tracking and delivery for Enthusia SMP.
