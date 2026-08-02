@@ -26,10 +26,20 @@ CREATE TABLE lore_instances (
     definition_id TEXT NOT NULL,
     applied_revision INTEGER NOT NULL CHECK (applied_revision >= 1),
     desired_revision INTEGER NOT NULL CHECK (desired_revision >= applied_revision),
-    lifecycle_state TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK (
+        lifecycle_state IN ('ACTIVE', 'VOID_DESTROYED', 'REMOVED')
+    ),
     created_at INTEGER NOT NULL,
     terminal_at INTEGER,
-    FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id)
+    CHECK (
+        (lifecycle_state = 'ACTIVE' AND terminal_at IS NULL)
+        OR (lifecycle_state IN ('VOID_DESTROYED', 'REMOVED') AND terminal_at IS NOT NULL)
+    ),
+    FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id),
+    FOREIGN KEY (definition_id, applied_revision)
+        REFERENCES lore_definition_revisions(definition_id, revision),
+    FOREIGN KEY (definition_id, desired_revision)
+        REFERENCES lore_definition_revisions(definition_id, revision)
 );
 
 CREATE INDEX idx_instances_definition_state
