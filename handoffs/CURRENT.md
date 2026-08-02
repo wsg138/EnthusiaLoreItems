@@ -12,11 +12,11 @@ Obtain the current head SHA, draft state, checks, and review comments from live 
 
 ## Latest report
 
-- [`0001-2026-08-02-pr2-foundation-start.md`](0001-2026-08-02-pr2-foundation-start.md)
+- [`0002-2026-08-02-pr2-handoff-workflow.md`](0002-2026-08-02-pr2-handoff-workflow.md)
 
 ## Required prior reports
 
-None beyond the latest report.
+- [`0001-2026-08-02-pr2-foundation-start.md`](0001-2026-08-02-pr2-foundation-start.md) — implementation details, schema scope, completed checks, and unfinished foundation work.
 
 ## Exact next step
 
@@ -26,7 +26,7 @@ Do not begin creation/adoption, physical inventory delivery, protection listener
 
 ## Focused startup reads
 
-After reading the latest report and live PR state, inspect only the files relevant to:
+After reading the two reports above and live PR state, inspect only the files relevant to:
 
 - configuration parsing/validation and reload boundaries;
 - application repository ports;
