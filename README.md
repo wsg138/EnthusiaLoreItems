@@ -1,8 +1,12 @@
 # EnthusiaLoreItems
 
+[![Codacy setup](https://img.shields.io/badge/Codacy-project%20setup%20pending-lightgrey)](https://app.codacy.com/gh/wsg138/EnthusiaLoreItems/dashboard)
+
 EnthusiaLoreItems is a planned Paper plugin for creating, distributing, protecting, locating, editing, and safely removing tracked lore items on the Enthusia SMP.
 
 The repository is currently in the architecture and requirements phase. No production implementation should begin until the planning pull request is reviewed and approved.
+
+The repository has not yet produced a Codacy project token. PR 1 must replace the truthful setup-pending badge above with Codacy's generated live grade badge after the repository is connected and analyzed. Never copy another repository's badge token or commit a Codacy API token.
 
 ## Target runtime
 
