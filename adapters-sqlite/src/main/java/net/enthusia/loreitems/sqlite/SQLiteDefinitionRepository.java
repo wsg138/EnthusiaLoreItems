@@ -23,6 +23,7 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 public final class SQLiteDefinitionRepository implements DefinitionRepository {
     private static final String DEFINITION_ID_ARGUMENT = "definitionId";
     private static final int SINGLE_UPDATED_ROW = 1;
+    private static final long UNIX_EPOCH_MILLIS = 0L;
 
 
     private final SQLiteStorageRuntime storage;
@@ -59,22 +60,13 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
     @Override
     public CompletionStage<Optional<LoreDefinition>> findById(LoreDefinitionId definitionId) {
         Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
-        return storage.execute(connection -> findDefinition(
-                connection,
-                "SELECT definition_id, lookup_key, display_name, current_revision, created_at, "
-                        + "deleted_at FROM lore_definitions WHERE definition_id = ?",
-                definitionId.value().toString()));
+        return storage.execute(connection -> findDefinitionById(connection, definitionId));
     }
 
     @Override
     public CompletionStage<Optional<LoreDefinition>> findActiveByKey(DefinitionKey key) {
         Objects.requireNonNull(key, "key");
-        return storage.execute(connection -> findDefinition(
-                connection,
-                "SELECT definition_id, lookup_key, display_name, current_revision, created_at, "
-                        + "deleted_at FROM lore_definitions "
-                        + "WHERE lookup_key = ? AND deleted_at IS NULL",
-                key.value()));
+        return storage.execute(connection -> findActiveDefinitionByKey(connection, key));
     }
 
     @Override
@@ -186,7 +178,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
         Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(deletedAt, "deletedAt");
-        if (deletedAt.toEpochMilli() < 0L) {
+        if (deletedAt.toEpochMilli() < UNIX_EPOCH_MILLIS) {
             throw new IllegalArgumentException("deletedAt must not precede the Unix epoch");
         }
         return storage.execute(connection -> markDeletedInTransaction(
@@ -203,7 +195,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(deletedAt, "deletedAt");
         long deletedAtMillis = deletedAt.toEpochMilli();
-        if (deletedAtMillis < 0L) {
+        if (deletedAtMillis < UNIX_EPOCH_MILLIS) {
             throw new IllegalArgumentException("deletedAt must not precede the Unix epoch");
         }
         try (PreparedStatement statement = connection.prepareStatement(
@@ -218,15 +210,33 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
         }
     }
 
-    private static Optional<LoreDefinition> findDefinition(
-            Connection connection, String sql, String value) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, value);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next()
-                        ? Optional.of(readDefinition(resultSet))
-                        : Optional.empty();
-            }
+    private static Optional<LoreDefinition> findDefinitionById(
+            Connection connection, LoreDefinitionId definitionId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT definition_id, lookup_key, display_name, current_revision, created_at, "
+                        + "deleted_at FROM lore_definitions WHERE definition_id = ?")) {
+            statement.setString(1, definitionId.value().toString());
+            return readOptionalDefinition(statement);
+        }
+    }
+
+    private static Optional<LoreDefinition> findActiveDefinitionByKey(
+            Connection connection, DefinitionKey key) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT definition_id, lookup_key, display_name, current_revision, created_at, "
+                        + "deleted_at FROM lore_definitions "
+                        + "WHERE lookup_key = ? AND deleted_at IS NULL")) {
+            statement.setString(1, key.value());
+            return readOptionalDefinition(statement);
+        }
+    }
+
+    private static Optional<LoreDefinition> readOptionalDefinition(PreparedStatement statement)
+            throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery()) {
+            return resultSet.next()
+                    ? Optional.of(readDefinition(resultSet))
+                    : Optional.empty();
         }
     }
 

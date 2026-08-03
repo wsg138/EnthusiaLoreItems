@@ -50,9 +50,9 @@ class SQLiteDirectDeliveryRepositoryTest {
             assertEquals(ExternalDeliveryOutcome.ACCEPTED_QUEUED, first.outcome());
             assertEquals(ExternalDeliveryOutcome.ALREADY_ACCEPTED, second.outcome());
             assertEquals(first.deliveryId(), second.deliveryId());
-            assertEquals(1, count(runtime, "lore_instances"));
-            assertEquals(1, count(runtime, "direct_deliveries"));
-            assertEquals(1, count(runtime, "external_delivery_requests"));
+            assertEquals(1, count(runtime, CountTable.LORE_INSTANCES));
+            assertEquals(1, count(runtime, CountTable.DIRECT_DELIVERIES));
+            assertEquals(1, count(runtime, CountTable.EXTERNAL_REQUESTS));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -83,9 +83,9 @@ class SQLiteDirectDeliveryRepositoryTest {
                     .toCompletableFuture()
                     .join());
 
-            assertEquals(0, count(runtime, "lore_instances"));
-            assertEquals(0, count(runtime, "direct_deliveries"));
-            assertEquals(0, count(runtime, "external_delivery_requests"));
+            assertEquals(0, count(runtime, CountTable.LORE_INSTANCES));
+            assertEquals(0, count(runtime, CountTable.DIRECT_DELIVERIES));
+            assertEquals(0, count(runtime, CountTable.EXTERNAL_REQUESTS));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -93,62 +93,13 @@ class SQLiteDirectDeliveryRepositoryTest {
 
     @Test
     void claimTokenAndLiveLeaseFenceStateTransitions() throws Exception {
-        Path database = temporaryDirectory.resolve("claim.db");
-        SQLiteStorageRuntime runtime = start(database);
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("claim.db"));
         try {
-            seedDefinition(runtime, "claimable");
-            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
-            repository.acceptExternal(
-                            new ExternalDeliveryCommand(
-                                    new DefinitionKey("claimable"), UUID.randomUUID(), "claim-1"),
-                            Instant.ofEpochMilli(1_000L))
-                    .toCompletableFuture()
-                    .join();
-
-            Page<DirectDeliveryRecord> claimed = repository
-                    .claimPending(
-                            "worker-a",
-                            Instant.ofEpochMilli(2_000L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join();
-            Page<DirectDeliveryRecord> duplicateClaim = repository
-                    .claimPending(
-                            "worker-b",
-                            Instant.ofEpochMilli(2_001L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join();
-
-            assertEquals(1, claimed.items().size());
-            assertTrue(duplicateClaim.items().isEmpty());
-            UUID deliveryId = claimed.items().getFirst().deliveryId();
-            assertFalse(repository.transitionClaimed(
-                            deliveryId,
-                            DirectDeliveryState.RESERVED,
-                            DirectDeliveryState.APPLIED,
-                            "worker-b",
-                            Instant.ofEpochMilli(3_000L))
-                    .toCompletableFuture()
-                    .join());
-            assertFalse(repository.transitionClaimed(
-                            deliveryId,
-                            DirectDeliveryState.RESERVED,
-                            DirectDeliveryState.APPLIED,
-                            "worker-a",
-                            Instant.ofEpochMilli(32_001L))
-                    .toCompletableFuture()
-                    .join());
-            assertTrue(repository.transitionClaimed(
-                            deliveryId,
-                            DirectDeliveryState.RESERVED,
-                            DirectDeliveryState.APPLIED,
-                            "worker-a",
-                            Instant.ofEpochMilli(3_000L))
-                    .toCompletableFuture()
-                    .join());
+            SQLiteDirectDeliveryRepository repository =
+                    new SQLiteDirectDeliveryRepository(runtime);
+            seedClaimableDelivery(runtime, repository);
+            UUID deliveryId = claimOnce(repository);
+            assertClaimFencing(repository, deliveryId);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -157,65 +108,92 @@ class SQLiteDirectDeliveryRepositoryTest {
     @Test
     void expiredClaimBecomesReviewRequiredAfterRestart() throws Exception {
         Path database = temporaryDirectory.resolve("restart.db");
-        SQLiteStorageRuntime firstRuntime = start(database);
-        seedDefinition(firstRuntime, "restart-safe");
-        SQLiteDirectDeliveryRepository firstRepository =
-                new SQLiteDirectDeliveryRepository(firstRuntime);
-        firstRepository.acceptExternal(
+        seedExpiredDeliveries(database);
+        assertBoundedDeliveryRecovery(database);
+    }
+
+    private static void seedClaimableDelivery(
+            SQLiteStorageRuntime runtime, SQLiteDirectDeliveryRepository repository) {
+        seedDefinition(runtime, "claimable");
+        repository.acceptExternal(
                         new ExternalDeliveryCommand(
-                                new DefinitionKey("restart-safe"), UUID.randomUUID(), "restart-1"),
+                                new DefinitionKey("claimable"), UUID.randomUUID(), "claim-1"),
                         Instant.ofEpochMilli(1_000L))
-                .toCompletableFuture()
-                .join();
-        firstRepository.acceptExternal(
+                .toCompletableFuture().join();
+    }
+
+    private static UUID claimOnce(SQLiteDirectDeliveryRepository repository) {
+        Page<DirectDeliveryRecord> claimed = repository.claimPending(
+                        "worker-a", Instant.ofEpochMilli(2_000L), Duration.ofSeconds(30), 10)
+                .toCompletableFuture().join();
+        Page<DirectDeliveryRecord> duplicateClaim = repository.claimPending(
+                        "worker-b", Instant.ofEpochMilli(2_001L), Duration.ofSeconds(30), 10)
+                .toCompletableFuture().join();
+        assertEquals(1, claimed.items().size());
+        assertTrue(duplicateClaim.items().isEmpty());
+        return claimed.items().getFirst().deliveryId();
+    }
+
+    private static void assertClaimFencing(
+            SQLiteDirectDeliveryRepository repository, UUID deliveryId) {
+        assertFalse(transition(repository, deliveryId, "worker-b", 3_000L));
+        assertFalse(transition(repository, deliveryId, "worker-a", 32_001L));
+        assertTrue(transition(repository, deliveryId, "worker-a", 3_000L));
+    }
+
+    private static boolean transition(
+            SQLiteDirectDeliveryRepository repository, UUID deliveryId, String worker, long now) {
+        return repository.transitionClaimed(
+                        deliveryId, DirectDeliveryState.RESERVED, DirectDeliveryState.APPLIED,
+                        worker, Instant.ofEpochMilli(now))
+                .toCompletableFuture().join();
+    }
+
+    private static void seedExpiredDeliveries(Path database) {
+        SQLiteStorageRuntime runtime = start(database);
+        seedDefinition(runtime, "restart-safe");
+        SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+        accept(repository, "restart-1", 1_000L);
+        accept(repository, "restart-2", 1_001L);
+        repository.claimPending(
+                        "worker-before-restart", Instant.ofEpochMilli(2_000L),
+                        Duration.ofMillis(10L), 10)
+                .toCompletableFuture().join();
+        runtime.close(Duration.ofSeconds(5));
+    }
+
+    private static void accept(
+            SQLiteDirectDeliveryRepository repository, String operationId, long now) {
+        repository.acceptExternal(
                         new ExternalDeliveryCommand(
-                                new DefinitionKey("restart-safe"), UUID.randomUUID(), "restart-2"),
-                        Instant.ofEpochMilli(1_001L))
-                .toCompletableFuture()
-                .join();
-        firstRepository.claimPending(
-                        "worker-before-restart",
-                        Instant.ofEpochMilli(2_000L),
-                        Duration.ofMillis(10L),
-                        10)
-                .toCompletableFuture()
-                .join();
-        firstRuntime.close(Duration.ofSeconds(5));
+                                new DefinitionKey("restart-safe"), UUID.randomUUID(), operationId),
+                        Instant.ofEpochMilli(now))
+                .toCompletableFuture().join();
+    }
 
-        SQLiteStorageRuntime secondRuntime = start(database);
+    private static void assertBoundedDeliveryRecovery(Path database) {
+        SQLiteStorageRuntime runtime = start(database);
         try {
-            SQLiteDirectDeliveryRepository secondRepository =
-                    new SQLiteDirectDeliveryRepository(secondRuntime);
-            int recovered = secondRepository
-                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
-                    .toCompletableFuture()
-                    .join();
-            Page<DirectDeliveryRecord> remaining = secondRepository
-                    .listNonTerminal(PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join();
-
+            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+            int recovered = repository.moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(2_011L), 1)
+                    .toCompletableFuture().join();
+            Page<DirectDeliveryRecord> remaining = repository
+                    .listNonTerminal(PageRequest.first(10)).toCompletableFuture().join();
             assertEquals(1, recovered);
             assertEquals(2, remaining.items().size());
-            assertEquals(
-                    1L,
-                    remaining.items().stream()
-                            .filter(record -> record.state() == DirectDeliveryState.REVIEW_REQUIRED)
-                            .count());
-            assertEquals(
-                    1L,
-                    remaining.items().stream()
-                            .filter(record -> record.state() == DirectDeliveryState.RESERVED)
-                            .count());
-            assertEquals(
-                    1,
-                    secondRepository
-                            .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
-                            .toCompletableFuture()
-                            .join());
+            assertEquals(1L, countState(remaining, DirectDeliveryState.REVIEW_REQUIRED));
+            assertEquals(1L, countState(remaining, DirectDeliveryState.RESERVED));
+            assertEquals(1, repository.moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(2_011L), 1)
+                    .toCompletableFuture().join());
         } finally {
-            secondRuntime.close(Duration.ofSeconds(5));
+            runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static long countState(Page<DirectDeliveryRecord> records, DirectDeliveryState state) {
+        return records.items().stream().filter(record -> record.state() == state).count();
     }
 
     private static SQLiteStorageRuntime start(Path database) {
@@ -255,19 +233,31 @@ class SQLiteDirectDeliveryRepositoryTest {
                 .join();
     }
 
-    private static int count(SQLiteStorageRuntime runtime, String table) {
+    private static int count(SQLiteStorageRuntime runtime, CountTable table) {
         return runtime.execute(connection -> count(connection, table)).toCompletableFuture().join();
     }
 
-    private static int count(Connection connection, String table) throws Exception {
-        if (!table.equals("lore_instances")
-                && !table.equals("direct_deliveries")
-                && !table.equals("external_delivery_requests")) {
-            throw new IllegalArgumentException("Unexpected table");
-        }
-        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM " + table);
+    private static int count(Connection connection, CountTable table) throws Exception {
+        // The query is selected from a closed enum of test-only count statements.
+        try (PreparedStatement statement = connection.prepareStatement(table.sql()); // nosemgrep
              var resultSet = statement.executeQuery()) {
             return resultSet.getInt(1);
+        }
+    }
+
+    private enum CountTable {
+        LORE_INSTANCES("SELECT COUNT(*) FROM lore_instances"),
+        DIRECT_DELIVERIES("SELECT COUNT(*) FROM direct_deliveries"),
+        EXTERNAL_REQUESTS("SELECT COUNT(*) FROM external_delivery_requests");
+
+        private final String sql;
+
+        CountTable(String sql) {
+            this.sql = sql;
+        }
+
+        String sql() {
+            return sql;
         }
     }
 }

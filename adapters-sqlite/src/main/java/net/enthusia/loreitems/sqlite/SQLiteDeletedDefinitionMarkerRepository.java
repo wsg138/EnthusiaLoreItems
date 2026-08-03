@@ -87,13 +87,7 @@ public final class SQLiteDeletedDefinitionMarkerRepository
     @Override
     public CompletionStage<Page<DeletedDefinitionMarker>> listRecent(PageRequest request) {
         Objects.requireNonNull(request, "request");
-        return storage.execute(connection -> list(
-                connection,
-                "SELECT definition_id, lookup_key, deleted_at "
-                        + "FROM deleted_definition_markers "
-                        + "ORDER BY deleted_at DESC, definition_id LIMIT ? OFFSET ?",
-                null,
-                request));
+        return storage.execute(connection -> listRecent(connection, request));
     }
 
     @Override
@@ -101,32 +95,41 @@ public final class SQLiteDeletedDefinitionMarkerRepository
             DefinitionKey lookupKey, PageRequest request) {
         Objects.requireNonNull(lookupKey, "lookupKey");
         Objects.requireNonNull(request, "request");
-        return storage.execute(connection -> list(
-                connection,
-                "SELECT definition_id, lookup_key, deleted_at "
-                        + "FROM deleted_definition_markers WHERE lookup_key = ? "
-                        + "ORDER BY deleted_at DESC, definition_id LIMIT ? OFFSET ?",
-                lookupKey,
-                request));
+        return storage.execute(connection -> listByLookupKey(connection, lookupKey, request));
     }
 
-    private static Page<DeletedDefinitionMarker> list(
-            Connection connection,
-            String sql,
-            DefinitionKey lookupKey,
-            PageRequest request) throws SQLException {
+    private static Page<DeletedDefinitionMarker> listRecent(
+            Connection connection, PageRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT definition_id, lookup_key, deleted_at "
+                        + "FROM deleted_definition_markers "
+                        + "ORDER BY deleted_at DESC, definition_id LIMIT ? OFFSET ?")) {
+            statement.setInt(1, request.limit() + 1);
+            statement.setInt(2, request.offset());
+            return readPage(statement, request);
+        }
+    }
+
+    private static Page<DeletedDefinitionMarker> listByLookupKey(
+            Connection connection, DefinitionKey lookupKey, PageRequest request)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT definition_id, lookup_key, deleted_at "
+                        + "FROM deleted_definition_markers WHERE lookup_key = ? "
+                        + "ORDER BY deleted_at DESC, definition_id LIMIT ? OFFSET ?")) {
+            statement.setString(1, lookupKey.value());
+            statement.setInt(2, request.limit() + 1);
+            statement.setInt(3, request.offset());
+            return readPage(statement, request);
+        }
+    }
+
+    private static Page<DeletedDefinitionMarker> readPage(
+            PreparedStatement statement, PageRequest request) throws SQLException {
         List<DeletedDefinitionMarker> markers = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            int parameter = 1;
-            if (lookupKey != null) {
-                statement.setString(parameter++, lookupKey.value());
-            }
-            statement.setInt(parameter++, request.limit() + 1);
-            statement.setInt(parameter, request.offset());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    markers.add(readMarker(resultSet));
-                }
+        try (ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                markers.add(readMarker(resultSet));
             }
         }
         boolean hasMore = markers.size() > request.limit();

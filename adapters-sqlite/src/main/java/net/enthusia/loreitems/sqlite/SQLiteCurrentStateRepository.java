@@ -16,6 +16,7 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class SQLiteCurrentStateRepository implements CurrentStateRepository {
+    private static final long INITIAL_STATE_REVISION = 0L;
     private final SQLiteStorageRuntime storage;
 
     public SQLiteCurrentStateRepository(SQLiteStorageRuntime storage) {
@@ -25,7 +26,7 @@ public final class SQLiteCurrentStateRepository implements CurrentStateRepositor
     @Override
     public CompletionStage<Void> create(InstanceCurrentState currentState) {
         Objects.requireNonNull(currentState, "currentState");
-        if (currentState.stateRevision() != 0L) {
+        if (currentState.stateRevision() != INITIAL_STATE_REVISION) {
             throw new IllegalArgumentException("Initial current state revision must be zero");
         }
         return storage.execute(connection -> SQLiteTransactions.inTransaction(

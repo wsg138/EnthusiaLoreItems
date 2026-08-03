@@ -97,7 +97,8 @@ public final class MigrationRunner {
     private static void executeScript(Connection connection, String script) throws SQLException {
         for (String statementText : splitStatements(script)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute(statementText);
+                // SQL is loaded only from the versioned classpath migration resource.
+                statement.execute(statementText); // nosemgrep
             }
         }
     }

@@ -17,29 +17,32 @@ final class SQLiteTransactions {
         }
 
         connection.setAutoCommit(false);
-        Throwable failure = null;
         try {
             T result = work.execute(connection);
             connection.commit();
+            restoreAutoCommit(connection);
             return result;
         } catch (Exception exception) {
-            failure = exception;
             rollback(connection, exception);
+            restoreAutoCommitAfterFailure(connection, exception);
             throw exception;
         } catch (Error error) {
-            failure = error;
             rollback(connection, error);
+            restoreAutoCommitAfterFailure(connection, error);
             throw error;
-        } finally {
-            try {
-                connection.setAutoCommit(true);
-            } catch (SQLException restoreFailure) {
-                if (failure != null) {
-                    failure.addSuppressed(restoreFailure);
-                } else {
-                    throw restoreFailure;
-                }
-            }
+        }
+    }
+
+    private static void restoreAutoCommit(Connection connection) throws SQLException {
+        connection.setAutoCommit(true);
+    }
+
+    private static void restoreAutoCommitAfterFailure(
+            Connection connection, Throwable failure) {
+        try {
+            connection.setAutoCommit(true);
+        } catch (SQLException restoreFailure) {
+            failure.addSuppressed(restoreFailure);
         }
     }
 

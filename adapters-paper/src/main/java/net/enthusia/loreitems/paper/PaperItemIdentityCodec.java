@@ -23,6 +23,7 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
     public static final int CURRENT_VERSION = 1;
 
     private static final int UUID_BYTE_COUNT = 16;
+    private static final long NO_IDENTITY_KEYS = 0L;
     private static final NamespacedKey VERSION_KEY = key("identity_version");
     private static final NamespacedKey DEFINITION_KEY = key("definition_id");
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
@@ -92,7 +93,7 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
     private static ItemIdentityReadResult readIdentity(
             ItemStack item, PersistentDataContainer data) {
         long presentIdentityKeys = IDENTITY_KEYS.stream().filter(data.getKeys()::contains).count();
-        if (presentIdentityKeys == 0L) {
+        if (presentIdentityKeys == NO_IDENTITY_KEYS) {
             return new ItemIdentityReadResult.Untracked();
         }
         if (presentIdentityKeys != IDENTITY_KEYS.size()) {

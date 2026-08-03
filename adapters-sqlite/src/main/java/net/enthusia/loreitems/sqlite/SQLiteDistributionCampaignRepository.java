@@ -23,6 +23,7 @@ public final class SQLiteDistributionCampaignRepository
         implements DistributionCampaignRepository {
     private static final String NOW_ARGUMENT = "now";
     private static final int MIN_RECIPIENT_COUNT = 1;
+    private static final int SINGLE_UPDATED_ROW = 1;
     private static final long UNIX_EPOCH_MILLIS = 0L;
 
 
@@ -61,20 +62,14 @@ public final class SQLiteDistributionCampaignRepository
     @Override
     public CompletionStage<Optional<DistributionCampaign>> findById(UUID campaignId) {
         Objects.requireNonNull(campaignId, "campaignId");
-        return storage.execute(connection -> findCampaign(
-                connection,
-                selectColumns() + " WHERE campaign_id = ?",
-                campaignId.toString()));
+        return storage.execute(connection -> findCampaignById(connection, campaignId));
     }
 
     @Override
     public CompletionStage<Optional<DistributionCampaign>> findBySourceFingerprint(
             String sourceFingerprint) {
         String normalized = DistributionCampaign.normalizeSourceFingerprint(sourceFingerprint);
-        return storage.execute(connection -> findCampaign(
-                connection,
-                selectColumns() + " WHERE source_fingerprint = ?",
-                normalized));
+        return storage.execute(connection -> findCampaignByFingerprint(connection, normalized));
     }
 
     @Override
@@ -188,7 +183,7 @@ public final class SQLiteDistributionCampaignRepository
             campaignUpdate.setString(3, campaignId.toString());
             campaignUpdate.setString(4, expected.name());
             campaignUpdate.setLong(5, now);
-            if (campaignUpdate.executeUpdate() != 1) {
+            if (campaignUpdate.executeUpdate() != SINGLE_UPDATED_ROW) {
                 return new CampaignCancellationResult(false, 0);
             }
         }
@@ -244,15 +239,30 @@ public final class SQLiteDistributionCampaignRepository
         }
     }
 
-    private static Optional<DistributionCampaign> findCampaign(
-            Connection connection, String sql, String value) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, value);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next()
-                        ? Optional.of(readCampaign(resultSet))
-                        : Optional.empty();
-            }
+    private static Optional<DistributionCampaign> findCampaignById(
+            Connection connection, UUID campaignId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                selectColumns() + " WHERE campaign_id = ?")) {
+            statement.setString(1, campaignId.toString());
+            return readOptionalCampaign(statement);
+        }
+    }
+
+    private static Optional<DistributionCampaign> findCampaignByFingerprint(
+            Connection connection, String sourceFingerprint) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                selectColumns() + " WHERE source_fingerprint = ?")) {
+            statement.setString(1, sourceFingerprint);
+            return readOptionalCampaign(statement);
+        }
+    }
+
+    private static Optional<DistributionCampaign> readOptionalCampaign(
+            PreparedStatement statement) throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery()) {
+            return resultSet.next()
+                    ? Optional.of(readCampaign(resultSet))
+                    : Optional.empty();
         }
     }
 

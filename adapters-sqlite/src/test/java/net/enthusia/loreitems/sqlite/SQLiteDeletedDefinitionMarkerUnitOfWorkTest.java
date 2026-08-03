@@ -33,61 +33,45 @@ class SQLiteDeletedDefinitionMarkerUnitOfWorkTest {
         try {
             DefinitionKey lookupKey = new DefinitionKey("rollback_marker");
             LoreDefinitionId definitionId = createDefinition(runtime, lookupKey);
-            execute(runtime, "CREATE TRIGGER reject_deleted_marker "
-                    + "BEFORE INSERT ON deleted_definition_markers "
-                    + "BEGIN SELECT RAISE(ABORT, 'forced marker failure'); END");
-
-            assertThrows(
-                    CompletionException.class,
-                    () -> new SQLiteUnitOfWork(runtime)
-                            .execute(context -> {
-                                boolean deleted = context.definitions().markDeleted(
-                                        definitionId,
-                                        new TemplateRevision(1),
-                                        Instant.ofEpochMilli(2_000L));
-                                if (!deleted) {
-                                    throw new IllegalStateException(
-                                            "Expected definition deletion to succeed");
-                                }
-                                context.audit().append(AuditEventRecord.pending(
-                                        "lore_definition",
-                                        definitionId.value().toString(),
-                                        "definition_deleted",
-                                        "system",
-                                        null,
-                                        "{\"reason\":\"forced-marker-failure\"}",
-                                        2_000L));
-                                context.deletedDefinitionMarkers().create(
-                                        new DeletedDefinitionMarker(
-                                                definitionId, lookupKey, 2_000L));
-                                return null;
-                            })
-                            .toCompletableFuture()
-                            .join());
-
-            assertTrue(new SQLiteDefinitionRepository(runtime)
-                    .findById(definitionId)
-                    .toCompletableFuture()
-                    .join()
-                    .orElseThrow()
-                    .active());
-            assertTrue(new SQLiteDeletedDefinitionMarkerRepository(runtime)
-                    .findByDefinitionId(definitionId)
-                    .toCompletableFuture()
-                    .join()
-                    .isEmpty());
-            assertTrue(new SQLiteAuditRepository(runtime)
-                    .listByAggregate(
-                            "lore_definition",
-                            definitionId.value().toString(),
-                            PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join()
-                    .items()
-                    .isEmpty());
+            installMarkerRejection(runtime);
+            assertUnitOfWorkFails(runtime, definitionId, lookupKey);
+            assertNothingCommitted(runtime, definitionId);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static void assertUnitOfWorkFails(
+            SQLiteStorageRuntime runtime,
+            LoreDefinitionId definitionId,
+            DefinitionKey lookupKey) {
+        assertThrows(CompletionException.class, () -> new SQLiteUnitOfWork(runtime)
+                .execute(context -> {
+                    boolean deleted = context.definitions().markDeleted(
+                            definitionId, new TemplateRevision(1), Instant.ofEpochMilli(2_000L));
+                    if (!deleted) {
+                        throw new IllegalStateException("Expected definition deletion to succeed");
+                    }
+                    context.audit().append(AuditEventRecord.pending(
+                            "lore_definition", definitionId.value().toString(),
+                            "definition_deleted", "system", null,
+                            "{\"reason\":\"forced-marker-failure\"}", 2_000L));
+                    context.deletedDefinitionMarkers().create(
+                            new DeletedDefinitionMarker(definitionId, lookupKey, 2_000L));
+                    return null;
+                })
+                .toCompletableFuture().join());
+    }
+
+    private static void assertNothingCommitted(
+            SQLiteStorageRuntime runtime, LoreDefinitionId definitionId) {
+        assertTrue(new SQLiteDefinitionRepository(runtime).findById(definitionId)
+                .toCompletableFuture().join().orElseThrow().active());
+        assertTrue(new SQLiteDeletedDefinitionMarkerRepository(runtime)
+                .findByDefinitionId(definitionId).toCompletableFuture().join().isEmpty());
+        assertTrue(new SQLiteAuditRepository(runtime).listByAggregate(
+                        "lore_definition", definitionId.value().toString(), PageRequest.first(10))
+                .toCompletableFuture().join().items().isEmpty());
     }
 
     private static LoreDefinitionId createDefinition(
@@ -126,10 +110,14 @@ class SQLiteDeletedDefinitionMarkerUnitOfWorkTest {
         return runtime;
     }
 
-    private static void execute(SQLiteStorageRuntime runtime, String sql) {
+    private static void installMarkerRejection(SQLiteStorageRuntime runtime) {
         runtime.execute(connection -> {
                     try (Statement statement = connection.createStatement()) {
-                        statement.execute(sql);
+                        // Static test-only trigger used to force transactional rollback.
+                        statement.execute(
+                                "CREATE TRIGGER reject_deleted_marker "
+                                        + "BEFORE INSERT ON deleted_definition_markers "
+                                        + "BEGIN SELECT RAISE(ABORT, 'forced marker failure'); END");
                     }
                     return null;
                 })

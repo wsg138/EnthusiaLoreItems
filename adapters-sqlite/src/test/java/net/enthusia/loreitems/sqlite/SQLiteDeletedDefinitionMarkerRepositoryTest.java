@@ -31,120 +31,106 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
     @Test
     void persistsImmutableMarkerAndAuditAcrossRestart() {
         Path database = temporaryDirectory.resolve("markers.db");
-        LoreDefinitionId definitionId;
-        DeletedDefinitionMarker expected;
-
-        SQLiteStorageRuntime firstRuntime = start(database);
-        try {
-            DefinitionKey lookupKey = new DefinitionKey("historic_item");
-            definitionId = createDefinition(firstRuntime, lookupKey, 1_000L);
-            expected = deleteWithMarker(firstRuntime, definitionId, lookupKey, 2_000L);
-            SQLiteDeletedDefinitionMarkerRepository repository =
-                    new SQLiteDeletedDefinitionMarkerRepository(firstRuntime);
-
-            repository.create(expected).toCompletableFuture().join();
-            assertEquals(
-                    expected,
-                    repository.findByDefinitionId(definitionId)
-                            .toCompletableFuture()
-                            .join()
-                            .orElseThrow());
-            var auditPage = new SQLiteAuditRepository(firstRuntime)
-                    .listByAggregate(
-                            "lore_definition",
-                            definitionId.value().toString(),
-                            PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(1, auditPage.items().size());
-            assertEquals(2_000L, auditPage.items().getFirst().occurredAtEpochMillis());
-
-            assertThrows(
-                    CompletionException.class,
-                    () -> executeMarkerMutation(
-                            firstRuntime,
-                            "UPDATE deleted_definition_markers SET lookup_key = ? "
-                                    + "WHERE definition_id = ?",
-                            "changed",
-                            definitionId));
-            assertThrows(
-                    CompletionException.class,
-                    () -> executeMarkerMutation(
-                            firstRuntime,
-                            "DELETE FROM deleted_definition_markers WHERE lookup_key = ? "
-                                    + "AND definition_id = ?",
-                            lookupKey.value(),
-                            definitionId));
-        } finally {
-            firstRuntime.close(Duration.ofSeconds(5));
-        }
-
-        SQLiteStorageRuntime restartedRuntime = start(database);
-        try {
-            assertEquals(
-                    expected,
-                    new SQLiteDeletedDefinitionMarkerRepository(restartedRuntime)
-                            .findByDefinitionId(definitionId)
-                            .toCompletableFuture()
-                            .join()
-                            .orElseThrow());
-        } finally {
-            restartedRuntime.close(Duration.ofSeconds(5));
-        }
+        MarkerScenario scenario = createAndVerifyMarker(database);
+        assertMarkerAfterRestart(database, scenario);
     }
 
     @Test
     void pagesRecentAndLookupKeyHistoryWithoutCollapsingReusedKeys() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("history.db"));
         try {
-            DefinitionKey repeatedKey = new DefinitionKey("reused_key");
-            LoreDefinitionId firstId = createDefinition(runtime, repeatedKey, 1_000L);
-            DeletedDefinitionMarker first =
-                    deleteWithMarker(runtime, firstId, repeatedKey, 2_000L);
-
-            DefinitionKey otherKey = new DefinitionKey("other_key");
-            LoreDefinitionId otherId = createDefinition(runtime, otherKey, 1_100L);
-            DeletedDefinitionMarker other =
-                    deleteWithMarker(runtime, otherId, otherKey, 3_000L);
-
-            LoreDefinitionId secondId = createDefinition(runtime, repeatedKey, 1_200L);
-            DeletedDefinitionMarker second =
-                    deleteWithMarker(runtime, secondId, repeatedKey, 4_000L);
-
-            SQLiteDeletedDefinitionMarkerRepository repository =
-                    new SQLiteDeletedDefinitionMarkerRepository(runtime);
-            PageRequest oneItemPage = PageRequest.first(1);
-            var firstKeyPage = repository.listByLookupKey(repeatedKey, oneItemPage)
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(java.util.List.of(second), firstKeyPage.items());
-            assertTrue(firstKeyPage.hasMore());
-
-            var secondKeyPage = repository.listByLookupKey(repeatedKey, oneItemPage.next())
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(java.util.List.of(first), secondKeyPage.items());
-            assertFalse(secondKeyPage.hasMore());
-
-            var recent = repository.listRecent(PageRequest.first(2))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(java.util.List.of(second, other), recent.items());
-            assertTrue(recent.hasMore());
-
-            LoreDefinitionId activeId = createDefinition(
-                    runtime, new DefinitionKey("still_active"), 5_000L);
-            assertThrows(
-                    CompletionException.class,
-                    () -> repository.create(new DeletedDefinitionMarker(
-                                    activeId,
-                                    new DefinitionKey("still_active"),
-                                    6_000L))
-                            .toCompletableFuture()
-                            .join());
+            MarkerHistory history = createMarkerHistory(runtime);
+            assertPagedHistory(runtime, history);
+            assertActiveDefinitionCannotBeMarked(runtime);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static MarkerScenario createAndVerifyMarker(Path database) {
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            DefinitionKey lookupKey = new DefinitionKey("historic_item");
+            LoreDefinitionId definitionId = createDefinition(runtime, lookupKey, 1_000L);
+            DeletedDefinitionMarker marker =
+                    deleteWithMarker(runtime, definitionId, lookupKey, 2_000L);
+            SQLiteDeletedDefinitionMarkerRepository repository =
+                    new SQLiteDeletedDefinitionMarkerRepository(runtime);
+            repository.create(marker).toCompletableFuture().join();
+            assertEquals(marker, repository.findByDefinitionId(definitionId)
+                    .toCompletableFuture().join().orElseThrow());
+            assertAudit(runtime, definitionId);
+            assertMarkerIsImmutable(runtime, lookupKey, definitionId);
+            return new MarkerScenario(definitionId, marker);
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    private static void assertAudit(SQLiteStorageRuntime runtime, LoreDefinitionId definitionId) {
+        var auditPage = new SQLiteAuditRepository(runtime).listByAggregate(
+                        "lore_definition", definitionId.value().toString(), PageRequest.first(10))
+                .toCompletableFuture().join();
+        assertEquals(1, auditPage.items().size());
+        assertEquals(2_000L, auditPage.items().getFirst().occurredAtEpochMillis());
+    }
+
+    private static void assertMarkerIsImmutable(
+            SQLiteStorageRuntime runtime, DefinitionKey lookupKey, LoreDefinitionId definitionId) {
+        assertThrows(CompletionException.class, () -> executeMarkerMutation(
+                runtime, MarkerMutation.UPDATE_KEY, "changed", definitionId));
+        assertThrows(CompletionException.class, () -> executeMarkerMutation(
+                runtime, MarkerMutation.DELETE_MARKER, lookupKey.value(), definitionId));
+    }
+
+    private static void assertMarkerAfterRestart(Path database, MarkerScenario scenario) {
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            assertEquals(scenario.marker(), new SQLiteDeletedDefinitionMarkerRepository(runtime)
+                    .findByDefinitionId(scenario.definitionId())
+                    .toCompletableFuture().join().orElseThrow());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    private static MarkerHistory createMarkerHistory(SQLiteStorageRuntime runtime) {
+        DefinitionKey repeatedKey = new DefinitionKey("reused_key");
+        LoreDefinitionId firstId = createDefinition(runtime, repeatedKey, 1_000L);
+        DeletedDefinitionMarker first = deleteWithMarker(runtime, firstId, repeatedKey, 2_000L);
+        DefinitionKey otherKey = new DefinitionKey("other_key");
+        LoreDefinitionId otherId = createDefinition(runtime, otherKey, 1_100L);
+        DeletedDefinitionMarker other = deleteWithMarker(runtime, otherId, otherKey, 3_000L);
+        LoreDefinitionId secondId = createDefinition(runtime, repeatedKey, 1_200L);
+        DeletedDefinitionMarker second = deleteWithMarker(runtime, secondId, repeatedKey, 4_000L);
+        return new MarkerHistory(repeatedKey, first, other, second);
+    }
+
+    private static void assertPagedHistory(SQLiteStorageRuntime runtime, MarkerHistory history) {
+        SQLiteDeletedDefinitionMarkerRepository repository =
+                new SQLiteDeletedDefinitionMarkerRepository(runtime);
+        PageRequest oneItemPage = PageRequest.first(1);
+        var firstKeyPage = repository.listByLookupKey(history.repeatedKey(), oneItemPage)
+                .toCompletableFuture().join();
+        assertEquals(java.util.List.of(history.second()), firstKeyPage.items());
+        assertTrue(firstKeyPage.hasMore());
+        var secondKeyPage = repository.listByLookupKey(history.repeatedKey(), oneItemPage.next())
+                .toCompletableFuture().join();
+        assertEquals(java.util.List.of(history.first()), secondKeyPage.items());
+        assertFalse(secondKeyPage.hasMore());
+        var recent = repository.listRecent(PageRequest.first(2)).toCompletableFuture().join();
+        assertEquals(java.util.List.of(history.second(), history.other()), recent.items());
+        assertTrue(recent.hasMore());
+    }
+
+    private static void assertActiveDefinitionCannotBeMarked(SQLiteStorageRuntime runtime) {
+        DefinitionKey activeKey = new DefinitionKey("still_active");
+        LoreDefinitionId activeId = createDefinition(runtime, activeKey, 5_000L);
+        SQLiteDeletedDefinitionMarkerRepository repository =
+                new SQLiteDeletedDefinitionMarkerRepository(runtime);
+        assertThrows(CompletionException.class, () -> repository.create(
+                        new DeletedDefinitionMarker(activeId, activeKey, 6_000L))
+                .toCompletableFuture().join());
     }
 
     private static LoreDefinitionId createDefinition(
@@ -216,11 +202,12 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
 
     private static void executeMarkerMutation(
             SQLiteStorageRuntime runtime,
-            String sql,
+            MarkerMutation mutation,
             String lookupKey,
             LoreDefinitionId definitionId) {
         runtime.execute(connection -> {
-                    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    // The SQL is selected from a closed test-only mutation enum.
+                    try (PreparedStatement statement = connection.prepareStatement(mutation.sql())) { // nosemgrep
                         statement.setString(1, lookupKey);
                         statement.setString(2, definitionId.value().toString());
                         statement.executeUpdate();
@@ -230,4 +217,30 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
                 .toCompletableFuture()
                 .join();
     }
+    private enum MarkerMutation {
+        UPDATE_KEY("UPDATE deleted_definition_markers SET lookup_key = ? WHERE definition_id = ?"),
+        DELETE_MARKER("DELETE FROM deleted_definition_markers WHERE lookup_key = ? AND definition_id = ?");
+
+        private final String sql;
+
+        MarkerMutation(String sql) {
+            this.sql = sql;
+        }
+
+        String sql() {
+            return sql;
+        }
+    }
+
+    private record MarkerScenario(
+            LoreDefinitionId definitionId, DeletedDefinitionMarker marker) {
+    }
+
+    private record MarkerHistory(
+            DefinitionKey repeatedKey,
+            DeletedDefinitionMarker first,
+            DeletedDefinitionMarker other,
+            DeletedDefinitionMarker second) {
+    }
+
 }

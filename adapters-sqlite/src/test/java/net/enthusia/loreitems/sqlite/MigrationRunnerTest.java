@@ -25,13 +25,10 @@ class MigrationRunnerTest {
             runner.migrate(connection);
             runner.migrate(connection);
 
-            assertEquals(1, count(connection, "SELECT COUNT(*) FROM schema_history"));
+            assertEquals(1, countSchemaHistory(connection));
             assertEquals(
                     1,
-                    count(
-                            connection,
-                            "SELECT COUNT(*) FROM sqlite_master "
-                                    + "WHERE type = 'table' AND name = 'direct_deliveries'"));
+                    countDirectDeliveryTables(connection));
         }
     }
 
@@ -50,8 +47,19 @@ class MigrationRunnerTest {
         }
     }
 
-    private static int count(Connection connection, String sql) throws SQLException {
-        try (PreparedStatement query = connection.prepareStatement(sql);
+    private static int countSchemaHistory(Connection connection) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM schema_history");
+             ResultSet resultSet = query.executeQuery()) {
+            resultSet.next();
+            return resultSet.getInt(1);
+        }
+    }
+
+    private static int countDirectDeliveryTables(Connection connection) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM sqlite_master "
+                             + "WHERE type = 'table' AND name = 'direct_deliveries'");
              ResultSet resultSet = query.executeQuery()) {
             resultSet.next();
             return resultSet.getInt(1);

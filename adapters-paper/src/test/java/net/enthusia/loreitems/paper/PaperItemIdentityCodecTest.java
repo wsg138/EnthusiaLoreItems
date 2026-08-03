@@ -33,6 +33,7 @@ class PaperItemIdentityCodecTest {
     private static final NamespacedKey DEFINITION_KEY = key("definition_id");
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
     private static final NamespacedKey FOREIGN_KEY = key("foreign_test_value");
+    private static final String PRESERVED_VALUE = "preserved";
 
     private PaperItemIdentityCodec codec;
 
@@ -53,7 +54,7 @@ class PaperItemIdentityCodecTest {
         ItemMeta sourceMeta = Objects.requireNonNull(source.getItemMeta());
         sourceMeta.displayName(Component.text("Visible Lore Item"));
         sourceMeta.lore(List.of(Component.text("Visible lore remains unchanged")));
-        sourceMeta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, "preserved");
+        sourceMeta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
         assertTrue(source.setItemMeta(sourceMeta));
         LoreItemIdentity identity = identity();
 
@@ -69,7 +70,7 @@ class PaperItemIdentityCodecTest {
         assertEquals(Component.text("Visible Lore Item"), trackedMeta.displayName());
         assertEquals(List.of(Component.text("Visible lore remains unchanged")), trackedMeta.lore());
         assertEquals(
-                "preserved",
+                PRESERVED_VALUE,
                 trackedMeta.getPersistentDataContainer().get(FOREIGN_KEY, PersistentDataType.STRING));
 
         ItemIdentityReadResult.Tracked result =
@@ -81,7 +82,7 @@ class PaperItemIdentityCodecTest {
     void clearIdentityRemovesOnlyLoreItemsFields() {
         ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.COMPASS), identity());
         ItemMeta meta = Objects.requireNonNull(tracked.getItemMeta());
-        meta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, "preserved");
+        meta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
         assertTrue(tracked.setItemMeta(meta));
 
         ItemStack cleared = codec.clearIdentity(tracked);
@@ -89,7 +90,7 @@ class PaperItemIdentityCodecTest {
         assertInstanceOf(ItemIdentityReadResult.Untracked.class, codec.readIdentity(cleared));
         ItemMeta clearedMeta = Objects.requireNonNull(cleared.getItemMeta());
         assertEquals(
-                "preserved",
+                PRESERVED_VALUE,
                 clearedMeta.getPersistentDataContainer().get(FOREIGN_KEY, PersistentDataType.STRING));
         assertInstanceOf(ItemIdentityReadResult.Tracked.class, codec.readIdentity(tracked));
     }

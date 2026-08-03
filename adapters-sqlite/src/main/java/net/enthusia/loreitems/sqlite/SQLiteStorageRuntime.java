@@ -14,7 +14,7 @@ public final class SQLiteStorageRuntime {
     private final MigrationRunner migrationRunner;
     private final BoundedDatabaseExecutor executor;
     private final MetricsPort metrics;
-    private final AtomicReference<StorageState> state = new AtomicReference<>(StorageState.STOPPED);
+    private final AtomicReference<StorageState> storageState = new AtomicReference<>(StorageState.STOPPED);
 
     public SQLiteStorageRuntime(
             SQLiteConnectionFactory connectionFactory,
@@ -28,36 +28,36 @@ public final class SQLiteStorageRuntime {
     }
 
     public CompletionStage<StartupResult> start() {
-        if (!state.compareAndSet(StorageState.STOPPED, StorageState.STARTING)) {
+        if (!storageState.compareAndSet(StorageState.STOPPED, StorageState.STARTING)) {
             return CompletableFuture.completedFuture(
-                    new StartupResult(state.get(), "Storage runtime was already started or stopped."));
+                    new StartupResult(storageState.get(), "Storage runtime was already started or stopped."));
         }
         return executor.submit(() -> {
             try (Connection connection = connectionFactory.open()) {
                 migrationRunner.migrate(connection);
-                if (!state.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
-                    return new StartupResult(state.get(), "Storage startup was superseded by shutdown.");
+                if (!storageState.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
+                    return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
                 }
                 metrics.setGauge("storage.writable", 1L);
                 return new StartupResult(StorageState.READ_WRITE, "SQLite storage initialized.");
             } catch (Exception exception) {
-                if (state.compareAndSet(StorageState.STARTING, StorageState.DEGRADED_READ_ONLY)) {
+                if (storageState.compareAndSet(StorageState.STARTING, StorageState.DEGRADED_READ_ONLY)) {
                     metrics.setGauge("storage.writable", 0L);
                     metrics.increment("storage.startup.failure");
                     return new StartupResult(
                             StorageState.DEGRADED_READ_ONLY,
                             exception.getClass().getSimpleName() + ": " + safeMessage(exception));
                 }
-                return new StartupResult(state.get(), "Storage startup was superseded by shutdown.");
+                return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
             }
         });
     }
 
     public <T> CompletionStage<T> execute(SqlWork<T> work) {
         Objects.requireNonNull(work, "work");
-        if (state.get() != StorageState.READ_WRITE) {
+        if (storageState.get() != StorageState.READ_WRITE) {
             return CompletableFuture.failedFuture(
-                    new StorageUnavailableException("SQLite storage is not writable: " + state.get()));
+                    new StorageUnavailableException("SQLite storage is not writable: " + storageState.get()));
         }
         return executor.submit(() -> {
             try (Connection connection = connectionFactory.open()) {
@@ -67,7 +67,7 @@ public final class SQLiteStorageRuntime {
     }
 
     public StorageState state() {
-        return state.get();
+        return storageState.get();
     }
 
     public int queueDepth() {
@@ -76,9 +76,9 @@ public final class SQLiteStorageRuntime {
 
     public boolean close(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
-        state.set(StorageState.STOPPING);
+        storageState.set(StorageState.STOPPING);
         boolean drained = executor.shutdown(timeout);
-        state.set(StorageState.STOPPED);
+        storageState.set(StorageState.STOPPED);
         metrics.setGauge("storage.writable", 0L);
         return drained;
     }

@@ -26,56 +26,9 @@ class SQLitePendingMutationRepositoryTest {
         try {
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            UUID dueId = UUID.randomUUID();
-            repository.insert(pending(dueId, null, 1_000L)).toCompletableFuture().join();
-            repository.insert(pending(UUID.randomUUID(), 9_000L, 1_001L))
-                    .toCompletableFuture()
-                    .join();
-
-            Page<PendingMutationRecord> claimed = repository
-                    .claimPending(
-                            "worker-a",
-                            Instant.ofEpochMilli(2_000L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join();
-            Page<PendingMutationRecord> duplicateClaim = repository
-                    .claimPending(
-                            "worker-b",
-                            Instant.ofEpochMilli(2_001L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join();
-
-            assertEquals(1, claimed.items().size());
-            assertEquals(dueId, claimed.items().getFirst().mutationId());
-            assertTrue(duplicateClaim.items().isEmpty());
-            assertFalse(repository.transitionClaimed(
-                            dueId,
-                            PendingMutationState.CLAIMED,
-                            PendingMutationState.APPLIED,
-                            "worker-b",
-                            Instant.ofEpochMilli(3_000L))
-                    .toCompletableFuture()
-                    .join());
-            assertFalse(repository.transitionClaimed(
-                            dueId,
-                            PendingMutationState.CLAIMED,
-                            PendingMutationState.APPLIED,
-                            "worker-a",
-                            Instant.ofEpochMilli(32_001L))
-                    .toCompletableFuture()
-                    .join());
-            assertTrue(repository.transitionClaimed(
-                            dueId,
-                            PendingMutationState.CLAIMED,
-                            PendingMutationState.APPLIED,
-                            "worker-a",
-                            Instant.ofEpochMilli(3_000L))
-                    .toCompletableFuture()
-                    .join());
+            UUID dueId = seedPendingMutations(repository);
+            assertClaimSelection(repository, dueId);
+            assertClaimFencing(repository, dueId);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -84,59 +37,85 @@ class SQLitePendingMutationRepositoryTest {
     @Test
     void expiredClaimBecomesReviewRequiredAfterRestart() {
         Path database = temporaryDirectory.resolve("restart.db");
-        UUID mutationId = UUID.randomUUID();
-        UUID secondMutationId = UUID.randomUUID();
-        SQLiteStorageRuntime firstRuntime = start(database);
-        SQLitePendingMutationRepository firstRepository =
-                new SQLitePendingMutationRepository(firstRuntime);
-        firstRepository.insert(pending(mutationId, null, 1_000L)).toCompletableFuture().join();
-        firstRepository
-                .insert(pending(secondMutationId, null, 1_001L))
-                .toCompletableFuture()
-                .join();
-        firstRepository.claimPending(
-                        "worker-before-restart",
-                        Instant.ofEpochMilli(2_000L),
-                        Duration.ofMillis(10L),
-                        10)
-                .toCompletableFuture()
-                .join();
-        firstRuntime.close(Duration.ofSeconds(5));
+        seedExpiredClaims(database);
+        assertBoundedRecoveryAfterRestart(database);
+    }
 
-        SQLiteStorageRuntime secondRuntime = start(database);
+    private static UUID seedPendingMutations(SQLitePendingMutationRepository repository) {
+        UUID dueId = UUID.randomUUID();
+        repository.insert(pending(dueId, null, 1_000L)).toCompletableFuture().join();
+        repository.insert(pending(UUID.randomUUID(), 9_000L, 1_001L))
+                .toCompletableFuture().join();
+        return dueId;
+    }
+
+    private static void assertClaimSelection(
+            SQLitePendingMutationRepository repository, UUID dueId) {
+        Page<PendingMutationRecord> claimed = repository.claimPending(
+                        "worker-a", Instant.ofEpochMilli(2_000L), Duration.ofSeconds(30), 10)
+                .toCompletableFuture().join();
+        Page<PendingMutationRecord> duplicateClaim = repository.claimPending(
+                        "worker-b", Instant.ofEpochMilli(2_001L), Duration.ofSeconds(30), 10)
+                .toCompletableFuture().join();
+        assertEquals(1, claimed.items().size());
+        assertEquals(dueId, claimed.items().getFirst().mutationId());
+        assertTrue(duplicateClaim.items().isEmpty());
+    }
+
+    private static void assertClaimFencing(
+            SQLitePendingMutationRepository repository, UUID dueId) {
+        assertFalse(transition(repository, dueId, "worker-b", 3_000L));
+        assertFalse(transition(repository, dueId, "worker-a", 32_001L));
+        assertTrue(transition(repository, dueId, "worker-a", 3_000L));
+    }
+
+    private static boolean transition(
+            SQLitePendingMutationRepository repository, UUID mutationId, String worker, long now) {
+        return repository.transitionClaimed(
+                        mutationId, PendingMutationState.CLAIMED, PendingMutationState.APPLIED,
+                        worker, Instant.ofEpochMilli(now))
+                .toCompletableFuture().join();
+    }
+
+    private static void seedExpiredClaims(Path database) {
+        SQLiteStorageRuntime runtime = start(database);
+        SQLitePendingMutationRepository repository = new SQLitePendingMutationRepository(runtime);
+        repository.insert(pending(UUID.randomUUID(), null, 1_000L))
+                .toCompletableFuture().join();
+        repository.insert(pending(UUID.randomUUID(), null, 1_001L))
+                .toCompletableFuture().join();
+        repository.claimPending(
+                        "worker-before-restart", Instant.ofEpochMilli(2_000L),
+                        Duration.ofMillis(10L), 10)
+                .toCompletableFuture().join();
+        runtime.close(Duration.ofSeconds(5));
+    }
+
+    private static void assertBoundedRecoveryAfterRestart(Path database) {
+        SQLiteStorageRuntime runtime = start(database);
         try {
-            SQLitePendingMutationRepository secondRepository =
-                    new SQLitePendingMutationRepository(secondRuntime);
-            int recovered = secondRepository
-                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
-                    .toCompletableFuture()
-                    .join();
-            Page<PendingMutationRecord> remaining = secondRepository
-                    .listNonTerminal(PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join();
-
+            SQLitePendingMutationRepository repository =
+                    new SQLitePendingMutationRepository(runtime);
+            int recovered = repository.moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(2_011L), 1)
+                    .toCompletableFuture().join();
+            Page<PendingMutationRecord> remaining = repository
+                    .listNonTerminal(PageRequest.first(10)).toCompletableFuture().join();
             assertEquals(1, recovered);
             assertEquals(2, remaining.items().size());
-            assertEquals(
-                    1L,
-                    remaining.items().stream()
-                            .filter(record -> record.state() == PendingMutationState.REVIEW_REQUIRED)
-                            .count());
-            assertEquals(
-                    1L,
-                    remaining.items().stream()
-                            .filter(record -> record.state() == PendingMutationState.CLAIMED)
-                            .count());
-            assertEquals(
-                    1,
-                    secondRepository
-                            .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
-                            .toCompletableFuture()
-                            .join());
+            assertEquals(1L, countState(remaining, PendingMutationState.REVIEW_REQUIRED));
+            assertEquals(1L, countState(remaining, PendingMutationState.CLAIMED));
+            assertEquals(1, repository.moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(2_011L), 1)
+                    .toCompletableFuture().join());
         } finally {
-            secondRuntime.close(Duration.ofSeconds(5));
+            runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static long countState(
+            Page<PendingMutationRecord> records, PendingMutationState state) {
+        return records.items().stream().filter(record -> record.state() == state).count();
     }
 
     private static PendingMutationRecord pending(
