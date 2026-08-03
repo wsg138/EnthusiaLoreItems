@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -50,6 +51,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                     ItemAnomalyObservationUseCase.Kind.MALFORMED_STACK,
                     invalid.identityEvidence(),
                     location,
+                    List.of(location),
                     source,
                     invalid.failure().name() + ": " + invalid.detail());
         }
@@ -59,12 +61,14 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
     void recordDuplicate(
             LoreItemIdentity identity,
             LocationDescriptor location,
+            List<LocationDescriptor> evidenceLocations,
             String source,
             String detail) {
         record(
                 ItemAnomalyObservationUseCase.Kind.DUPLICATE_INSTANCE,
                 identity,
                 location,
+                evidenceLocations,
                 source,
                 detail);
     }
@@ -73,6 +77,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
             ItemAnomalyObservationUseCase.Kind kind,
             LoreItemIdentity identity,
             LocationDescriptor location,
+            List<LocationDescriptor> evidenceLocations,
             String source,
             String detail) {
         ItemAnomalyObservationUseCase useCase = plugin.getServer()
@@ -98,6 +103,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                         kind,
                         identity,
                         location,
+                        evidenceLocations,
                         source,
                         detail);
         try {
