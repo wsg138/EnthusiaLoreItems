@@ -2,6 +2,7 @@ package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -10,6 +11,7 @@ import java.sql.PreparedStatement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import net.enthusia.loreitems.application.DirectDeliveryRecord;
 import net.enthusia.loreitems.application.ExternalDeliveryAcceptance;
 import net.enthusia.loreitems.application.ExternalDeliveryCommand;
@@ -51,6 +53,39 @@ class SQLiteDirectDeliveryRepositoryTest {
             assertEquals(1, count(runtime, "lore_instances"));
             assertEquals(1, count(runtime, "direct_deliveries"));
             assertEquals(1, count(runtime, "external_delivery_requests"));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void externalAcceptanceRollsBackAllRowsWhenFinalInsertFails() throws Exception {
+        Path database = temporaryDirectory.resolve("rollback.db");
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            seedDefinition(runtime, "rollback-safe");
+            runtime.execute(connection -> {
+                        try (var statement = connection.createStatement()) {
+                            statement.execute("CREATE TRIGGER fail_external_request "
+                                    + "BEFORE INSERT ON external_delivery_requests "
+                                    + "BEGIN SELECT RAISE(ABORT, 'forced failure'); END");
+                        }
+                        return null;
+                    })
+                    .toCompletableFuture()
+                    .join();
+            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+            ExternalDeliveryCommand command = new ExternalDeliveryCommand(
+                    new DefinitionKey("rollback-safe"), UUID.randomUUID(), "rollback-1");
+
+            assertThrows(CompletionException.class, () -> repository
+                    .acceptExternal(command, Instant.ofEpochMilli(1_000L))
+                    .toCompletableFuture()
+                    .join());
+
+            assertEquals(0, count(runtime, "lore_instances"));
+            assertEquals(0, count(runtime, "direct_deliveries"));
+            assertEquals(0, count(runtime, "external_delivery_requests"));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
