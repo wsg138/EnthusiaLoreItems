@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.sqlite;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -22,47 +23,49 @@ public final class SQLiteAuditRepository implements AuditRepository {
 
     @Override
     public CompletionStage<AuditEventRecord> append(AuditEventRecord event) {
-        Objects.requireNonNull(event, "event");
-        if (event.auditId() != 0L) {
-            throw new IllegalArgumentException("New audit events must not already have an id");
+        validatePendingEvent(event);
+        return storage.execute(connection -> appendInTransaction(connection, event));
+    }
+
+    static AuditEventRecord appendInTransaction(Connection connection, AuditEventRecord event)
+            throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        validatePendingEvent(event);
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO audit_events(aggregate_type, aggregate_id, event_type, "
+                        + "actor_type, actor_id, detail_json, occurred_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+            statement.setString(1, event.aggregateType());
+            statement.setString(2, event.aggregateId());
+            statement.setString(3, event.eventType());
+            statement.setString(4, event.actorType());
+            if (event.actorId() == null) {
+                statement.setNull(5, Types.VARCHAR);
+            } else {
+                statement.setString(5, event.actorId());
+            }
+            statement.setString(6, event.detailJson());
+            statement.setLong(7, event.occurredAtEpochMillis());
+            statement.executeUpdate();
         }
-        return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO audit_events(aggregate_type, aggregate_id, event_type, "
-                            + "actor_type, actor_id, detail_json, occurred_at) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
-                statement.setString(1, event.aggregateType());
-                statement.setString(2, event.aggregateId());
-                statement.setString(3, event.eventType());
-                statement.setString(4, event.actorType());
-                if (event.actorId() == null) {
-                    statement.setNull(5, Types.VARCHAR);
-                } else {
-                    statement.setString(5, event.actorId());
-                }
-                statement.setString(6, event.detailJson());
-                statement.setLong(7, event.occurredAtEpochMillis());
-                statement.executeUpdate();
+        long auditId;
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT last_insert_rowid()");
+                ResultSet resultSet = statement.executeQuery()) {
+            if (!resultSet.next()) {
+                throw new SQLException("SQLite did not return the inserted audit id");
             }
-            long auditId;
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT last_insert_rowid()");
-                    ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new SQLException("SQLite did not return the inserted audit id");
-                }
-                auditId = resultSet.getLong(1);
-            }
-            return new AuditEventRecord(
-                    auditId,
-                    event.aggregateType(),
-                    event.aggregateId(),
-                    event.eventType(),
-                    event.actorType(),
-                    event.actorId(),
-                    event.detailJson(),
-                    event.occurredAtEpochMillis());
-        });
+            auditId = resultSet.getLong(1);
+        }
+        return new AuditEventRecord(
+                auditId,
+                event.aggregateType(),
+                event.aggregateId(),
+                event.eventType(),
+                event.actorType(),
+                event.actorId(),
+                event.detailJson(),
+                event.occurredAtEpochMillis());
     }
 
     @Override
@@ -94,6 +97,13 @@ public final class SQLiteAuditRepository implements AuditRepository {
             }
             return new Page<>(records, request.offset(), request.limit(), hasMore);
         });
+    }
+
+    private static void validatePendingEvent(AuditEventRecord event) {
+        Objects.requireNonNull(event, "event");
+        if (event.auditId() != 0L) {
+            throw new IllegalArgumentException("New audit events must not already have an id");
+        }
     }
 
     private static AuditEventRecord readRecord(ResultSet resultSet) throws SQLException {
