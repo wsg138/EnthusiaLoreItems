@@ -92,6 +92,16 @@ Offline players and full inventories return safely to `PENDING` with a retry tim
 
 Successful completion atomically advances `RESERVED -> APPLIED -> VERIFIED -> COMPLETED`, appends a confirmed player-inventory observation, replaces the queued current-state projection, clears the claim, and records the verified item fingerprint and inventory slot in audit history. No live `Player`, inventory, or mutable `ItemStack` reference crosses the asynchronous database boundary.
 
+## Environmental, durability, and void protection
+
+The Paper listener recognizes both valid tracked identity and malformed LoreItems identity evidence. It cancels natural item despawn, combustion, item-entity merging, ordinary item-entity damage such as fire, lava, explosions, and cactus, and player-held durability damage. Invalid identity evidence is preserved rather than repaired, split, or deleted. Untracked vanilla items are unaffected.
+
+Void damage is the intentional terminal-loss exception. The event remains cancelled while the plugin persists a claimed `VOID_TERMINAL_LOSS` mutation and preparation audit off-thread. Known unresolved duplicate, malformed, conflicting-observation, or identity-mismatch anomalies block preparation. The Paper thread then reacquires the exact item entity by UUID, verifies the same hidden identity, and requires the entity to remain below the world's minimum height before removing it.
+
+Verified removal completes one SQLite transaction that advances the mutation through `APPLIED`, `VERIFIED`, and `COMPLETED`, changes the instance lifecycle to `VOID_DESTROYED`, appends a `TERMINAL_VOID` observation, advances current state to `TERMINAL_VOID`, and records audit evidence. If the item was rescued before removal, the claimed mutation completes as an audited abort and the active instance remains unchanged. Missing entities, identity changes, scheduling failure, claim expiry, or uncertain post-removal persistence enter `REVIEW_REQUIRED` rather than causing a blind second removal or restoration.
+
+Protection remains active during storage startup and degraded mode, but terminal void destruction is withheld unless durable storage has accepted the intent. In-flight void work and retry cooldown bookkeeping are bounded, no world or inventory scan occurs, no chunk is force-loaded, and no live Bukkit entity or item reference crosses the asynchronous storage boundary.
+
 ## Degraded startup and recovery
 
 If the database cannot open or migrate, the runtime enters `DEGRADED_READ_ONLY`. No write-capable service is published, and delivery requests return `SERVICE_UNAVAILABLE`. The plugin does not pretend a request was accepted.
@@ -100,6 +110,6 @@ Operators should preserve the database file, inspect the logged startup error, v
 
 ## Current limitations
 
-The current PR 2 slices create definitions, adopt held items, and execute durable direct delivery with offline/full-inventory waiting. Environmental and durability protection, void terminal loss, display entities, mob pickup prevention, broad reconciliation, duplicate/malformed warnings, GUIs, editing, deletion, and campaigns remain unfinished.
+The current PR 2 slices create definitions, adopt held items, execute durable direct delivery with offline/full-inventory waiting, protect tracked items from environmental and durability loss, and record intentional terminal void loss. Item-frame/glow-frame/armor-stand support, mob pickup prevention, identity-losing use/conversion restrictions, initial audit browsing, duplicate/malformed five-minute staff warnings, broad reconciliation, GUIs, editing, deletion, and campaigns remain unfinished.
 
-No live Paper/Leaf server behavior has been tested. Automated codec and SQLite tests do not prove real-server command registration, item-component serialization, reload behavior, or operator workflow.
+No live Paper/Leaf server behavior has been tested. Automated MockBukkit, codec, and SQLite tests do not prove real-server event ordering, item-component serialization, reload behavior, command registration, or operator workflow.
