@@ -29,239 +29,177 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/codacy-fixes.patch <<'PATCH'
-          diff --git a/adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java b/adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java
-          --- a/adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java
-          +++ b/adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java
-          @@ -125,6 +125,10 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable {
-                       case APPLIED -> complete(delivery, result);
-                       case NO_SPACE -> defer(delivery);
-                       case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
-          +            default -> requireReview(
-          +                    delivery,
-          +                    "Unsupported direct-delivery apply status: " + result.status(),
-          +                    null);
-                   }
-               }
-           
-          @@ -240,7 +244,6 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable {
-                   BukkitTask task = pollTask;
-                   if (task != null) {
-                       task.cancel();
-          -            pollTask = null;
-                   }
-               }
-           }
-          diff --git a/application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java b/application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java
-          --- a/application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java
-          +++ b/application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java
-          @@ -20,6 +20,7 @@ public record PreparedDirectDelivery(
-                   long createdAtEpochMillis,
-                   long updatedAtEpochMillis) {
-               private static final long MIN_TIMESTAMP = 0L;
-          +    private static final int MIN_ATTEMPT_COUNT = 1;
-           
-               public PreparedDirectDelivery {
-                   Objects.requireNonNull(deliveryId, "deliveryId");
-          @@ -44,7 +45,7 @@ public record PreparedDirectDelivery(
-               if (claimExpiresAtEpochMillis <= updatedAtEpochMillis) {
-                   throw new IllegalArgumentException("Delivery claim must expire after its update time");
-               }
-          -        if (attemptCount < 1) {
-          +        if (attemptCount < MIN_ATTEMPT_COUNT) {
-                   throw new IllegalArgumentException("Prepared delivery attemptCount must be positive");
-               }
-           }
-          diff --git a/plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java b/plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java
-          --- a/plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java
-          +++ b/plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java
-          @@ -140,7 +140,6 @@ public final class LoreItemsPlugin extends JavaPlugin {
-                   PaperDirectDeliveryWorker worker = directDeliveryWorker;
-                   if (worker != null) {
-                       worker.close();
-          -            directDeliveryWorker = null;
-                   }
-                   getServer().getServicesManager().unregisterAll(this);
-                   lifecycleExecutor.shutdownNow();
-          diff --git a/adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java b/adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java
-          --- a/adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java
-          +++ b/adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java
-          @@ -40,6 +40,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-               private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";
-               private static final String COMPLETED_STATE = "COMPLETED";
-          +    private static final String DELIVERY_ID_COLUMN = "delivery_id";
-          +    private static final String INSTANCE_ID_COLUMN = "instance_id";
-          +    private static final String PLAYER_ID_COLUMN = "player_id";
-               private static final long MIN_LEASE_MILLIS = 1L;
-               private static final int SINGLE_UPDATED_ROW = 1;
-               private static final int MAX_REVIEW_REASON_LENGTH = 4_096;
-          @@ -540,27 +543,45 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-                   Connection connection,
-                   long now,
-                   int limit) throws SQLException {
-          +        List<ExpiredClaim> expired = listExpiredClaims(connection, now, limit);
-          +        return moveExpiredClaimsToReview(connection, expired, now);
-          +    }
-          +
-          +    private static List<ExpiredClaim> listExpiredClaims(
-          +            Connection connection,
-          +            long now,
-          +            int limit) throws SQLException {
-                   List<ExpiredClaim> expired = new ArrayList<>();
-                   try (PreparedStatement statement = connection.prepareStatement(
-                           "SELECT delivery_id, instance_id, player_id, state, claim_token "
-                                   + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                                   + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
-                       statement.setLong(1, now);
-                       statement.setInt(2, limit);
-                       try (ResultSet resultSet = statement.executeQuery()) {
-                           while (resultSet.next()) {
-          -                    expired.add(new ExpiredClaim(
-          -                            UUID.fromString(resultSet.getString("delivery_id")),
-          -                            UUID.fromString(resultSet.getString("instance_id")),
-          -                            UUID.fromString(resultSet.getString("player_id")),
-          -                            resultSet.getString("state"),
-          -                            resultSet.getString("claim_token")));
-          +                    expired.add(readExpiredClaim(resultSet));
-                           }
-                       }
-                   }
-          +        return expired;
-          +    }
-          +
-          +    private static ExpiredClaim readExpiredClaim(ResultSet resultSet) throws SQLException {
-          +        return new ExpiredClaim(
-          +                UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
-          +                UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
-          +                UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-          +                resultSet.getString("state"),
-          +                resultSet.getString("claim_token"));
-          +    }
-          +
-          +    private static int moveExpiredClaimsToReview(
-          +            Connection connection,
-          +            List<ExpiredClaim> expired,
-          +            long now) throws SQLException {
-                   int updated = 0;
-                   try (PreparedStatement statement = connection.prepareStatement(
-                           "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
-                                   + "claim_expires_at = NULL, updated_at = ? WHERE delivery_id = ? "
-                                   + "AND state = ? AND claim_token = ? AND claim_expires_at <= ?")) {
-                       for (ExpiredClaim claim : expired) {
-          -                statement.setLong(1, now);
-          -                statement.setString(2, claim.deliveryId().toString());
-          -                statement.setString(3, claim.state());
-          -                statement.setString(4, claim.claimToken());
-          -                statement.setLong(5, now);
-          -                if (statement.executeUpdate() == SINGLE_UPDATED_ROW) {
-          +                if (moveExpiredClaimToReview(statement, claim, now)) {
-                               updated++;
-          -                    markQueuedCurrentStateUnresolved(
-          -                            connection,
-          -                            claim.instanceId(),
-          -                            claim.deliveryId(),
-          -                            claim.playerId(),
-          -                            now);
-          -                    appendAudit(
-          -                            connection,
-          -                            claim.instanceId(),
-          -                            REVIEW_EVENT,
-          -                            claim.playerId().toString(),
-          -                            reviewDetail(
-          -                                    claim.deliveryId(),
-          -                                    "The delivery claim expired before safe completion."),
-          -                            now);
-          +                    recordExpiredClaimReview(connection, claim, now);
-                           }
-                       }
-                   }
-                   return updated;
-               }
-          +
-          +    private static boolean moveExpiredClaimToReview(
-          +            PreparedStatement statement,
-          +            ExpiredClaim claim,
-          +            long now) throws SQLException {
-          +        statement.setLong(1, now);
-          +        statement.setString(2, claim.deliveryId().toString());
-          +        statement.setString(3, claim.state());
-          +        statement.setString(4, claim.claimToken());
-          +        statement.setLong(5, now);
-          +        return statement.executeUpdate() == SINGLE_UPDATED_ROW;
-          +    }
-          +
-          +    private static void recordExpiredClaimReview(
-          +            Connection connection,
-          +            ExpiredClaim claim,
-          +            long now) throws SQLException {
-          +        markQueuedCurrentStateUnresolved(
-          +                connection,
-          +                claim.instanceId(),
-          +                claim.deliveryId(),
-          +                claim.playerId(),
-          +                now);
-          +        appendAudit(
-          +                connection,
-          +                claim.instanceId(),
-          +                REVIEW_EVENT,
-          +                claim.playerId().toString(),
-          +                reviewDetail(
-          +                        claim.deliveryId(),
-          +                        "The delivery claim expired before safe completion."),
-          +                now);
-          +    }
-          @@ -647,10 +668,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-                       if (!resultSet.next()) {
-                           return null;
-                       }
-          -            String deliveryValue = resultSet.getString("delivery_id");
-          +            String deliveryValue = resultSet.getString(DELIVERY_ID_COLUMN);
-                       return new ExistingRequest(
-                               resultSet.getString("definition_key"),
-          -                    UUID.fromString(resultSet.getString("player_id")),
-          +                    UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-                               deliveryValue == null ? null : UUID.fromString(deliveryValue),
-                               resultSet.getString("outcome"));
-                   }
-          @@ -666,7 +687,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-                       return resultSet.next()
-                               ? new DeliveryState(
-          -                            UUID.fromString(resultSet.getString("instance_id")),
-          +                            UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
-                                   resultSet.getString("state"),
-                                   resultSet.getString("claim_token"))
-                               : null;
-          @@ -896,9 +917,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-                   Long claimExpiresAt = resultSet.wasNull() ? null : expires;
-                   return new DirectDeliveryRecord(
-          -                UUID.fromString(resultSet.getString("delivery_id")),
-          -                new LoreInstanceId(UUID.fromString(resultSet.getString("instance_id"))),
-          -                UUID.fromString(resultSet.getString("player_id")),
-          +                UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
-          +                new LoreInstanceId(UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN))),
-          +                UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-                           DirectDeliveryState.valueOf(resultSet.getString("state")),
-                           resultSet.getString("idempotency_key"),
-                           resultSet.getString("claim_token"),
-          @@ -912,10 +933,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryReposi
-               private static DeliveryCandidate readCandidate(ResultSet resultSet) throws SQLException {
-                   return new DeliveryCandidate(
-          -                UUID.fromString(resultSet.getString("delivery_id")),
-          -                new LoreInstanceId(UUID.fromString(resultSet.getString("instance_id"))),
-          +                UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
-          +                new LoreInstanceId(UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN))),
-                           new LoreDefinitionId(UUID.fromString(resultSet.getString("definition_id"))),
-          -                UUID.fromString(resultSet.getString("player_id")),
-          +                UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-                           new TemplateRevision(resultSet.getLong("applied_revision")),
-                           new EncodedItemTemplate(
-                                   resultSet.getInt("codec_version"),
-          PATCH
-          git apply --index /tmp/codacy-fixes.patch
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one match in {path}, found {count}: {old!r}")
+              file_path.write_text(text.replace(old, new, 1))
+
+          worker = "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java"
+          replace_once(
+              worker,
+              """        switch (result.status()) {
+                      case APPLIED -> complete(delivery, result);
+                      case NO_SPACE -> defer(delivery);
+                      case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+                  }
+          """,
+              """        switch (result.status()) {
+                      case APPLIED -> complete(delivery, result);
+                      case NO_SPACE -> defer(delivery);
+                      case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+                      default -> requireReview(
+                              delivery,
+                              "Unsupported direct-delivery apply status: " + result.status(),
+                              null);
+                  }
+          """)
+          replace_once(worker, "            pollTask = null;\n", "")
+
+          prepared = "application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java"
+          replace_once(
+              prepared,
+              "    private static final long MIN_TIMESTAMP = 0L;\n",
+              "    private static final long MIN_TIMESTAMP = 0L;\n"
+              "    private static final int MIN_ATTEMPT_COUNT = 1;\n")
+          replace_once(prepared, "        if (attemptCount < 1) {\n", "        if (attemptCount < MIN_ATTEMPT_COUNT) {\n")
+
+          plugin = "plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java"
+          replace_once(plugin, "            directDeliveryWorker = null;\n", "")
+
+          repository = Path("adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java")
+          text = repository.read_text()
+          anchor = """    private static final String COMPLETED_STATE = "COMPLETED";
+          """
+          if text.count(anchor) != 1:
+              raise SystemExit("SQLite constant anchor changed")
+          text = text.replace(
+              anchor,
+              anchor
+              + "    private static final String DELIVERY_ID_COLUMN = \"delivery_id\";\n"
+              + "    private static final String INSTANCE_ID_COLUMN = \"instance_id\";\n"
+              + "    private static final String PLAYER_ID_COLUMN = \"player_id\";\n",
+              1)
+
+          start_marker = "    private static int moveExpiredClaimsToReviewInTransaction("
+          end_marker = "\n    private static boolean transitionDelivery("
+          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+              raise SystemExit("Expired-claim method markers changed")
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = """    private static int moveExpiredClaimsToReviewInTransaction(
+                  Connection connection,
+                  long now,
+                  int limit) throws SQLException {
+              List<ExpiredClaim> expired = listExpiredClaims(connection, now, limit);
+              return moveExpiredClaimsToReview(connection, expired, now);
+          }
+
+          private static List<ExpiredClaim> listExpiredClaims(
+                  Connection connection,
+                  long now,
+                  int limit) throws SQLException {
+              List<ExpiredClaim> expired = new ArrayList<>();
+              try (PreparedStatement statement = connection.prepareStatement(
+                      "SELECT delivery_id, instance_id, player_id, state, claim_token "
+                              + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                              + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
+                  statement.setLong(1, now);
+                  statement.setInt(2, limit);
+                  try (ResultSet resultSet = statement.executeQuery()) {
+                      while (resultSet.next()) {
+                          expired.add(readExpiredClaim(resultSet));
+                      }
+                  }
+              }
+              return expired;
+          }
+
+          private static ExpiredClaim readExpiredClaim(ResultSet resultSet) throws SQLException {
+              return new ExpiredClaim(
+                      UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
+                      UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
+                      UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
+                      resultSet.getString("state"),
+                      resultSet.getString("claim_token"));
+          }
+
+          private static int moveExpiredClaimsToReview(
+                  Connection connection,
+                  List<ExpiredClaim> expired,
+                  long now) throws SQLException {
+              int updated = 0;
+              try (PreparedStatement statement = connection.prepareStatement(
+                      "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
+                              + "claim_expires_at = NULL, updated_at = ? WHERE delivery_id = ? "
+                              + "AND state = ? AND claim_token = ? AND claim_expires_at <= ?")) {
+                  for (ExpiredClaim claim : expired) {
+                      if (moveExpiredClaimToReview(statement, claim, now)) {
+                          updated++;
+                          recordExpiredClaimReview(connection, claim, now);
+                      }
+                  }
+              }
+              return updated;
+          }
+
+          private static boolean moveExpiredClaimToReview(
+                  PreparedStatement statement,
+                  ExpiredClaim claim,
+                  long now) throws SQLException {
+              statement.setLong(1, now);
+              statement.setString(2, claim.deliveryId().toString());
+              statement.setString(3, claim.state());
+              statement.setString(4, claim.claimToken());
+              statement.setLong(5, now);
+              return statement.executeUpdate() == SINGLE_UPDATED_ROW;
+          }
+
+          private static void recordExpiredClaimReview(
+                  Connection connection,
+                  ExpiredClaim claim,
+                  long now) throws SQLException {
+              markQueuedCurrentStateUnresolved(
+                      connection,
+                      claim.instanceId(),
+                      claim.deliveryId(),
+                      claim.playerId(),
+                      now);
+              appendAudit(
+                      connection,
+                      claim.instanceId(),
+                      REVIEW_EVENT,
+                      claim.playerId().toString(),
+                      reviewDetail(
+                              claim.deliveryId(),
+                              "The delivery claim expired before safe completion."),
+                      now);
+          }
+          """
+          text = text[:start] + replacement + text[end:]
+
+          replacements = {
+              'resultSet.getString("delivery_id")': 'resultSet.getString(DELIVERY_ID_COLUMN)',
+              'resultSet.getString("instance_id")': 'resultSet.getString(INSTANCE_ID_COLUMN)',
+              'resultSet.getString("player_id")': 'resultSet.getString(PLAYER_ID_COLUMN)',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 3:
+                  raise SystemExit(f"Expected three remaining matches for {old}, found {count}")
+              text = text.replace(old, new)
+          repository.write_text(text)
+          PY
           git rm .codacy-inspection.jsonl .github/workflows/agent-inspect-codacy.yml
-          git diff --cached --check
+          git diff --check
           gradle --no-daemon clean check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add adapters-paper application adapters-sqlite plugin
           git commit -m 'resolve direct-delivery Codacy findings'
           git push origin HEAD:agent/loreitems-pr2-creation-delivery-protection
