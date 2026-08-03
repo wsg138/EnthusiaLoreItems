@@ -31,6 +31,7 @@ CREATE TABLE lore_instances (
     ),
     created_at INTEGER NOT NULL,
     terminal_at INTEGER,
+    UNIQUE (instance_id, definition_id),
     CHECK (
         (lifecycle_state = 'ACTIVE' AND terminal_at IS NULL)
         OR (lifecycle_state IN ('VOID_DESTROYED', 'REMOVED') AND terminal_at IS NOT NULL)
@@ -49,7 +50,21 @@ CREATE TABLE instance_observations (
     observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
     instance_id TEXT NOT NULL,
     definition_id TEXT NOT NULL,
-    location_type TEXT NOT NULL,
+    location_type TEXT NOT NULL CHECK (
+        location_type IN (
+            'PLAYER_INVENTORY',
+            'PLAYER_ENDER_CHEST',
+            'BLOCK_CONTAINER',
+            'NESTED_CONTAINER',
+            'DROPPED_ITEM',
+            'ITEM_FRAME',
+            'ARMOR_STAND',
+            'QUEUED_DELIVERY',
+            'PENDING_MUTATION',
+            'VOID_DESTROYED',
+            'DUPLICATE_CONFLICT'
+        )
+    ),
     location_key TEXT NOT NULL,
     container_path TEXT,
     confidence TEXT NOT NULL CHECK (
@@ -57,43 +72,119 @@ CREATE TABLE instance_observations (
     ),
     source TEXT NOT NULL,
     observed_at INTEGER NOT NULL,
-    FOREIGN KEY (instance_id) REFERENCES lore_instances(instance_id),
-    FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id)
+    UNIQUE (observation_id, instance_id),
+    CHECK (
+        (confidence = 'TERMINAL_VOID' AND location_type = 'VOID_DESTROYED')
+        OR (confidence <> 'TERMINAL_VOID' AND location_type <> 'VOID_DESTROYED')
+    ),
+    FOREIGN KEY (instance_id, definition_id)
+        REFERENCES lore_instances(instance_id, definition_id)
 );
 
 CREATE INDEX idx_observations_instance_time
-    ON instance_observations(instance_id, observed_at DESC);
+    ON instance_observations(instance_id, observed_at DESC, observation_id DESC);
 
 CREATE INDEX idx_observations_location
-    ON instance_observations(location_type, location_key);
+    ON instance_observations(location_type, location_key, observed_at DESC);
 
 CREATE TABLE instance_current_state (
     instance_id TEXT PRIMARY KEY,
-    state TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (
+        state IN (
+            'CONFIRMED_NOW',
+            'LAST_CONFIRMED',
+            'CONFLICTING',
+            'TERMINAL_VOID',
+            'MISSING_UNRESOLVED'
+        )
+    ),
     location_type TEXT,
     location_key TEXT,
+    container_path TEXT,
     last_observation_id INTEGER,
+    state_revision INTEGER NOT NULL DEFAULT 0 CHECK (state_revision >= 0),
     updated_at INTEGER NOT NULL,
+    CHECK (
+        (
+            state = 'MISSING_UNRESOLVED'
+            AND location_type IS NULL
+            AND location_key IS NULL
+            AND container_path IS NULL
+            AND last_observation_id IS NULL
+        )
+        OR (
+            state <> 'MISSING_UNRESOLVED'
+            AND location_type IS NOT NULL
+            AND location_key IS NOT NULL
+            AND last_observation_id IS NOT NULL
+        )
+    ),
+    CHECK (
+        (state = 'TERMINAL_VOID' AND location_type = 'VOID_DESTROYED')
+        OR (state <> 'TERMINAL_VOID' AND location_type <> 'VOID_DESTROYED')
+    ),
     FOREIGN KEY (instance_id) REFERENCES lore_instances(instance_id),
-    FOREIGN KEY (last_observation_id) REFERENCES instance_observations(observation_id)
+    FOREIGN KEY (last_observation_id, instance_id)
+        REFERENCES instance_observations(observation_id, instance_id)
 );
 
 CREATE TABLE instance_anomalies (
     anomaly_id TEXT PRIMARY KEY,
     instance_id TEXT,
-    definition_id TEXT,
-    anomaly_type TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('OPEN', 'RESOLVED')),
+    definition_id TEXT NOT NULL,
+    anomaly_type TEXT NOT NULL CHECK (
+        anomaly_type IN (
+            'DUPLICATE_INSTANCE',
+            'MALFORMED_STACK',
+            'CONFLICTING_OBSERVATION',
+            'IDENTITY_MISMATCH'
+        )
+    ),
+    status TEXT NOT NULL CHECK (status IN ('OPEN', 'ACKNOWLEDGED', 'RESOLVED')),
     detail TEXT NOT NULL,
     first_seen_at INTEGER NOT NULL,
     last_seen_at INTEGER NOT NULL,
+    acknowledged_at INTEGER,
+    acknowledged_by TEXT,
     resolved_at INTEGER,
-    FOREIGN KEY (instance_id) REFERENCES lore_instances(instance_id),
-    FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id)
+    resolution_detail TEXT,
+    state_revision INTEGER NOT NULL DEFAULT 0 CHECK (state_revision >= 0),
+    CHECK (last_seen_at >= first_seen_at),
+    CHECK (
+        (status = 'OPEN'
+            AND acknowledged_at IS NULL
+            AND acknowledged_by IS NULL
+            AND resolved_at IS NULL
+            AND resolution_detail IS NULL)
+        OR (status = 'ACKNOWLEDGED'
+            AND acknowledged_at IS NOT NULL
+            AND acknowledged_by IS NOT NULL
+            AND resolved_at IS NULL
+            AND resolution_detail IS NULL)
+        OR (status = 'RESOLVED'
+            AND resolved_at IS NOT NULL
+            AND resolution_detail IS NOT NULL)
+    ),
+    CHECK (acknowledged_at IS NULL OR acknowledged_at >= first_seen_at),
+    CHECK (resolved_at IS NULL OR resolved_at >= last_seen_at),
+    FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id),
+    FOREIGN KEY (instance_id, definition_id)
+        REFERENCES lore_instances(instance_id, definition_id)
 );
 
+CREATE UNIQUE INDEX uq_anomalies_active_identity
+    ON instance_anomalies(
+        anomaly_type,
+        COALESCE(instance_id, ''),
+        definition_id
+    )
+    WHERE status IN ('OPEN', 'ACKNOWLEDGED');
+
 CREATE INDEX idx_anomalies_open
-    ON instance_anomalies(status, anomaly_type, last_seen_at);
+    ON instance_anomalies(status, anomaly_type, last_seen_at DESC, anomaly_id);
+
+CREATE INDEX idx_anomalies_instance_history
+    ON instance_anomalies(instance_id, first_seen_at DESC, anomaly_id);
 
 CREATE TABLE pending_mutations (
     mutation_id TEXT PRIMARY KEY,
