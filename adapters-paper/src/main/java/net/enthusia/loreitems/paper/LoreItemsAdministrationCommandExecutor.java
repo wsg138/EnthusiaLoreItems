@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -15,6 +16,9 @@ import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.PendingMutationRecord;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
+import net.enthusia.loreitems.domain.InstanceCurrentState;
+import net.enthusia.loreitems.domain.InstanceObservation;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -115,11 +119,22 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         if (request == null) {
             return;
         }
-        CompletionStage<Page<AuditEventRecord>> audit =
-                useCase.listInstanceAudit(instanceId, request);
-        CompletionStage<Page<InstanceAnomaly>> anomalies =
-                useCase.listInstanceAnomalies(instanceId, request);
-        audit.thenCombine(anomalies, AuditView::new)
+        CompletionStage<StateEvidence> stateEvidence = useCase.findCurrentState(instanceId)
+                .thenCombine(
+                        useCase.listInstanceObservations(instanceId, request),
+                        StateEvidence::new);
+        CompletionStage<HistoryEvidence> historyEvidence =
+                useCase.listInstanceAnomalies(instanceId, request)
+                        .thenCombine(
+                                useCase.listInstanceAudit(instanceId, request),
+                                HistoryEvidence::new);
+        stateEvidence.thenCombine(
+                        historyEvidence,
+                        (state, history) -> new AuditView(
+                                state.currentState(),
+                                state.observations(),
+                                history.anomalies(),
+                                history.audit()))
                 .whenComplete((view, failure) -> {
                     if (failure != null) {
                         handleFailure(actor, "instance audit", failure);
@@ -201,9 +216,13 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private static List<String> auditLines(LoreInstanceId instanceId, AuditView view) {
         List<String> lines = new ArrayList<>();
         lines.add("Lore-item evidence for " + instanceId.value());
-        if (view.audit().items().isEmpty() && view.anomalies().items().isEmpty()) {
-            lines.add("No audit or anomaly records were found on this page.");
-            return lines;
+        appendCurrentState(lines, view.currentState());
+        for (InstanceObservation observation : view.observations().items()) {
+            lines.add("OBSERVATION " + observation.observationId()
+                    + " " + observation.confidence().name()
+                    + " at=" + formatLocation(observation.location())
+                    + " source=" + observation.source()
+                    + " observed=" + Instant.ofEpochMilli(observation.observedAtEpochMillis()));
         }
         for (InstanceAnomaly anomaly : view.anomalies().items()) {
             lines.add("ANOMALY " + anomaly.type().name() + " " + anomaly.status().name()
@@ -216,10 +235,40 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
                     + " actor=" + event.actorType() + ':' + safeActor(event.actorId())
                     + " detail=" + summarize(event.detailJson()));
         }
-        if (view.audit().hasMore() || view.anomalies().hasMore()) {
+        if (view.currentState().isEmpty()
+                && view.observations().items().isEmpty()
+                && view.anomalies().items().isEmpty()
+                && view.audit().items().isEmpty()) {
+            lines.add("No current state, location, anomaly, or audit evidence was found.");
+            return lines;
+        }
+        if (view.observations().hasMore()
+                || view.audit().hasMore()
+                || view.anomalies().hasMore()) {
             lines.add("More evidence is available on the next page.");
         }
         return lines;
+    }
+
+    private static void appendCurrentState(
+            List<String> lines,
+            Optional<InstanceCurrentState> currentState) {
+        currentState.ifPresent(state -> {
+            String location = state.location() == null
+                    ? "none"
+                    : formatLocation(state.location());
+            lines.add("STATE " + state.state().name()
+                    + " revision=" + state.stateRevision()
+                    + " at=" + location
+                    + " updated=" + Instant.ofEpochMilli(state.updatedAtEpochMillis()));
+        });
+    }
+
+    private static String formatLocation(LocationDescriptor location) {
+        String path = location.containerPath() == null
+                ? ""
+                : ":" + location.containerPath();
+        return summarize(location.type().name() + ':' + location.locationKey() + path);
     }
 
     private static List<String> recoveryLines(
@@ -313,7 +362,17 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         }
     }
 
+    private record StateEvidence(
+            Optional<InstanceCurrentState> currentState,
+            Page<InstanceObservation> observations) {}
+
+    private record HistoryEvidence(
+            Page<InstanceAnomaly> anomalies,
+            Page<AuditEventRecord> audit) {}
+
     private record AuditView(
-            Page<AuditEventRecord> audit,
-            Page<InstanceAnomaly> anomalies) {}
+            Optional<InstanceCurrentState> currentState,
+            Page<InstanceObservation> observations,
+            Page<InstanceAnomaly> anomalies,
+            Page<AuditEventRecord> audit) {}
 }
