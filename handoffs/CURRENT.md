@@ -12,33 +12,29 @@ Obtain the current head SHA, draft state, checks, Codacy result, and review comm
 
 ## Latest report
 
-- [`0010-2026-08-02-pr2-distribution-verification.md`](0010-2026-08-02-pr2-distribution-verification.md)
+- [`0011-2026-08-02-pr2-deleted-marker-persistence.md`](0011-2026-08-02-pr2-deleted-marker-persistence.md)
 
 ## Required prior reports
 
-- [`0009-2026-08-02-pr2-distribution-persistence.md`](0009-2026-08-02-pr2-distribution-persistence.md) — distribution campaign/recipient implementation, failed-run evidence, corrected implementation CI, and transient pre-final Codacy state.
-- [`0008-2026-08-02-pr2-tracking-persistence.md`](0008-2026-08-02-pr2-tracking-persistence.md) — preceding observation/current-state/anomaly persistence slice.
-- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified unit-of-work boundary, prior CI state, and PR 1 limitations.
-- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition/revision/instance persistence and soft-delete context needed by deleted-definition markers.
-- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, storage lifecycle, connection ownership, and recovery rules.
+- [`0010-2026-08-02-pr2-distribution-verification.md`](0010-2026-08-02-pr2-distribution-verification.md) — preceding exact-head green baseline, distribution persistence verification, and remaining PR 1 scope.
+- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified transaction-context lifetime and rollback boundary used by marker persistence.
+- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition soft-delete and active-key/history behavior.
+- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, and recovery rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`. Implement only deleted-definition marker domain/application persistence plus its SQLite adapter and focused tests. Preserve immutable deleted-definition identity/history, bounded lookup/list behavior, transaction and connection-ownership rules, and compatibility with the existing definition soft-delete lifecycle.
+Continue PR #2 on `agent/loreitems-pr1-foundation`, but do not begin another repository family yet. First verify live PR state and recheck Codacy for the exact current branch head after the handoff commits.
 
-Do not begin group-file parsing or moves, physical campaign delivery, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, deletion execution, or later phases. After implementation, verify exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads before selecting another repository family.
+If Codacy remains red, obtain the stable detailed findings and fix only validated issues attributable to the deleted-definition marker slice. If Codacy has returned to `Up to standards` with zero new issues, record that exact-head evidence and then select the next still-in-scope Implementation PR 1 foundation task.
+
+Do not begin physical deletion execution, group-file parsing or moves, campaign execution, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, or a later implementation phase while Codacy status is unresolved.
 
 ## Focused startup reads
 
-After reading the latest and required prior reports and verifying live PR state, inspect only the files relevant to:
+After reading the latest and required prior reports:
 
-- the existing `deleted_definition_markers` V1 table and its current constraints;
-- definition soft-delete lifecycle and active-key/history behavior;
-- immutable marker identity, lookup key, deletion timestamp, and any required audit linkage;
-- bounded marker lookup/list repository ports and SQLite implementation;
-- the verified `UnitOfWork` boundary when a definition soft-delete and marker/audit persistence must commit together;
-- bounded database executor and connection ownership rules;
-- focused restart and transactional rollback tests;
-- exact-head GitHub Actions, Codacy, CodeRabbit, review comments, submitted reviews, and unresolved review threads.
-
-Read broader architecture or requirements sections only when the immediate marker design is not already settled, a conflict appears, a safety/data-loss issue is suspected, or PR completion is being reviewed.
+- verify the current PR head, draft/open/mergeable state, exact-head GitHub Actions, Codacy comment, CodeRabbit status/comment, submitted reviews, and unresolved review threads;
+- compare Codacy's latest update timestamp and issue aggregate with the implementation evidence in handoff 0011;
+- if Codacy is still red, inspect only stable detailed findings tied to the deleted-marker model, port, SQLite adapter, V1 constraints/triggers, unit-of-work integration, or focused tests;
+- if Codacy is green, record that verification before selecting another PR 1 foundation task;
+- preserve the current scope boundary and do not merge without explicit owner permission.
