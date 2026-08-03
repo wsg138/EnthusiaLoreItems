@@ -5,10 +5,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -30,11 +32,16 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LoreItemsPlugin extends JavaPlugin {
+    private static final String STOPPING_RELOAD_DETAIL =
+            "The plugin is stopping; configuration reload was not applied.";
+
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
     private final AtomicReference<AtomicConfiguration> configuration =
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
+    private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
+            ConcurrentHashMap.newKeySet();
     private final ThreadPoolExecutor lifecycleExecutor = new ThreadPoolExecutor(
             1,
             1,
@@ -73,6 +80,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
         stopping = true;
         serviceDelegate.set(new UnavailableService("The plugin is stopping."));
         getServer().getServicesManager().unregisterAll(this);
+        lifecycleExecutor.shutdownNow();
+        failPendingReloads(STOPPING_RELOAD_DETAIL);
 
         SQLiteStorageRuntime runtime = storageRuntime;
         if (runtime != null) {
@@ -82,28 +91,50 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 getLogger().warning("Database shutdown exceeded the configured bounded drain timeout.");
             }
         }
-        lifecycleExecutor.shutdownNow();
     }
 
     public CompletionStage<AtomicConfiguration.ReloadResult> reloadFoundationConfiguration() {
         CompletableFuture<AtomicConfiguration.ReloadResult> result = new CompletableFuture<>();
+        pendingReloads.add(result);
+        result.whenComplete((ignored, throwable) -> pendingReloads.remove(result));
+        if (stopping) {
+            result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
+            return result;
+        }
         try {
-            lifecycleExecutor.execute(() -> {
-                try {
-                    FoundationConfiguration candidate =
-                            new FoundationConfigurationLoader(getDataFolder().toPath()).loadOrCreate();
-                    result.complete(configuration.get().replace(candidate));
-                } catch (Exception exception) {
-                    result.complete(new AtomicConfiguration.ReloadResult(
-                            false,
-                            exception.getClass().getSimpleName() + ": " + safeMessage(exception)));
-                }
-            });
+            lifecycleExecutor.execute(() -> reloadConfiguration(result));
         } catch (RejectedExecutionException exception) {
             result.complete(new AtomicConfiguration.ReloadResult(
                     false, "The lifecycle queue is not accepting reload work."));
         }
         return result;
+    }
+
+    private void reloadConfiguration(
+            CompletableFuture<AtomicConfiguration.ReloadResult> result) {
+        if (stopping || result.isDone()) {
+            result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
+            return;
+        }
+        try {
+            FoundationConfiguration candidate =
+                    new FoundationConfigurationLoader(getDataFolder().toPath()).loadOrCreate();
+            if (stopping || result.isDone()) {
+                result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
+                return;
+            }
+            result.complete(configuration.get().replace(candidate));
+        } catch (Exception exception) {
+            result.complete(new AtomicConfiguration.ReloadResult(
+                    false,
+                    exception.getClass().getSimpleName() + ": " + safeMessage(exception)));
+        }
+    }
+
+    private void failPendingReloads(String detail) {
+        AtomicConfiguration.ReloadResult failure =
+                new AtomicConfiguration.ReloadResult(false, detail);
+        pendingReloads.forEach(future -> future.complete(failure));
     }
 
     private void initialize(Path dataDirectory) {
