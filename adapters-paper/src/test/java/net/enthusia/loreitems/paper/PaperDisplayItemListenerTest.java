@@ -131,6 +131,59 @@ class PaperDisplayItemListenerTest {
     }
 
     @Test
+    void boundedPersistenceQueueDrainsInsteadOfDroppingBusyObservations() {
+        listener.close();
+        BlockingUseCase blockingUseCase = new BlockingUseCase();
+        listener = new PaperDisplayItemListener(
+                MockBukkit.createMockPlugin(),
+                () -> blockingUseCase,
+                1);
+        ItemFrame firstFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        ItemFrame secondFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation().add(1.0, 0.0, 0.0), EntityType.ITEM_FRAME);
+
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                firstFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        firstFrame.setItem(trackedItem());
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                secondFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        secondFrame.setItem(trackedItem());
+        server.getScheduler().performOneTick();
+
+        assertEquals(1, blockingUseCase.requests.size());
+        blockingUseCase.first.complete(DisplayItemObservationUseCase.Result.of(
+                DisplayItemObservationUseCase.Status.RECORDED,
+                "Recorded."));
+        assertEquals(2, blockingUseCase.requests.size());
+    }
+
+    @Test
+    void oneDisplaySlotHasAHardIdentityCandidateLimit() {
+        ItemFrame frame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        for (int index = 1; index <= 20; index++) {
+            listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                    player,
+                    frame,
+                    trackedItem(identity(index)),
+                    PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        }
+
+        server.getScheduler().performOneTick();
+
+        assertEquals(16, useCase.requests.size());
+        assertTrue(useCase.requests.stream().allMatch(request ->
+                request.presence() == DisplayItemObservationUseCase.Presence.ABSENT));
+    }
+
+    @Test
     void armorStandPlacementRemovalAndBreakUseTheExactEquipmentSlot() {
         ArmorStand stand = (ArmorStand) player.getWorld().spawnEntity(
                 player.getLocation(), EntityType.ARMOR_STAND);
@@ -186,7 +239,18 @@ class PaperDisplayItemListenerTest {
     }
 
     private ItemStack trackedItem() {
-        return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND_HELMET), IDENTITY);
+        return trackedItem(IDENTITY);
+    }
+
+    private ItemStack trackedItem(LoreItemIdentity identity) {
+        return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND_HELMET), identity);
+    }
+
+    private static LoreItemIdentity identity(int index) {
+        return new LoreItemIdentity(
+                IDENTITY.definitionId(),
+                new LoreInstanceId(new UUID(0L, index)),
+                IDENTITY.appliedRevision());
     }
 
     private ItemStack malformedTrackedItem() {
@@ -198,6 +262,22 @@ class PaperDisplayItemListenerTest {
     private Item drop(ItemStack item) {
         Location location = player.getLocation();
         return player.getWorld().dropItem(location, item);
+    }
+
+    private static final class BlockingUseCase implements DisplayItemObservationUseCase {
+        private final List<Request> requests = new ArrayList<>();
+        private final CompletableFuture<Result> first = new CompletableFuture<>();
+
+        @Override
+        public CompletionStage<Result> record(Request request) {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return first;
+            }
+            return CompletableFuture.completedFuture(Result.of(
+                    Status.RECORDED,
+                    "Recorded."));
+        }
     }
 
     private static final class RecordingUseCase implements DisplayItemObservationUseCase {

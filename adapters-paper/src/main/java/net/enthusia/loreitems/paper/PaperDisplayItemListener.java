@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
@@ -36,6 +38,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private static final int MIN_CAPACITY = 1;
     private static final int PENDING_CAPACITY_MULTIPLIER = 4;
+    private static final int MAX_IDENTITIES_PER_WORK = 16;
     private static final String ITEM_FRAME_PATH = "item";
     private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
         EquipmentSlot.HAND,
@@ -53,6 +56,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private final int maxPending;
     private final Object workLock = new Object();
     private final Map<WorkKey, Set<LoreItemIdentity>> pending = new HashMap<>();
+    private final Queue<DisplayItemObservationUseCase.Request> queued = new ArrayDeque<>();
 
     private int inFlight;
     private volatile boolean closed;
@@ -160,13 +164,21 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             }
             Set<LoreItemIdentity> existing = pending.get(key);
             if (existing != null) {
-                existing.addAll(identities);
+                if (!addBounded(existing, identities)) {
+                    logCandidateOverflow();
+                }
                 return;
             }
             if (pending.size() >= maxPending) {
+                plugin.getLogger().warning(
+                        "Display-item observation backlog is full; current durable evidence was preserved.");
                 return;
             }
-            pending.put(key, new HashSet<>(identities));
+            Set<LoreItemIdentity> candidates = new HashSet<>();
+            if (!addBounded(candidates, identities)) {
+                logCandidateOverflow();
+            }
+            pending.put(key, candidates);
         }
         try {
             plugin.getServer().getScheduler().runTask(
@@ -196,24 +208,30 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         ItemStack currentItem = currentItem(entity, key);
         LoreItemIdentity currentIdentity = trackedIdentity(currentItem);
         if (currentIdentity != null) {
-            candidates.add(currentIdentity);
+            candidates.remove(currentIdentity);
         }
         String currentLocation = entity == null
                 ? key.locationKey()
                 : locationKey(entity);
 
         for (LoreItemIdentity identity : candidates) {
-            boolean present = identity.equals(currentIdentity);
-            LocationDescriptor location = new LocationDescriptor(
-                    key.type(),
-                    present ? currentLocation : key.locationKey(),
-                    key.containerPath());
             submit(new DisplayItemObservationUseCase.Request(
                     identity,
-                    location,
-                    present
-                            ? DisplayItemObservationUseCase.Presence.PRESENT
-                            : DisplayItemObservationUseCase.Presence.ABSENT,
+                    new LocationDescriptor(
+                            key.type(),
+                            key.locationKey(),
+                            key.containerPath()),
+                    DisplayItemObservationUseCase.Presence.ABSENT,
+                    key.source()));
+        }
+        if (currentIdentity != null) {
+            submit(new DisplayItemObservationUseCase.Request(
+                    currentIdentity,
+                    new LocationDescriptor(
+                            key.type(),
+                            currentLocation,
+                            key.containerPath()),
+                    DisplayItemObservationUseCase.Presence.PRESENT,
                     key.source()));
         }
     }
@@ -235,12 +253,24 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
 
     private void submit(DisplayItemObservationUseCase.Request request) {
         synchronized (workLock) {
-            if (closed || inFlight >= maxInFlight) {
+            if (closed) {
+                return;
+            }
+            if (inFlight >= maxInFlight) {
+                if (queued.size() < maxPending) {
+                    queued.add(request);
+                } else {
+                    plugin.getLogger().warning(
+                            "Display-item persistence backlog is full; current durable evidence was preserved.");
+                }
                 return;
             }
             inFlight++;
         }
+        startSubmission(request);
+    }
 
+    private void startSubmission(DisplayItemObservationUseCase.Request request) {
         CompletionStage<DisplayItemObservationUseCase.Result> stage;
         try {
             DisplayItemObservationUseCase useCase = Objects.requireNonNull(
@@ -269,9 +299,34 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     }
 
     private void finishSubmission() {
+        DisplayItemObservationUseCase.Request next = null;
         synchronized (workLock) {
             inFlight--;
+            if (!closed && !queued.isEmpty()) {
+                next = queued.remove();
+                inFlight++;
+            }
         }
+        if (next != null) {
+            startSubmission(next);
+        }
+    }
+
+    private static boolean addBounded(
+            Set<LoreItemIdentity> target,
+            List<LoreItemIdentity> identities) {
+        for (LoreItemIdentity identity : identities) {
+            if (target.size() >= MAX_IDENTITIES_PER_WORK) {
+                return false;
+            }
+            target.add(identity);
+        }
+        return true;
+    }
+
+    private void logCandidateOverflow() {
+        plugin.getLogger().warning(
+                "A display slot changed too many identities in one tick; durable evidence was preserved.");
     }
 
     private List<LoreItemIdentity> trackedIdentities(ItemStack... items) {
@@ -322,6 +377,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         synchronized (workLock) {
             closed = true;
             pending.clear();
+            queued.clear();
         }
         HandlerList.unregisterAll(this);
     }
