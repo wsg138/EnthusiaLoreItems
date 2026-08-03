@@ -230,24 +230,51 @@ CREATE INDEX idx_deliveries_claimable
 
 CREATE TABLE distribution_campaigns (
     campaign_id TEXT PRIMARY KEY,
-    source_fingerprint TEXT NOT NULL UNIQUE,
-    source_name TEXT NOT NULL,
-    display_name TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL UNIQUE
+        CHECK (length(source_fingerprint) BETWEEN 1 AND 256),
+    source_name TEXT NOT NULL CHECK (length(source_name) BETWEEN 1 AND 256),
+    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 256),
     definition_id TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED')),
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    completed_at INTEGER,
+    state TEXT NOT NULL CHECK (
+        state IN ('DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED')
+    ),
+    created_at INTEGER NOT NULL CHECK (created_at >= 0),
+    updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+    terminal_at INTEGER,
+    CHECK (
+        (state IN ('DRAFT', 'ACTIVE', 'PAUSED') AND terminal_at IS NULL)
+        OR (state IN ('COMPLETED', 'CANCELLED') AND terminal_at IS NOT NULL)
+    ),
+    CHECK (terminal_at IS NULL OR terminal_at >= updated_at),
     FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id)
 );
 
+CREATE TRIGGER distribution_campaign_identity_is_immutable
+BEFORE UPDATE OF campaign_id, source_fingerprint, source_name, display_name, definition_id, created_at
+ON distribution_campaigns
+BEGIN
+    SELECT RAISE(ABORT, 'distribution campaign identity is immutable');
+END;
+
+CREATE INDEX idx_campaigns_state_updated
+    ON distribution_campaigns(state, updated_at, campaign_id);
+
 CREATE TABLE distribution_recipients (
     campaign_id TEXT NOT NULL,
-    recipient_key TEXT NOT NULL,
-    original_value TEXT NOT NULL,
+    recipient_key TEXT NOT NULL CHECK (length(recipient_key) BETWEEN 1 AND 320),
+    snapshot_index INTEGER NOT NULL CHECK (snapshot_index >= 0),
+    original_value TEXT NOT NULL CHECK (length(original_value) BETWEEN 1 AND 256),
     player_id TEXT,
     state TEXT NOT NULL CHECK (
-        state IN ('PENDING_NAME', 'PENDING_OFFLINE', 'PENDING_SPACE', 'RESERVED', 'DELIVERED', 'CANCELLED', 'REVIEW_REQUIRED')
+        state IN (
+            'PENDING_NAME',
+            'PENDING_OFFLINE',
+            'PENDING_SPACE',
+            'RESERVED',
+            'DELIVERED',
+            'CANCELLED',
+            'REVIEW_REQUIRED'
+        )
     ),
     instance_id TEXT,
     claim_token TEXT,
@@ -255,17 +282,73 @@ CREATE TABLE distribution_recipients (
     attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
     next_attempt_at INTEGER,
     delivered_at INTEGER,
-    updated_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
     PRIMARY KEY (campaign_id, recipient_key),
+    UNIQUE (campaign_id, snapshot_index),
+    CHECK (
+        (state = 'PENDING_NAME' AND player_id IS NULL)
+        OR (state IN ('PENDING_OFFLINE', 'PENDING_SPACE', 'RESERVED', 'DELIVERED')
+            AND player_id IS NOT NULL)
+        OR state IN ('CANCELLED', 'REVIEW_REQUIRED')
+    ),
+    CHECK (
+        (state = 'RESERVED'
+            AND claim_token IS NOT NULL
+            AND length(claim_token) BETWEEN 1 AND 200
+            AND claim_expires_at IS NOT NULL
+            AND claim_expires_at >= updated_at)
+        OR (state <> 'RESERVED' AND claim_token IS NULL AND claim_expires_at IS NULL)
+    ),
+    CHECK (
+        (state = 'DELIVERED' AND instance_id IS NOT NULL AND delivered_at IS NOT NULL)
+        OR (state IN ('RESERVED', 'REVIEW_REQUIRED') AND delivered_at IS NULL)
+        OR (state NOT IN ('RESERVED', 'DELIVERED', 'REVIEW_REQUIRED')
+            AND instance_id IS NULL AND delivered_at IS NULL)
+    ),
+    CHECK (
+        (state IN ('PENDING_OFFLINE', 'PENDING_SPACE')
+            AND (next_attempt_at IS NULL OR next_attempt_at >= 0))
+        OR (state NOT IN ('PENDING_OFFLINE', 'PENDING_SPACE')
+            AND next_attempt_at IS NULL)
+    ),
+    CHECK (delivered_at IS NULL OR delivered_at <= updated_at),
     FOREIGN KEY (campaign_id) REFERENCES distribution_campaigns(campaign_id),
     FOREIGN KEY (instance_id) REFERENCES lore_instances(instance_id)
 );
 
+CREATE UNIQUE INDEX uq_distribution_recipient_player
+    ON distribution_recipients(campaign_id, player_id)
+    WHERE player_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_distribution_recipient_instance
+    ON distribution_recipients(instance_id)
+    WHERE instance_id IS NOT NULL;
+
 CREATE INDEX idx_recipients_claimable
-    ON distribution_recipients(campaign_id, state, next_attempt_at);
+    ON distribution_recipients(campaign_id, state, next_attempt_at, snapshot_index);
 
 CREATE INDEX idx_recipients_unresolved_name
-    ON distribution_recipients(recipient_key, state);
+    ON distribution_recipients(recipient_key, state, updated_at, campaign_id);
+
+CREATE INDEX idx_recipients_expired_claim
+    ON distribution_recipients(state, claim_expires_at, campaign_id, snapshot_index);
+
+CREATE TRIGGER distribution_recipient_snapshot_is_immutable
+BEFORE UPDATE OF campaign_id, recipient_key, snapshot_index, original_value
+ON distribution_recipients
+BEGIN
+    SELECT RAISE(ABORT, 'distribution recipient snapshot is immutable');
+END;
+
+CREATE TRIGGER distribution_recipient_requires_draft_campaign
+BEFORE INSERT ON distribution_recipients
+WHEN NOT EXISTS (
+    SELECT 1 FROM distribution_campaigns campaign
+    WHERE campaign.campaign_id = NEW.campaign_id AND campaign.state = 'DRAFT'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'distribution recipient snapshot is sealed');
+END;
 
 CREATE TABLE external_delivery_requests (
     external_operation_id TEXT PRIMARY KEY,
