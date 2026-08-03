@@ -1,5 +1,8 @@
 package net.enthusia.loreitems.paper;
 
+import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
+import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
+import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,11 +23,24 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockCookEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ItemDespawnEvent;
 import org.bukkit.event.entity.ItemMergeEvent;
+import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.inventory.BrewEvent;
+import org.bukkit.event.inventory.BrewingStandFuelEvent;
+import org.bukkit.event.inventory.FurnaceBurnEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerBucketEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -110,6 +126,118 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         if (hasLoreIdentityEvidence(event.getItem())) {
             event.setCancelled(true);
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onConsume(PlayerItemConsumeEvent event) {
+        if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInventoryResultClick(InventoryClickEvent event) {
+        if (event.getSlotType() == InventoryType.SlotType.RESULT
+                && containsLoreIdentityEvidence(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCook(BlockCookEvent event) {
+        if (hasLoreIdentityEvidence(event.getSource())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFurnaceFuel(FurnaceBurnEvent event) {
+        if (hasLoreIdentityEvidence(event.getFuel())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBrewingFuel(BrewingStandFuelEvent event) {
+        if (hasLoreIdentityEvidence(event.getFuel())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBrew(BrewEvent event) {
+        if (containsLoreIdentityEvidence(event.getContents())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (hasLoreIdentityEvidence(event.getItemInHand())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onHangingPlace(HangingPlaceEvent event) {
+        ItemStack source = event.getItemStack();
+        if (source != null && hasLoreIdentityEvidence(source)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketUse(PlayerBucketEvent event) {
+        if (hasLoreIdentityEvidence(itemInHand(event))) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onProjectileLaunch(PlayerLaunchProjectileEvent event) {
+        if (event.shouldConsume() && hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onReadyArrow(PlayerReadyArrowEvent event) {
+        if (hasLoreIdentityEvidence(event.getArrow())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onShootBow(EntityShootBowEvent event) {
+        ItemStack consumable = event.getConsumable();
+        if (event.shouldConsumeItem()
+                && consumable != null
+                && hasLoreIdentityEvidence(consumable)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDispense(BlockPreDispenseEvent event) {
+        if (hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    private ItemStack itemInHand(PlayerBucketEvent event) {
+        EquipmentSlot hand = event.getHand();
+        return hand == EquipmentSlot.OFF_HAND
+                ? event.getPlayer().getInventory().getItemInOffHand()
+                : event.getPlayer().getInventory().getItemInMainHand();
+    }
+
+    private boolean containsLoreIdentityEvidence(Inventory inventory) {
+        for (ItemStack item : inventory.getContents()) {
+            if (item != null && hasLoreIdentityEvidence(item)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasLoreIdentityEvidence(ItemStack item) {
