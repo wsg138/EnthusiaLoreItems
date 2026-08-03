@@ -1,14 +1,23 @@
 package net.enthusia.loreitems.application;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
+import net.enthusia.loreitems.domain.InstanceCurrentState;
+import net.enthusia.loreitems.domain.InstanceObservation;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public interface LoreItemsAdministrationUseCase {
     CompletionStage<Page<InstanceAnomaly>> listActiveAnomalies(PageRequest request);
 
     CompletionStage<Page<InstanceAnomaly>> listWarningAnomalies(PageRequest request);
+
+    CompletionStage<Optional<InstanceCurrentState>> findCurrentState(
+            LoreInstanceId instanceId);
+
+    CompletionStage<Page<InstanceObservation>> listInstanceObservations(
+            LoreInstanceId instanceId, PageRequest request);
 
     CompletionStage<Page<InstanceAnomaly>> listInstanceAnomalies(
             LoreInstanceId instanceId, PageRequest request);
