@@ -12,27 +12,31 @@ Obtain the current head SHA, draft state, checks, Codacy result, and review comm
 
 ## Latest report
 
-- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md)
+- [`0006-2026-08-02-pr2-unit-of-work.md`](0006-2026-08-02-pr2-unit-of-work.md)
 
 ## Required prior reports
 
-- [`0004-2026-08-02-pr2-mutation-audit.md`](0004-2026-08-02-pr2-mutation-audit.md) — pending-mutation and append-only audit persistence, claim fencing, and the unresolved atomic state-plus-audit requirement.
-- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded SQLite runtime, external-delivery transaction behavior, startup recovery, and storage lifecycle decisions.
+- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — immutable definition/revision and instance persistence, compare-and-set rules, and remaining PR 1 repository scope.
+- [`0004-2026-08-02-pr2-mutation-audit.md`](0004-2026-08-02-pr2-mutation-audit.md) — pending-mutation and append-only audit persistence decisions.
+- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, lifecycle, and recovery rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`. Implement only a tested application `UnitOfWork` boundary and SQLite adapter that can atomically compose authoritative repository changes with audit-event persistence. Prove successful commit and full rollback with one focused in-scope workflow or transaction composition test, and consolidate transaction helpers where practical without broad unrelated refactoring.
+Continue PR #2 on `agent/loreitems-pr1-foundation`. First obtain the current Codacy result and exact issue details for the final branch head, then classify and fix every real critical or high finding that applies to PR 1. Do not suppress findings merely to change the gate.
 
-Do not begin observation/current-state/anomaly persistence until the unit-of-work path is verified. Do not begin commands, item creation/adoption, physical inventory delivery, protection listeners, tracking/reconciliation execution, GUIs, editing execution, deletion execution, or campaign execution.
+After the Codacy blocker is understood, implement only the next PR 1 repository family: bounded observation, current-state, and anomaly ports plus SQLite persistence and focused restart, uniqueness, and paging tests. Use the verified application `UnitOfWork` path for any authoritative state change that must commit with an audit event.
+
+Do not begin commands, item creation/adoption, physical inventory delivery, protection listeners, tracking/reconciliation execution, GUIs, editing execution, deletion execution, or campaign execution.
 
 ## Focused startup reads
 
 After reading the latest and required prior reports and verifying live PR state, inspect only the files relevant to:
 
-- existing `SQLiteTransactions` and private transaction helpers;
-- `AuditRepository`/`SQLiteAuditRepository` append behavior;
-- one authoritative repository mutation suitable for proving atomic state-plus-audit commit and rollback;
-- application-layer transaction boundaries that do not expose JDBC or make core code depend on SQLite;
+- the current Codacy critical/high findings and whether they apply to the final branch head;
+- existing observation, current-state, and anomaly tables and indexes in V1;
+- bounded application repository ports and domain records needed for those three persistence families;
+- uniqueness, compare-and-set, anomaly lifecycle, and restart behavior required by the binding documents;
+- the verified `UnitOfWork` boundary when authoritative state and audit persistence must be atomic;
 - bounded database executor and connection ownership rules;
 - PR checks, Codacy, review comments, and unresolved review threads.
 
