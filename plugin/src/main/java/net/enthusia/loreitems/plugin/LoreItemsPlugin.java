@@ -19,18 +19,23 @@ import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
 import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
 import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
+import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.AtomicConfiguration;
 import net.enthusia.loreitems.application.CreateDefinitionResult;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
 import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
+import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
+import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
 import net.enthusia.loreitems.application.PersistingDirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.PersistingDisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
+import net.enthusia.loreitems.application.PersistingItemAnomalyObservationUseCase;
+import net.enthusia.loreitems.application.PersistingLoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
@@ -41,25 +46,32 @@ import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
 import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
+import net.enthusia.loreitems.paper.LoreItemsAdministrationCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
+import net.enthusia.loreitems.paper.PaperAnomalyWarningWorker;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryWorker;
 import net.enthusia.loreitems.paper.PaperDisplayItemListener;
 import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
+import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
+import net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository;
+import net.enthusia.loreitems.sqlite.SQLiteAuditRepository;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDisplayItemObservationStore;
 import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
+import net.enthusia.loreitems.sqlite.SQLiteItemAnomalyObservationStore;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
 import net.enthusia.loreitems.sqlite.SQLiteVoidLossStore;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 // Paper plugins may own bounded lifecycle executors; this is not a J2EE web application.
@@ -67,6 +79,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
+    private static final int ANOMALY_WARNING_INTERVAL_SECONDS = 300;
 
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
@@ -103,6 +116,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
     private volatile PaperDisplayItemListener displayItemListener;
+    private volatile PaperIdentityAnomalyListener identityAnomalyListener;
+    private volatile PaperAnomalyWarningWorker anomalyWarningWorker;
     private volatile boolean stopping;
 
     @Override
@@ -139,10 +154,15 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 this,
                 registeredService,
                 this::wakeDirectDeliveries);
+        LoreItemsAdministrationCommandExecutor administrationExecutor =
+                new LoreItemsAdministrationCommandExecutor(
+                        this,
+                        configuration.get().current().defaultPageSize());
         command.setExecutor(new LoreItemsCommandExecutor(
                 createExecutor,
                 adoptExecutor,
-                giveExecutor));
+                giveExecutor,
+                administrationExecutor));
     }
 
     private void activateProtectionListeners() {
@@ -185,6 +205,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
             displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+        }
+        PaperIdentityAnomalyListener anomalyListener = identityAnomalyListener;
+        if (anomalyListener != null) {
+            anomalyListener.close();
+        }
+        PaperAnomalyWarningWorker warningWorker = anomalyWarningWorker;
+        if (warningWorker != null) {
+            warningWorker.close();
         }
         PaperDisplayItemListener display = displayItemListener;
         if (display != null) {
@@ -347,6 +375,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new PersistingDisplayItemObservationUseCase(
                         new SQLiteDisplayItemObservationStore(runtime),
                         clock);
+        SQLiteAnomalyRepository anomalyRepository = new SQLiteAnomalyRepository(runtime);
+        LoreItemsAdministrationUseCase administrationUseCase =
+                new PersistingLoreItemsAdministrationUseCase(
+                        anomalyRepository,
+                        new SQLiteAuditRepository(runtime),
+                        repository,
+                        new SQLitePendingMutationRepository(runtime));
+        ItemAnomalyObservationUseCase anomalyObservationUseCase =
+                new PersistingItemAnomalyObservationUseCase(
+                        new SQLiteItemAnomalyObservationStore(runtime),
+                        clock);
         if (publishWritableServices(
                 deliveryService,
                 createDefinitionUseCase,
@@ -354,10 +393,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 voidLossUseCase,
                 displayObservationUseCase)) {
             activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
+            activateAdministrationServices(
+                    administrationUseCase,
+                    anomalyObservationUseCase,
+                    loaded);
             getLogger().info(
                     "Durable storage is active; definition creation, adoption, queued direct "
-                            + "delivery, protection, display observations, and terminal void loss "
-                            + "are available.");
+                            + "delivery, protection, display observations, anomaly evidence, "
+                            + "audit views, and terminal void loss are available.");
         }
     }
 
@@ -392,6 +435,71 @@ public final class LoreItemsPlugin extends JavaPlugin {
             getLogger().log(
                     java.util.logging.Level.SEVERE,
                     "Could not activate the direct-delivery worker.",
+                    exception);
+        }
+    }
+
+    private void activateAdministrationServices(
+            LoreItemsAdministrationUseCase administrationUseCase,
+            ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            FoundationConfiguration loaded) {
+        try {
+            getServer().getScheduler().runTask(this, () -> {
+                synchronized (lifecycleLock) {
+                    if (stopping || identityAnomalyListener != null) {
+                        return;
+                    }
+                    PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
+                            this,
+                            administrationUseCase,
+                            ANOMALY_WARNING_INTERVAL_SECONDS,
+                            loaded.defaultPageSize());
+                    PaperIdentityAnomalyListener anomalyListener =
+                            new PaperIdentityAnomalyListener(
+                                    this,
+                                    loaded.mutationBudgetPerTick());
+                    ServicesManager services = getServer().getServicesManager();
+                    try {
+                        services.register(
+                                LoreItemsAdministrationUseCase.class,
+                                administrationUseCase,
+                                this,
+                                ServicePriority.Normal);
+                        services.register(
+                                ItemAnomalyObservationUseCase.class,
+                                anomalyObservationUseCase,
+                                this,
+                                ServicePriority.Normal);
+                        warningWorker.start();
+                        services.register(
+                                AnomalyWarningSink.class,
+                                warningWorker,
+                                this,
+                                ServicePriority.Normal);
+                        anomalyListener.start();
+                        anomalyWarningWorker = warningWorker;
+                        identityAnomalyListener = anomalyListener;
+                    } catch (RuntimeException exception) {
+                        anomalyListener.close();
+                        warningWorker.close();
+                        services.unregister(AnomalyWarningSink.class, warningWorker);
+                        services.unregister(
+                                ItemAnomalyObservationUseCase.class,
+                                anomalyObservationUseCase);
+                        services.unregister(
+                                LoreItemsAdministrationUseCase.class,
+                                administrationUseCase);
+                        getLogger().log(
+                                java.util.logging.Level.SEVERE,
+                                "Could not activate lore-item anomaly and administration services.",
+                                exception);
+                    }
+                }
+            });
+        } catch (RuntimeException exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not schedule lore-item anomaly and administration services.",
                     exception);
         }
     }
