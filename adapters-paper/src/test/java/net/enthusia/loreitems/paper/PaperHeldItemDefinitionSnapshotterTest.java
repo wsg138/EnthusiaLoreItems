@@ -48,7 +48,7 @@ class PaperHeldItemDefinitionSnapshotterTest {
 
     @Test
     void snapshotsArbitraryComponentsWithoutMutatingHeldItemOrRetainingIdentity() {
-        ItemStack held = ItemStack.of(Material.COMPASS, 4);
+        ItemStack held = ItemStack.of(Material.DIAMOND_SWORD, 4);
         ItemMeta meta = Objects.requireNonNull(held.getItemMeta());
         meta.displayName(Component.text("Original appearance"));
         meta.getPersistentDataContainer().set(
@@ -59,6 +59,8 @@ class PaperHeldItemDefinitionSnapshotterTest {
         EncodedItemTemplate encoded = snapshotter.snapshot(tracked);
         ItemStack decoded = templateCodec.decode(encoded);
 
+        assertEquals(4, held.getAmount());
+        assertInstanceOf(ItemIdentityReadResult.Untracked.class, identityCodec.readIdentity(held));
         assertEquals(1, tracked.getAmount());
         assertInstanceOf(ItemIdentityReadResult.Tracked.class, identityCodec.readIdentity(tracked));
         assertInstanceOf(ItemIdentityReadResult.Untracked.class, identityCodec.readIdentity(decoded));
