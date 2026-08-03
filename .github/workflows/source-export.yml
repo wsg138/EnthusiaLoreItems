@@ -16,9 +16,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Package source
-        run: tar --exclude=.git --exclude='**/build' -czf ../review-source.tar.gz .
+        run: tar --exclude=.git --exclude='**/build' --exclude=review-source.tar.gz -czf review-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: review-source-${{ github.event.pull_request.head.sha }}
-          path: ../review-source.tar.gz
+          path: review-source.tar.gz
           retention-days: 1
