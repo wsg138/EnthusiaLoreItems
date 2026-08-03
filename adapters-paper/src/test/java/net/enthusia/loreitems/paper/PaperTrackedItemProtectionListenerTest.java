@@ -146,8 +146,8 @@ class PaperTrackedItemProtectionListenerTest {
         assertTrue(malformedConsume.isCancelled());
 
         Block block = player.getWorld().getBlockAt(0, 64, 0);
-        BlockCookEvent cook =
-                new BlockCookEvent(block, tracked, ItemStack.of(Material.IRON_INGOT));
+        BlockCookEvent cook = new BlockCookEvent(
+                block, tracked, ItemStack.of(Material.IRON_INGOT), null);
         listener.onCook(cook);
         assertTrue(cook.isCancelled());
 
