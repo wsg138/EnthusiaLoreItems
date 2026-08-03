@@ -162,6 +162,20 @@ class PaperItemIdentityCodecTest {
     }
 
     @Test
+    void rawEvidenceCheckDistinguishesAirAndOrdinaryItemsFromPartialIdentity() {
+        assertFalse(codec.hasIdentityEvidence(null));
+        assertFalse(codec.hasIdentityEvidence(ItemStack.empty()));
+        assertFalse(codec.hasIdentityEvidence(ItemStack.of(Material.PAPER)));
+
+        ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.PAPER), identity());
+        assertTrue(codec.hasIdentityEvidence(tracked));
+        ItemMeta meta = Objects.requireNonNull(tracked.getItemMeta());
+        meta.getPersistentDataContainer().remove(INSTANCE_KEY);
+        assertTrue(tracked.setItemMeta(meta));
+        assertTrue(codec.hasIdentityEvidence(tracked));
+    }
+
+    @Test
     void rejectsPaperAccessWhenNotOnPrimaryThread() {
         PaperItemIdentityCodec guarded =
                 new PaperItemIdentityCodec(new PaperItemCodecThreadGuard(() -> false));
@@ -172,6 +186,9 @@ class PaperItemIdentityCodecTest {
         assertThrows(
                 IllegalStateException.class,
                 () -> guarded.writeIdentity(ItemStack.of(Material.PAPER), identity()));
+        assertThrows(
+                IllegalStateException.class,
+                () -> guarded.hasIdentityEvidence(ItemStack.of(Material.PAPER)));
     }
 
     private static LoreItemIdentity identity() {
