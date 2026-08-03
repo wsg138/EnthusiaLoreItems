@@ -12,29 +12,27 @@ Obtain the current head SHA, draft state, checks, Codacy result, and review comm
 
 ## Latest report
 
-- [`0011-2026-08-02-pr2-deleted-marker-persistence.md`](0011-2026-08-02-pr2-deleted-marker-persistence.md)
+- [`0012-2026-08-02-pr2-deleted-marker-verification.md`](0012-2026-08-02-pr2-deleted-marker-verification.md)
 
 ## Required prior reports
 
+- [`0011-2026-08-02-pr2-deleted-marker-persistence.md`](0011-2026-08-02-pr2-deleted-marker-persistence.md) — deleted-definition marker implementation, tests, implementation-head CI, and intermediate Codacy state.
 - [`0010-2026-08-02-pr2-distribution-verification.md`](0010-2026-08-02-pr2-distribution-verification.md) — preceding exact-head green baseline, distribution persistence verification, and remaining PR 1 scope.
-- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified transaction-context lifetime and rollback boundary used by marker persistence.
-- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition soft-delete and active-key/history behavior.
-- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, and recovery rules.
+- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, and shared transaction rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`, but do not begin another repository family yet. First verify live PR state and recheck Codacy for the exact current branch head after the handoff commits.
+Continue PR #2 on `agent/loreitems-pr1-foundation`. Consolidate only the private transaction helper in `SQLiteDirectDeliveryRepository` into the shared `SQLiteTransactions.inTransaction` helper. Remove the repository-local `inTransaction` and `TransactionWork` duplication while preserving external-delivery idempotency, claim fencing, rollback behavior, bounded executor ownership, and all existing focused tests.
 
-If Codacy remains red, obtain the stable detailed findings and fix only validated issues attributable to the deleted-definition marker slice. If Codacy has returned to `Up to standards` with zero new issues, record that exact-head evidence and then select the next still-in-scope Implementation PR 1 foundation task.
-
-Do not begin physical deletion execution, group-file parsing or moves, campaign execution, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, or a later implementation phase while Codacy status is unresolved.
+Do not begin Paper item-template serialization, physical inventory insertion, group-file parsing or moves, campaign execution, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, physical deletion execution, or a later implementation phase. After the cleanup, verify exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads before selecting another task.
 
 ## Focused startup reads
 
-After reading the latest and required prior reports:
+After reading the latest and required prior reports and verifying live PR state, inspect only:
 
-- verify the current PR head, draft/open/mergeable state, exact-head GitHub Actions, Codacy comment, CodeRabbit status/comment, submitted reviews, and unresolved review threads;
-- compare Codacy's latest update timestamp and issue aggregate with the implementation evidence in handoff 0011;
-- if Codacy is still red, inspect only stable detailed findings tied to the deleted-marker model, port, SQLite adapter, V1 constraints/triggers, unit-of-work integration, or focused tests;
-- if Codacy is green, record that verification before selecting another PR 1 foundation task;
-- preserve the current scope boundary and do not merge without explicit owner permission.
+- `SQLiteDirectDeliveryRepository`'s repository-local `inTransaction` method and `TransactionWork` interface;
+- the shared `SQLiteTransactions.inTransaction` helper and its exception/rollback/autocommit behavior;
+- existing direct-delivery idempotency, claim, rollback, restart, and saturation tests that could regress from the consolidation;
+- exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads.
+
+Do not broaden the cleanup into delivery state-machine changes, SQL rewrites, physical insertion, API changes, or another repository family unless a concrete correctness defect is found.
