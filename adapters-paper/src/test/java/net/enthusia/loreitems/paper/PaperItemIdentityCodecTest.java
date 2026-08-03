@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,33 +106,39 @@ class PaperItemIdentityCodecTest {
         ItemIdentityReadResult.Invalid result =
                 assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(tracked));
         assertEquals(ItemIdentityFailure.PARTIAL_DATA, result.failure());
+        assertNull(result.identityEvidence());
     }
 
     @Test
     void unsupportedAndMalformedIdentityFailClosed() {
-        ItemStack unsupported = codec.writeIdentity(ItemStack.of(Material.DIAMOND), identity());
+        LoreItemIdentity expectedIdentity = identity();
+        ItemStack unsupported = codec.writeIdentity(ItemStack.of(Material.DIAMOND), expectedIdentity);
         setInteger(unsupported, VERSION_KEY, PaperItemIdentityCodec.CURRENT_VERSION + 1);
         ItemIdentityReadResult.Invalid unsupportedResult =
                 assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(unsupported));
         assertEquals(ItemIdentityFailure.UNSUPPORTED_VERSION, unsupportedResult.failure());
+        assertEquals(expectedIdentity, unsupportedResult.identityEvidence());
 
-        ItemStack malformed = codec.writeIdentity(ItemStack.of(Material.DIAMOND), identity());
+        ItemStack malformed = codec.writeIdentity(ItemStack.of(Material.DIAMOND), expectedIdentity);
         ItemMeta malformedMeta = Objects.requireNonNull(malformed.getItemMeta());
         malformedMeta.getPersistentDataContainer().set(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY, new byte[] {1});
         assertTrue(malformed.setItemMeta(malformedMeta));
         ItemIdentityReadResult.Invalid malformedResult =
                 assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(malformed));
         assertEquals(ItemIdentityFailure.MALFORMED_DATA, malformedResult.failure());
+        assertNull(malformedResult.identityEvidence());
     }
 
     @Test
     void stackingViolationIsPreservedAsInvalidEvidence() {
-        ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.PAPER), identity());
+        LoreItemIdentity expectedIdentity = identity();
+        ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.PAPER), expectedIdentity);
         tracked.setAmount(2);
 
         ItemIdentityReadResult.Invalid result =
                 assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(tracked));
         assertEquals(ItemIdentityFailure.STACKING_VIOLATION, result.failure());
+        assertEquals(expectedIdentity, result.identityEvidence());
         assertEquals(2, tracked.getAmount());
     }
 
