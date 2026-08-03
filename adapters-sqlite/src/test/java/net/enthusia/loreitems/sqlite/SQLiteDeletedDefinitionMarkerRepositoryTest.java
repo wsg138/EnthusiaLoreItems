@@ -217,18 +217,19 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
                 .toCompletableFuture()
                 .join();
     }
+
     private enum MarkerMutation {
         UPDATE_KEY("UPDATE deleted_definition_markers SET lookup_key = ? WHERE definition_id = ?"),
         DELETE_MARKER("DELETE FROM deleted_definition_markers WHERE lookup_key = ? AND definition_id = ?");
 
-        private final String statementText;
+        private final String sqlText;
 
-        MarkerMutation(String statementText) {
-            this.statementText = statementText;
+        MarkerMutation(String sqlText) {
+            this.sqlText = sqlText;
         }
 
         String statementText() {
-            return statementText;
+            return sqlText;
         }
     }
 
@@ -242,5 +243,4 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
             DeletedDefinitionMarker other,
             DeletedDefinitionMarker second) {
     }
-
 }
