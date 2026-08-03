@@ -6,38 +6,36 @@
 - Repository: `wsg138/EnthusiaLoreItems`
 - Pull request: #2 — Foundation and durable core
 - Branch: `agent/loreitems-pr1-foundation`
-- Status: in progress
+- Status: implementation complete; final external quality gate pending
 
-Obtain the current head SHA, draft state, checks, Codacy result, and review comments from live GitHub state. Do not treat a SHA written in a handoff report as the current branch head after handoff commits.
+Obtain the current head SHA, ready/draft state, checks, Codacy result, review comments, and unresolved threads from live GitHub state. Do not treat a SHA written in a handoff report as the current branch head after handoff commits.
 
 ## Latest report
 
-- [`0013-2026-08-02-pr2-transaction-helper-consolidation.md`](0013-2026-08-02-pr2-transaction-helper-consolidation.md)
+- [`0014-2026-08-02-pr2-codec-foundation-completion.md`](0014-2026-08-02-pr2-codec-foundation-completion.md)
 
 ## Required prior reports
 
-- [`0012-2026-08-02-pr2-deleted-marker-verification.md`](0012-2026-08-02-pr2-deleted-marker-verification.md) — preceding exact-head green baseline, completed persistence families, and remaining PR 1 scope.
+- [`0013-2026-08-02-pr2-transaction-helper-consolidation.md`](0013-2026-08-02-pr2-transaction-helper-consolidation.md) — final persistence consolidation before the codec slice.
+- [`0012-2026-08-02-pr2-deleted-marker-verification.md`](0012-2026-08-02-pr2-deleted-marker-verification.md) — preceding exact-head green persistence baseline.
 - [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, external-delivery idempotency, claim fencing, and shared transaction rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`.
+Continue PR #2 on `agent/loreitems-pr1-foundation`; do not begin Implementation PR 2.
 
-First verify exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads after the handoff commits. The implementation-head build passed, but Codacy was still showing its recurring intermediate 100-issue aggregate when report 0013 was committed. If Codacy remains red, obtain stable detailed findings and fix only validated issues attributable to the transaction-helper slice. Do not suppress or guess.
+The complete PR 1 implementation, codec foundation, focused tests, and separate full-PR harsh review are recorded in report 0014. The implementation head passed GitHub Actions, and PR #2 was marked ready. CodeRabbit could not start because the PR exceeds its 100-file limit and review credits/capacity were unavailable; it produced no code finding. Codacy still showed its recurring 100-issue aggregate when report 0014 was created.
 
-Once exact-head automation is stable, implement only the remaining PR 1 codec foundation from `docs/implementation-plan.md`: platform-free versioned item-template and hidden-identity codec contracts plus focused Paper 1.21.11 implementations and round-trip tests. Preserve hidden definition ID, instance UUID, applied revision, forced unstackability, arbitrary held-item components, codec-version failure safety, and Paper thread ownership.
+First obtain the current post-handoff head and verify exact-head GitHub Actions, Codacy, ready state, mergeability, submitted reviews, and unresolved threads. If Codacy is up to standards and no valid finding or thread remains, merge PR #2 with a normal merge commit using the exact expected head SHA, verify main, and delete the feature branch only if the available connector supports it.
 
-Do not begin item creation/adoption, physical inventory insertion, commands, protection listeners, tracking/reconciliation execution, GUIs, editing execution, group-file/campaign execution, physical deletion, or a later implementation phase.
+If Codacy remains red, obtain detailed file-level Codacy findings through Codacy UI/API access and fix only validated issues. Do not suppress, guess, bypass the quality gate, or create another cleanup phase.
 
 ## Focused startup reads
 
-After reading the latest and required prior reports and verifying live PR state, inspect only:
+After reading report 0014 and the required prior reports, inspect only:
 
-- the PR 1 codec requirements in `REQUIREMENTS.md`, `docs/architecture.md`, and `docs/implementation-plan.md`;
-- the current empty `adapters-paper` production module and its build configuration;
-- existing application/domain identity and revision types suitable for platform-free codec contracts;
-- Paper 1.21.11 PDC and item serialization APIs needed for focused adapter implementations;
-- architecture tests and the smallest practical Paper round-trip test strategy;
-- exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads.
+- the live PR #2 head, ready state, mergeability, exact-head Actions, Codacy summary/details, submitted reviews, and unresolved threads;
+- any exact file/line finding produced by Codacy or a reviewer;
+- the resulting main commit and branch state if merge becomes permitted.
 
-Do not broaden the codec foundation into creation/adoption use cases, delivery workers, commands, listeners, inventory mutation, protection, tracking, editing, distribution execution, or another phase.
+Do not broaden into item creation/adoption, inventory delivery, commands, listeners, protection, tracking/reconciliation execution, GUIs, editing, group-file/campaign execution, physical deletion, Tags integration, or another phase.
