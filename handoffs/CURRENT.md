@@ -6,7 +6,7 @@
 - Repository: `wsg138/EnthusiaLoreItems`
 - Pull request: #2 — Foundation and durable core
 - Branch: `agent/loreitems-pr1-foundation`
-- Status: implementation and Codacy remediation complete; final exact-head verification and merge only
+- Status: all retrieved Codacy findings remediated; exact-head verification and merge only
 
 Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR head, ready/draft state, mergeability, exact-head GitHub Actions, Codacy result, submitted reviews, unresolved threads, and comments newer than the latest immutable report.
 
@@ -14,7 +14,7 @@ Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, P
 
 - [`0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md`](0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md)
 
-Report 0015 contains the detailed 50-finding Codacy evidence table, classifications, suppressions, remediation, harsh-review fixes, and pre-final-head verification evidence.
+Report 0015 contains the detailed first Codacy evidence table, classifications, suppressions, remediation, harsh-review fixes, and pre-final-head verification evidence. A final immutable report must be added before merge with the later 85-issue and 48-issue remediation passes and exact final-head evidence.
 
 ## Required prior reports
 
@@ -31,11 +31,12 @@ Do not implement anything else. Do not begin Implementation PR 2 or any Creation
 
 For PR #2 only:
 
-1. Verify GitHub Actions on the exact current documentation head.
-2. Verify Codacy reports up to standards with zero new issues on that same head.
+1. Verify GitHub Actions on the exact current head.
+2. Verify Codacy reports up to standards with zero new issues on that same head; retrieve and resolve any remaining detailed findings rather than trusting an aggregate.
 3. Re-read submitted reviews, unresolved threads, and newer comments.
-4. Confirm the PR remains ready and mergeable.
-5. If every gate is green, merge with a normal merge commit, verify the resulting `main` SHA and checks, update the PR body with exact merge evidence, delete the feature branch if supported, and stop.
+4. Add the final immutable numbered report, update this file and `INDEX.md`, and update PR #2's body with exact evidence.
+5. Repeat exact-head GitHub Actions and Codacy verification after the documentation change.
+6. If every gate is green, merge with a normal merge commit, verify the resulting `main` SHA and checks, delete the feature branch if supported, and stop.
 
 If any gate is not directly verified, do not merge and document the precise blocker.
 
