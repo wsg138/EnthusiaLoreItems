@@ -1,4 +1,4 @@
-# Development and foundation status
+# Development status
 
 ## Build
 
@@ -46,6 +46,20 @@ A single bounded database executor serializes storage work. Queue saturation rej
 
 Startup configuration parsing, directory creation, database opening, and migration run away from the server thread. The Bukkit service is registered immediately through a stable delegate but returns `SERVICE_UNAVAILABLE` until writable storage is active.
 
+## Held-item definition creation
+
+Administrators with `enthusia.loreitems.admin.create` can create the first durable definition revision with:
+
+```text
+/loreitems create <lookup-key> <display name>
+```
+
+The command is player-only because it snapshots the item in the player's main hand. Paper item access and serialization stay on the server thread. The snapshot is cloned, normalized to an amount and maximum stack size of one, stripped of any existing LoreItems instance identity, and converted to an immutable encoded template before asynchronous persistence begins. Air and malformed LoreItems identity evidence are rejected without changing the held item.
+
+The definition, revision 1 template, and `definition_created` audit event commit in one SQLite unit of work. An existing active lookup key returns a conflict without appending an audit event. Storage failure, degraded mode, or shutdown leaves the command unavailable rather than claiming success.
+
+This operation creates only the reusable definition and its first template revision. It does not adopt the held item, assign an instance UUID, replace the item in the player's hand, or deliver a physical item.
+
 ## Durable external delivery foundation
 
 The versioned Bukkit service now durably accepts idempotent external delivery requests when an active definition exists. One transaction creates the instance identity, pending direct-delivery record, and external operation result. Replaying the same external operation ID with the same arguments returns `ALREADY_ACCEPTED` and creates no additional instance.
@@ -62,6 +76,6 @@ Operators should preserve the database file, inspect the logged startup error, v
 
 ## Current limitations
 
-This foundation still does not create definitions from held items, adopt items, mutate inventories, protect physical items, track locations, expose GUIs, edit templates, execute deletion, or run campaigns. Paper item-template/PDC codec round trips, the remaining repository families, broader static-analysis configuration, and complete PR review still remain within PR 1.
+The current PR 2 slice creates definitions from held-item snapshots only. It does not adopt the held item, create physical instances, execute queued direct delivery, mutate inventories, protect physical items, warn about duplicate observations, track locations, expose GUIs, edit templates, execute deletion, or run campaigns.
 
-No live-server behavior has been tested.
+No live Paper/Leaf server behavior has been tested. Automated codec and SQLite tests do not prove real-server command registration, item-component serialization, reload behavior, or operator workflow.

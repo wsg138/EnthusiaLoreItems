@@ -8,7 +8,9 @@ import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.UnitOfWork;
 import net.enthusia.loreitems.domain.DeletedDefinitionMarker;
+import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreDefinitionRevision;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
 public final class SQLiteUnitOfWork implements UnitOfWork {
@@ -40,7 +42,24 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
 
     private static final class SQLiteContext implements UnitOfWork.Context {
         private final Connection connection;
-        private final UnitOfWork.DefinitionMutations definitionMutations = this::markDeleted;
+        private final UnitOfWork.DefinitionMutations definitionMutations =
+                new UnitOfWork.DefinitionMutations() {
+                    @Override
+                    public boolean create(
+                            LoreDefinition definition,
+                            LoreDefinitionRevision initialRevision) throws Exception {
+                        return createDefinition(definition, initialRevision);
+                    }
+
+                    @Override
+                    public boolean markDeleted(
+                            LoreDefinitionId definitionId,
+                            TemplateRevision expectedCurrentRevision,
+                            Instant deletedAt) throws Exception {
+                        return SQLiteContext.this.markDeleted(
+                                definitionId, expectedCurrentRevision, deletedAt);
+                    }
+                };
         private final UnitOfWork.DeletedDefinitionMarkerMutations markerMutations =
                 this::createDeletedDefinitionMarker;
         private final UnitOfWork.AuditAppender auditAppender = this::appendAudit;
@@ -66,6 +85,14 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
         public UnitOfWork.AuditAppender audit() {
             ensureActive();
             return auditAppender;
+        }
+
+        private boolean createDefinition(
+                LoreDefinition definition,
+                LoreDefinitionRevision initialRevision) throws Exception {
+            ensureActive();
+            return SQLiteDefinitionRepository.createInTransaction(
+                    connection, definition, initialRevision);
         }
 
         private boolean markDeleted(

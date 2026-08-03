@@ -19,15 +19,22 @@ import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
 import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
 import net.enthusia.loreitems.application.AtomicConfiguration;
+import net.enthusia.loreitems.application.CreateDefinitionResult;
+import net.enthusia.loreitems.application.CreateDefinitionUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
 import net.enthusia.loreitems.application.MetricsPort;
+import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
 import net.enthusia.loreitems.application.StorageState;
+import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
+import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
+import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -41,7 +48,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
     private final AtomicReference<AtomicConfiguration> configuration =
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
+    private final AtomicReference<CreateDefinitionUseCase> createDefinitionDelegate =
+            new AtomicReference<>(unavailableCreateDefinitionUseCase());
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
+    private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
+            request -> createDefinitionDelegate.get().create(request);
     private final Object lifecycleLock = new Object();
     private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
             ConcurrentHashMap.newKeySet();
@@ -63,6 +74,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        registerCommands();
         getServer().getServicesManager().register(
                 LoreItemsServiceV1.class,
                 registeredService,
@@ -72,10 +84,19 @@ public final class LoreItemsPlugin extends JavaPlugin {
         try {
             lifecycleExecutor.execute(() -> initialize(dataDirectory));
         } catch (RejectedExecutionException exception) {
-            serviceDelegate.set(new UnavailableService("Foundation lifecycle queue rejected startup."));
+            publishUnavailableServices("Foundation lifecycle queue rejected startup.");
             getLogger().severe("LoreItems startup was rejected: " + exception.getMessage());
         }
         getLogger().info("Foundation bootstrap enabled; durable storage is initializing off-thread.");
+    }
+
+    private void registerCommands() {
+        PluginCommand command = Objects.requireNonNull(
+                getCommand("loreitems"), "plugin.yml must declare the loreitems command");
+        command.setExecutor(new CreateDefinitionCommandExecutor(
+                this,
+                registeredCreateDefinitionUseCase,
+                new PaperHeldItemDefinitionSnapshotter()));
     }
 
     @Override
@@ -83,6 +104,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         synchronized (lifecycleLock) {
             stopping = true;
             serviceDelegate.set(new UnavailableService("The plugin is stopping."));
+            createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
         }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
@@ -210,27 +232,48 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
         SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
         recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
-        if (publishService(new FoundationLoreItemsService(
-                new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())))) {
+        LoreItemsServiceV1 deliveryService = new FoundationLoreItemsService(
+                new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC()));
+        CreateDefinitionUseCase createDefinitionUseCase = new PersistingCreateDefinitionUseCase(
+                new SQLiteUnitOfWork(runtime), Clock.systemUTC());
+        if (publishWritableServices(deliveryService, createDefinitionUseCase)) {
             getLogger().info(
-                    "Durable foundation storage is active; physical inventory delivery remains deferred.");
+                    "Durable storage is active; held-item definition creation is available. "
+                            + "Physical inventory delivery remains deferred.");
         }
     }
 
     private void publishDegradedService(SQLiteStorageRuntime.StartupResult startup) {
-        if (publishService(new UnavailableService(
-                "LoreItems is in degraded read-only mode: " + startup.detail()))) {
+        if (publishUnavailableServices(
+                "LoreItems is in degraded read-only mode: " + startup.detail())) {
             getLogger().severe(
                     "LoreItems entered degraded read-only mode: " + startup.detail());
         }
     }
 
-    private boolean publishService(LoreItemsServiceV1 service) {
+    private boolean publishWritableServices(
+            LoreItemsServiceV1 service,
+            CreateDefinitionUseCase createDefinitionUseCase) {
+        Objects.requireNonNull(service, "service");
+        Objects.requireNonNull(createDefinitionUseCase, "createDefinitionUseCase");
         synchronized (lifecycleLock) {
             if (stopping) {
                 return false;
             }
             serviceDelegate.set(service);
+            createDefinitionDelegate.set(createDefinitionUseCase);
+            return true;
+        }
+    }
+
+    private boolean publishUnavailableServices(String detail) {
+        Objects.requireNonNull(detail, "detail");
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return false;
+            }
+            serviceDelegate.set(new UnavailableService(detail));
+            createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             return true;
         }
     }
@@ -252,11 +295,16 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void handleInitializationFailure(Exception exception) {
-        publishService(new UnavailableService(
-                "Foundation initialization failed: " + safeMessage(exception)));
+        publishUnavailableServices(
+                "Foundation initialization failed: " + safeMessage(exception));
         getLogger().severe(
                 "LoreItems foundation initialization failed; writes remain unavailable: "
                         + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
+    }
+
+    private static CreateDefinitionUseCase unavailableCreateDefinitionUseCase() {
+        return request -> CompletableFuture.completedFuture(
+                CreateDefinitionResult.serviceUnavailable());
     }
 
     private static String safeMessage(Exception exception) {

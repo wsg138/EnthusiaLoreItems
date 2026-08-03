@@ -25,7 +25,6 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
     private static final int SINGLE_UPDATED_ROW = 1;
     private static final long UNIX_EPOCH_MILLIS = 0L;
 
-
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDefinitionRepository(SQLiteStorageRuntime storage) {
@@ -35,24 +34,12 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
     @Override
     public CompletionStage<Void> create(
             LoreDefinition definition, LoreDefinitionRevision initialRevision) {
-        Objects.requireNonNull(definition, "definition");
-        Objects.requireNonNull(initialRevision, "initialRevision");
-        if (!definition.active()) {
-            throw new IllegalArgumentException("A new definition must be active");
-        }
-        if (!definition.id().equals(initialRevision.definitionId())) {
-            throw new IllegalArgumentException("Initial revision belongs to another definition");
-        }
-        if (definition.currentRevision().value() != 1L
-                || initialRevision.revision().value() != 1L) {
-            throw new IllegalArgumentException("A new definition must begin at revision 1");
-        }
-        if (initialRevision.createdAtEpochMillis() < definition.createdAtEpochMillis()) {
-            throw new IllegalArgumentException("Initial revision must not precede the definition");
-        }
+        validateNewDefinition(definition, initialRevision);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction -> {
-            insertDefinition(transaction, definition);
-            insertRevision(transaction, initialRevision);
+            if (!createInTransaction(transaction, definition, initialRevision)) {
+                throw new SQLException(
+                        "An active definition already uses key " + definition.key().value());
+            }
             return null;
         }));
     }
@@ -183,6 +170,39 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
         }
         return storage.execute(connection -> markDeletedInTransaction(
                 connection, definitionId, expectedCurrentRevision, deletedAt));
+    }
+
+    static boolean createInTransaction(
+            Connection connection,
+            LoreDefinition definition,
+            LoreDefinitionRevision initialRevision) throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        validateNewDefinition(definition, initialRevision);
+        if (findActiveDefinitionByKey(connection, definition.key()).isPresent()) {
+            return false;
+        }
+        insertDefinition(connection, definition);
+        insertRevision(connection, initialRevision);
+        return true;
+    }
+
+    private static void validateNewDefinition(
+            LoreDefinition definition, LoreDefinitionRevision initialRevision) {
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(initialRevision, "initialRevision");
+        if (!definition.active()) {
+            throw new IllegalArgumentException("A new definition must be active");
+        }
+        if (!definition.id().equals(initialRevision.definitionId())) {
+            throw new IllegalArgumentException("Initial revision belongs to another definition");
+        }
+        if (definition.currentRevision().value() != 1L
+                || initialRevision.revision().value() != 1L) {
+            throw new IllegalArgumentException("A new definition must begin at revision 1");
+        }
+        if (initialRevision.createdAtEpochMillis() < definition.createdAtEpochMillis()) {
+            throw new IllegalArgumentException("Initial revision must not precede the definition");
+        }
     }
 
     static boolean markDeletedInTransaction(
