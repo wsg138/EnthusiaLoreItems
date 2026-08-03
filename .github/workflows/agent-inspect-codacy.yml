@@ -1,0 +1,44 @@
+name: Agent inspect Codacy annotations
+
+on:
+  push:
+    branches:
+      - agent/loreitems-pr2-creation-delivery-protection
+
+permissions:
+  checks: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print Codacy check annotations for reviewed head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 62dacb35a82b69502068d2e9f29c2752244d3c98
+        shell: bash
+        run: |
+          set -euo pipefail
+          checks="$(curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100")"
+          echo '=== CHECK RUNS ==='
+          jq -c '.check_runs[] | {id,name,status,conclusion,app:.app.slug,annotations_url}' <<<"${checks}"
+          mapfile -t run_ids < <(jq -r '.check_runs[] | select((.app.slug | ascii_downcase | contains("codacy")) or (.name | ascii_downcase | contains("codacy"))) | .id' <<<"${checks}")
+          if (( ${#run_ids[@]} == 0 )); then
+            echo 'No Codacy check run found.'
+            exit 1
+          fi
+          for run_id in "${run_ids[@]}"; do
+            echo "=== CODACY ANNOTATIONS FOR CHECK ${run_id} ==="
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/check-runs/${run_id}/annotations?per_page=100" \
+              | jq -c '.[] | {path,start_line,end_line,annotation_level,title,message,raw_details}'
+          done
