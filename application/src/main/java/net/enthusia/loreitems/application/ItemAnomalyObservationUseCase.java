@@ -87,7 +87,7 @@ public interface ItemAnomalyObservationUseCase {
         }
 
         public boolean shouldWarnStaff() {
-            return status == Status.RECORDED || status == Status.REFRESHED;
+            return status == Status.RECORDED;
         }
 
         public static Result of(Status status, String detail) {
