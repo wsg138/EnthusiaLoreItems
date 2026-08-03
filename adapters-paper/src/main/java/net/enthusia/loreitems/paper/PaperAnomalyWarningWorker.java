@@ -2,7 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
@@ -22,9 +22,11 @@ public final class PaperAnomalyWarningWorker
     private final LoreItemsAdministrationUseCase useCase;
     private final int pageSize;
     private final long intervalTicks;
-    private final AtomicBoolean inFlight = new AtomicBoolean();
+    private final Object queryLock = new Object();
 
-    private volatile BukkitTask task;
+    private BukkitTask task;
+    private boolean queryInFlight;
+    private boolean rerunRequested;
     private volatile boolean closed;
 
     public PaperAnomalyWarningWorker(
@@ -45,46 +47,79 @@ public final class PaperAnomalyWarningWorker
     }
 
     public void start() {
-        if (closed) {
-            throw new IllegalStateException("Anomaly warning worker is closed");
+        synchronized (queryLock) {
+            if (closed) {
+                throw new IllegalStateException("Anomaly warning worker is closed");
+            }
+            if (task != null) {
+                throw new IllegalStateException("Anomaly warning worker is already started");
+            }
+            task = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin,
+                    this::requestWarning,
+                    intervalTicks,
+                    intervalTicks);
         }
-        if (task != null) {
-            throw new IllegalStateException("Anomaly warning worker is already started");
-        }
-        task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin,
-                this::requestWarning,
-                intervalTicks,
-                intervalTicks);
         requestWarning();
     }
 
     @Override
     public void requestWarning() {
-        if (closed || !inFlight.compareAndSet(false, true)) {
-            return;
+        synchronized (queryLock) {
+            if (closed) {
+                return;
+            }
+            if (queryInFlight) {
+                rerunRequested = true;
+                return;
+            }
+            queryInFlight = true;
         }
+        startQuery();
+    }
+
+    private void startQuery() {
+        CompletionStage<Page<InstanceAnomaly>> query;
         try {
-            useCase.listWarningAnomalies(PageRequest.first(pageSize))
-                    .whenComplete((page, failure) -> {
-                        inFlight.set(false);
-                        if (failure != null) {
-                            plugin.getLogger().log(
-                                    Level.SEVERE,
-                                    "Could not query active lore-item warning anomalies.",
-                                    unwrap(failure));
-                            return;
-                        }
-                        if (!closed && !page.items().isEmpty()) {
-                            scheduleWarning(page);
-                        }
-                    });
+            query = Objects.requireNonNull(
+                    useCase.listWarningAnomalies(PageRequest.first(pageSize)),
+                    "warning anomaly query returned null");
         } catch (RuntimeException exception) {
-            inFlight.set(false);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not start the lore-item warning query.",
                     exception);
+            finishQuery();
+            return;
+        }
+        query.whenComplete((page, failure) -> {
+            if (failure != null) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Could not query active lore-item warning anomalies.",
+                        unwrap(failure));
+            } else if (!closed && page != null && !page.items().isEmpty()) {
+                scheduleWarning(page);
+            } else if (page == null) {
+                plugin.getLogger().severe(
+                        "The lore-item warning query completed without a result.");
+            }
+            finishQuery();
+        });
+    }
+
+    private void finishQuery() {
+        boolean runAgain;
+        synchronized (queryLock) {
+            queryInFlight = false;
+            runAgain = !closed && rerunRequested;
+            rerunRequested = false;
+            if (runAgain) {
+                queryInFlight = true;
+            }
+        }
+        if (runAgain) {
+            startQuery();
         }
     }
 
@@ -133,9 +168,13 @@ public final class PaperAnomalyWarningWorker
 
     @Override
     public void close() {
-        closed = true;
-        BukkitTask current = task;
-        task = null;
+        BukkitTask current;
+        synchronized (queryLock) {
+            closed = true;
+            rerunRequested = false;
+            current = task;
+            task = null;
+        }
         if (current != null) {
             current.cancel();
         }
