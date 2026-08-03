@@ -1,0 +1,47 @@
+name: Export Codacy evidence
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+
+jobs:
+  export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for Codacy and export checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p codacy-evidence
+          for attempt in $(seq 1 45); do
+            gh api -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" > codacy-evidence/all-check-runs.json
+            gh api -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/commits/${HEAD_SHA}/status?per_page=100" > codacy-evidence/combined-status.json
+            jq '[.check_runs[] | select((((.app.slug // "") + " " + (.name // "")) | ascii_downcase | contains("codacy")))]' codacy-evidence/all-check-runs.json > codacy-evidence/codacy-check-runs.json
+            check_count=$(jq 'length' codacy-evidence/codacy-check-runs.json)
+            pending_count=$(jq '[.[] | select(.status != "completed")] | length' codacy-evidence/codacy-check-runs.json)
+            if [ "${check_count}" -gt 0 ] && [ "${pending_count}" -eq 0 ]; then break; fi
+            sleep 20
+          done
+          : > codacy-evidence/annotation-pages.jsonl
+          while IFS= read -r check_id; do
+            gh api --paginate --slurp -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/check-runs/${check_id}/annotations?per_page=100" | jq -c --argjson checkRunId "${check_id}" '{checkRunId: $checkRunId, annotations: (add // [])}' >> codacy-evidence/annotation-pages.jsonl
+          done < <(jq -r '.[].id' codacy-evidence/codacy-check-runs.json)
+          if [ -s codacy-evidence/annotation-pages.jsonl ]; then jq -s '.' codacy-evidence/annotation-pages.jsonl > codacy-evidence/codacy-annotations.json; else printf '[]\n' > codacy-evidence/codacy-annotations.json; fi
+          jq -n --arg headSha "${HEAD_SHA}" --slurpfile checkRuns codacy-evidence/codacy-check-runs.json --slurpfile annotations codacy-evidence/codacy-annotations.json --slurpfile statuses codacy-evidence/combined-status.json '{headSha: $headSha, checkRuns: $checkRuns[0], annotationPages: $annotations[0], combinedStatus: $statuses[0]}' > codacy-evidence/evidence.json
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codacy-evidence-${{ github.event.pull_request.head.sha }}
+          path: codacy-evidence/
+          if-no-files-found: error
+          retention-days: 3
