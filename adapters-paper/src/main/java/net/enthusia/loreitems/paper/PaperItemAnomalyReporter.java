@@ -132,13 +132,6 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                 return Submission.IGNORED;
             }
             ReportKey key = report.key();
-            if (pending.containsKey(key)) {
-                pending.put(key, report);
-                return Submission.QUEUED;
-            }
-            if (inFlight.contains(key)) {
-                return queue(report);
-            }
             Long retryAt = retryAfterNanos.get(key);
             long now = System.nanoTime();
             if (retryAt != null) {
@@ -146,6 +139,13 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                     return Submission.IGNORED;
                 }
                 retryAfterNanos.remove(key);
+            }
+            if (pending.containsKey(key)) {
+                pending.put(key, report);
+                return Submission.QUEUED;
+            }
+            if (inFlight.contains(key)) {
+                return queue(report);
             }
             if (inFlight.size() < maxInFlight) {
                 inFlight.add(key);
