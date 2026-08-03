@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.sqlite;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
@@ -46,7 +47,7 @@ public final class BoundedDatabaseExecutor {
             return future;
         }
         try {
-            executor.execute(() -> runTask(task, future));
+            executor.execute(new SubmittedTask<>(task, future));
             metrics.setGauge("database.queue.depth", executor.getQueue().size());
         } catch (RejectedExecutionException exception) {
             metrics.increment("database.queue.rejected");
@@ -61,14 +62,28 @@ public final class BoundedDatabaseExecutor {
 
     public boolean shutdown(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must not be negative");
+        }
         accepting.set(false);
         executor.shutdown();
         boolean terminated = await(timeout);
         if (!terminated) {
             metrics.increment("database.shutdown.forced");
-            executor.shutdownNow();
+            rejectAbandoned(executor.shutdownNow());
+            metrics.setGauge("database.queue.depth", executor.getQueue().size());
         }
         return terminated;
+    }
+
+    private void rejectAbandoned(List<Runnable> abandonedTasks) {
+        RejectedExecutionException exception =
+                new RejectedExecutionException("Database task was abandoned during forced shutdown");
+        for (Runnable abandonedTask : abandonedTasks) {
+            if (abandonedTask instanceof AbandonableTask task) {
+                task.reject(exception);
+            }
+        }
     }
 
     private <T> void runTask(Callable<T> task, CompletableFuture<T> future) {
@@ -89,6 +104,30 @@ public final class BoundedDatabaseExecutor {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return false;
+        }
+    }
+
+    private interface AbandonableTask extends Runnable {
+        void reject(RejectedExecutionException exception);
+    }
+
+    private final class SubmittedTask<T> implements AbandonableTask {
+        private final Callable<T> task;
+        private final CompletableFuture<T> future;
+
+        private SubmittedTask(Callable<T> task, CompletableFuture<T> future) {
+            this.task = task;
+            this.future = future;
+        }
+
+        @Override
+        public void run() {
+            runTask(task, future);
+        }
+
+        @Override
+        public void reject(RejectedExecutionException exception) {
+            future.completeExceptionally(exception);
         }
     }
 }
