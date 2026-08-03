@@ -3,11 +3,13 @@ package net.enthusia.loreitems.paper;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
@@ -19,16 +21,19 @@ import org.bukkit.plugin.Plugin;
 
 final class PaperItemAnomalyReporter implements AutoCloseable {
     private static final Duration REPORT_COOLDOWN = Duration.ofSeconds(5);
-    private static final int COOLDOWN_CAPACITY_MULTIPLIER = 4;
+    private static final int CAPACITY_MULTIPLIER = 4;
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
     private final int maxInFlight;
     private final int maxCooldowns;
+    private final int maxPending;
     private final Object lock = new Object();
     private final Set<ReportKey> inFlight = new HashSet<>();
     private final Map<ReportKey, Long> retryAfterNanos = new HashMap<>();
+    private final LinkedHashMap<ReportKey, PendingReport> pending = new LinkedHashMap<>();
 
+    private boolean overflowLogged;
     private boolean closed;
 
     PaperItemAnomalyReporter(Plugin plugin, int maxInFlight) {
@@ -37,7 +42,8 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
         this.maxInFlight = maxInFlight;
-        this.maxCooldowns = Math.multiplyExact(maxInFlight, COOLDOWN_CAPACITY_MULTIPLIER);
+        this.maxCooldowns = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
+        this.maxPending = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
     }
 
     ItemIdentityReadResult inspect(
@@ -95,9 +101,6 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                 location.type(),
                 location.locationKey(),
                 location.containerPath());
-        if (!tryBegin(key)) {
-            return;
-        }
         ItemAnomalyObservationUseCase.Request request =
                 new ItemAnomalyObservationUseCase.Request(
                         kind,
@@ -106,64 +109,120 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                         evidenceLocations,
                         source,
                         detail);
+        PendingReport report = new PendingReport(key, request, useCase, warningSink);
+        Submission submission = submit(report);
+        if (submission == Submission.START) {
+            start(report);
+        } else if (submission == Submission.OVERFLOW) {
+            plugin.getLogger().warning(
+                    "Lore-item anomaly evidence queue is full; the newest observation was not "
+                            + "persisted and existing durable evidence was left unchanged.");
+        }
+    }
+
+    private Submission submit(PendingReport report) {
+        synchronized (lock) {
+            if (closed) {
+                return Submission.IGNORED;
+            }
+            ReportKey key = report.key();
+            if (pending.containsKey(key)) {
+                pending.put(key, report);
+                return Submission.QUEUED;
+            }
+            if (inFlight.contains(key)) {
+                return queue(report);
+            }
+            Long retryAt = retryAfterNanos.get(key);
+            long now = System.nanoTime();
+            if (retryAt != null) {
+                if (retryAt > now) {
+                    return Submission.IGNORED;
+                }
+                retryAfterNanos.remove(key);
+            }
+            if (inFlight.size() < maxInFlight) {
+                inFlight.add(key);
+                return Submission.START;
+            }
+            return queue(report);
+        }
+    }
+
+    private Submission queue(PendingReport report) {
+        if (pending.size() >= maxPending) {
+            if (overflowLogged) {
+                return Submission.IGNORED;
+            }
+            overflowLogged = true;
+            return Submission.OVERFLOW;
+        }
+        pending.put(report.key(), report);
+        return Submission.QUEUED;
+    }
+
+    private void start(PendingReport report) {
+        CompletionStage<ItemAnomalyObservationUseCase.Result> stage;
         try {
-            useCase.record(request).whenComplete((result, failure) -> {
-                finish(key);
-                if (failure != null) {
-                    plugin.getLogger().log(
-                            Level.SEVERE,
-                            "Could not persist lore-item identity anomaly evidence.",
-                            unwrap(failure));
-                    return;
-                }
-                if (result == null) {
-                    plugin.getLogger().severe(
-                            "Lore-item identity anomaly persistence returned no result.");
-                    return;
-                }
-                if (result.shouldWarnStaff() && warningSink != null) {
-                    warningSink.requestWarning();
-                }
-            });
+            stage = Objects.requireNonNull(
+                    report.useCase().record(report.request()),
+                    "identity anomaly persistence returned null stage");
         } catch (RuntimeException exception) {
-            finish(key);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not start lore-item identity anomaly persistence.",
                     exception);
+            finishAndDrain(report.key());
+            return;
         }
+        stage.whenComplete((result, failure) -> {
+            if (failure != null) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Could not persist lore-item identity anomaly evidence.",
+                        unwrap(failure));
+            } else if (result == null) {
+                plugin.getLogger().severe(
+                        "Lore-item identity anomaly persistence returned no result.");
+            } else if (result.shouldWarnStaff() && report.warningSink() != null) {
+                report.warningSink().requestWarning();
+            }
+            finishAndDrain(report.key());
+        });
     }
 
-    private boolean tryBegin(ReportKey key) {
+    private void finishAndDrain(ReportKey completedKey) {
+        PendingReport next;
         synchronized (lock) {
-            if (closed) {
-                return false;
-            }
-            long now = System.nanoTime();
-            Long retryAt = retryAfterNanos.get(key);
-            if (retryAt != null) {
-                if (retryAt > now) {
-                    return false;
-                }
-                retryAfterNanos.remove(key);
-            }
-            if (inFlight.contains(key) || inFlight.size() >= maxInFlight) {
-                return false;
-            }
-            inFlight.add(key);
-            return true;
-        }
-    }
-
-    private void finish(ReportKey key) {
-        synchronized (lock) {
-            inFlight.remove(key);
-            if (!closed && retryAfterNanos.size() < maxCooldowns) {
+            inFlight.remove(completedKey);
+            if (!closed && !pending.containsKey(completedKey)
+                    && retryAfterNanos.size() < maxCooldowns) {
                 retryAfterNanos.put(
-                        key,
+                        completedKey,
                         System.nanoTime() + REPORT_COOLDOWN.toNanos());
             }
+            next = closed ? null : pollPending();
+            if (next != null) {
+                retryAfterNanos.remove(next.key());
+                inFlight.add(next.key());
+            }
+            if (pending.size() < maxPending) {
+                overflowLogged = false;
+            }
         }
+        if (next != null) {
+            start(next);
+        }
+    }
+
+    private PendingReport pollPending() {
+        var iterator = pending.entrySet().iterator();
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        PendingReport report = iterator.next().getValue();
+        iterator.remove();
+        return report;
     }
 
     private static Throwable unwrap(Throwable throwable) {
@@ -178,7 +237,27 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         synchronized (lock) {
             closed = true;
             inFlight.clear();
+            pending.clear();
             retryAfterNanos.clear();
+        }
+    }
+
+    private enum Submission {
+        START,
+        QUEUED,
+        OVERFLOW,
+        IGNORED
+    }
+
+    private record PendingReport(
+            ReportKey key,
+            ItemAnomalyObservationUseCase.Request request,
+            ItemAnomalyObservationUseCase useCase,
+            AnomalyWarningSink warningSink) {
+        private PendingReport {
+            Objects.requireNonNull(key, "key");
+            Objects.requireNonNull(request, "request");
+            Objects.requireNonNull(useCase, "useCase");
         }
     }
 
