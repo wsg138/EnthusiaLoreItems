@@ -363,10 +363,28 @@ CREATE TABLE external_delivery_requests (
 
 CREATE TABLE deleted_definition_markers (
     definition_id TEXT PRIMARY KEY,
-    lookup_key TEXT NOT NULL,
-    deleted_at INTEGER NOT NULL,
+    lookup_key TEXT NOT NULL CHECK (length(lookup_key) BETWEEN 1 AND 64),
+    deleted_at INTEGER NOT NULL CHECK (deleted_at >= 0),
     FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id)
 );
+
+CREATE INDEX idx_deleted_markers_recent
+    ON deleted_definition_markers(deleted_at DESC, definition_id);
+
+CREATE INDEX idx_deleted_markers_lookup_history
+    ON deleted_definition_markers(lookup_key, deleted_at DESC, definition_id);
+
+CREATE TRIGGER deleted_definition_marker_is_immutable
+BEFORE UPDATE ON deleted_definition_markers
+BEGIN
+    SELECT RAISE(ABORT, 'deleted definition marker is immutable');
+END;
+
+CREATE TRIGGER deleted_definition_marker_cannot_be_deleted
+BEFORE DELETE ON deleted_definition_markers
+BEGIN
+    SELECT RAISE(ABORT, 'deleted definition marker cannot be deleted');
+END;
 
 CREATE TABLE audit_events (
     audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
