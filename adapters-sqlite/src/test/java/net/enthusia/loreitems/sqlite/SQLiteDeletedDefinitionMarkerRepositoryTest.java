@@ -112,14 +112,14 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
 
             SQLiteDeletedDefinitionMarkerRepository repository =
                     new SQLiteDeletedDefinitionMarkerRepository(runtime);
-            var firstKeyPage = repository.listByLookupKey(repeatedKey, PageRequest.first(1))
+            PageRequest oneItemPage = PageRequest.first(1);
+            var firstKeyPage = repository.listByLookupKey(repeatedKey, oneItemPage)
                     .toCompletableFuture()
                     .join();
             assertEquals(java.util.List.of(second), firstKeyPage.items());
             assertTrue(firstKeyPage.hasMore());
 
-            var secondKeyPage = repository.listByLookupKey(
-                            repeatedKey, firstKeyPage.hasMore() ? PageRequest.first(1).next() : null)
+            var secondKeyPage = repository.listByLookupKey(repeatedKey, oneItemPage.next())
                     .toCompletableFuture()
                     .join();
             assertEquals(java.util.List.of(first), secondKeyPage.items());
