@@ -14,12 +14,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
+import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemFrame;
@@ -52,9 +54,8 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
 
     private final Plugin plugin;
     private final Supplier<DisplayItemObservationUseCase> useCaseSupplier;
+    private final IntSupplier maxInFlightSupplier;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
-    private final int maxInFlight;
-    private final int maxPending;
     private final Object workLock = new Object();
     private final Map<WorkKey, Set<LoreItemIdentity>> pending = new HashMap<>();
     private final Queue<DisplayItemObservationUseCase.Request> queued = new ArrayDeque<>();
@@ -70,14 +71,18 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             Plugin plugin,
             Supplier<DisplayItemObservationUseCase> useCaseSupplier,
             int maxInFlight) {
+        this(plugin, useCaseSupplier, () -> maxInFlight);
+    }
+
+    public PaperDisplayItemListener(
+            Plugin plugin,
+            Supplier<DisplayItemObservationUseCase> useCaseSupplier,
+            IntSupplier maxInFlightSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCaseSupplier = Objects.requireNonNull(useCaseSupplier, "useCaseSupplier");
-        if (maxInFlight < MIN_CAPACITY) {
-            throw new IllegalArgumentException("maxInFlight must be positive");
-        }
-        this.maxInFlight = maxInFlight;
-        this.maxPending = Math.multiplyExact(
-                maxInFlight, PENDING_CAPACITY_MULTIPLIER);
+        this.maxInFlightSupplier = Objects.requireNonNull(
+                maxInFlightSupplier, "maxInFlightSupplier");
+        currentMaxInFlight();
     }
 
     public void start() {
@@ -174,7 +179,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 }
                 return;
             }
-            if (pending.size() >= maxPending) {
+            if (pending.size() >= currentMaxPending()) {
                 plugin.getLogger().warning(
                         "Display-item observation backlog is full; current durable evidence was preserved.");
                 return;
@@ -261,8 +266,8 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             if (closed) {
                 return;
             }
-            if (inFlight >= maxInFlight) {
-                if (queued.size() < maxPending) {
+            if (inFlight >= currentMaxInFlight()) {
+                if (queued.size() < currentMaxPending()) {
                     queued.add(request);
                 } else {
                     plugin.getLogger().warning(
@@ -327,7 +332,9 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         DisplayItemObservationUseCase.Request next = null;
         synchronized (workLock) {
             inFlight--;
-            if (!closed && !queued.isEmpty()) {
+            if (!closed
+                    && !queued.isEmpty()
+                    && inFlight < currentMaxInFlight()) {
                 next = queued.remove();
                 inFlight++;
             }
@@ -378,6 +385,20 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 : null;
     }
 
+    private int currentMaxInFlight() {
+        int value = maxInFlightSupplier.getAsInt();
+        if (value < MIN_CAPACITY) {
+            throw new IllegalStateException("Configured mutation budget must be positive");
+        }
+        return value;
+    }
+
+    private int currentMaxPending() {
+        return Math.multiplyExact(
+                currentMaxInFlight(),
+                PENDING_CAPACITY_MULTIPLIER);
+    }
+
     private static Throwable unwrap(Throwable throwable) {
         if (throwable instanceof CompletionException exception && exception.getCause() != null) {
             return exception.getCause();
@@ -386,10 +407,11 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     }
 
     private static String locationKey(Entity entity) {
+        Location location = entity.getLocation();
         return entity.getWorld().getKey() + ":"
-                + entity.getLocation().getBlockX() + ":"
-                + entity.getLocation().getBlockY() + ":"
-                + entity.getLocation().getBlockZ() + ":"
+                + location.getBlockX() + ":"
+                + location.getBlockY() + ":"
+                + location.getBlockZ() + ":"
                 + entity.getUniqueId();
     }
 
