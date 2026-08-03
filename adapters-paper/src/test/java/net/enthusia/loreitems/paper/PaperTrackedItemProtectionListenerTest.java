@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
 import io.papermc.paper.event.block.BlockPreDispenseEvent;
+import io.papermc.paper.event.entity.EntityCompostItemEvent;
+import io.papermc.paper.event.entity.EntityDamageItemEvent;
+import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -112,6 +115,11 @@ class PaperTrackedItemProtectionListenerTest {
         listener.onDurabilityDamage(durability);
         assertTrue(durability.isCancelled());
 
+        EntityDamageItemEvent entityDurability =
+                new EntityDamageItemEvent(player, trackedStack, 1);
+        listener.onEntityDurabilityDamage(entityDurability);
+        assertTrue(entityDurability.isCancelled());
+
         Item trackedEntity = drop(trackedStack);
         EntityDamageEvent fire = new EntityDamageEvent(
                 trackedEntity,
@@ -130,6 +138,11 @@ class PaperTrackedItemProtectionListenerTest {
                 2.0);
         listener.onItemDamage(ordinaryFire);
         assertFalse(ordinaryFire.isCancelled());
+
+        EntityDamageItemEvent ordinaryDurability =
+                new EntityDamageItemEvent(player, ItemStack.of(Material.IRON_SWORD), 1);
+        listener.onEntityDurabilityDamage(ordinaryDurability);
+        assertFalse(ordinaryDurability.isCancelled());
     }
 
     @Test
@@ -160,10 +173,25 @@ class PaperTrackedItemProtectionListenerTest {
         listener.onBrewingFuel(brewingFuel);
         assertTrue(brewingFuel.isCancelled());
 
+        EntityCompostItemEvent compost =
+                new EntityCompostItemEvent(player, block, tracked, true);
+        listener.onEntityCompost(compost);
+        assertTrue(compost.isCancelled());
+
+        PlayerFlowerPotManipulateEvent flowerPot =
+                new PlayerFlowerPotManipulateEvent(player, block, tracked, true);
+        listener.onFlowerPotManipulate(flowerPot);
+        assertTrue(flowerPot.isCancelled());
+
         PlayerItemConsumeEvent ordinaryConsume = new PlayerItemConsumeEvent(
                 player, ItemStack.of(Material.APPLE), EquipmentSlot.HAND);
         listener.onConsume(ordinaryConsume);
         assertFalse(ordinaryConsume.isCancelled());
+
+        EntityCompostItemEvent ordinaryCompost = new EntityCompostItemEvent(
+                player, block, ItemStack.of(Material.WHEAT_SEEDS), true);
+        listener.onEntityCompost(ordinaryCompost);
+        assertFalse(ordinaryCompost.isCancelled());
     }
 
     @Test
