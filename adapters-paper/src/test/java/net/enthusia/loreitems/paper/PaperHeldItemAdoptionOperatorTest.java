@@ -34,14 +34,13 @@ class PaperHeldItemAdoptionOperatorTest {
     private static final NamespacedKey FOREIGN_KEY = Objects.requireNonNull(
             NamespacedKey.fromString("test:foreign-adoption"));
 
-    private ServerMock server;
     private PlayerMock player;
     private PaperHeldItemAdoptionOperator operator;
     private PaperItemIdentityCodec identityCodec;
 
     @BeforeEach
     void setUp() {
-        server = MockBukkit.mock();
+        ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
         operator = new PaperHeldItemAdoptionOperator();
         identityCodec = new PaperItemIdentityCodec();

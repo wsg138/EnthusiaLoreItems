@@ -16,6 +16,7 @@ import org.bukkit.inventory.PlayerInventory;
 
 public final class PaperHeldItemAdoptionOperator {
     private static final String SHA_256 = "SHA-256";
+    private static final int SINGLE_ITEM_AMOUNT = 1;
 
     private final PaperItemIdentityCodec identityCodec;
 
@@ -84,7 +85,7 @@ public final class PaperHeldItemAdoptionOperator {
                     ItemCodecFailure.INVALID_ITEM,
                     "Hold one non-air item before adopting it.");
         }
-        if (item.getAmount() != 1) {
+        if (item.getAmount() != SINGLE_ITEM_AMOUNT) {
             throw new ItemCodecException(
                     ItemCodecFailure.INVALID_ITEM,
                     "Adoption requires exactly one held item; stacked items are preserved unchanged.");
@@ -107,7 +108,8 @@ public final class PaperHeldItemAdoptionOperator {
     private boolean verifiedIdentity(
             ItemStack item,
             PreparedHeldItemAdoption adoption) {
-        if (item == null || item.getAmount() != 1 || item.getMaxStackSize() != 1) {
+        if (item == null || item.getAmount() != SINGLE_ITEM_AMOUNT
+                || item.getMaxStackSize() != SINGLE_ITEM_AMOUNT) {
             return false;
         }
         ItemIdentityReadResult result = identityCodec.readIdentity(item);

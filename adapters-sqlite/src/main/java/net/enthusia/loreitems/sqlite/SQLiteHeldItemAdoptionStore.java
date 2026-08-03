@@ -29,8 +29,11 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
     private static final String COMPLETED_EVENT = "held_item_adopted";
     private static final String REVIEW_EVENT = "held_item_adoption_review_required";
     private static final String OBSERVATION_SOURCE = "held-item-adoption";
+    private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";
+    private static final String COMPLETED_STATE = "COMPLETED";
     private static final int SINGLE_ROW = 1;
     private static final int MAX_REVIEW_REASON_LENGTH = 4_096;
+    private static final char FIRST_NON_CONTROL_CHARACTER = 0x20;
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
     private final SQLiteStorageRuntime storage;
@@ -131,10 +134,10 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
         if (mutation == null) {
             return false;
         }
-        if ("REVIEW_REQUIRED".equals(mutation.state())) {
+        if (REVIEW_REQUIRED_STATE.equals(mutation.state())) {
             return true;
         }
-        if ("COMPLETED".equals(mutation.state())
+        if (COMPLETED_STATE.equals(mutation.state())
                 || !adoption.claimToken().toString().equals(mutation.claimToken())) {
             return false;
         }
@@ -408,7 +411,7 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < FIRST_NON_CONTROL_CHARACTER) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);

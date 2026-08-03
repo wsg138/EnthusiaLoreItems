@@ -19,6 +19,8 @@ public record PreparedHeldItemAdoption(
         UUID claimToken,
         long preparedAtEpochMillis,
         long claimExpiresAtEpochMillis) {
+    private static final long EARLIEST_EPOCH_MILLIS = 0L;
+
     public PreparedHeldItemAdoption {
         Objects.requireNonNull(mutationId, "mutationId");
         Objects.requireNonNull(definitionKey, "definitionKey");
@@ -31,7 +33,7 @@ public record PreparedHeldItemAdoption(
         PrepareHeldItemAdoptionRequest normalized = new PrepareHeldItemAdoptionRequest(
                 definitionKey, playerId, selectedSlot, beforeFingerprint);
         beforeFingerprint = normalized.beforeFingerprint();
-        if (preparedAtEpochMillis < 0L) {
+        if (preparedAtEpochMillis < EARLIEST_EPOCH_MILLIS) {
             throw new IllegalArgumentException("preparedAtEpochMillis must not be negative");
         }
         if (claimExpiresAtEpochMillis <= preparedAtEpochMillis) {
