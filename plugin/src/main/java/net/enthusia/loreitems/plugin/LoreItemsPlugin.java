@@ -55,6 +55,7 @@ import net.enthusia.loreitems.paper.PaperDisplayItemListener;
 import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
+import net.enthusia.loreitems.paper.PaperMutationRecoveryWorker;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
@@ -116,6 +117,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
+    private volatile PaperMutationRecoveryWorker mutationRecoveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
     private volatile PaperDisplayItemListener displayItemListener;
     private volatile PaperIdentityAnomalyListener identityAnomalyListener;
@@ -227,6 +229,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
         PaperDirectDeliveryWorker worker = directDeliveryWorker;
         if (worker != null) {
             worker.close();
+        }
+        PaperMutationRecoveryWorker recoveryWorker = mutationRecoveryWorker;
+        if (recoveryWorker != null) {
+            recoveryWorker.close();
         }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
@@ -353,8 +359,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             return;
         }
         SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+        SQLitePendingMutationRepository mutationRepository =
+                new SQLitePendingMutationRepository(runtime);
         recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
-        recoverExpiredMutationClaims(runtime, loaded.deliveryClaimBatchSize());
+        recoverExpiredMutationClaims(
+                mutationRepository, loaded.deliveryClaimBatchSize());
         Clock clock = Clock.systemUTC();
         LoreItemsServiceV1 deliveryService = new FoundationLoreItemsService(
                 new PersistingExternalDeliveryUseCase(repository, clock));
@@ -385,7 +394,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         new SQLiteCurrentStateRepository(runtime),
                         new SQLiteObservationRepository(runtime),
                         repository,
-                        new SQLitePendingMutationRepository(runtime));
+                        mutationRepository);
         ItemAnomalyObservationUseCase anomalyObservationUseCase =
                 new PersistingItemAnomalyObservationUseCase(
                         new SQLiteItemAnomalyObservationStore(runtime),
@@ -397,6 +406,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 voidLossUseCase,
                 displayObservationUseCase)) {
             activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
+            activateMutationRecoveryWorker(mutationRepository, loaded);
             activateAdministrationServices(
                     administrationUseCase,
                     anomalyObservationUseCase,
@@ -439,6 +449,42 @@ public final class LoreItemsPlugin extends JavaPlugin {
             getLogger().log(
                     java.util.logging.Level.SEVERE,
                     "Could not activate the direct-delivery worker.",
+                    exception);
+        }
+    }
+
+    private void activateMutationRecoveryWorker(
+            SQLitePendingMutationRepository repository,
+            FoundationConfiguration loaded) {
+        try {
+            getServer().getScheduler().runTask(this, () -> {
+                synchronized (lifecycleLock) {
+                    if (stopping || mutationRecoveryWorker != null) {
+                        return;
+                    }
+                    PaperMutationRecoveryWorker worker =
+                            new PaperMutationRecoveryWorker(
+                                    this,
+                                    repository,
+                                    Math.min(
+                                            loaded.deliveryClaimBatchSize(),
+                                            loaded.mutationBudgetPerTick()));
+                    try {
+                        worker.start();
+                        mutationRecoveryWorker = worker;
+                    } catch (RuntimeException exception) {
+                        worker.close();
+                        getLogger().log(
+                                java.util.logging.Level.SEVERE,
+                                "Could not start expired mutation recovery; durable claims remain auditable.",
+                                exception);
+                    }
+                }
+            });
+        } catch (RuntimeException exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not activate expired mutation recovery.",
                     exception);
         }
     }
@@ -579,9 +625,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void recoverExpiredMutationClaims(
-            SQLiteStorageRuntime runtime, int recoveryLimit) {
-        SQLitePendingMutationRepository repository =
-                new SQLitePendingMutationRepository(runtime);
+            SQLitePendingMutationRepository repository, int recoveryLimit) {
         int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
                 .toCompletableFuture()
                 .join();
@@ -592,7 +636,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         if (recovered == recoveryLimit) {
             getLogger().warning(
                     "The bounded startup mutation-recovery batch was full; additional expired "
-                            + "claims may remain for later recovery.");
+                            + "claims remain for bounded periodic recovery.");
         }
     }
 
