@@ -111,34 +111,38 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         if (version == null || definitionBytes == null || instanceBytes == null || revision == null) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity fields use invalid data types");
         }
+
+        LoreItemIdentity identity;
+        try {
+            identity = decodeIdentity(definitionBytes, instanceBytes, revision);
+        } catch (IllegalArgumentException exception) {
+            return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity values are invalid");
+        }
         if (version != CURRENT_VERSION) {
             return invalid(
                     ItemIdentityFailure.UNSUPPORTED_VERSION,
-                    "Unsupported lore-item identity version " + version);
+                    "Unsupported lore-item identity version " + version,
+                    identity);
         }
         if (!isUnstackableSingleItem(item)) {
             return invalid(
                     ItemIdentityFailure.STACKING_VIOLATION,
-                    "Tracked lore items must have amount and maximum stack size equal to one");
+                    "Tracked lore items must have amount and maximum stack size equal to one",
+                    identity);
         }
-        return decodeIdentity(definitionBytes, instanceBytes, revision);
+        return new ItemIdentityReadResult.Tracked(identity);
     }
 
     private static boolean isUnstackableSingleItem(ItemStack item) {
         return item.getAmount() == 1 && item.getMaxStackSize() == 1;
     }
 
-    private static ItemIdentityReadResult decodeIdentity(
+    private static LoreItemIdentity decodeIdentity(
             byte[] definitionBytes, byte[] instanceBytes, long revision) {
-        try {
-            LoreItemIdentity identity = new LoreItemIdentity(
-                    new LoreDefinitionId(uuidFromBytes(definitionBytes)),
-                    new LoreInstanceId(uuidFromBytes(instanceBytes)),
-                    new TemplateRevision(revision));
-            return new ItemIdentityReadResult.Tracked(identity);
-        } catch (IllegalArgumentException exception) {
-            return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity values are invalid");
-        }
+        return new LoreItemIdentity(
+                new LoreDefinitionId(uuidFromBytes(definitionBytes)),
+                new LoreInstanceId(uuidFromBytes(instanceBytes)),
+                new TemplateRevision(revision));
     }
 
     private static ItemStack requireUsableClone(ItemStack item) {
@@ -178,8 +182,16 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         return new UUID(buffer.getLong(), buffer.getLong());
     }
 
-    private static ItemIdentityReadResult.Invalid invalid(ItemIdentityFailure failure, String detail) {
+    private static ItemIdentityReadResult.Invalid invalid(
+            ItemIdentityFailure failure, String detail) {
         return new ItemIdentityReadResult.Invalid(failure, detail);
+    }
+
+    private static ItemIdentityReadResult.Invalid invalid(
+            ItemIdentityFailure failure,
+            String detail,
+            LoreItemIdentity identityEvidence) {
+        return new ItemIdentityReadResult.Invalid(failure, detail, identityEvidence);
     }
 
     private static NamespacedKey key(String value) {
