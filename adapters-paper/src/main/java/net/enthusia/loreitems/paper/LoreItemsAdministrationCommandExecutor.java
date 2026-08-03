@@ -5,9 +5,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.function.IntSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.DirectDeliveryRecord;
@@ -36,16 +40,23 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private static final String USAGE = "Usage: /loreitems anomalies [page] | "
             + "/loreitems audit <instance-uuid> [page] | /loreitems recovery [page]";
     private static final int MAX_SUMMARY_LENGTH = 180;
+    private static final int MAX_CONCURRENT_QUERIES = 32;
 
     private final Plugin plugin;
-    private final int pageSize;
+    private final IntSupplier pageSizeSupplier;
+    private final Set<CommandActor> activeActors = ConcurrentHashMap.newKeySet();
+    private final Semaphore queryCapacity = new Semaphore(MAX_CONCURRENT_QUERIES);
 
     public LoreItemsAdministrationCommandExecutor(Plugin plugin, int pageSize) {
+        this(plugin, () -> pageSize);
+    }
+
+    public LoreItemsAdministrationCommandExecutor(
+            Plugin plugin,
+            IntSupplier pageSizeSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        if (pageSize < 1 || pageSize > PageRequest.MAX_LIMIT) {
-            throw new IllegalArgumentException("pageSize is outside supported bounds");
-        }
-        this.pageSize = pageSize;
+        this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
+        validatePageSize(currentPageSize());
     }
 
     @Override
@@ -73,12 +84,23 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             sender.sendMessage(USAGE);
             return true;
         }
+        String subcommand = arguments[0].toLowerCase(java.util.Locale.ROOT);
+        if (!ANOMALIES_SUBCOMMAND.equals(subcommand)
+                && !AUDIT_SUBCOMMAND.equals(subcommand)
+                && !RECOVERY_SUBCOMMAND.equals(subcommand)) {
+            sender.sendMessage(USAGE);
+            return true;
+        }
         CommandActor actor = CommandActor.capture(sender);
-        switch (arguments[0].toLowerCase(java.util.Locale.ROOT)) {
+        if (!beginQuery(actor)) {
+            sender.sendMessage("A previous lore-item evidence query is still active; try again shortly.");
+            return true;
+        }
+        switch (subcommand) {
             case ANOMALIES_SUBCOMMAND -> executeAnomalies(actor, useCase, arguments);
             case AUDIT_SUBCOMMAND -> executeAudit(actor, useCase, arguments);
             case RECOVERY_SUBCOMMAND -> executeRecovery(actor, useCase, arguments);
-            default -> sender.sendMessage(USAGE);
+            default -> throw new IllegalStateException("Validated administration subcommand was lost");
         }
         return true;
     }
@@ -89,11 +111,28 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             String[] arguments) {
         PageRequest request = parsePage(actor, arguments, 1);
         if (request == null) {
+            finishQuery(actor);
             return;
         }
-        useCase.listActiveAnomalies(request).whenComplete((page, failure) -> {
+        CompletionStage<Page<InstanceAnomaly>> stage;
+        try {
+            stage = Objects.requireNonNull(
+                    useCase.listActiveAnomalies(request),
+                    "active anomaly query stage");
+        } catch (RuntimeException exception) {
+            finishQuery(actor);
+            handleFailure(actor, "active anomalies", exception);
+            return;
+        }
+        stage.whenComplete((page, failure) -> {
+            finishQuery(actor);
             if (failure != null) {
                 handleFailure(actor, "active anomalies", failure);
+                return;
+            }
+            if (page == null) {
+                handleFailure(actor, "active anomalies",
+                        new IllegalStateException("Active anomaly query returned no page"));
                 return;
             }
             notifyActor(actor, anomalyLines(page));
@@ -105,6 +144,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             LoreItemsAdministrationUseCase useCase,
             String[] arguments) {
         if (arguments.length < 2 || arguments.length > 3) {
+            finishQuery(actor);
             notifyActor(actor, List.of(USAGE));
             return;
         }
@@ -112,36 +152,60 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         try {
             instanceId = new LoreInstanceId(UUID.fromString(arguments[1]));
         } catch (IllegalArgumentException exception) {
+            finishQuery(actor);
             notifyActor(actor, List.of("The instance ID must be a valid UUID."));
             return;
         }
         PageRequest request = parsePage(actor, arguments, 2);
         if (request == null) {
+            finishQuery(actor);
             return;
         }
-        CompletionStage<StateEvidence> stateEvidence = useCase.findCurrentState(instanceId)
-                .thenCombine(
-                        useCase.listInstanceObservations(instanceId, request),
-                        StateEvidence::new);
-        CompletionStage<HistoryEvidence> historyEvidence =
-                useCase.listInstanceAnomalies(instanceId, request)
-                        .thenCombine(
-                                useCase.listInstanceAudit(instanceId, request),
-                                HistoryEvidence::new);
-        stateEvidence.thenCombine(
-                        historyEvidence,
-                        (state, history) -> new AuditView(
-                                state.currentState(),
-                                state.observations(),
-                                history.anomalies(),
-                                history.audit()))
-                .whenComplete((view, failure) -> {
-                    if (failure != null) {
-                        handleFailure(actor, "instance audit", failure);
-                        return;
-                    }
-                    notifyActor(actor, auditLines(instanceId, view));
-                });
+        CompletionStage<AuditView> auditView;
+        try {
+            CompletionStage<Optional<InstanceCurrentState>> currentState = Objects.requireNonNull(
+                    useCase.findCurrentState(instanceId),
+                    "current-state query stage");
+            CompletionStage<Page<InstanceObservation>> observations = Objects.requireNonNull(
+                    useCase.listInstanceObservations(instanceId, request),
+                    "observation query stage");
+            CompletionStage<Page<InstanceAnomaly>> anomalies = Objects.requireNonNull(
+                    useCase.listInstanceAnomalies(instanceId, request),
+                    "instance anomaly query stage");
+            CompletionStage<Page<AuditEventRecord>> audit = Objects.requireNonNull(
+                    useCase.listInstanceAudit(instanceId, request),
+                    "audit-event query stage");
+            CompletionStage<StateEvidence> stateEvidence = currentState.thenCombine(
+                    observations,
+                    StateEvidence::new);
+            CompletionStage<HistoryEvidence> historyEvidence = anomalies.thenCombine(
+                    audit,
+                    HistoryEvidence::new);
+            auditView = stateEvidence.thenCombine(
+                    historyEvidence,
+                    (state, history) -> new AuditView(
+                            state.currentState(),
+                            state.observations(),
+                            history.anomalies(),
+                            history.audit()));
+        } catch (RuntimeException exception) {
+            finishQuery(actor);
+            handleFailure(actor, "instance audit", exception);
+            return;
+        }
+        auditView.whenComplete((view, failure) -> {
+            finishQuery(actor);
+            if (failure != null) {
+                handleFailure(actor, "instance audit", failure);
+                return;
+            }
+            if (view == null) {
+                handleFailure(actor, "instance audit",
+                        new IllegalStateException("Instance audit query returned no view"));
+                return;
+            }
+            notifyActor(actor, auditLines(instanceId, view));
+        });
     }
 
     private void executeRecovery(
@@ -150,11 +214,28 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             String[] arguments) {
         PageRequest request = parsePage(actor, arguments, 1);
         if (request == null) {
+            finishQuery(actor);
             return;
         }
-        useCase.listRecovery(request).whenComplete((page, failure) -> {
+        CompletionStage<LoreItemsAdministrationUseCase.RecoveryPage> stage;
+        try {
+            stage = Objects.requireNonNull(
+                    useCase.listRecovery(request),
+                    "recovery query stage");
+        } catch (RuntimeException exception) {
+            finishQuery(actor);
+            handleFailure(actor, "recovery work", exception);
+            return;
+        }
+        stage.whenComplete((page, failure) -> {
+            finishQuery(actor);
             if (failure != null) {
                 handleFailure(actor, "recovery work", failure);
+                return;
+            }
+            if (page == null) {
+                handleFailure(actor, "recovery work",
+                        new IllegalStateException("Recovery query returned no page"));
                 return;
             }
             notifyActor(actor, recoveryLines(page));
@@ -182,11 +263,41 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             notifyActor(actor, List.of("Page must be a positive whole number."));
             return null;
         }
+        int pageSize = currentPageSize();
         try {
             return new PageRequest(Math.multiplyExact(pageNumber - 1, pageSize), pageSize);
         } catch (ArithmeticException exception) {
             notifyActor(actor, List.of("That page number is too large."));
             return null;
+        }
+    }
+
+    private boolean beginQuery(CommandActor actor) {
+        if (!queryCapacity.tryAcquire()) {
+            return false;
+        }
+        if (!activeActors.add(actor)) {
+            queryCapacity.release();
+            return false;
+        }
+        return true;
+    }
+
+    private void finishQuery(CommandActor actor) {
+        if (activeActors.remove(actor)) {
+            queryCapacity.release();
+        }
+    }
+
+    private int currentPageSize() {
+        int pageSize = pageSizeSupplier.getAsInt();
+        validatePageSize(pageSize);
+        return pageSize;
+    }
+
+    private static void validatePageSize(int pageSize) {
+        if (pageSize < 1 || pageSize > PageRequest.MAX_LIMIT) {
+            throw new IllegalArgumentException("pageSize is outside supported bounds");
         }
     }
 
