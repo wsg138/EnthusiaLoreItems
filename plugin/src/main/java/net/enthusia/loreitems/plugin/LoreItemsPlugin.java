@@ -40,6 +40,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private final AtomicReference<AtomicConfiguration> configuration =
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
+    private final Object lifecycleLock = new Object();
     private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
             ConcurrentHashMap.newKeySet();
     private final ThreadPoolExecutor lifecycleExecutor = new ThreadPoolExecutor(
@@ -77,8 +78,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        stopping = true;
-        serviceDelegate.set(new UnavailableService("The plugin is stopping."));
+        synchronized (lifecycleLock) {
+            stopping = true;
+            serviceDelegate.set(new UnavailableService("The plugin is stopping."));
+        }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
         failPendingReloads(STOPPING_RELOAD_DETAIL);
@@ -97,15 +100,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
         CompletableFuture<AtomicConfiguration.ReloadResult> result = new CompletableFuture<>();
         pendingReloads.add(result);
         result.whenComplete((ignored, throwable) -> pendingReloads.remove(result));
-        if (stopping) {
-            result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
-            return result;
-        }
-        try {
-            lifecycleExecutor.execute(() -> reloadConfiguration(result));
-        } catch (RejectedExecutionException exception) {
-            result.complete(new AtomicConfiguration.ReloadResult(
-                    false, "The lifecycle queue is not accepting reload work."));
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
+                return result;
+            }
+            try {
+                lifecycleExecutor.execute(() -> reloadConfiguration(result));
+            } catch (RejectedExecutionException exception) {
+                result.complete(new AtomicConfiguration.ReloadResult(
+                        false, "The lifecycle queue is not accepting reload work."));
+            }
         }
         return result;
     }
@@ -119,11 +124,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
         try {
             FoundationConfiguration candidate =
                     new FoundationConfigurationLoader(getDataFolder().toPath()).loadOrCreate();
-            if (stopping || result.isDone()) {
-                result.complete(new AtomicConfiguration.ReloadResult(false, STOPPING_RELOAD_DETAIL));
-                return;
+            synchronized (lifecycleLock) {
+                if (stopping || result.isDone()) {
+                    result.complete(new AtomicConfiguration.ReloadResult(
+                            false, STOPPING_RELOAD_DETAIL));
+                    return;
+                }
+                result.complete(configuration.get().replace(candidate));
             }
-            result.complete(configuration.get().replace(candidate));
         } catch (Exception exception) {
             result.complete(new AtomicConfiguration.ReloadResult(
                     false,
@@ -141,7 +149,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
         try {
             FoundationConfiguration loaded =
                     new FoundationConfigurationLoader(dataDirectory).loadOrCreate();
-            configuration.set(new AtomicConfiguration(loaded));
+            synchronized (lifecycleLock) {
+                if (stopping) {
+                    return;
+                }
+                configuration.set(new AtomicConfiguration(loaded));
+            }
 
             MetricsPort metrics = MetricsPort.noOp();
             BoundedDatabaseExecutor databaseExecutor = new BoundedDatabaseExecutor(
@@ -152,16 +165,31 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     new MigrationRunner(),
                     databaseExecutor,
                     metrics);
-            storageRuntime = runtime;
+            boolean published;
+            synchronized (lifecycleLock) {
+                published = !stopping;
+                if (published) {
+                    storageRuntime = runtime;
+                }
+            }
+            if (!published) {
+                runtime.close(Duration.ZERO);
+                return;
+            }
             SQLiteStorageRuntime.StartupResult startup = runtime.start().toCompletableFuture().join();
             if (stopping) {
-                runtime.close(Duration.ofSeconds(loaded.databaseShutdownTimeoutSeconds()));
                 return;
             }
             if (startup.state() != StorageState.READ_WRITE) {
-                serviceDelegate.set(new UnavailableService(
-                        "LoreItems is in degraded read-only mode: " + startup.detail()));
-                getLogger().severe("LoreItems entered degraded read-only mode: " + startup.detail());
+                synchronized (lifecycleLock) {
+                    if (stopping) {
+                        return;
+                    }
+                    serviceDelegate.set(new UnavailableService(
+                            "LoreItems is in degraded read-only mode: " + startup.detail()));
+                }
+                getLogger().severe(
+                        "LoreItems entered degraded read-only mode: " + startup.detail());
                 return;
             }
 
@@ -173,13 +201,22 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 getLogger().warning(
                         "Moved " + recovered + " expired delivery claims to REVIEW_REQUIRED.");
             }
-            serviceDelegate.set(new FoundationLoreItemsService(
-                    new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())));
+            synchronized (lifecycleLock) {
+                if (stopping) {
+                    return;
+                }
+                serviceDelegate.set(new FoundationLoreItemsService(
+                        new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())));
+            }
             getLogger().info(
                     "Durable foundation storage is active; physical inventory delivery remains deferred.");
         } catch (Exception exception) {
-            serviceDelegate.set(new UnavailableService(
-                    "Foundation initialization failed: " + safeMessage(exception)));
+            synchronized (lifecycleLock) {
+                if (!stopping) {
+                    serviceDelegate.set(new UnavailableService(
+                            "Foundation initialization failed: " + safeMessage(exception)));
+                }
+            }
             getLogger().severe(
                     "LoreItems foundation initialization failed; writes remain unavailable: "
                             + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
