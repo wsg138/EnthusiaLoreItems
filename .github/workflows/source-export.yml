@@ -16,7 +16,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Package source
-        run: tar --exclude=.git --exclude='**/build' -czf "$RUNNER_TEMP/review-source.tar.gz" .
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/review-source.tar.gz" HEAD
       - uses: actions/upload-artifact@v4
         with:
           name: review-source-${{ github.event.pull_request.head.sha }}
