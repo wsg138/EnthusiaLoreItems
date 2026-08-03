@@ -27,6 +27,7 @@ import org.bukkit.plugin.Plugin;
 
 public final class PaperTrackedItemProtectionListener implements Listener, AutoCloseable {
     private static final int MAX_COMPLETION_ATTEMPTS = 3;
+    private static final int COOLDOWN_CAPACITY_MULTIPLIER = 4;
     private static final Duration RETRY_COOLDOWN = Duration.ofSeconds(5);
 
     private final Plugin plugin;
@@ -50,7 +51,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
         this.maxInFlight = maxInFlight;
-        this.maxCooldowns = Math.multiplyExact(maxInFlight, 4);
+        this.maxCooldowns = Math.multiplyExact(maxInFlight, COOLDOWN_CAPACITY_MULTIPLIER);
     }
 
     public void start() {
@@ -115,11 +116,12 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         if (closed || !tryBegin(instanceId)) {
             return;
         }
+        VoidLossUseCase useCase = useCaseSupplier.get();
         VoidLossUseCase.Request request = new VoidLossUseCase.Request(
                 identity,
                 item.getUniqueId(),
                 locationKey(item));
-        useCaseSupplier.get().prepare(request).whenComplete((result, failure) -> {
+        useCase.prepare(request).whenComplete((result, failure) -> {
             if (failure != null) {
                 logFailure("Could not prepare terminal void loss", failure);
                 finish(instanceId, true);
@@ -129,7 +131,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
                 finish(instanceId, true);
                 return;
             }
-            runOnServerThread(() -> applyPreparedLoss(result.prepared()));
+            schedulePreparedLoss(useCase, result.prepared());
         });
     }
 
@@ -145,49 +147,67 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         return inFlight.size() < maxInFlight && inFlight.putIfAbsent(instanceId, Boolean.TRUE) == null;
     }
 
-    private void applyPreparedLoss(PreparedVoidLoss loss) {
+    private void schedulePreparedLoss(VoidLossUseCase useCase, PreparedVoidLoss loss) {
         if (closed) {
-            requireReview(loss, "Plugin stopped before the prepared void removal ran.");
+            requireReview(useCase, loss, "Plugin stopped before the prepared void removal was scheduled.");
+            return;
+        }
+        try {
+            plugin.getServer().getScheduler().runTask(
+                    plugin,
+                    () -> applyPreparedLoss(useCase, loss));
+        } catch (RuntimeException exception) {
+            logFailure("Could not schedule prepared void loss", exception);
+            requireReview(useCase, loss, "The prepared void removal could not be scheduled.");
+        }
+    }
+
+    private void applyPreparedLoss(VoidLossUseCase useCase, PreparedVoidLoss loss) {
+        if (closed) {
+            requireReview(useCase, loss, "Plugin stopped before the prepared void removal ran.");
             return;
         }
         Entity entity = plugin.getServer().getEntity(loss.entityId());
         if (!(entity instanceof Item item) || !item.isValid() || item.isDead()) {
-            requireReview(loss, "The prepared item entity was unavailable before removal.");
+            requireReview(useCase, loss, "The prepared item entity was unavailable before removal.");
             return;
         }
         ItemIdentityReadResult observed = identityCodec.readIdentity(item.getItemStack());
         if (!(observed instanceof ItemIdentityReadResult.Tracked tracked)
                 || !tracked.identity().equals(loss.identity())) {
-            requireReview(loss, "The item identity changed after void loss was prepared.");
+            requireReview(useCase, loss, "The item identity changed after void loss was prepared.");
             return;
         }
         if (item.getLocation().getY() >= item.getWorld().getMinHeight()) {
-            abort(loss, "The item was no longer below the world's minimum height.");
+            abort(useCase, loss, "The item was no longer below the world's minimum height.");
             return;
         }
         item.remove();
-        complete(loss, 1);
+        complete(useCase, loss, 1);
     }
 
-    private void complete(PreparedVoidLoss loss, int attempt) {
-        useCaseSupplier.get().complete(loss).whenComplete((completed, failure) -> {
+    private void complete(VoidLossUseCase useCase, PreparedVoidLoss loss, int attempt) {
+        useCase.complete(loss).whenComplete((completed, failure) -> {
             if (failure == null && Boolean.TRUE.equals(completed)) {
                 finish(loss.identity().instanceId().value(), false);
                 return;
             }
             if (attempt < MAX_COMPLETION_ATTEMPTS && !closed) {
-                complete(loss, attempt + 1);
+                complete(useCase, loss, attempt + 1);
                 return;
             }
             if (failure != null) {
                 logFailure("Could not complete terminal void loss", failure);
             }
-            requireReview(loss, "The item entity was removed but durable completion was not confirmed.");
+            requireReview(
+                    useCase,
+                    loss,
+                    "The item entity was removed but durable completion was not confirmed.");
         });
     }
 
-    private void abort(PreparedVoidLoss loss, String reason) {
-        useCaseSupplier.get().abort(loss, reason).whenComplete((ignored, failure) -> {
+    private void abort(VoidLossUseCase useCase, PreparedVoidLoss loss, String reason) {
+        useCase.abort(loss, reason).whenComplete((ignored, failure) -> {
             if (failure != null) {
                 logFailure("Could not abort prepared void loss", failure);
             }
@@ -195,8 +215,11 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         });
     }
 
-    private void requireReview(PreparedVoidLoss loss, String reason) {
-        useCaseSupplier.get().requireReview(loss, reason).whenComplete((ignored, failure) -> {
+    private void requireReview(
+            VoidLossUseCase useCase,
+            PreparedVoidLoss loss,
+            String reason) {
+        useCase.requireReview(loss, reason).whenComplete((ignored, failure) -> {
             if (failure != null) {
                 logFailure("Could not mark void loss for review", failure);
             }
@@ -208,17 +231,6 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         inFlight.remove(instanceId);
         if (cooldown && retryAfterNanos.size() < maxCooldowns) {
             retryAfterNanos.put(instanceId, System.nanoTime() + RETRY_COOLDOWN.toNanos());
-        }
-    }
-
-    private void runOnServerThread(Runnable task) {
-        if (closed) {
-            return;
-        }
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, task);
-        } catch (RuntimeException exception) {
-            logFailure("Could not schedule prepared void loss", exception);
         }
     }
 
