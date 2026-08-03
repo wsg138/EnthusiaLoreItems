@@ -42,6 +42,7 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
             SQLiteDeletedDefinitionMarkerRepository repository =
                     new SQLiteDeletedDefinitionMarkerRepository(firstRuntime);
 
+            repository.create(expected).toCompletableFuture().join();
             assertEquals(
                     expected,
                     repository.findByDefinitionId(definitionId)
