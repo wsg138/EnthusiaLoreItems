@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.CreateDefinitionRequest;
 import net.enthusia.loreitems.application.CreateDefinitionResult;
@@ -77,8 +78,9 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
     }
 
     private void submitCreate(Player player, String[] arguments) {
+        DefinitionKey key = null;
         try {
-            DefinitionKey key = new DefinitionKey(arguments[1]);
+            key = new DefinitionKey(arguments[1]);
             EncodedItemTemplate template =
                     snapshotter.snapshot(player.getInventory().getItemInMainHand());
             String displayName = String.join(
@@ -87,10 +89,23 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
             CreateDefinitionRequest request = new CreateDefinitionRequest(
                     key, displayName, template, player.getUniqueId());
             UUID playerId = player.getUniqueId();
-            useCase.create(request).whenComplete((result, throwable) ->
-                    scheduleResult(playerId, key, result, throwable));
+            CompletionStage<CreateDefinitionResult> creation = Objects.requireNonNull(
+                    useCase.create(request),
+                    "definition creation stage");
+            creation.whenComplete((result, throwable) ->
+                    scheduleResult(playerId, request.key(), result, throwable));
         } catch (IllegalArgumentException | ItemCodecException exception) {
             player.sendMessage(exception.getMessage());
+        } catch (RuntimeException exception) {
+            DefinitionKey attemptedKey = key;
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    attemptedKey == null
+                            ? "Could not submit lore definition creation."
+                            : "Could not submit definition creation for key "
+                                    + attemptedKey.value(),
+                    exception);
+            player.sendMessage("Lore definition creation could not be submitted.");
         }
     }
 
@@ -124,8 +139,16 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
             }
             return;
         }
+        if (result == null) {
+            plugin.getLogger().severe(
+                    "Definition creation returned no result for key " + key.value());
+            if (player != null) {
+                player.sendMessage("Lore definition creation returned no durable result.");
+            }
+            return;
+        }
         if (player != null) {
-            sendResult(player, key, Objects.requireNonNull(result, "result"));
+            sendResult(player, key, result);
         }
     }
 
@@ -146,8 +169,6 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
                     "An active lore definition already uses key '" + key.value() + "'.");
             case SERVICE_UNAVAILABLE -> player.sendMessage(
                     "Lore item storage is not currently available for writes.");
-            default -> throw new IllegalStateException(
-                    "Unsupported create-definition status: " + status);
         }
     }
 
