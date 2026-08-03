@@ -76,13 +76,21 @@ A verified write completes the mutation through `APPLIED`, `VERIFIED`, and `COMP
 
 Only one adoption per administrator is active at a time, and global in-flight adoption bookkeeping is hard-bounded. No live `Player`, inventory, or `ItemStack` reference crosses the asynchronous database boundary.
 
-## Durable external delivery foundation
+## Durable direct delivery
 
-The versioned Bukkit service now durably accepts idempotent external delivery requests when an active definition exists. One transaction creates the instance identity, pending direct-delivery record, and external operation result. Replaying the same external operation ID with the same arguments returns `ALREADY_ACCEPTED` and creates no additional instance.
+Administrators with `enthusia.loreitems.admin.give` can queue one fresh instance for themselves, an online or cached player name, or an explicit offline-player UUID:
 
-Physical inventory insertion remains deliberately inactive until the next implementation phase. `ACCEPTED_QUEUED` means durable intent exists, not that an item was inserted.
+```text
+/loreitems give <lookup-key> [online/cached player name or UUID]
+```
 
-Pending deliveries are claimed in bounded pages with a claim token and lease. Compare-and-set transitions require the expected state and claim token. A reservation that expires across restart is moved to `REVIEW_REQUIRED`; it is never silently retried because a later physical side effect could be ambiguous.
+The command accepts no physical side effect before SQLite commits a fresh instance identity, queued-delivery observation/current-state projection, direct-delivery row, external idempotency result, and audit event in one transaction. Replaying the same external operation ID with the same arguments returns `ALREADY_ACCEPTED` and creates no additional instance.
+
+A bounded worker claims only the smaller of the configured delivery batch and per-tick mutation budget. Each claim carries the exact definition revision and immutable encoded template. Paper template decoding, hidden identity assignment, empty-slot selection, insertion, and immediate reread occur only on the server thread. The item is forced to amount and maximum stack size one, and completion is persisted only after the exact slot contains the expected definition, instance UUID, and revision.
+
+Offline players and full inventories return safely to `PENDING` with a retry time. Nothing is dropped as overflow. Player join wakes matching pending deliveries, while a bounded low-frequency poll resumes queued work after restart and eventually retries full inventories. A crash or persistence failure after physical insertion is never retried blindly: claimed or partially applied work expires or is moved explicitly to `REVIEW_REQUIRED` for staff inspection.
+
+Successful completion atomically advances `RESERVED -> APPLIED -> VERIFIED -> COMPLETED`, appends a confirmed player-inventory observation, replaces the queued current-state projection, clears the claim, and records the verified item fingerprint and inventory slot in audit history. No live `Player`, inventory, or mutable `ItemStack` reference crosses the asynchronous database boundary.
 
 ## Degraded startup and recovery
 
@@ -92,6 +100,6 @@ Operators should preserve the database file, inspect the logged startup error, v
 
 ## Current limitations
 
-The current PR 2 slice creates definitions and supports administrator-held-item adoption only. It does not execute queued direct delivery, handle offline/full-inventory delivery, add environmental protections or broad listeners, manage display entities or mob pickup, warn about duplicate observations, expose GUIs, edit templates, execute deletion, or run campaigns.
+The current PR 2 slices create definitions, adopt held items, and execute durable direct delivery with offline/full-inventory waiting. Environmental and durability protection, void terminal loss, display entities, mob pickup prevention, broad reconciliation, duplicate/malformed warnings, GUIs, editing, deletion, and campaigns remain unfinished.
 
 No live Paper/Leaf server behavior has been tested. Automated codec and SQLite tests do not prove real-server command registration, item-component serialization, reload behavior, or operator workflow.

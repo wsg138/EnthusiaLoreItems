@@ -13,6 +13,31 @@ public interface DirectDeliveryRepository {
     CompletionStage<Page<DirectDeliveryRecord>> claimPending(
             String claimToken, Instant now, Duration lease, int limit);
 
+    CompletionStage<Page<PreparedDirectDelivery>> claimPreparedPending(
+            String claimToken, Instant now, Duration lease, int limit);
+
+    CompletionStage<Boolean> deferClaimed(
+            UUID deliveryId,
+            String claimToken,
+            Instant now,
+            Instant nextAttemptAt);
+
+    CompletionStage<Boolean> completeClaimed(
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            String afterFingerprint,
+            Instant completedAt);
+
+    CompletionStage<Boolean> moveClaimedToReview(
+            PreparedDirectDelivery delivery,
+            String reason,
+            Instant reviewedAt);
+
+    CompletionStage<Integer> wakePendingForPlayer(
+            UUID playerId,
+            Instant now,
+            int limit);
+
     CompletionStage<Boolean> transitionClaimed(
             UUID deliveryId,
             DirectDeliveryState expected,

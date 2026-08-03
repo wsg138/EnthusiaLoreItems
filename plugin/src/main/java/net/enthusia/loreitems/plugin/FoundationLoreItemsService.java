@@ -53,7 +53,7 @@ final class FoundationLoreItemsService implements LoreItemsServiceV1 {
     private static String detail(ExternalDeliveryOutcome outcome) {
         return switch (outcome) {
             case ACCEPTED_QUEUED ->
-                    "Durable intent accepted; physical inventory delivery is not active in this phase.";
+                    "Durable intent accepted; inventory delivery will run when the player is online with space.";
             case ALREADY_ACCEPTED -> "This external operation was already accepted.";
             case UNKNOWN_DEFINITION -> "No active lore definition has that key.";
             case SERVICE_UNAVAILABLE -> "Durable storage is unavailable.";

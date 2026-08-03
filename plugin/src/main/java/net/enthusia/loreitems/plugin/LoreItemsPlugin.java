@@ -22,10 +22,12 @@ import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.AtomicConfiguration;
 import net.enthusia.loreitems.application.CreateDefinitionResult;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
+import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
+import net.enthusia.loreitems.application.PersistingDirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
@@ -33,7 +35,10 @@ import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
 import net.enthusia.loreitems.application.StorageState;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
+import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
+import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
+import net.enthusia.loreitems.paper.PaperDirectDeliveryWorker;
 import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
@@ -82,6 +87,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new ThreadPoolExecutor.AbortPolicy());
 
     private volatile SQLiteStorageRuntime storageRuntime;
+    private volatile PaperDirectDeliveryWorker directDeliveryWorker;
     private volatile boolean stopping;
 
     @Override
@@ -113,7 +119,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 this,
                 adoptHeldItemDelegate::get,
                 new PaperHeldItemAdoptionOperator());
-        command.setExecutor(new LoreItemsCommandExecutor(createExecutor, adoptExecutor));
+        GiveLoreItemCommandExecutor giveExecutor = new GiveLoreItemCommandExecutor(
+                this,
+                registeredService,
+                this::wakeDirectDeliveries);
+        command.setExecutor(new LoreItemsCommandExecutor(
+                createExecutor,
+                adoptExecutor,
+                giveExecutor));
     }
 
     @Override
@@ -123,6 +136,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             serviceDelegate.set(new UnavailableService("The plugin is stopping."));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
+        }
+        PaperDirectDeliveryWorker worker = directDeliveryWorker;
+        if (worker != null) {
+            worker.close();
+            directDeliveryWorker = null;
         }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
@@ -251,19 +269,68 @@ public final class LoreItemsPlugin extends JavaPlugin {
         SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
         recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
         recoverExpiredMutationClaims(runtime, loaded.deliveryClaimBatchSize());
+        Clock clock = Clock.systemUTC();
         LoreItemsServiceV1 deliveryService = new FoundationLoreItemsService(
-                new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC()));
+                new PersistingExternalDeliveryUseCase(repository, clock));
+        DirectDeliveryExecutionUseCase directDeliveryUseCase =
+                new PersistingDirectDeliveryExecutionUseCase(
+                        repository,
+                        clock,
+                        Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
         CreateDefinitionUseCase createDefinitionUseCase = new PersistingCreateDefinitionUseCase(
-                new SQLiteUnitOfWork(runtime), Clock.systemUTC());
+                new SQLiteUnitOfWork(runtime), clock);
         AdoptHeldItemUseCase adoptHeldItemUseCase = new PersistingAdoptHeldItemUseCase(
                 new SQLiteHeldItemAdoptionStore(runtime),
-                Clock.systemUTC(),
+                clock,
                 Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
         if (publishWritableServices(
                 deliveryService, createDefinitionUseCase, adoptHeldItemUseCase)) {
+            activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
             getLogger().info(
-                    "Durable storage is active; held-item definition creation and adoption "
-                            + "are available. Physical direct delivery remains deferred.");
+                    "Durable storage is active; definition creation, adoption, and queued "
+                            + "direct delivery are available.");
+        }
+    }
+
+    private void activateDirectDeliveryWorker(
+            DirectDeliveryExecutionUseCase useCase,
+            FoundationConfiguration loaded) {
+        try {
+            getServer().getScheduler().runTask(this, () -> {
+                synchronized (lifecycleLock) {
+                    if (stopping || directDeliveryWorker != null) {
+                        return;
+                    }
+                    PaperDirectDeliveryWorker worker = new PaperDirectDeliveryWorker(
+                            this,
+                            useCase,
+                            new PaperDirectDeliveryOperator(),
+                            loaded.deliveryClaimBatchSize(),
+                            loaded.mutationBudgetPerTick());
+                    try {
+                        worker.start();
+                        directDeliveryWorker = worker;
+                    } catch (RuntimeException exception) {
+                        worker.close();
+                        getLogger().log(
+                                java.util.logging.Level.SEVERE,
+                                "Could not start the direct-delivery worker; queued work remains durable.",
+                                exception);
+                    }
+                }
+            });
+        } catch (RuntimeException exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not activate the direct-delivery worker.",
+                    exception);
+        }
+    }
+
+    private void wakeDirectDeliveries(UUID playerId) {
+        PaperDirectDeliveryWorker worker = directDeliveryWorker;
+        if (worker != null) {
+            worker.wakePlayer(playerId);
         }
     }
 

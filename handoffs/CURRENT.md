@@ -25,6 +25,12 @@ Report 0020 records the complete held-item adoption slice: durable preparation b
 
 The architecture document present in this repository is [`../docs/architecture.md`](../docs/architecture.md). Do not follow stale references to nonexistent root `ARCHITECTURE.md`, `CONTRIBUTING.md`, `AGENTS.md`, `docs/pr1-review-checklist.md`, or `docs/runtime-compatibility.md` unless those files are added later and verified live.
 
+## EnthusiaStaff reference access
+
+- Durable inspectable reference repository: `wsg138/EnthusiaStaff-Staging`.
+- Historical verified-runtime evidence: EnthusiaStaff Actions run `30794945133`, artifact `8848768264` (`https://github.com/wsg138/EnthusiaStaff/actions/runs/30794945133/artifacts/8848768264`).
+- Treat the staging repository as durable. The Actions artifact is evidence for that specific run and may expire.
+
 ## Exact next step
 
 Resume draft PR #3 and implement durable direct-delivery execution and recovery as the next complete logical slice.

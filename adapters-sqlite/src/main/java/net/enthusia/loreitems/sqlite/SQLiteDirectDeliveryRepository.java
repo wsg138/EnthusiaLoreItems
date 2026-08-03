@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -12,20 +13,40 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import java.util.regex.Pattern;
+import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.DirectDeliveryRecord;
 import net.enthusia.loreitems.application.DirectDeliveryRepository;
+import net.enthusia.loreitems.application.EncodedItemTemplate;
 import net.enthusia.loreitems.application.ExternalDeliveryAcceptance;
 import net.enthusia.loreitems.application.ExternalDeliveryCommand;
 import net.enthusia.loreitems.application.ExternalDeliveryOutcome;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.PreparedDirectDelivery;
 import net.enthusia.loreitems.domain.DirectDeliveryState;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 
 public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepository {
     private static final String NOW_ARGUMENT = "now";
+    private static final String AGGREGATE_TYPE = "lore_instance";
+    private static final String SYSTEM_ACTOR = "system";
+    private static final String QUEUED_EVENT = "direct_delivery_queued";
+    private static final String COMPLETED_EVENT = "direct_delivery_completed";
+    private static final String REVIEW_EVENT = "direct_delivery_review_required";
+    private static final String QUEUED_SOURCE = "direct-delivery-queued";
+    private static final String COMPLETED_SOURCE = "direct-delivery-completed";
+    private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";
+    private static final String COMPLETED_STATE = "COMPLETED";
     private static final long MIN_LEASE_MILLIS = 1L;
     private static final int SINGLE_UPDATED_ROW = 1;
+    private static final int MAX_REVIEW_REASON_LENGTH = 4_096;
+    private static final int MIN_INVENTORY_SLOT = 0;
+    private static final int MAX_PLAYER_INVENTORY_SLOT = 35;
+    private static final char FIRST_NON_CONTROL_CHARACTER = 0x20;
+    private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
     private final SQLiteStorageRuntime storage;
 
@@ -45,20 +66,124 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     @Override
     public CompletionStage<Page<DirectDeliveryRecord>> claimPending(
             String claimToken, Instant now, Duration lease, int limit) {
-        Objects.requireNonNull(claimToken, "claimToken");
+        ClaimArguments arguments = validateClaimArguments(claimToken, now, lease, limit);
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction -> {
+            Page<PreparedDirectDelivery> prepared = claimPreparedPending(
+                    transaction,
+                    arguments.claimToken(),
+                    arguments.nowMillis(),
+                    arguments.leaseMillis(),
+                    limit);
+            return new Page<>(
+                    prepared.items().stream().map(PreparedDirectDelivery::record).toList(),
+                    prepared.offset(),
+                    prepared.limit(),
+                    prepared.hasMore());
+        }));
+    }
+
+    @Override
+    public CompletionStage<Page<PreparedDirectDelivery>> claimPreparedPending(
+            String claimToken, Instant now, Duration lease, int limit) {
+        ClaimArguments arguments = validateClaimArguments(claimToken, now, lease, limit);
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> claimPreparedPending(
+                        transaction,
+                        arguments.claimToken(),
+                        arguments.nowMillis(),
+                        arguments.leaseMillis(),
+                        limit)));
+    }
+
+    @Override
+    public CompletionStage<Boolean> deferClaimed(
+            UUID deliveryId,
+            String claimToken,
+            Instant now,
+            Instant nextAttemptAt) {
+        Objects.requireNonNull(deliveryId, "deliveryId");
+        String normalizedToken = requireClaimToken(claimToken);
         Objects.requireNonNull(now, NOW_ARGUMENT);
-        Objects.requireNonNull(lease, "lease");
-        String normalizedToken = claimToken.strip();
-        if (normalizedToken.isEmpty()) {
-            throw new IllegalArgumentException("claimToken must not be blank");
+        Objects.requireNonNull(nextAttemptAt, "nextAttemptAt");
+        if (nextAttemptAt.isBefore(now)) {
+            throw new IllegalArgumentException("nextAttemptAt must not precede now");
         }
+        DirectDeliveryState.RESERVED.transitionTo(DirectDeliveryState.PENDING);
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE direct_deliveries SET state = 'PENDING', claim_token = NULL, "
+                            + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
+                            + "WHERE delivery_id = ? AND state = 'RESERVED' AND claim_token = ? "
+                            + "AND claim_expires_at > ?")) {
+                statement.setLong(1, nextAttemptAt.toEpochMilli());
+                statement.setLong(2, now.toEpochMilli());
+                statement.setString(3, deliveryId.toString());
+                statement.setString(4, normalizedToken);
+                statement.setLong(5, now.toEpochMilli());
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
+            }
+        });
+    }
+
+    @Override
+    public CompletionStage<Boolean> completeClaimed(
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            String afterFingerprint,
+            Instant completedAt) {
+        Objects.requireNonNull(delivery, "delivery");
+        requireInventorySlot(inventorySlot);
+        String normalizedFingerprint = requireFingerprint(afterFingerprint);
+        Objects.requireNonNull(completedAt, "completedAt");
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> completeClaimedInTransaction(
+                        transaction,
+                        delivery,
+                        inventorySlot,
+                        normalizedFingerprint,
+                        completedAt.toEpochMilli())));
+    }
+
+    @Override
+    public CompletionStage<Boolean> moveClaimedToReview(
+            PreparedDirectDelivery delivery,
+            String reason,
+            Instant reviewedAt) {
+        Objects.requireNonNull(delivery, "delivery");
+        String normalizedReason = requireReviewReason(reason);
+        Objects.requireNonNull(reviewedAt, "reviewedAt");
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> moveClaimedToReviewInTransaction(
+                        transaction,
+                        delivery,
+                        normalizedReason,
+                        reviewedAt.toEpochMilli())));
+    }
+
+    @Override
+    public CompletionStage<Integer> wakePendingForPlayer(
+            UUID playerId,
+            Instant now,
+            int limit) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         requireBoundedLimit(limit);
-        long leaseMillis = lease.toMillis();
-        if (leaseMillis < MIN_LEASE_MILLIS) {
-            throw new IllegalArgumentException("lease must be positive");
-        }
-        return storage.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction ->
-                claimPending(transaction, normalizedToken, now.toEpochMilli(), leaseMillis, limit)));
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE direct_deliveries SET next_attempt_at = NULL, updated_at = ? "
+                            + "WHERE rowid IN (SELECT rowid FROM direct_deliveries "
+                            + "WHERE player_id = ? AND state = 'PENDING' "
+                            + "AND next_attempt_at IS NOT NULL "
+                            + "ORDER BY created_at, delivery_id LIMIT ?)")) {
+                statement.setLong(1, now.toEpochMilli());
+                statement.setString(2, playerId.toString());
+                statement.setInt(3, limit);
+                return statement.executeUpdate();
+            }
+        });
     }
 
     @Override
@@ -71,10 +196,11 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         Objects.requireNonNull(deliveryId, "deliveryId");
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(target, "target");
-        Objects.requireNonNull(claimToken, "claimToken");
+        String normalizedToken = requireClaimToken(claimToken);
         Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
-        boolean clearClaim = target == DirectDeliveryState.COMPLETED
+        boolean clearClaim = target == DirectDeliveryState.PENDING
+                || target == DirectDeliveryState.COMPLETED
                 || target == DirectDeliveryState.REVIEW_REQUIRED;
         String sql = clearClaim
                 ? "UPDATE direct_deliveries SET state = ?, claim_token = NULL, "
@@ -90,7 +216,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 statement.setLong(2, now.toEpochMilli());
                 statement.setString(3, deliveryId.toString());
                 statement.setString(4, expected.name());
-                statement.setString(5, claimToken);
+                statement.setString(5, normalizedToken);
                 statement.setLong(6, now.toEpochMilli());
                 return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
@@ -101,21 +227,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit) {
         Objects.requireNonNull(now, NOW_ARGUMENT);
         requireBoundedLimit(limit);
-        long nowMillis = now.toEpochMilli();
-        return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
-                            + "claim_expires_at = NULL, updated_at = ? "
-                            + "WHERE rowid IN (SELECT rowid FROM direct_deliveries "
-                            + "WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                            + "AND claim_expires_at <= ? "
-                            + "ORDER BY claim_expires_at, delivery_id LIMIT ?)")) {
-                statement.setLong(1, nowMillis);
-                statement.setLong(2, nowMillis);
-                statement.setInt(3, limit);
-                return statement.executeUpdate();
-            }
-        });
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> moveExpiredClaimsToReviewInTransaction(
+                        transaction, now.toEpochMilli(), limit)));
     }
 
     @Override
@@ -143,19 +258,51 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         });
     }
 
+    private static ClaimArguments validateClaimArguments(
+            String claimToken,
+            Instant now,
+            Duration lease,
+            int limit) {
+        String normalizedToken = requireClaimToken(claimToken);
+        Objects.requireNonNull(now, NOW_ARGUMENT);
+        Objects.requireNonNull(lease, "lease");
+        requireBoundedLimit(limit);
+        long leaseMillis = lease.toMillis();
+        if (leaseMillis < MIN_LEASE_MILLIS) {
+            throw new IllegalArgumentException("lease must be positive");
+        }
+        return new ClaimArguments(normalizedToken, now.toEpochMilli(), leaseMillis);
+    }
+
+    private static String requireClaimToken(String claimToken) {
+        Objects.requireNonNull(claimToken, "claimToken");
+        String normalizedToken = claimToken.strip();
+        if (normalizedToken.isEmpty()) {
+            throw new IllegalArgumentException("claimToken must not be blank");
+        }
+        return normalizedToken;
+    }
+
     private static void requireBoundedLimit(int limit) {
         if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
     }
 
+    private static void requireInventorySlot(int inventorySlot) {
+        if (inventorySlot < MIN_INVENTORY_SLOT || inventorySlot > MAX_PLAYER_INVENTORY_SLOT) {
+            throw new IllegalArgumentException("inventorySlot must identify player storage");
+        }
+    }
+
     private static ExternalDeliveryAcceptance acceptExternal(
-            Connection connection, ExternalDeliveryCommand command, long now) throws SQLException {
+            Connection connection,
+            ExternalDeliveryCommand command,
+            long now) throws SQLException {
         ExistingRequest existing = findExistingRequest(connection, command.externalOperationId());
         if (existing != null) {
             return replayExisting(command, existing);
         }
-
         DefinitionRevision definition = findDefinition(connection, command.definitionKey().value());
         if (definition == null) {
             return rejectUnknownDefinition(connection, command, now);
@@ -164,7 +311,8 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     private static ExternalDeliveryAcceptance replayExisting(
-            ExternalDeliveryCommand command, ExistingRequest existing) {
+            ExternalDeliveryCommand command,
+            ExistingRequest existing) {
         if (!existing.definitionKey().equals(command.definitionKey().value())
                 || !existing.playerId().equals(command.playerId())) {
             return new ExternalDeliveryAcceptance(
@@ -185,7 +333,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     private static ExternalDeliveryAcceptance rejectUnknownDefinition(
-            Connection connection, ExternalDeliveryCommand command, long now) throws SQLException {
+            Connection connection,
+            ExternalDeliveryCommand command,
+            long now) throws SQLException {
         insertExternalRequest(
                 connection,
                 command,
@@ -207,6 +357,20 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         UUID instanceId = UUID.randomUUID();
         UUID deliveryId = UUID.randomUUID();
         insertInstance(connection, instanceId, definition, now);
+        long observationId = insertQueuedObservation(
+                connection,
+                instanceId,
+                definition.definitionId(),
+                deliveryId,
+                command.playerId(),
+                now);
+        insertQueuedCurrentState(
+                connection,
+                instanceId,
+                deliveryId,
+                command.playerId(),
+                observationId,
+                now);
         insertDelivery(connection, deliveryId, instanceId, command, now);
         insertExternalRequest(
                 connection,
@@ -214,65 +378,265 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 deliveryId,
                 ExternalDeliveryOutcome.ACCEPTED_QUEUED,
                 now);
+        appendAudit(
+                connection,
+                instanceId,
+                QUEUED_EVENT,
+                command.playerId().toString(),
+                queuedDetail(deliveryId, command.playerId()),
+                now);
         return new ExternalDeliveryAcceptance(
                 ExternalDeliveryOutcome.ACCEPTED_QUEUED,
                 command.externalOperationId(),
                 Optional.of(deliveryId),
-                "Durable delivery intent was accepted; physical insertion remains deferred.");
+                "Durable delivery intent was accepted and queued for inventory execution.");
     }
 
-    private static Page<DirectDeliveryRecord> claimPending(
-            Connection connection, String claimToken, long now, long leaseMillis, int limit)
-            throws SQLException {
-        List<DirectDeliveryRecord> candidates = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT * FROM direct_deliveries WHERE state = 'PENDING' "
-                        + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
-                        + "ORDER BY created_at, delivery_id LIMIT ?")) {
-            statement.setLong(1, now);
-            statement.setInt(2, limit + 1);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    candidates.add(readRecord(resultSet));
-                }
-            }
-        }
+    private static Page<PreparedDirectDelivery> claimPreparedPending(
+            Connection connection,
+            String claimToken,
+            long now,
+            long leaseMillis,
+            int limit) throws SQLException {
+        List<DeliveryCandidate> candidates = listClaimableCandidates(connection, now, limit);
         boolean hasMore = candidates.size() > limit;
         if (hasMore) {
             candidates.remove(candidates.size() - 1);
         }
-
-        List<DirectDeliveryRecord> claimed = new ArrayList<>(candidates.size());
+        List<PreparedDirectDelivery> claimed = new ArrayList<>(candidates.size());
         long expiresAt = Math.addExact(now, leaseMillis);
         try (PreparedStatement update = connection.prepareStatement(
                 "UPDATE direct_deliveries SET state = 'RESERVED', claim_token = ?, "
-                        + "claim_expires_at = ?, attempt_count = attempt_count + 1, updated_at = ? "
-                        + "WHERE delivery_id = ? AND state = 'PENDING'")) {
-            for (DirectDeliveryRecord candidate : candidates) {
+                        + "claim_expires_at = ?, attempt_count = attempt_count + 1, "
+                        + "updated_at = ? WHERE delivery_id = ? AND state = 'PENDING'")) {
+            for (DeliveryCandidate candidate : candidates) {
                 update.setString(1, claimToken);
                 update.setLong(2, expiresAt);
                 update.setLong(3, now);
                 update.setString(4, candidate.deliveryId().toString());
                 if (update.executeUpdate() == SINGLE_UPDATED_ROW) {
-                    claimed.add(new DirectDeliveryRecord(
-                            candidate.deliveryId(),
-                            candidate.instanceId(),
-                            candidate.playerId(),
-                            DirectDeliveryState.RESERVED,
-                            candidate.idempotencyKey(),
-                            claimToken,
-                            expiresAt,
-                            candidate.attemptCount() + 1,
-                            candidate.createdAtEpochMillis(),
-                            now));
+                    claimed.add(candidate.claimed(claimToken, expiresAt, now));
                 }
             }
         }
         return new Page<>(claimed, 0, limit, hasMore);
     }
 
-    private static ExistingRequest findExistingRequest(Connection connection, String operationId)
-            throws SQLException {
+    private static List<DeliveryCandidate> listClaimableCandidates(
+            Connection connection,
+            long now,
+            int limit) throws SQLException {
+        List<DeliveryCandidate> candidates = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT d.delivery_id, d.instance_id, d.player_id, d.idempotency_key, "
+                        + "d.attempt_count, d.created_at, d.updated_at, i.definition_id, "
+                        + "i.applied_revision, r.codec_version, r.template_blob "
+                        + "FROM direct_deliveries d "
+                        + "JOIN lore_instances i ON i.instance_id = d.instance_id "
+                        + "JOIN lore_definition_revisions r ON r.definition_id = i.definition_id "
+                        + "AND r.revision = i.applied_revision "
+                        + "WHERE d.state = 'PENDING' "
+                        + "AND i.lifecycle_state = 'ACTIVE' "
+                        + "AND (d.next_attempt_at IS NULL OR d.next_attempt_at <= ?) "
+                        + "ORDER BY d.created_at, d.delivery_id LIMIT ?")) {
+            statement.setLong(1, now);
+            statement.setInt(2, limit + 1);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    candidates.add(readCandidate(resultSet));
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private static boolean completeClaimedInTransaction(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            String afterFingerprint,
+            long completedAt) throws SQLException {
+        if (!transitionDelivery(
+                connection,
+                delivery,
+                DirectDeliveryState.RESERVED,
+                DirectDeliveryState.APPLIED,
+                completedAt,
+                false)) {
+            return false;
+        }
+        long observationId = insertCompletedObservation(
+                connection, delivery, inventorySlot, completedAt);
+        updateCompletedCurrentState(
+                connection, delivery, inventorySlot, observationId, completedAt);
+        requireTransition(
+                connection,
+                delivery,
+                DirectDeliveryState.APPLIED,
+                DirectDeliveryState.VERIFIED,
+                completedAt,
+                false);
+        requireTransition(
+                connection,
+                delivery,
+                DirectDeliveryState.VERIFIED,
+                DirectDeliveryState.COMPLETED,
+                completedAt,
+                true);
+        appendAudit(
+                connection,
+                delivery.instanceId().value(),
+                COMPLETED_EVENT,
+                delivery.playerId().toString(),
+                completedDetail(delivery, inventorySlot, afterFingerprint),
+                completedAt);
+        return true;
+    }
+
+    private static boolean moveClaimedToReviewInTransaction(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            String reason,
+            long reviewedAt) throws SQLException {
+        DeliveryState state = findDeliveryState(connection, delivery.deliveryId());
+        if (state == null || !state.instanceId().equals(delivery.instanceId().value())) {
+            return false;
+        }
+        if (REVIEW_REQUIRED_STATE.equals(state.state())) {
+            return true;
+        }
+        if (COMPLETED_STATE.equals(state.state())
+                || !delivery.claimToken().equals(state.claimToken())) {
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
+                        + "claim_expires_at = NULL, updated_at = ? WHERE delivery_id = ? "
+                        + "AND instance_id = ? AND claim_token = ? "
+                        + "AND state IN ('RESERVED', 'APPLIED', 'VERIFIED')")) {
+            statement.setLong(1, reviewedAt);
+            statement.setString(2, delivery.deliveryId().toString());
+            statement.setString(3, delivery.instanceId().value().toString());
+            statement.setString(4, delivery.claimToken());
+            if (statement.executeUpdate() != SINGLE_UPDATED_ROW) {
+                return false;
+            }
+        }
+        markQueuedCurrentStateUnresolved(
+                connection,
+                delivery.instanceId().value(),
+                delivery.deliveryId(),
+                delivery.playerId(),
+                reviewedAt);
+        appendAudit(
+                connection,
+                delivery.instanceId().value(),
+                REVIEW_EVENT,
+                delivery.playerId().toString(),
+                reviewDetail(delivery.deliveryId(), reason),
+                reviewedAt);
+        return true;
+    }
+
+    private static int moveExpiredClaimsToReviewInTransaction(
+            Connection connection,
+            long now,
+            int limit) throws SQLException {
+        List<ExpiredClaim> expired = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT delivery_id, instance_id, player_id, state, claim_token "
+                        + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                        + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
+            statement.setLong(1, now);
+            statement.setInt(2, limit);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    expired.add(new ExpiredClaim(
+                            UUID.fromString(resultSet.getString("delivery_id")),
+                            UUID.fromString(resultSet.getString("instance_id")),
+                            UUID.fromString(resultSet.getString("player_id")),
+                            resultSet.getString("state"),
+                            resultSet.getString("claim_token")));
+                }
+            }
+        }
+        int updated = 0;
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
+                        + "claim_expires_at = NULL, updated_at = ? WHERE delivery_id = ? "
+                        + "AND state = ? AND claim_token = ? AND claim_expires_at <= ?")) {
+            for (ExpiredClaim claim : expired) {
+                statement.setLong(1, now);
+                statement.setString(2, claim.deliveryId().toString());
+                statement.setString(3, claim.state());
+                statement.setString(4, claim.claimToken());
+                statement.setLong(5, now);
+                if (statement.executeUpdate() == SINGLE_UPDATED_ROW) {
+                    updated++;
+                    markQueuedCurrentStateUnresolved(
+                            connection,
+                            claim.instanceId(),
+                            claim.deliveryId(),
+                            claim.playerId(),
+                            now);
+                    appendAudit(
+                            connection,
+                            claim.instanceId(),
+                            REVIEW_EVENT,
+                            claim.playerId().toString(),
+                            reviewDetail(
+                                    claim.deliveryId(),
+                                    "The delivery claim expired before safe completion."),
+                            now);
+                }
+            }
+        }
+        return updated;
+    }
+
+    private static boolean transitionDelivery(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            DirectDeliveryState expected,
+            DirectDeliveryState target,
+            long now,
+            boolean clearClaim) throws SQLException {
+        expected.transitionTo(target);
+        String sql = clearClaim
+                ? "UPDATE direct_deliveries SET state = ?, claim_token = NULL, "
+                        + "claim_expires_at = NULL, next_attempt_at = NULL, updated_at = ? "
+                        + "WHERE delivery_id = ? AND instance_id = ? AND state = ? "
+                        + "AND claim_token = ? AND claim_expires_at > ?"
+                : "UPDATE direct_deliveries SET state = ?, updated_at = ? "
+                        + "WHERE delivery_id = ? AND instance_id = ? AND state = ? "
+                        + "AND claim_token = ? AND claim_expires_at > ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, target.name());
+            statement.setLong(2, now);
+            statement.setString(3, delivery.deliveryId().toString());
+            statement.setString(4, delivery.instanceId().value().toString());
+            statement.setString(5, expected.name());
+            statement.setString(6, delivery.claimToken());
+            statement.setLong(7, now);
+            return statement.executeUpdate() == SINGLE_UPDATED_ROW;
+        }
+    }
+
+    private static void requireTransition(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            DirectDeliveryState expected,
+            DirectDeliveryState target,
+            long now,
+            boolean clearClaim) throws SQLException {
+        if (!transitionDelivery(connection, delivery, expected, target, now, clearClaim)) {
+            throw new SQLException("Delivery lost transition " + expected + " -> " + target);
+        }
+    }
+
+    private static ExistingRequest findExistingRequest(
+            Connection connection,
+            String operationId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT definition_key, player_id, delivery_id, outcome "
                         + "FROM external_delivery_requests WHERE external_operation_id = ?")) {
@@ -291,8 +655,27 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         }
     }
 
-    private static DefinitionRevision findDefinition(Connection connection, String definitionKey)
-            throws SQLException {
+    private static DeliveryState findDeliveryState(
+            Connection connection,
+            UUID deliveryId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT instance_id, state, claim_token FROM direct_deliveries "
+                        + "WHERE delivery_id = ?")) {
+            statement.setString(1, deliveryId.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next()
+                        ? new DeliveryState(
+                                UUID.fromString(resultSet.getString("instance_id")),
+                                resultSet.getString("state"),
+                                resultSet.getString("claim_token"))
+                        : null;
+            }
+        }
+    }
+
+    private static DefinitionRevision findDefinition(
+            Connection connection,
+            String definitionKey) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT definition_id, current_revision FROM lore_definitions "
                         + "WHERE lookup_key = ? AND deleted_at IS NULL")) {
@@ -309,8 +692,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     private static void insertInstance(
-            Connection connection, UUID instanceId, DefinitionRevision definition, long now)
-            throws SQLException {
+            Connection connection,
+            UUID instanceId,
+            DefinitionRevision definition,
+            long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, "
                         + "desired_revision, lifecycle_state, created_at) VALUES (?, ?, ?, ?, ?, ?)")) {
@@ -320,6 +705,49 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             statement.setInt(4, definition.revision());
             statement.setString(5, "ACTIVE");
             statement.setLong(6, now);
+            statement.executeUpdate();
+        }
+    }
+
+    private static long insertQueuedObservation(
+            Connection connection,
+            UUID instanceId,
+            UUID definitionId,
+            UUID deliveryId,
+            UUID playerId,
+            long now) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
+                        + "location_key, container_path, confidence, source, observed_at) "
+                        + "VALUES (?, ?, 'QUEUED_DELIVERY', ?, ?, 'CONFIRMED_NOW', ?, ?)",
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, instanceId.toString());
+            statement.setString(2, definitionId.toString());
+            statement.setString(3, playerId.toString());
+            statement.setString(4, deliveryPath(deliveryId));
+            statement.setString(5, QUEUED_SOURCE);
+            statement.setLong(6, now);
+            statement.executeUpdate();
+            return requireGeneratedKey(statement, "Queued delivery observation");
+        }
+    }
+
+    private static void insertQueuedCurrentState(
+            Connection connection,
+            UUID instanceId,
+            UUID deliveryId,
+            UUID playerId,
+            long observationId,
+            long now) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO instance_current_state(instance_id, state, location_type, "
+                        + "location_key, container_path, last_observation_id, state_revision, "
+                        + "updated_at) VALUES (?, 'CONFIRMED_NOW', 'QUEUED_DELIVERY', ?, ?, ?, 1, ?)")) {
+            statement.setString(1, instanceId.toString());
+            statement.setString(2, playerId.toString());
+            statement.setString(3, deliveryPath(deliveryId));
+            statement.setLong(4, observationId);
+            statement.setLong(5, now);
             statement.executeUpdate();
         }
     }
@@ -365,6 +793,104 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         }
     }
 
+    private static long insertCompletedObservation(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            long completedAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
+                        + "location_key, container_path, confidence, source, observed_at) "
+                        + "VALUES (?, ?, 'PLAYER_INVENTORY', ?, ?, 'CONFIRMED_NOW', ?, ?)",
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, delivery.instanceId().value().toString());
+            statement.setString(2, delivery.definitionId().value().toString());
+            statement.setString(3, delivery.playerId().toString());
+            statement.setString(4, inventoryPath(inventorySlot));
+            statement.setString(5, COMPLETED_SOURCE);
+            statement.setLong(6, completedAt);
+            statement.executeUpdate();
+            return requireGeneratedKey(statement, "Completed delivery observation");
+        }
+    }
+
+    private static void updateCompletedCurrentState(
+            Connection connection,
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            long observationId,
+            long completedAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE instance_current_state SET state = 'CONFIRMED_NOW', "
+                        + "location_type = 'PLAYER_INVENTORY', location_key = ?, "
+                        + "container_path = ?, last_observation_id = ?, "
+                        + "state_revision = state_revision + 1, updated_at = ? "
+                        + "WHERE instance_id = ? AND state = 'CONFIRMED_NOW' "
+                        + "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? "
+                        + "AND container_path = ? AND state_revision = 1")) {
+            statement.setString(1, delivery.playerId().toString());
+            statement.setString(2, inventoryPath(inventorySlot));
+            statement.setLong(3, observationId);
+            statement.setLong(4, completedAt);
+            statement.setString(5, delivery.instanceId().value().toString());
+            statement.setString(6, delivery.playerId().toString());
+            statement.setString(7, deliveryPath(delivery.deliveryId()));
+            if (statement.executeUpdate() != SINGLE_UPDATED_ROW) {
+                throw new SQLException("Delivery current-state verification lost its queued state");
+            }
+        }
+    }
+
+
+    private static void markQueuedCurrentStateUnresolved(
+            Connection connection,
+            UUID instanceId,
+            UUID deliveryId,
+            UUID playerId,
+            long updatedAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE instance_current_state SET state = 'MISSING_UNRESOLVED', "
+                        + "location_type = NULL, location_key = NULL, container_path = NULL, "
+                        + "last_observation_id = NULL, state_revision = state_revision + 1, "
+                        + "updated_at = ? WHERE instance_id = ? AND state = 'CONFIRMED_NOW' "
+                        + "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? "
+                        + "AND container_path = ?")) {
+            statement.setLong(1, updatedAt);
+            statement.setString(2, instanceId.toString());
+            statement.setString(3, playerId.toString());
+            statement.setString(4, deliveryPath(deliveryId));
+            statement.executeUpdate();
+        }
+    }
+
+    private static long requireGeneratedKey(
+            PreparedStatement statement,
+            String operation) throws SQLException {
+        try (ResultSet keys = statement.getGeneratedKeys()) {
+            if (!keys.next()) {
+                throw new SQLException(operation + " did not return an identifier");
+            }
+            return keys.getLong(1);
+        }
+    }
+
+    private static void appendAudit(
+            Connection connection,
+            UUID instanceId,
+            String eventType,
+            String actorId,
+            String detail,
+            long occurredAt) throws SQLException {
+        SQLiteAuditRepository.appendInTransaction(connection, AuditEventRecord.pending(
+                AGGREGATE_TYPE,
+                instanceId.toString(),
+                eventType,
+                SYSTEM_ACTOR,
+                actorId,
+                detail,
+                occurredAt));
+    }
+
     private static DirectDeliveryRecord readRecord(ResultSet resultSet) throws SQLException {
         long expires = resultSet.getLong("claim_expires_at");
         Long claimExpiresAt = resultSet.wasNull() ? null : expires;
@@ -381,10 +907,144 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 resultSet.getLong("updated_at"));
     }
 
+    private static DeliveryCandidate readCandidate(ResultSet resultSet) throws SQLException {
+        return new DeliveryCandidate(
+                UUID.fromString(resultSet.getString("delivery_id")),
+                new LoreInstanceId(UUID.fromString(resultSet.getString("instance_id"))),
+                new LoreDefinitionId(UUID.fromString(resultSet.getString("definition_id"))),
+                UUID.fromString(resultSet.getString("player_id")),
+                new TemplateRevision(resultSet.getLong("applied_revision")),
+                new EncodedItemTemplate(
+                        resultSet.getInt("codec_version"),
+                        resultSet.getBytes("template_blob")),
+                resultSet.getString("idempotency_key"),
+                resultSet.getInt("attempt_count"),
+                resultSet.getLong("created_at"),
+                resultSet.getLong("updated_at"));
+    }
+
+    private static String queuedDetail(UUID deliveryId, UUID playerId) {
+        return "{\"deliveryId\":\"" + deliveryId
+                + "\",\"playerId\":\"" + playerId + "\"}";
+    }
+
+    private static String completedDetail(
+            PreparedDirectDelivery delivery,
+            int inventorySlot,
+            String afterFingerprint) {
+        return "{\"deliveryId\":\"" + delivery.deliveryId()
+                + "\",\"playerId\":\"" + delivery.playerId()
+                + "\",\"slot\":" + inventorySlot
+                + ",\"revision\":" + delivery.appliedRevision().value()
+                + ",\"afterFingerprint\":\"" + afterFingerprint + "\"}";
+    }
+
+    private static String reviewDetail(UUID deliveryId, String reason) {
+        return "{\"deliveryId\":\"" + deliveryId
+                + "\",\"reason\":\"" + escapeJson(reason) + "\"}";
+    }
+
+    private static String deliveryPath(UUID deliveryId) {
+        return "delivery:" + deliveryId;
+    }
+
+    private static String inventoryPath(int slot) {
+        return "storage:" + slot;
+    }
+
+    private static String requireFingerprint(String value) {
+        Objects.requireNonNull(value, "afterFingerprint");
+        String normalized = value.strip();
+        if (!SHA_256.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "afterFingerprint must be a lowercase SHA-256 value");
+        }
+        return normalized;
+    }
+
+    private static String requireReviewReason(String reason) {
+        Objects.requireNonNull(reason, "reason");
+        String normalized = reason.strip();
+        if (normalized.isEmpty() || normalized.length() > MAX_REVIEW_REASON_LENGTH) {
+            throw new IllegalArgumentException("Invalid delivery review reason");
+        }
+        return normalized;
+    }
+
+    private static String escapeJson(String value) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            switch (character) {
+                case '\\' -> escaped.append("\\\\");
+                case '"' -> escaped.append("\\\"");
+                case '\n' -> escaped.append("\\n");
+                case '\r' -> escaped.append("\\r");
+                case '\t' -> escaped.append("\\t");
+                default -> {
+                    if (character < FIRST_NON_CONTROL_CHARACTER) {
+                        escaped.append(String.format("\\u%04x", (int) character));
+                    } else {
+                        escaped.append(character);
+                    }
+                }
+            }
+        }
+        return escaped.toString();
+    }
+
+    private record ClaimArguments(String claimToken, long nowMillis, long leaseMillis) {
+    }
+
     private record ExistingRequest(
-            String definitionKey, UUID playerId, UUID deliveryId, String outcome) {
+            String definitionKey,
+            UUID playerId,
+            UUID deliveryId,
+            String outcome) {
     }
 
     private record DefinitionRevision(UUID definitionId, int revision) {
+    }
+
+    private record DeliveryState(UUID instanceId, String state, String claimToken) {
+    }
+
+    private record ExpiredClaim(
+            UUID deliveryId,
+            UUID instanceId,
+            UUID playerId,
+            String state,
+            String claimToken) {
+    }
+
+    private record DeliveryCandidate(
+            UUID deliveryId,
+            LoreInstanceId instanceId,
+            LoreDefinitionId definitionId,
+            UUID playerId,
+            TemplateRevision appliedRevision,
+            EncodedItemTemplate template,
+            String idempotencyKey,
+            int attemptCount,
+            long createdAtEpochMillis,
+            long updatedAtEpochMillis) {
+        private PreparedDirectDelivery claimed(
+                String claimToken,
+                long claimExpiresAtEpochMillis,
+                long claimedAtEpochMillis) {
+            return new PreparedDirectDelivery(
+                    deliveryId,
+                    instanceId,
+                    definitionId,
+                    playerId,
+                    appliedRevision,
+                    template,
+                    idempotencyKey,
+                    claimToken,
+                    claimExpiresAtEpochMillis,
+                    attemptCount + 1,
+                    createdAtEpochMillis,
+                    claimedAtEpochMillis);
+        }
     }
 }

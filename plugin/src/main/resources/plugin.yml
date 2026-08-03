@@ -8,11 +8,14 @@ description: Durable lore-item tracking and delivery for Enthusia SMP.
 commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
-    usage: /loreitems create <lookup-key> <display name> | /loreitems adopt <lookup-key>
+    usage: /loreitems create <lookup-key> <display name> | /loreitems adopt <lookup-key> | /loreitems give <lookup-key> [player]
 permissions:
   enthusia.loreitems.admin.create:
     description: Creates a lore definition from the held item.
     default: op
   enthusia.loreitems.admin.adopt:
     description: Adopts the held item into an existing lore definition.
+    default: op
+  enthusia.loreitems.admin.give:
+    description: Queues a new lore-item instance for a player.
     default: op
