@@ -33,11 +33,19 @@ jobs:
         if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
-          if [[ ! -f .github/agent-patch/direct-delivery-00 || ! -f .github/agent-patch/direct-delivery-01 ]]; then
-            exit 0
-          fi
-          cat .github/agent-patch/direct-delivery-00 .github/agent-patch/direct-delivery-01 \
+          for chunk in 00 01 02 03 04; do
+            if [[ ! -f ".github/agent-patch/direct-delivery-${chunk}" ]]; then
+              exit 0
+            fi
+          done
+          cat .github/agent-patch/direct-delivery-00 \
+              .github/agent-patch/direct-delivery-01 \
+              .github/agent-patch/direct-delivery-02 \
+              .github/agent-patch/direct-delivery-03 \
+              .github/agent-patch/direct-delivery-04 \
             | base64 --decode | gzip --decompress > /tmp/direct-delivery.patch
+          echo 'cc3fdcbc6cb64d366e46de003e68baccd78abdf266fc3a4564985f0b9ab2104f  /tmp/direct-delivery.patch' \
+            | sha256sum --check --strict
           git apply --check /tmp/direct-delivery.patch
           git apply /tmp/direct-delivery.patch
           git show 50826acfb8a068610b77972936e048e212dd9d53^:.github/workflows/ci.yml > .github/workflows/ci.yml
