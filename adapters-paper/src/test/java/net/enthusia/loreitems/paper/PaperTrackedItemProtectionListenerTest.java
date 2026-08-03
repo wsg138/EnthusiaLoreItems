@@ -1,0 +1,194 @@
+package net.enthusia.loreitems.paper;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.application.PreparedVoidLoss;
+import net.enthusia.loreitems.application.VoidLossUseCase;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.damage.DamageSource;
+import org.bukkit.damage.DamageType;
+import org.bukkit.entity.Item;
+import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.ItemDespawnEvent;
+import org.bukkit.event.entity.ItemMergeEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.MockBukkit;
+import org.mockbukkit.mockbukkit.ServerMock;
+import org.mockbukkit.mockbukkit.entity.PlayerMock;
+
+class PaperTrackedItemProtectionListenerTest {
+    private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
+            new LoreDefinitionId(UUID.fromString(
+                    "11111111-1111-1111-1111-111111111111")),
+            new LoreInstanceId(UUID.fromString(
+                    "22222222-2222-2222-2222-222222222222")),
+            new TemplateRevision(3));
+
+    private ServerMock server;
+    private PlayerMock player;
+    private RecordingVoidLossUseCase useCase;
+    private PaperTrackedItemProtectionListener listener;
+    private PaperItemIdentityCodec identityCodec;
+
+    @BeforeEach
+    void setUp() {
+        server = MockBukkit.mock();
+        player = server.addPlayer();
+        Plugin plugin = MockBukkit.createMockPlugin();
+        useCase = new RecordingVoidLossUseCase();
+        listener = new PaperTrackedItemProtectionListener(plugin, () -> useCase, 4);
+        identityCodec = new PaperItemIdentityCodec();
+    }
+
+    @AfterEach
+    void tearDown() {
+        listener.close();
+        MockBukkit.unmock();
+    }
+
+    @Test
+    void trackedAndMalformedItemsCannotDespawnCombustOrMerge() {
+        Item tracked = drop(trackedItem());
+        Item malformed = drop(malformedTrackedItem());
+        Item ordinary = drop(ItemStack.of(Material.DIAMOND));
+
+        ItemDespawnEvent despawn = new ItemDespawnEvent(tracked, tracked.getLocation());
+        listener.onItemDespawn(despawn);
+        assertTrue(despawn.isCancelled());
+
+        EntityCombustEvent combust = new EntityCombustEvent(malformed, 20);
+        listener.onItemCombust(combust);
+        assertTrue(combust.isCancelled());
+
+        ItemMergeEvent mergeTrackedSource = new ItemMergeEvent(tracked, ordinary);
+        listener.onItemMerge(mergeTrackedSource);
+        assertTrue(mergeTrackedSource.isCancelled());
+
+        ItemMergeEvent mergeTrackedTarget = new ItemMergeEvent(ordinary, malformed);
+        listener.onItemMerge(mergeTrackedTarget);
+        assertTrue(mergeTrackedTarget.isCancelled());
+
+        ItemDespawnEvent ordinaryDespawn =
+                new ItemDespawnEvent(ordinary, ordinary.getLocation());
+        listener.onItemDespawn(ordinaryDespawn);
+        assertFalse(ordinaryDespawn.isCancelled());
+    }
+
+    @Test
+    void trackedDurabilityAndEnvironmentalDamageAreCancelled() {
+        ItemStack trackedStack = trackedItem();
+        PlayerItemDamageEvent durability = new PlayerItemDamageEvent(player, trackedStack, 1);
+        listener.onDurabilityDamage(durability);
+        assertTrue(durability.isCancelled());
+
+        Item trackedEntity = drop(trackedStack);
+        EntityDamageEvent fire = new EntityDamageEvent(
+                trackedEntity,
+                EntityDamageEvent.DamageCause.FIRE,
+                DamageSource.builder(DamageType.IN_FIRE).build(),
+                2.0);
+        listener.onItemDamage(fire);
+        assertTrue(fire.isCancelled());
+        assertFalse(useCase.prepareCalled);
+
+        Item ordinary = drop(ItemStack.of(Material.DIAMOND));
+        EntityDamageEvent ordinaryFire = new EntityDamageEvent(
+                ordinary,
+                EntityDamageEvent.DamageCause.FIRE,
+                DamageSource.builder(DamageType.IN_FIRE).build(),
+                2.0);
+        listener.onItemDamage(ordinaryFire);
+        assertFalse(ordinaryFire.isCancelled());
+    }
+
+    @Test
+    void voidDamagePersistsIntentThenRemovesAndCompletesExactEntity() {
+        Item item = drop(trackedItem());
+        item.teleport(new Location(
+                item.getWorld(),
+                0.0,
+                item.getWorld().getMinHeight() - 1.0,
+                0.0));
+        EntityDamageEvent voidDamage = new EntityDamageEvent(
+                item,
+                EntityDamageEvent.DamageCause.VOID,
+                DamageSource.builder(DamageType.OUT_OF_WORLD).build(),
+                4.0);
+
+        listener.onItemDamage(voidDamage);
+        server.getScheduler().performOneTick();
+
+        assertTrue(voidDamage.isCancelled());
+        assertTrue(useCase.prepareCalled);
+        assertSame(IDENTITY, useCase.request.identity());
+        assertTrue(useCase.completeCalled);
+        assertTrue(item.isDead() || !item.isValid());
+    }
+
+    private ItemStack trackedItem() {
+        return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND_SWORD), IDENTITY);
+    }
+
+    private ItemStack malformedTrackedItem() {
+        ItemStack malformed = trackedItem();
+        malformed.setAmount(2);
+        return malformed;
+    }
+
+    private Item drop(ItemStack item) {
+        return player.getWorld().dropItem(player.getLocation(), item);
+    }
+
+    private static final class RecordingVoidLossUseCase implements VoidLossUseCase {
+        private boolean prepareCalled;
+        private boolean completeCalled;
+        private Request request;
+
+        @Override
+        public CompletionStage<PrepareResult> prepare(Request candidate) {
+            prepareCalled = true;
+            request = candidate;
+            PreparedVoidLoss loss = new PreparedVoidLoss(
+                    UUID.fromString("33333333-3333-3333-3333-333333333333"),
+                    candidate.identity(),
+                    candidate.entityId(),
+                    candidate.locationKey(),
+                    UUID.fromString("44444444-4444-4444-4444-444444444444"),
+                    1_000L,
+                    31_000L);
+            return CompletableFuture.completedFuture(PrepareResult.prepared(loss));
+        }
+
+        @Override
+        public CompletionStage<Boolean> complete(PreparedVoidLoss loss) {
+            completeCalled = true;
+            return CompletableFuture.completedFuture(true);
+        }
+
+        @Override
+        public CompletionStage<Boolean> abort(PreparedVoidLoss loss, String reason) {
+            return CompletableFuture.completedFuture(true);
+        }
+
+        @Override
+        public CompletionStage<Boolean> requireReview(PreparedVoidLoss loss, String reason) {
+            return CompletableFuture.completedFuture(true);
+        }
+    }
+}
