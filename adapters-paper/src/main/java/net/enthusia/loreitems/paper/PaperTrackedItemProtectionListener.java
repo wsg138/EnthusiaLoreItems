@@ -1,10 +1,13 @@
 package net.enthusia.loreitems.paper;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
@@ -35,8 +38,9 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private final PaperItemIdentityCodec identityCodec;
     private final int maxInFlight;
     private final int maxCooldowns;
-    private final Map<UUID, Boolean> inFlight = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> retryAfterNanos = new ConcurrentHashMap<>();
+    private final Object workflowLock = new Object();
+    private final Set<UUID> inFlight = new HashSet<>();
+    private final Map<UUID, Long> retryAfterNanos = new HashMap<>();
 
     private volatile boolean closed;
 
@@ -113,21 +117,32 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private void beginVoidLoss(Item item, LoreItemIdentity identity) {
         UUID instanceId = identity.instanceId().value();
-        if (closed || !tryBegin(instanceId)) {
+        if (!tryBegin(instanceId)) {
             return;
         }
-        VoidLossUseCase useCase = useCaseSupplier.get();
-        VoidLossUseCase.Request request = new VoidLossUseCase.Request(
-                identity,
-                item.getUniqueId(),
-                locationKey(item));
-        useCase.prepare(request).whenComplete((result, failure) -> {
+        VoidLossUseCase useCase;
+        CompletionStage<VoidLossUseCase.PrepareResult> preparation;
+        try {
+            useCase = Objects.requireNonNull(
+                    useCaseSupplier.get(), "void-loss use case supplier returned null");
+            VoidLossUseCase.Request request = new VoidLossUseCase.Request(
+                    identity,
+                    item.getUniqueId(),
+                    locationKey(item));
+            preparation = Objects.requireNonNull(
+                    useCase.prepare(request), "void-loss preparation returned null");
+        } catch (RuntimeException exception) {
+            logFailure("Could not start terminal void loss", exception);
+            finish(instanceId, true);
+            return;
+        }
+        preparation.whenComplete((result, failure) -> {
             if (failure != null) {
                 logFailure("Could not prepare terminal void loss", failure);
                 finish(instanceId, true);
                 return;
             }
-            if (result.status() != VoidLossUseCase.PrepareStatus.PREPARED) {
+            if (result == null || result.status() != VoidLossUseCase.PrepareStatus.PREPARED) {
                 finish(instanceId, true);
                 return;
             }
@@ -136,20 +151,32 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     private boolean tryBegin(UUID instanceId) {
-        Long retryAt = retryAfterNanos.get(instanceId);
-        long now = System.nanoTime();
-        if (retryAt != null) {
-            if (retryAt > now) {
+        synchronized (workflowLock) {
+            if (closed) {
                 return false;
             }
-            retryAfterNanos.remove(instanceId, retryAt);
+            Long retryAt = retryAfterNanos.get(instanceId);
+            long now = System.nanoTime();
+            if (retryAt != null) {
+                if (retryAt > now) {
+                    return false;
+                }
+                retryAfterNanos.remove(instanceId);
+            }
+            if (inFlight.contains(instanceId) || inFlight.size() >= maxInFlight) {
+                return false;
+            }
+            inFlight.add(instanceId);
+            return true;
         }
-        return inFlight.size() < maxInFlight && inFlight.putIfAbsent(instanceId, Boolean.TRUE) == null;
     }
 
     private void schedulePreparedLoss(VoidLossUseCase useCase, PreparedVoidLoss loss) {
         if (closed) {
-            requireReview(useCase, loss, "Plugin stopped before the prepared void removal was scheduled.");
+            requireReview(
+                    useCase,
+                    loss,
+                    "Plugin stopped before the prepared void removal was scheduled.");
             return;
         }
         try {
@@ -187,27 +214,52 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     private void complete(VoidLossUseCase useCase, PreparedVoidLoss loss, int attempt) {
-        useCase.complete(loss).whenComplete((completed, failure) -> {
+        CompletionStage<Boolean> completion;
+        try {
+            completion = Objects.requireNonNull(
+                    useCase.complete(loss), "void-loss completion returned null");
+        } catch (RuntimeException exception) {
+            handleCompletionFailure(useCase, loss, attempt, exception);
+            return;
+        }
+        completion.whenComplete((completed, failure) -> {
             if (failure == null && Boolean.TRUE.equals(completed)) {
                 finish(loss.identity().instanceId().value(), false);
                 return;
             }
-            if (attempt < MAX_COMPLETION_ATTEMPTS && !closed) {
-                complete(useCase, loss, attempt + 1);
-                return;
-            }
-            if (failure != null) {
-                logFailure("Could not complete terminal void loss", failure);
-            }
-            requireReview(
-                    useCase,
-                    loss,
-                    "The item entity was removed but durable completion was not confirmed.");
+            handleCompletionFailure(useCase, loss, attempt, failure);
         });
     }
 
+    private void handleCompletionFailure(
+            VoidLossUseCase useCase,
+            PreparedVoidLoss loss,
+            int attempt,
+            Throwable failure) {
+        if (attempt < MAX_COMPLETION_ATTEMPTS && !closed) {
+            complete(useCase, loss, attempt + 1);
+            return;
+        }
+        if (failure != null) {
+            logFailure("Could not complete terminal void loss", failure);
+        }
+        requireReview(
+                useCase,
+                loss,
+                "The item entity was removed but durable completion was not confirmed.");
+    }
+
     private void abort(VoidLossUseCase useCase, PreparedVoidLoss loss, String reason) {
-        useCase.abort(loss, reason).whenComplete((ignored, failure) -> {
+        CompletionStage<Boolean> abort;
+        try {
+            abort = Objects.requireNonNull(
+                    useCase.abort(loss, reason), "void-loss abort returned null");
+        } catch (RuntimeException exception) {
+            logFailure("Could not abort prepared void loss", exception);
+            finish(loss.identity().instanceId().value(), true);
+            return;
+        }
+        abort.whenComplete((ignored, failure) -> {
             if (failure != null) {
                 logFailure("Could not abort prepared void loss", failure);
             }
@@ -219,7 +271,17 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             VoidLossUseCase useCase,
             PreparedVoidLoss loss,
             String reason) {
-        useCase.requireReview(loss, reason).whenComplete((ignored, failure) -> {
+        CompletionStage<Boolean> review;
+        try {
+            review = Objects.requireNonNull(
+                    useCase.requireReview(loss, reason),
+                    "void-loss review transition returned null");
+        } catch (RuntimeException exception) {
+            logFailure("Could not mark void loss for review", exception);
+            finish(loss.identity().instanceId().value(), true);
+            return;
+        }
+        review.whenComplete((ignored, failure) -> {
             if (failure != null) {
                 logFailure("Could not mark void loss for review", failure);
             }
@@ -228,9 +290,13 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     private void finish(UUID instanceId, boolean cooldown) {
-        inFlight.remove(instanceId);
-        if (cooldown && retryAfterNanos.size() < maxCooldowns) {
-            retryAfterNanos.put(instanceId, System.nanoTime() + RETRY_COOLDOWN.toNanos());
+        synchronized (workflowLock) {
+            inFlight.remove(instanceId);
+            if (cooldown && !closed && retryAfterNanos.size() < maxCooldowns) {
+                retryAfterNanos.put(
+                        instanceId,
+                        System.nanoTime() + RETRY_COOLDOWN.toNanos());
+            }
         }
     }
 
@@ -247,8 +313,11 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     @Override
     public void close() {
-        closed = true;
+        synchronized (workflowLock) {
+            closed = true;
+            inFlight.clear();
+            retryAfterNanos.clear();
+        }
         HandlerList.unregisterAll(this);
-        retryAfterNanos.clear();
     }
 }
