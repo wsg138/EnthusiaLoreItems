@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
@@ -66,6 +67,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private static final int MAX_COMPLETION_ATTEMPTS = 3;
     private static final int MIN_IN_FLIGHT = 1;
     private static final int COOLDOWN_CAPACITY_MULTIPLIER = 4;
+    private static final long COMPLETION_RETRY_DELAY_TICKS = 1L;
     private static final Duration RETRY_COOLDOWN = Duration.ofSeconds(5);
     private static final Set<String> CONSUMPTIVE_INTERACTION_MATERIALS = Set.of(
             "BONE_MEAL",
@@ -99,9 +101,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private final Plugin plugin;
     private final Supplier<VoidLossUseCase> useCaseSupplier;
+    private final IntSupplier maxInFlightSupplier;
     private final PaperItemIdentityCodec identityCodec;
-    private final int maxInFlight;
-    private final int maxCooldowns;
     private final Object workflowLock = new Object();
     private final Set<UUID> inFlight = new HashSet<>();
     private final Map<UUID, Long> retryAfterNanos = new HashMap<>();
@@ -112,14 +113,19 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             Plugin plugin,
             Supplier<VoidLossUseCase> useCaseSupplier,
             int maxInFlight) {
+        this(plugin, useCaseSupplier, () -> maxInFlight);
+    }
+
+    public PaperTrackedItemProtectionListener(
+            Plugin plugin,
+            Supplier<VoidLossUseCase> useCaseSupplier,
+            IntSupplier maxInFlightSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCaseSupplier = Objects.requireNonNull(useCaseSupplier, "useCaseSupplier");
+        this.maxInFlightSupplier = Objects.requireNonNull(
+                maxInFlightSupplier, "maxInFlightSupplier");
         this.identityCodec = new PaperItemIdentityCodec();
-        if (maxInFlight < MIN_IN_FLIGHT) {
-            throw new IllegalArgumentException("maxInFlight must be positive");
-        }
-        this.maxInFlight = maxInFlight;
-        this.maxCooldowns = Math.multiplyExact(maxInFlight, COOLDOWN_CAPACITY_MULTIPLIER);
+        currentMaxInFlight();
     }
 
     public void start() {
@@ -451,7 +457,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
                 }
                 retryAfterNanos.remove(instanceId);
             }
-            if (inFlight.contains(instanceId) || inFlight.size() >= maxInFlight) {
+            if (inFlight.contains(instanceId)
+                    || inFlight.size() >= currentMaxInFlight()) {
                 return false;
             }
             inFlight.add(instanceId);
@@ -525,8 +532,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             int attempt,
             Throwable failure) {
         if (attempt < MAX_COMPLETION_ATTEMPTS && !closed) {
-            complete(useCase, loss, attempt + 1);
-            return;
+            try {
+                plugin.getServer().getScheduler().runTaskLater(
+                        plugin,
+                        () -> complete(useCase, loss, attempt + 1),
+                        COMPLETION_RETRY_DELAY_TICKS);
+                return;
+            } catch (RuntimeException exception) {
+                logFailure("Could not schedule terminal void-loss completion retry", exception);
+            }
         }
         if (failure != null) {
             logFailure("Could not complete terminal void loss", failure);
@@ -580,12 +594,23 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private void finish(UUID instanceId, boolean cooldown) {
         synchronized (workflowLock) {
             inFlight.remove(instanceId);
+            int maxCooldowns = Math.multiplyExact(
+                    currentMaxInFlight(),
+                    COOLDOWN_CAPACITY_MULTIPLIER);
             if (cooldown && !closed && retryAfterNanos.size() < maxCooldowns) {
                 retryAfterNanos.put(
                         instanceId,
                         System.nanoTime() + RETRY_COOLDOWN.toNanos());
             }
         }
+    }
+
+    private int currentMaxInFlight() {
+        int value = maxInFlightSupplier.getAsInt();
+        if (value < MIN_IN_FLIGHT) {
+            throw new IllegalStateException("Configured mutation budget must be positive");
+        }
+        return value;
     }
 
     private void logFailure(String message, Throwable failure) {
