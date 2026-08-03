@@ -21,6 +21,7 @@ public record PreparedDirectDelivery(
         long createdAtEpochMillis,
         long updatedAtEpochMillis) {
     private static final long MIN_TIMESTAMP = 0L;
+    private static final int MIN_ATTEMPT_COUNT = 1;
 
     public PreparedDirectDelivery {
         Objects.requireNonNull(deliveryId, "deliveryId");
@@ -44,7 +45,7 @@ public record PreparedDirectDelivery(
         if (claimExpiresAtEpochMillis <= updatedAtEpochMillis) {
             throw new IllegalArgumentException("Delivery claim must expire after its update time");
         }
-        if (attemptCount < 1) {
+        if (attemptCount < MIN_ATTEMPT_COUNT) {
             throw new IllegalArgumentException("Prepared delivery attemptCount must be positive");
         }
     }

@@ -140,7 +140,6 @@ public final class LoreItemsPlugin extends JavaPlugin {
         PaperDirectDeliveryWorker worker = directDeliveryWorker;
         if (worker != null) {
             worker.close();
-            directDeliveryWorker = null;
         }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();

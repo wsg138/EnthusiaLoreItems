@@ -40,6 +40,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     private static final String COMPLETED_SOURCE = "direct-delivery-completed";
     private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";
     private static final String COMPLETED_STATE = "COMPLETED";
+    private static final String DELIVERY_ID_COLUMN = "delivery_id";
+    private static final String INSTANCE_ID_COLUMN = "instance_id";
+    private static final String PLAYER_ID_COLUMN = "player_id";
     private static final long MIN_LEASE_MILLIS = 1L;
     private static final int SINGLE_UPDATED_ROW = 1;
     private static final int MAX_REVIEW_REASON_LENGTH = 4_096;
@@ -542,24 +545,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             Connection connection,
             long now,
             int limit) throws SQLException {
-        List<ExpiredClaim> expired = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT delivery_id, instance_id, player_id, state, claim_token "
-                        + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                        + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
-            statement.setLong(1, now);
-            statement.setInt(2, limit);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    expired.add(new ExpiredClaim(
-                            UUID.fromString(resultSet.getString("delivery_id")),
-                            UUID.fromString(resultSet.getString("instance_id")),
-                            UUID.fromString(resultSet.getString("player_id")),
-                            resultSet.getString("state"),
-                            resultSet.getString("claim_token")));
-                }
-            }
-        }
+        List<ExpiredClaim> expired = findExpiredClaims(connection, now, limit);
         int updated = 0;
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
@@ -592,6 +578,31 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             }
         }
         return updated;
+    }
+
+    private static List<ExpiredClaim> findExpiredClaims(
+            Connection connection,
+            long now,
+            int limit) throws SQLException {
+        List<ExpiredClaim> expired = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT delivery_id, instance_id, player_id, state, claim_token "
+                        + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                        + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
+            statement.setLong(1, now);
+            statement.setInt(2, limit);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    expired.add(new ExpiredClaim(
+                            UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
+                            UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
+                            UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
+                            resultSet.getString("state"),
+                            resultSet.getString("claim_token")));
+                }
+            }
+        }
+        return expired;
     }
 
     private static boolean transitionDelivery(
@@ -645,10 +656,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 if (!resultSet.next()) {
                     return null;
                 }
-                String deliveryValue = resultSet.getString("delivery_id");
+                String deliveryValue = resultSet.getString(DELIVERY_ID_COLUMN);
                 return new ExistingRequest(
                         resultSet.getString("definition_key"),
-                        UUID.fromString(resultSet.getString("player_id")),
+                        UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
                         deliveryValue == null ? null : UUID.fromString(deliveryValue),
                         resultSet.getString("outcome"));
             }
@@ -665,7 +676,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next()
                         ? new DeliveryState(
-                                UUID.fromString(resultSet.getString("instance_id")),
+                                UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
                                 resultSet.getString("state"),
                                 resultSet.getString("claim_token"))
                         : null;
@@ -895,9 +906,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         long expires = resultSet.getLong("claim_expires_at");
         Long claimExpiresAt = resultSet.wasNull() ? null : expires;
         return new DirectDeliveryRecord(
-                UUID.fromString(resultSet.getString("delivery_id")),
-                new LoreInstanceId(UUID.fromString(resultSet.getString("instance_id"))),
-                UUID.fromString(resultSet.getString("player_id")),
+                UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
+                new LoreInstanceId(UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN))),
+                UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
                 DirectDeliveryState.valueOf(resultSet.getString("state")),
                 resultSet.getString("idempotency_key"),
                 resultSet.getString("claim_token"),
@@ -909,10 +920,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
 
     private static DeliveryCandidate readCandidate(ResultSet resultSet) throws SQLException {
         return new DeliveryCandidate(
-                UUID.fromString(resultSet.getString("delivery_id")),
-                new LoreInstanceId(UUID.fromString(resultSet.getString("instance_id"))),
+                UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
+                new LoreInstanceId(UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN))),
                 new LoreDefinitionId(UUID.fromString(resultSet.getString("definition_id"))),
-                UUID.fromString(resultSet.getString("player_id")),
+                UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
                 new TemplateRevision(resultSet.getLong("applied_revision")),
                 new EncodedItemTemplate(
                         resultSet.getInt("codec_version"),

@@ -128,6 +128,10 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
             case APPLIED -> complete(delivery, result);
             case NO_SPACE -> defer(delivery);
             case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+            default -> requireReview(
+                    delivery,
+                    "Unsupported direct-delivery apply result: " + result.status(),
+                    null);
         }
     }
 
@@ -240,7 +244,6 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
         BukkitTask task = pollTask;
         if (task != null) {
             task.cancel();
-            pollTask = null;
         }
     }
 }
