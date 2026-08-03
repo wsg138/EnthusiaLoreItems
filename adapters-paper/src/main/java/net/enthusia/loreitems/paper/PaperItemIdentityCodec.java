@@ -75,6 +75,19 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         return result;
     }
 
+    public boolean hasIdentityEvidence(ItemStack item) {
+        threadGuard.requirePrimaryThread();
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        Set<NamespacedKey> presentKeys = meta.getPersistentDataContainer().getKeys();
+        return IDENTITY_KEYS.stream().anyMatch(presentKeys::contains);
+    }
+
     @Override
     public ItemIdentityReadResult readIdentity(ItemStack item) {
         threadGuard.requirePrimaryThread();
