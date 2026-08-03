@@ -6,7 +6,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.ItemAnomalyObservationStore;
@@ -84,7 +86,7 @@ public final class SQLiteItemAnomalyObservationStore
                     "Terminal void state cannot be replaced by anomaly evidence.");
         }
 
-        long observationId = insertObservation(connection, observation);
+        long observationId = insertEvidenceObservations(connection, observation);
         if (!fenceCurrentState(connection, observation, current, observationId)) {
             throw new StaleCurrentStateException();
         }
@@ -138,10 +140,30 @@ public final class SQLiteItemAnomalyObservationStore
         }
     }
 
-    private static long insertObservation(
-            Connection connection, Observation observation) throws SQLException {
+    private static long insertEvidenceObservations(
+            Connection connection,
+            Observation observation) throws SQLException {
         ItemAnomalyObservationUseCase.Request request = observation.request();
-        LocationDescriptor location = request.location();
+        Set<LocationDescriptor> locations = new LinkedHashSet<>(request.evidenceLocations());
+        locations.add(request.location());
+        long currentObservationId = 0L;
+        for (LocationDescriptor location : locations) {
+            long observationId = insertObservation(connection, observation, location);
+            if (location.equals(request.location())) {
+                currentObservationId = observationId;
+            }
+        }
+        if (currentObservationId == 0L) {
+            throw new SQLException("Anomaly current-state observation was not inserted");
+        }
+        return currentObservationId;
+    }
+
+    private static long insertObservation(
+            Connection connection,
+            Observation observation,
+            LocationDescriptor location) throws SQLException {
+        ItemAnomalyObservationUseCase.Request request = observation.request();
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO instance_observations(instance_id, definition_id, "
                         + "location_type, location_key, container_path, confidence, source, "
@@ -269,7 +291,8 @@ public final class SQLiteItemAnomalyObservationStore
         ItemAnomalyObservationUseCase.Request request = observation.request();
         String json = "{\"anomalyType\":\"" + request.kind().anomalyType().name()
                 + "\",\"status\":\"" + status.name()
-                + "\",\"source\":\"" + escapeJson(request.source())
+                + "\",\"evidenceLocations\":" + request.evidenceLocations().size()
+                + ",\"source\":\"" + escapeJson(request.source())
                 + "\",\"detail\":\"" + escapeJson(detail) + "\"}";
         SQLiteAuditRepository.appendInTransaction(connection, AuditEventRecord.pending(
                 AGGREGATE_TYPE,
