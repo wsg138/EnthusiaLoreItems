@@ -182,22 +182,36 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
         Objects.requireNonNull(definitionId, "definitionId");
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(deletedAt, "deletedAt");
+        if (deletedAt.toEpochMilli() < 0L) {
+            throw new IllegalArgumentException("deletedAt must not precede the Unix epoch");
+        }
+        return storage.execute(connection -> markDeletedInTransaction(
+                connection, definitionId, expectedCurrentRevision, deletedAt));
+    }
+
+    static boolean markDeletedInTransaction(
+            Connection connection,
+            LoreDefinitionId definitionId,
+            TemplateRevision expectedCurrentRevision,
+            Instant deletedAt) throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
+        Objects.requireNonNull(deletedAt, "deletedAt");
         long deletedAtMillis = deletedAt.toEpochMilli();
         if (deletedAtMillis < 0L) {
             throw new IllegalArgumentException("deletedAt must not precede the Unix epoch");
         }
-        return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE lore_definitions SET deleted_at = ? "
-                            + "WHERE definition_id = ? AND current_revision = ? "
-                            + "AND deleted_at IS NULL AND created_at <= ?")) {
-                statement.setLong(1, deletedAtMillis);
-                statement.setString(2, definitionId.value().toString());
-                statement.setLong(3, expectedCurrentRevision.value());
-                statement.setLong(4, deletedAtMillis);
-                return statement.executeUpdate() == 1;
-            }
-        });
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE lore_definitions SET deleted_at = ? "
+                        + "WHERE definition_id = ? AND current_revision = ? "
+                        + "AND deleted_at IS NULL AND created_at <= ?")) {
+            statement.setLong(1, deletedAtMillis);
+            statement.setString(2, definitionId.value().toString());
+            statement.setLong(3, expectedCurrentRevision.value());
+            statement.setLong(4, deletedAtMillis);
+            return statement.executeUpdate() == 1;
+        }
     }
 
     private static Optional<LoreDefinition> findDefinition(
