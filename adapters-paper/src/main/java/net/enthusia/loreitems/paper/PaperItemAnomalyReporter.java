@@ -1,8 +1,10 @@
 package net.enthusia.loreitems.paper;
 
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,10 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
     private final Set<ReportKey> inFlight = new HashSet<>();
     private final Map<ReportKey, Long> retryAfterNanos = new HashMap<>();
     private final LinkedHashMap<ReportKey, PendingReport> pending = new LinkedHashMap<>();
+    private final ThreadLocal<ArrayDeque<PendingReport>> dispatchQueue =
+            ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Boolean> dispatching =
+            ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private boolean overflowLogged;
     private boolean closed;
@@ -112,7 +118,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         PendingReport report = new PendingReport(key, request, useCase, warningSink);
         Submission submission = submit(report);
         if (submission == Submission.START) {
-            start(report);
+            dispatch(report);
         } else if (submission == Submission.OVERFLOW) {
             plugin.getLogger().warning(
                     "Lore-item anomaly evidence queue is full; the newest observation was not "
@@ -161,7 +167,26 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         return Submission.QUEUED;
     }
 
-    private void start(PendingReport report) {
+    private void dispatch(PendingReport report) {
+        ArrayDeque<PendingReport> queue = dispatchQueue.get();
+        queue.addLast(report);
+        if (dispatching.get()) {
+            return;
+        }
+        dispatching.set(Boolean.TRUE);
+        try {
+            PendingReport next;
+            while ((next = queue.pollFirst()) != null) {
+                startOne(next);
+            }
+        } finally {
+            queue.clear();
+            dispatching.remove();
+            dispatchQueue.remove();
+        }
+    }
+
+    private void startOne(PendingReport report) {
         CompletionStage<ItemAnomalyObservationUseCase.Result> stage;
         try {
             stage = Objects.requireNonNull(
@@ -211,12 +236,13 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
             }
         }
         if (next != null) {
-            start(next);
+            dispatch(next);
         }
     }
 
     private PendingReport pollPending() {
-        var iterator = pending.entrySet().iterator();
+        Iterator<Map.Entry<ReportKey, PendingReport>> iterator =
+                pending.entrySet().iterator();
         if (!iterator.hasNext()) {
             return null;
         }
