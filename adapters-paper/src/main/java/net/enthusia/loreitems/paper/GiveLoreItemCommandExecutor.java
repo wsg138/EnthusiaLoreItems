@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
@@ -72,9 +73,21 @@ public final class GiveLoreItemCommandExecutor implements CommandExecutor {
         }
         CommandActor actor = CommandActor.capture(sender);
         String operationId = "admin-give:" + actor.auditId() + ':' + UUID.randomUUID();
-        service.queueDelivery(arguments[1], targetPlayerId, operationId)
-                .whenComplete((result, throwable) -> handleResult(
-                        actor, targetPlayerId, result, throwable));
+        CompletionStage<LoreDeliveryResult> delivery;
+        try {
+            delivery = Objects.requireNonNull(
+                    service.queueDelivery(arguments[1], targetPlayerId, operationId),
+                    "direct-give delivery stage");
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Direct-give command could not submit durable delivery work.",
+                    exception);
+            sender.sendMessage("The lore-item delivery could not be submitted.");
+            return;
+        }
+        delivery.whenComplete((result, throwable) -> handleResult(
+                actor, targetPlayerId, result, throwable));
     }
 
     private UUID resolveTarget(CommandSender sender, String[] arguments) {
@@ -116,9 +129,23 @@ public final class GiveLoreItemCommandExecutor implements CommandExecutor {
             notifyActor(actor, "The lore-item delivery could not be queued.");
             return;
         }
+        if (result == null) {
+            plugin.getLogger().severe(
+                    "Direct-give command completed without a durable result.");
+            notifyActor(actor, "The lore-item delivery returned no durable result.");
+            return;
+        }
         if (result.status() == LoreDeliveryStatus.ACCEPTED_QUEUED
                 || result.status() == LoreDeliveryStatus.ALREADY_ACCEPTED) {
-            deliveryWakeup.accept(targetPlayerId);
+            try {
+                deliveryWakeup.accept(targetPlayerId);
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(
+                        Level.WARNING,
+                        "The delivery was durably accepted, but its immediate wakeup failed; "
+                                + "the periodic worker will retry it.",
+                        exception);
+            }
         }
         notifyActor(actor, commandMessage(result));
     }
