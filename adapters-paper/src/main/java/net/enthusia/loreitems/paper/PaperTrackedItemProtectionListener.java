@@ -30,6 +30,7 @@ import org.bukkit.plugin.Plugin;
 
 public final class PaperTrackedItemProtectionListener implements Listener, AutoCloseable {
     private static final int MAX_COMPLETION_ATTEMPTS = 3;
+    private static final int MIN_IN_FLIGHT = 1;
     private static final int COOLDOWN_CAPACITY_MULTIPLIER = 4;
     private static final Duration RETRY_COOLDOWN = Duration.ofSeconds(5);
 
@@ -51,7 +52,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCaseSupplier = Objects.requireNonNull(useCaseSupplier, "useCaseSupplier");
         this.identityCodec = new PaperItemIdentityCodec();
-        if (maxInFlight < 1) {
+        if (maxInFlight < MIN_IN_FLIGHT) {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
         this.maxInFlight = maxInFlight;
