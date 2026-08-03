@@ -61,10 +61,12 @@ import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository;
 import net.enthusia.loreitems.sqlite.SQLiteAuditRepository;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
+import net.enthusia.loreitems.sqlite.SQLiteCurrentStateRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDisplayItemObservationStore;
 import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
 import net.enthusia.loreitems.sqlite.SQLiteItemAnomalyObservationStore;
+import net.enthusia.loreitems.sqlite.SQLiteObservationRepository;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
@@ -380,6 +382,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new PersistingLoreItemsAdministrationUseCase(
                         anomalyRepository,
                         new SQLiteAuditRepository(runtime),
+                        new SQLiteCurrentStateRepository(runtime),
+                        new SQLiteObservationRepository(runtime),
                         repository,
                         new SQLitePendingMutationRepository(runtime));
         ItemAnomalyObservationUseCase anomalyObservationUseCase =
