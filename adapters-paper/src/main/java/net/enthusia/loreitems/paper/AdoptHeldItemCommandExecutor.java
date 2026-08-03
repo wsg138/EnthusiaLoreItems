@@ -4,6 +4,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
@@ -95,7 +96,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             PrepareHeldItemAdoptionRequest request = operator.snapshot(player, key);
             AdoptHeldItemUseCase useCase = Objects.requireNonNull(
                     useCaseSupplier.get(), "active adoption use case");
-            useCase.prepare(request).whenComplete((result, throwable) ->
+            CompletionStage<PrepareHeldItemAdoptionResult> preparation = Objects.requireNonNull(
+                    useCase.prepare(request), "adoption preparation stage");
+            preparation.whenComplete((result, throwable) ->
                     handlePreparation(useCase, request, result, throwable));
         } catch (IllegalArgumentException | ItemCodecException exception) {
             release(playerId);
@@ -126,8 +129,7 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
                     "Held-item adoption failed before the item was changed.");
             return;
         }
-        PrepareHeldItemAdoptionResult safeResult = result;
-        switch (safeResult.status()) {
+        switch (result.status()) {
             case UNKNOWN_DEFINITION -> {
                 release(request.playerId());
                 notifyPlayer(request.playerId(),
@@ -141,9 +143,7 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             }
             case PREPARED -> scheduleApplication(
                     useCase,
-                    Objects.requireNonNull(safeResult.preparedAdoption(), "preparedAdoption"));
-            default -> throw new IllegalStateException(
-                    "Unsupported adoption preparation status: " + safeResult.status());
+                    Objects.requireNonNull(result.preparedAdoption(), "preparedAdoption"));
         }
     }
 
@@ -191,7 +191,20 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             AdoptHeldItemUseCase useCase,
             PreparedHeldItemAdoption adoption,
             String afterFingerprint) {
-        useCase.complete(adoption, afterFingerprint).whenComplete((completed, throwable) -> {
+        CompletionStage<Boolean> completion;
+        try {
+            completion = Objects.requireNonNull(
+                    useCase.complete(adoption, afterFingerprint),
+                    "adoption completion stage");
+        } catch (RuntimeException exception) {
+            requireReview(
+                    useCase,
+                    adoption,
+                    "Durable completion could not be submitted after exact-slot verification.",
+                    exception);
+            return;
+        }
+        completion.whenComplete((completed, throwable) -> {
             if (throwable != null) {
                 requireReview(
                         useCase,
@@ -225,7 +238,10 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
                     precedingFailure);
         }
         try {
-            useCase.requireReview(adoption, reason).whenComplete((reviewed, throwable) -> {
+            CompletionStage<Boolean> review = Objects.requireNonNull(
+                    useCase.requireReview(adoption, reason),
+                    "adoption review stage");
+            review.whenComplete((reviewed, throwable) -> {
                 release(adoption.playerId());
                 if (throwable != null) {
                     logFailure("Could not persist held-item adoption review state.", throwable);
