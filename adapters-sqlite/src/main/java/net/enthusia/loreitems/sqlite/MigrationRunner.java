@@ -8,10 +8,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class MigrationRunner {
     private static final int FOUNDATION_VERSION = 1;
     private static final String FOUNDATION_RESOURCE = "db/migration/V1__foundation.sql";
+    private static final String CREATE_TRIGGER = "CREATE TRIGGER";
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
@@ -71,14 +74,42 @@ public final class MigrationRunner {
     }
 
     private static void executeScript(Connection connection, String script) throws SQLException {
-        for (String statementText : script.split(";")) {
-            String trimmed = statementText.strip();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
+        for (String statementText : splitStatements(script)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute(trimmed);
+                statement.execute(statementText);
             }
         }
+    }
+
+    private static List<String> splitStatements(String script) {
+        List<String> statements = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean triggerStatement = false;
+
+        for (String line : script.split("\\R", -1)) {
+            String trimmed = line.strip();
+            if (current.length() == 0 && trimmed.isEmpty()) {
+                continue;
+            }
+            if (current.length() == 0) {
+                triggerStatement = trimmed.regionMatches(
+                        true, 0, CREATE_TRIGGER, 0, CREATE_TRIGGER.length());
+            }
+            current.append(line).append('\n');
+
+            boolean complete = triggerStatement
+                    ? trimmed.equalsIgnoreCase("END;")
+                    : trimmed.endsWith(";");
+            if (complete) {
+                statements.add(current.toString().strip());
+                current.setLength(0);
+                triggerStatement = false;
+            }
+        }
+
+        if (!current.toString().isBlank()) {
+            throw new IllegalArgumentException("Migration contains an incomplete SQL statement");
+        }
+        return List.copyOf(statements);
     }
 }
