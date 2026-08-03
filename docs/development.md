@@ -118,7 +118,7 @@ Non-player entities cannot pick up an item that contains either valid tracked id
 
 Event-bounded inventory, dropped-item, display, interaction, conversion, and protection observations detect two copies carrying the same instance UUID and recoverable malformed tracked stacks. Both physical copies remain usable and unchanged. Evidence includes the observed locations and is persisted atomically with anomaly and audit records on the bounded SQLite executor.
 
-Anomaly persistence uses bounded in-flight work, a bounded coalescing queue, iterative synchronous-completion draining, cooldowns for repeated identical evidence, and explicit overflow logging. New active anomalies request an immediate staff/console warning. A separate bounded query worker repeats warnings every five minutes while unresolved warning-eligible anomalies remain. Refreshing the same anomaly does not create a five-second warning loop.
+Anomaly persistence uses bounded in-flight work, a bounded coalescing queue, iterative synchronous-completion draining, cooldowns for repeated identical evidence, and explicit overflow logging. New active anomalies request an immediate staff/console warning. A separate bounded query worker repeats warnings every five minutes while unresolved warning-eligible anomalies remain. Refreshing the same anomaly does not create a five-minute warning loop.
 
 Administrators with `enthusia.loreitems.admin.audit` can use the initial paginated command surface:
 
