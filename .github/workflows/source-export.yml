@@ -1,0 +1,24 @@
+name: Export review source
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Package source
+        run: tar --exclude=.git --exclude='**/build' -czf ../review-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-source-${{ github.event.pull_request.head.sha }}
+          path: ../review-source.tar.gz
+          retention-days: 1
