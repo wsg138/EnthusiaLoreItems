@@ -95,7 +95,9 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
             creation.whenComplete((result, throwable) ->
                     scheduleResult(playerId, request.key(), result, throwable));
         } catch (IllegalArgumentException | ItemCodecException exception) {
-            player.sendMessage(exception.getMessage());
+            player.sendMessage(safeMessage(
+                    exception,
+                    "The definition request was invalid; nothing was created."));
         } catch (RuntimeException exception) {
             DefinitionKey attemptedKey = key;
             plugin.getLogger().log(
@@ -170,6 +172,11 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
             case SERVICE_UNAVAILABLE -> player.sendMessage(
                     "Lore item storage is not currently available for writes.");
         }
+    }
+
+    private static String safeMessage(RuntimeException exception, String fallback) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 
     private static Throwable unwrap(Throwable throwable) {
