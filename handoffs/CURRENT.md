@@ -12,30 +12,31 @@ Obtain the current head SHA, draft state, checks, Codacy result, and review comm
 
 ## Latest report
 
-- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md)
+- [`0008-2026-08-02-pr2-tracking-persistence.md`](0008-2026-08-02-pr2-tracking-persistence.md)
 
 ## Required prior reports
 
-- [`0006-2026-08-02-pr2-unit-of-work.md`](0006-2026-08-02-pr2-unit-of-work.md) — application unit-of-work boundary, SQLite adapter, transaction helper changes, focused atomic commit/rollback tests, and implementation limitations.
-- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — immutable definition/revision and instance persistence plus remaining PR 1 repository scope.
-- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, connection ownership, lifecycle, and recovery rules.
+- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified unit-of-work boundary, final prior CI/Codacy state, and PR 1 limitations.
+- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition/revision/instance persistence and identity constraints used by observations and anomalies.
+- [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, storage lifecycle, connection ownership, and recovery rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`. Implement only the next PR 1 repository family: bounded observation, current-state, and anomaly domain/application ports plus SQLite persistence and focused restart, uniqueness, compare-and-set, lifecycle, and paging tests. Use the verified application `UnitOfWork` path for any authoritative state change that must commit with an audit event.
+Continue PR #2 on `agent/loreitems-pr1-foundation`. Implement only the next PR 1 repository family: distribution campaign and recipient domain/application persistence plus SQLite adapters and focused tests for source-fingerprint uniqueness, immutable recipient snapshots, campaign state transitions, recipient claim fencing, cancellation semantics, unresolved-name binding, bounded paging/counts, and restart recovery.
 
-Do not begin commands, item creation/adoption, physical inventory delivery, protection listeners, tracking/reconciliation execution, GUIs, editing execution, deletion execution, or campaign execution.
+Do not begin group-file parsing or moves, physical campaign delivery, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, deletion execution, or later phases. Leave deleted-definition marker persistence for the following focused repository slice unless campaign work exposes a direct prerequisite.
 
 ## Focused startup reads
 
 After reading the latest and required prior reports and verifying live PR state, inspect only the files relevant to:
 
-- existing observation, current-state, and anomaly tables, constraints, and indexes in V1;
-- bounded domain/application records and repository ports needed for those three persistence families;
-- observation identity and location representation without retained Bukkit objects;
-- current-state compare-and-set and last-observed rules;
-- anomaly uniqueness, lifecycle, acknowledgement/resolution, and bounded history requirements;
-- the verified `UnitOfWork` boundary when authoritative state and audit persistence must be atomic;
+- existing distribution campaign and recipient tables, constraints, indexes, and state values in V1;
+- immutable campaign identity, source fingerprint, definition linkage, lifecycle, and completion rules;
+- immutable recipient snapshot identity, original display value, UUID binding, state, claim token/lease, retry, delivery, and cancellation rules;
+- case-insensitive unresolved-name keys while preserving Floodgate `*` prefixes and original values;
+- bounded campaign/recipient pages and status counts;
+- restart-safe claim fencing and recovery rules consistent with existing pending mutation and direct-delivery repositories;
+- the verified `UnitOfWork` boundary when an authoritative campaign/recipient change must commit with an audit event;
 - bounded database executor and connection ownership rules;
 - PR checks, Codacy, review comments, and unresolved review threads.
 
