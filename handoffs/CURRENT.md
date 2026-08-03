@@ -6,19 +6,20 @@
 - Repository: `wsg138/EnthusiaLoreItems`
 - Pull request: #2 — Foundation and durable core
 - Branch: `agent/loreitems-pr1-foundation`
-- Status: implementation complete; final documentation-head verification and authorized merge only
+- Status: implementation and Codacy remediation complete; final documentation-head gates and authorized merge only
 
 Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR head, ready/draft state, mergeability, exact-head GitHub Actions, Codacy result, submitted reviews, unresolved threads, and comments newer than the latest immutable report.
 
 ## Latest report
 
-- [`0017-2026-08-02-pr2-final-verification.md`](0017-2026-08-02-pr2-final-verification.md)
+- [`0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md`](0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md)
 
-Report 0017 supersedes the interim blocker in report 0016. It records the exact Codacy zero-issue update, exact-head GitHub Actions success, local Gradle evidence, review state, limitations, and final merge procedure.
+Report 0018 records the four Codacy findings that appeared after report 0017, their exact annotation evidence and classification, the focused fixes, local and exact-head CI evidence, clean-code-head Codacy zero result, harsh full-PR review, and final merge procedure.
 
 ## Required prior reports
 
-- [`0016-2026-08-02-pr2-codacy-evidence-blocker.md`](0016-2026-08-02-pr2-codacy-evidence-blocker.md) — interim 35-issue evidence blocker and retrieval attempts; superseded by Codacy's later exact-head zero-issue result.
+- [`0017-2026-08-02-pr2-final-verification.md`](0017-2026-08-02-pr2-final-verification.md) — prior exact-head verification before the final four Codacy findings appeared.
+- [`0016-2026-08-02-pr2-codacy-evidence-blocker.md`](0016-2026-08-02-pr2-codacy-evidence-blocker.md) — interim evidence blocker and retrieval attempts; superseded by later detailed evidence.
 - [`0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md`](0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md) — first detailed Codacy table and classifications.
 - [`0014-2026-08-02-pr2-codec-foundation-completion.md`](0014-2026-08-02-pr2-codec-foundation-completion.md) — complete codec-foundation scope and pre-Codacy baseline.
 - [`0013-2026-08-02-pr2-transaction-helper-consolidation.md`](0013-2026-08-02-pr2-transaction-helper-consolidation.md) — persistence transaction consolidation.
@@ -28,14 +29,14 @@ The architecture document present in this repository is [`../docs/architecture.m
 
 ## Exact next step
 
-Do not implement anything else. Do not begin Implementation PR 2 or any Creation, Adoption, Direct Delivery execution, Protection, command, listener, tracking/reconciliation, GUI, editing, group-file/campaign, physical deletion, or Tags-integration work.
+Do not implement anything else. Do not begin Implementation PR 2 or any Creation, Adoption, physical Direct Delivery execution, Protection, command, listener, tracking/reconciliation, GUI, editing, group-file/campaign, physical deletion, or Tags-integration work.
 
 For PR #2 only:
 
 1. Verify GitHub Actions passes on the exact current documentation head.
 2. Verify Codacy reports up to standards with zero new issues on that same head.
 3. Re-read submitted reviews, unresolved threads, and newer comments.
-4. If every gate remains green, merge with a normal merge commit.
+4. If every gate remains green, update the PR body with exact final-head evidence and merge with a normal merge commit.
 5. Verify the resulting `main` SHA and its available checks.
 6. Delete `agent/loreitems-pr1-foundation` when the available tools permit it.
 7. Stop. Do not begin another phase.
