@@ -84,7 +84,12 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         AnomalyWarningSink warningSink = plugin.getServer()
                 .getServicesManager()
                 .load(AnomalyWarningSink.class);
-        ReportKey key = new ReportKey(kind, identity.instanceId().value());
+        ReportKey key = new ReportKey(
+                kind,
+                identity.instanceId().value(),
+                location.type(),
+                location.locationKey(),
+                location.containerPath());
         if (!tryBegin(key)) {
             return;
         }
@@ -173,5 +178,8 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
 
     private record ReportKey(
             ItemAnomalyObservationUseCase.Kind kind,
-            java.util.UUID instanceId) {}
+            java.util.UUID instanceId,
+            LocationDescriptor.Type locationType,
+            String locationKey,
+            String containerPath) {}
 }
