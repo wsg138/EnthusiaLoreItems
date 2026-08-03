@@ -1,7 +1,7 @@
 package net.enthusia.loreitems.paper;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
@@ -72,7 +72,7 @@ class PaperTrackedItemProtectionListenerTest {
         listener.onItemDespawn(despawn);
         assertTrue(despawn.isCancelled());
 
-        EntityCombustEvent combust = new EntityCombustEvent(malformed, 20);
+        EntityCombustEvent combust = new EntityCombustEvent(malformed, 20.0F);
         listener.onItemCombust(combust);
         assertTrue(combust.isCancelled());
 
@@ -93,7 +93,8 @@ class PaperTrackedItemProtectionListenerTest {
     @Test
     void trackedDurabilityAndEnvironmentalDamageAreCancelled() {
         ItemStack trackedStack = trackedItem();
-        PlayerItemDamageEvent durability = new PlayerItemDamageEvent(player, trackedStack, 1);
+        PlayerItemDamageEvent durability =
+                new PlayerItemDamageEvent(player, trackedStack, 1, 1);
         listener.onDurabilityDamage(durability);
         assertTrue(durability.isCancelled());
 
@@ -120,11 +121,11 @@ class PaperTrackedItemProtectionListenerTest {
     @Test
     void voidDamagePersistsIntentThenRemovesAndCompletesExactEntity() {
         Item item = drop(trackedItem());
-        item.teleport(new Location(
+        assertTrue(item.teleport(new Location(
                 item.getWorld(),
                 0.0,
                 item.getWorld().getMinHeight() - 1.0,
-                0.0));
+                0.0)));
         EntityDamageEvent voidDamage = new EntityDamageEvent(
                 item,
                 EntityDamageEvent.DamageCause.VOID,
@@ -136,7 +137,7 @@ class PaperTrackedItemProtectionListenerTest {
 
         assertTrue(voidDamage.isCancelled());
         assertTrue(useCase.prepareCalled);
-        assertSame(IDENTITY, useCase.request.identity());
+        assertEquals(IDENTITY, useCase.request.identity());
         assertTrue(useCase.completeCalled);
         assertTrue(item.isDead() || !item.isValid());
     }
