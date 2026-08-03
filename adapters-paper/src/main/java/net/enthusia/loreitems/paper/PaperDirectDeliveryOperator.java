@@ -47,8 +47,10 @@ public final class PaperDirectDeliveryOperator {
             inventory.setItem(emptySlot, tracked);
             ItemStack stored = inventory.getItem(emptySlot);
             if (!verifiedIdentity(stored, delivery)) {
+                inventory.setItem(emptySlot, null);
                 return ApplyResult.reviewRequired(
-                        "Paper did not retain the expected direct-delivery identity in the exact slot.");
+                        "Paper did not retain the expected direct-delivery identity in storage slot "
+                                + emptySlot + "; the unverified insertion was removed.");
             }
             return ApplyResult.applied(
                     emptySlot,
