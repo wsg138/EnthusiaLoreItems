@@ -7,6 +7,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.UnitOfWork;
+import net.enthusia.loreitems.domain.DeletedDefinitionMarker;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
@@ -40,6 +41,8 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
     private static final class SQLiteContext implements UnitOfWork.Context {
         private final Connection connection;
         private final UnitOfWork.DefinitionMutations definitions = this::markDeleted;
+        private final UnitOfWork.DeletedDefinitionMarkerMutations deletedDefinitionMarkers =
+                this::createDeletedDefinitionMarker;
         private final UnitOfWork.AuditAppender audit = this::appendAudit;
         private boolean active = true;
 
@@ -51,6 +54,12 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
         public UnitOfWork.DefinitionMutations definitions() {
             ensureActive();
             return definitions;
+        }
+
+        @Override
+        public UnitOfWork.DeletedDefinitionMarkerMutations deletedDefinitionMarkers() {
+            ensureActive();
+            return deletedDefinitionMarkers;
         }
 
         @Override
@@ -66,6 +75,12 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
             ensureActive();
             return SQLiteDefinitionRepository.markDeletedInTransaction(
                     connection, definitionId, expectedCurrentRevision, deletedAt);
+        }
+
+        private void createDeletedDefinitionMarker(DeletedDefinitionMarker marker)
+                throws Exception {
+            ensureActive();
+            SQLiteDeletedDefinitionMarkerRepository.createInTransaction(connection, marker);
         }
 
         private AuditEventRecord appendAudit(AuditEventRecord event) throws Exception {
