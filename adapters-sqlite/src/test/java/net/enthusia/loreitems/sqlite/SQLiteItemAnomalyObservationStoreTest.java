@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.ItemAnomalyObservationStore;
@@ -76,6 +77,60 @@ class SQLiteItemAnomalyObservationStoreTest {
             assertEquals(1L, warnings.items().getFirst().stateRevision());
             assertEquals(3, observations(runtime, identity.instance().id()).items().size());
             assertEquals(2, audit(runtime, identity.instance().id()).items().size());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void duplicateEvidencePersistsBothCopiesAndConflictMarkerAtomically() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("duplicate.db"));
+        try {
+            TestIdentity identity = seedActiveInstance(runtime);
+            LocationDescriptor firstCopy = new LocationDescriptor(
+                    LocationDescriptor.Type.PLAYER_INVENTORY,
+                    "player:" + UUID.randomUUID(),
+                    "slot:2");
+            LocationDescriptor secondCopy = new LocationDescriptor(
+                    LocationDescriptor.Type.DROPPED_ITEM,
+                    "entity:" + UUID.randomUUID(),
+                    "item-entity");
+            LocationDescriptor conflict = new LocationDescriptor(
+                    LocationDescriptor.Type.DUPLICATE_CONFLICT,
+                    "instance:" + identity.instance().id().value() + ":pair:1",
+                    "copy1=player;copy2=dropped");
+            ItemAnomalyObservationUseCase.Request request =
+                    new ItemAnomalyObservationUseCase.Request(
+                            ItemAnomalyObservationUseCase.Kind.DUPLICATE_INSTANCE,
+                            identity.loreIdentity(),
+                            conflict,
+                            List.of(firstCopy, secondCopy),
+                            "test-duplicate-observation",
+                            "The same tracked identity was observed in two locations.");
+
+            ItemAnomalyObservationUseCase.Result result =
+                    new SQLiteItemAnomalyObservationStore(runtime)
+                            .record(new ItemAnomalyObservationStore.Observation(
+                                    UUID.randomUUID(), request, 200L))
+                            .toCompletableFuture().join();
+
+            assertEquals(ItemAnomalyObservationUseCase.Status.RECORDED, result.status());
+            assertFencedState(runtime, identity.instance().id(), conflict, 1L);
+            Page<InstanceObservation> evidence =
+                    observations(runtime, identity.instance().id());
+            assertEquals(4, evidence.items().size());
+            assertTrue(evidence.items().stream()
+                    .anyMatch(observation -> observation.location().equals(firstCopy)));
+            assertTrue(evidence.items().stream()
+                    .anyMatch(observation -> observation.location().equals(secondCopy)));
+            assertTrue(evidence.items().stream()
+                    .anyMatch(observation -> observation.location().equals(conflict)));
+            Page<InstanceAnomaly> warnings = warningAnomalies(runtime);
+            assertEquals(1, warnings.items().size());
+            assertEquals(
+                    InstanceAnomaly.Type.DUPLICATE_INSTANCE,
+                    warnings.items().getFirst().type());
+            assertEquals(1, audit(runtime, identity.instance().id()).items().size());
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
