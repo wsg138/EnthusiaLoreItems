@@ -1,0 +1,44 @@
+name: Export Codacy Annotations
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for Codacy and export annotations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p codacy-export
+          for attempt in {1..30}; do
+            gh api --paginate "/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" > codacy-export/check-runs.json
+            jq -e '[.check_runs[] | select((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production"))] | length > 0' codacy-export/check-runs.json >/dev/null && break
+            sleep 10
+          done
+          jq '[.check_runs[] | select((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production"))]' codacy-export/check-runs.json > codacy-export/codacy-check-runs.json
+          : > codacy-export/annotations.jsonl
+          jq -r '.[].id' codacy-export/codacy-check-runs.json | while read -r check_id; do
+            gh api --paginate "/repos/${REPOSITORY}/check-runs/${check_id}/annotations?per_page=100" | jq -c '.[]' >> codacy-export/annotations.jsonl
+          done
+          jq -s '.' codacy-export/annotations.jsonl > codacy-export/annotations.json
+          cat codacy-export/codacy-check-runs.json
+          cat codacy-export/annotations.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codacy-annotations
+          path: codacy-export
+          retention-days: 1
