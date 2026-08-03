@@ -23,11 +23,13 @@ import net.enthusia.loreitems.application.AtomicConfiguration;
 import net.enthusia.loreitems.application.CreateDefinitionResult;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
 import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
+import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
 import net.enthusia.loreitems.application.PersistingDirectDeliveryExecutionUseCase;
+import net.enthusia.loreitems.application.PersistingDisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
 import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
@@ -42,6 +44,7 @@ import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryWorker;
+import net.enthusia.loreitems.paper.PaperDisplayItemListener;
 import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
@@ -49,6 +52,7 @@ import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
+import net.enthusia.loreitems.sqlite.SQLiteDisplayItemObservationStore;
 import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
@@ -74,6 +78,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(unavailableAdoptHeldItemUseCase());
     private final AtomicReference<VoidLossUseCase> voidLossDelegate =
             new AtomicReference<>(unavailableVoidLossUseCase());
+    private final AtomicReference<DisplayItemObservationUseCase> displayObservationDelegate =
+            new AtomicReference<>(unavailableDisplayItemObservationUseCase());
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
     private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
             request -> createDefinitionDelegate.get().create(request);
@@ -96,12 +102,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
+    private volatile PaperDisplayItemListener displayItemListener;
     private volatile boolean stopping;
 
     @Override
     public void onEnable() {
         registerCommands();
-        activateProtectionListener();
+        activateProtectionListeners();
         getServer().getServicesManager().register(
                 LoreItemsServiceV1.class,
                 registeredService,
@@ -138,16 +145,30 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 giveExecutor));
     }
 
-    private void activateProtectionListener() {
+    private void activateProtectionListeners() {
+        PaperTrackedItemProtectionListener protection = null;
+        PaperDisplayItemListener display = null;
         try {
-            PaperTrackedItemProtectionListener listener =
-                    new PaperTrackedItemProtectionListener(
-                            this,
-                            voidLossDelegate::get,
-                            configuration.get().current().mutationBudgetPerTick());
-            listener.start();
-            protectionListener = listener;
+            int mutationBudget = configuration.get().current().mutationBudgetPerTick();
+            protection = new PaperTrackedItemProtectionListener(
+                    this,
+                    voidLossDelegate::get,
+                    mutationBudget);
+            display = new PaperDisplayItemListener(
+                    this,
+                    displayObservationDelegate::get,
+                    mutationBudget);
+            protection.start();
+            display.start();
+            protectionListener = protection;
+            displayItemListener = display;
         } catch (RuntimeException exception) {
+            if (display != null) {
+                display.close();
+            }
+            if (protection != null) {
+                protection.close();
+            }
             getLogger().log(
                     java.util.logging.Level.SEVERE,
                     "Could not start tracked-item protection listeners.",
@@ -163,6 +184,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
+            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+        }
+        PaperDisplayItemListener display = displayItemListener;
+        if (display != null) {
+            display.close();
         }
         PaperTrackedItemProtectionListener listener = protectionListener;
         if (listener != null) {
@@ -317,15 +343,21 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new SQLiteVoidLossStore(runtime),
                 clock,
                 Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
+        DisplayItemObservationUseCase displayObservationUseCase =
+                new PersistingDisplayItemObservationUseCase(
+                        new SQLiteDisplayItemObservationStore(runtime),
+                        clock);
         if (publishWritableServices(
                 deliveryService,
                 createDefinitionUseCase,
                 adoptHeldItemUseCase,
-                voidLossUseCase)) {
+                voidLossUseCase,
+                displayObservationUseCase)) {
             activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
             getLogger().info(
                     "Durable storage is active; definition creation, adoption, queued direct "
-                            + "delivery, protection, and terminal void loss are available.");
+                            + "delivery, protection, display observations, and terminal void loss "
+                            + "are available.");
         }
     }
 
@@ -383,11 +415,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
             LoreItemsServiceV1 service,
             CreateDefinitionUseCase createDefinitionUseCase,
             AdoptHeldItemUseCase adoptHeldItemUseCase,
-            VoidLossUseCase voidLossUseCase) {
+            VoidLossUseCase voidLossUseCase,
+            DisplayItemObservationUseCase displayObservationUseCase) {
         Objects.requireNonNull(service, "service");
         Objects.requireNonNull(createDefinitionUseCase, "createDefinitionUseCase");
         Objects.requireNonNull(adoptHeldItemUseCase, "adoptHeldItemUseCase");
         Objects.requireNonNull(voidLossUseCase, "voidLossUseCase");
+        Objects.requireNonNull(displayObservationUseCase, "displayObservationUseCase");
         synchronized (lifecycleLock) {
             if (stopping) {
                 return false;
@@ -396,6 +430,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(createDefinitionUseCase);
             adoptHeldItemDelegate.set(adoptHeldItemUseCase);
             voidLossDelegate.set(voidLossUseCase);
+            displayObservationDelegate.set(displayObservationUseCase);
             return true;
         }
     }
@@ -410,6 +445,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
+            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
             return true;
         }
     }
@@ -512,6 +548,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 return CompletableFuture.completedFuture(false);
             }
         };
+    }
+
+    private static DisplayItemObservationUseCase unavailableDisplayItemObservationUseCase() {
+        return request -> CompletableFuture.completedFuture(
+                DisplayItemObservationUseCase.Result.of(
+                        DisplayItemObservationUseCase.Status.SERVICE_UNAVAILABLE,
+                        "Durable storage is unavailable; display evidence was not changed."));
     }
 
     private static String safeMessage(Exception exception) {
