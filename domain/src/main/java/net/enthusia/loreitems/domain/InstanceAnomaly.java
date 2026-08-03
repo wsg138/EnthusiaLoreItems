@@ -64,7 +64,6 @@ public record InstanceAnomaly(
         }
     }
 
-
     private static void validateStatusMetadata(
             Status status,
             Long acknowledgedAtEpochMillis,
@@ -83,6 +82,7 @@ public record InstanceAnomaly(
                     resolvedAtEpochMillis,
                     resolutionDetail);
             case RESOLVED -> validateResolvedMetadata(resolvedAtEpochMillis, resolutionDetail);
+            default -> throw new IllegalStateException("Unsupported anomaly status: " + status);
         }
     }
 
