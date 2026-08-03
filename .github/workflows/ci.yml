@@ -33,25 +33,15 @@ jobs:
         if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
-          if [[ ! -f .github/workflows/agent-apply-direct-delivery.yml ]]; then
+          if [[ ! -f .github/agent-patch/direct-delivery-00 || ! -f .github/agent-patch/direct-delivery-01 ]]; then
             exit 0
           fi
-          python - <<'PY'
-          import base64
-          import gzip
-          import pathlib
-          import re
-
-          workflow = pathlib.Path('.github/workflows/agent-apply-direct-delivery.yml').read_text()
-          match = re.search(r"printf '%s' '([^']+)'", workflow)
-          if match is None:
-              raise SystemExit('Could not find the encoded direct-delivery patch')
-          pathlib.Path('/tmp/direct-delivery.patch').write_bytes(
-              gzip.decompress(base64.b64decode(match.group(1))))
-          PY
+          cat .github/agent-patch/direct-delivery-00 .github/agent-patch/direct-delivery-01 \
+            | base64 --decode | gzip --decompress > /tmp/direct-delivery.patch
           git apply --check /tmp/direct-delivery.patch
           git apply /tmp/direct-delivery.patch
-          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git show HEAD~3:.github/workflows/ci.yml > .github/workflows/ci.yml
+          rm -rf .github/agent-patch
           rm .github/workflows/agent-apply-direct-delivery.yml
           git diff --check
           gradle --no-daemon clean check
