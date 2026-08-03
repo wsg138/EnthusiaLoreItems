@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -99,10 +100,58 @@ class PaperItemAnomalyReporterTest {
         assertEquals("newest detail", useCase.lastRequest.detail());
     }
 
+    @Test
+    void onlyNewActiveAnomaliesRequestAnImmediateStaffWarning() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        RecordingWarningSink warningSink = new RecordingWarningSink();
+        register(useCase);
+        register(warningSink);
+        reporter = new PaperItemAnomalyReporter(plugin, 1);
+
+        reporter.recordDuplicate(
+                FIRST_IDENTITY,
+                conflictLocation("first"),
+                List.of(playerLocation("first-a"), playerLocation("first-b")),
+                "test",
+                "first duplicate");
+        useCase.firstResult.complete(ItemAnomalyObservationUseCase.Result.of(
+                ItemAnomalyObservationUseCase.Status.REFRESHED,
+                "refreshed"));
+
+        assertEquals(0, warningSink.requestCount);
+    }
+
+    @Test
+    void newlyRecordedAnomalyRequestsAnImmediateStaffWarning() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        RecordingWarningSink warningSink = new RecordingWarningSink();
+        register(useCase);
+        register(warningSink);
+        reporter = new PaperItemAnomalyReporter(plugin, 1);
+
+        reporter.recordDuplicate(
+                FIRST_IDENTITY,
+                conflictLocation("first"),
+                List.of(playerLocation("first-a"), playerLocation("first-b")),
+                "test",
+                "first duplicate");
+        useCase.firstResult.complete(recorded());
+
+        assertEquals(1, warningSink.requestCount);
+    }
+
     private void register(ItemAnomalyObservationUseCase useCase) {
         server.getServicesManager().register(
                 ItemAnomalyObservationUseCase.class,
                 useCase,
+                plugin,
+                ServicePriority.Normal);
+    }
+
+    private void register(AnomalyWarningSink warningSink) {
+        server.getServicesManager().register(
+                AnomalyWarningSink.class,
+                warningSink,
                 plugin,
                 ServicePriority.Normal);
     }
@@ -147,6 +196,15 @@ class PaperItemAnomalyReporterTest {
             return callCount == 1
                     ? firstResult
                     : CompletableFuture.completedFuture(recorded());
+        }
+    }
+
+    private static final class RecordingWarningSink implements AnomalyWarningSink {
+        private int requestCount;
+
+        @Override
+        public void requestWarning() {
+            requestCount++;
         }
     }
 }
