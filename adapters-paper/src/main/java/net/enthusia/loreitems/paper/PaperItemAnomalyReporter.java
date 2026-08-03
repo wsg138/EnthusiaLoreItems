@@ -228,7 +228,6 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
             }
             next = closed ? null : pollPending();
             if (next != null) {
-                retryAfterNanos.remove(next.key());
                 inFlight.add(next.key());
             }
             if (pending.size() < maxPending) {
