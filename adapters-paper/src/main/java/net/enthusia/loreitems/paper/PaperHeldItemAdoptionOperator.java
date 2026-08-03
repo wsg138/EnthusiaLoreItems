@@ -71,7 +71,7 @@ public final class PaperHeldItemAdoptionOperator {
             }
             return ApplyResult.applied(fingerprint(Objects.requireNonNull(stored, "stored")));
         } catch (ItemCodecException | IllegalArgumentException exception) {
-            return ApplyResult.reviewRequired(exception.getMessage());
+            return ApplyResult.reviewRequired(safeDetail(exception));
         } catch (RuntimeException exception) {
             return ApplyResult.reviewRequired(
                     "Paper failed while applying or verifying the held-item identity: "
@@ -124,6 +124,13 @@ public final class PaperHeldItemAdoptionOperator {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("Java runtime does not provide SHA-256", exception);
         }
+    }
+
+    private static String safeDetail(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank()
+                ? exception.getClass().getSimpleName()
+                : message;
     }
 
     public record ApplyResult(
