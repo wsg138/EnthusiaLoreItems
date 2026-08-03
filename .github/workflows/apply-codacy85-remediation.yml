@@ -27,6 +27,7 @@ jobs:
             > "$RUNNER_TEMP/codacy85.patch"
           git apply --check "$RUNNER_TEMP/codacy85.patch"
           git apply "$RUNNER_TEMP/codacy85.patch"
+          git checkout HEAD -- .github/workflows/ci.yml
           rm .github/codacy85.patch.00 \
              .github/codacy85.patch.01 \
              .github/codacy85.patch.02 \
