@@ -3,6 +3,7 @@ package net.enthusia.loreitems.application;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 
 public interface VoidLossUseCase {
     CompletionStage<PrepareResult> prepare(Request request);
@@ -19,7 +20,8 @@ public interface VoidLossUseCase {
             Objects.requireNonNull(entityId, "entityId");
             Objects.requireNonNull(locationKey, "locationKey");
             locationKey = locationKey.strip();
-            if (locationKey.isEmpty() || locationKey.length() > 512) {
+            if (locationKey.isEmpty()
+                    || locationKey.length() > LocationDescriptor.MAX_LOCATION_KEY_LENGTH) {
                 throw new IllegalArgumentException("Invalid void location key");
             }
         }
