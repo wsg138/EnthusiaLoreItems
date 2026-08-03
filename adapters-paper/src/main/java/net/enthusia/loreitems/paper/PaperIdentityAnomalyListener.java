@@ -441,7 +441,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         }
     }
 
-    private static void recordIfDuplicate(
+    private void recordIfDuplicate(
             Map<UUID, ObservedCopy> firstCopies,
             ObservedCopy copy,
             String source) {
@@ -451,7 +451,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         ObservedCopy previous = firstCopies.putIfAbsent(
                 copy.identity().instanceId().value(), copy);
         if (previous != null) {
-            throw new DuplicateObservation(previous, copy, source);
+            recordDuplicate(previous, copy, source);
         }
     }
 
@@ -592,15 +592,4 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
     private record ObservedCopy(
             LoreItemIdentity identity,
             LocationDescriptor location) {}
-
-    private static final class DuplicateObservation extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-
-        private DuplicateObservation(
-                ObservedCopy first,
-                ObservedCopy second,
-                String source) {
-            super(first + "|" + second + "|" + source);
-        }
-    }
 }
