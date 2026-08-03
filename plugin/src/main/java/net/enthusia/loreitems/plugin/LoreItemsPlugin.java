@@ -18,20 +18,30 @@ import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
 import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
+import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.AtomicConfiguration;
 import net.enthusia.loreitems.application.CreateDefinitionResult;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
 import net.enthusia.loreitems.application.MetricsPort;
+import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
+import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
+import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
+import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
 import net.enthusia.loreitems.application.StorageState;
+import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
+import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
+import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
+import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
+import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
 import org.bukkit.command.PluginCommand;
@@ -50,6 +60,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
     private final AtomicReference<CreateDefinitionUseCase> createDefinitionDelegate =
             new AtomicReference<>(unavailableCreateDefinitionUseCase());
+    private final AtomicReference<AdoptHeldItemUseCase> adoptHeldItemDelegate =
+            new AtomicReference<>(unavailableAdoptHeldItemUseCase());
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
     private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
             request -> createDefinitionDelegate.get().create(request);
@@ -93,10 +105,15 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private void registerCommands() {
         PluginCommand command = Objects.requireNonNull(
                 getCommand("loreitems"), "plugin.yml must declare the loreitems command");
-        command.setExecutor(new CreateDefinitionCommandExecutor(
+        CreateDefinitionCommandExecutor createExecutor = new CreateDefinitionCommandExecutor(
                 this,
                 registeredCreateDefinitionUseCase,
-                new PaperHeldItemDefinitionSnapshotter()));
+                new PaperHeldItemDefinitionSnapshotter());
+        AdoptHeldItemCommandExecutor adoptExecutor = new AdoptHeldItemCommandExecutor(
+                this,
+                adoptHeldItemDelegate::get,
+                new PaperHeldItemAdoptionOperator());
+        command.setExecutor(new LoreItemsCommandExecutor(createExecutor, adoptExecutor));
     }
 
     @Override
@@ -105,6 +122,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             stopping = true;
             serviceDelegate.set(new UnavailableService("The plugin is stopping."));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
+            adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
         }
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
@@ -232,14 +250,20 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
         SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
         recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
+        recoverExpiredMutationClaims(runtime, loaded.deliveryClaimBatchSize());
         LoreItemsServiceV1 deliveryService = new FoundationLoreItemsService(
                 new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC()));
         CreateDefinitionUseCase createDefinitionUseCase = new PersistingCreateDefinitionUseCase(
                 new SQLiteUnitOfWork(runtime), Clock.systemUTC());
-        if (publishWritableServices(deliveryService, createDefinitionUseCase)) {
+        AdoptHeldItemUseCase adoptHeldItemUseCase = new PersistingAdoptHeldItemUseCase(
+                new SQLiteHeldItemAdoptionStore(runtime),
+                Clock.systemUTC(),
+                Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
+        if (publishWritableServices(
+                deliveryService, createDefinitionUseCase, adoptHeldItemUseCase)) {
             getLogger().info(
-                    "Durable storage is active; held-item definition creation is available. "
-                            + "Physical inventory delivery remains deferred.");
+                    "Durable storage is active; held-item definition creation and adoption "
+                            + "are available. Physical direct delivery remains deferred.");
         }
     }
 
@@ -253,15 +277,18 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     private boolean publishWritableServices(
             LoreItemsServiceV1 service,
-            CreateDefinitionUseCase createDefinitionUseCase) {
+            CreateDefinitionUseCase createDefinitionUseCase,
+            AdoptHeldItemUseCase adoptHeldItemUseCase) {
         Objects.requireNonNull(service, "service");
         Objects.requireNonNull(createDefinitionUseCase, "createDefinitionUseCase");
+        Objects.requireNonNull(adoptHeldItemUseCase, "adoptHeldItemUseCase");
         synchronized (lifecycleLock) {
             if (stopping) {
                 return false;
             }
             serviceDelegate.set(service);
             createDefinitionDelegate.set(createDefinitionUseCase);
+            adoptHeldItemDelegate.set(adoptHeldItemUseCase);
             return true;
         }
     }
@@ -274,6 +301,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             }
             serviceDelegate.set(new UnavailableService(detail));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
+            adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             return true;
         }
     }
@@ -294,6 +322,24 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
     }
 
+    private void recoverExpiredMutationClaims(
+            SQLiteStorageRuntime runtime, int recoveryLimit) {
+        SQLitePendingMutationRepository repository =
+                new SQLitePendingMutationRepository(runtime);
+        int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
+                .toCompletableFuture()
+                .join();
+        if (recovered > 0) {
+            getLogger().warning(
+                    "Moved " + recovered + " expired item-mutation claims to REVIEW_REQUIRED.");
+        }
+        if (recovered == recoveryLimit) {
+            getLogger().warning(
+                    "The bounded startup mutation-recovery batch was full; additional expired "
+                            + "claims may remain for later recovery.");
+        }
+    }
+
     private void handleInitializationFailure(Exception exception) {
         publishUnavailableServices(
                 "Foundation initialization failed: " + safeMessage(exception));
@@ -305,6 +351,31 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private static CreateDefinitionUseCase unavailableCreateDefinitionUseCase() {
         return request -> CompletableFuture.completedFuture(
                 CreateDefinitionResult.serviceUnavailable());
+    }
+
+    private static AdoptHeldItemUseCase unavailableAdoptHeldItemUseCase() {
+        return new AdoptHeldItemUseCase() {
+            @Override
+            public CompletionStage<PrepareHeldItemAdoptionResult> prepare(
+                    PrepareHeldItemAdoptionRequest request) {
+                return CompletableFuture.completedFuture(
+                        PrepareHeldItemAdoptionResult.serviceUnavailable());
+            }
+
+            @Override
+            public CompletionStage<Boolean> complete(
+                    PreparedHeldItemAdoption adoption,
+                    String afterFingerprint) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            @Override
+            public CompletionStage<Boolean> requireReview(
+                    PreparedHeldItemAdoption adoption,
+                    String reason) {
+                return CompletableFuture.completedFuture(false);
+            }
+        };
     }
 
     private static String safeMessage(Exception exception) {
