@@ -15,5 +15,6 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0009 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Distribution campaign and recipient persistence](0009-2026-08-02-pr2-distribution-persistence.md) |
 | 0010 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Distribution persistence verification refresh](0010-2026-08-02-pr2-distribution-verification.md) |
 | 0011 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Deleted-definition marker persistence](0011-2026-08-02-pr2-deleted-marker-persistence.md) |
+| 0012 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Deleted-definition marker verification refresh](0012-2026-08-02-pr2-deleted-marker-verification.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
