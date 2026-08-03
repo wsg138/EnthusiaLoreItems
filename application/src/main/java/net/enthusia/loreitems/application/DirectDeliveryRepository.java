@@ -20,7 +20,7 @@ public interface DirectDeliveryRepository {
             String claimToken,
             Instant now);
 
-    CompletionStage<Integer> moveExpiredClaimsToReview(Instant now);
+    CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit);
 
     CompletionStage<Page<DirectDeliveryRecord>> listNonTerminal(PageRequest request);
 }

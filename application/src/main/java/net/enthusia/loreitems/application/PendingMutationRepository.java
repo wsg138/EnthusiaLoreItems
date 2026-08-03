@@ -19,7 +19,7 @@ public interface PendingMutationRepository {
             String claimToken,
             Instant now);
 
-    CompletionStage<Integer> moveExpiredClaimsToReview(Instant now);
+    CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit);
 
     CompletionStage<Page<PendingMutationRecord>> listNonTerminal(PageRequest request);
 }

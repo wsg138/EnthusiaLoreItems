@@ -85,10 +85,15 @@ class SQLitePendingMutationRepositoryTest {
     void expiredClaimBecomesReviewRequiredAfterRestart() {
         Path database = temporaryDirectory.resolve("restart.db");
         UUID mutationId = UUID.randomUUID();
+        UUID secondMutationId = UUID.randomUUID();
         SQLiteStorageRuntime firstRuntime = start(database);
         SQLitePendingMutationRepository firstRepository =
                 new SQLitePendingMutationRepository(firstRuntime);
         firstRepository.insert(pending(mutationId, null, 1_000L)).toCompletableFuture().join();
+        firstRepository
+                .insert(pending(secondMutationId, null, 1_001L))
+                .toCompletableFuture()
+                .join();
         firstRepository.claimPending(
                         "worker-before-restart",
                         Instant.ofEpochMilli(2_000L),
@@ -103,7 +108,7 @@ class SQLitePendingMutationRepositoryTest {
             SQLitePendingMutationRepository secondRepository =
                     new SQLitePendingMutationRepository(secondRuntime);
             int recovered = secondRepository
-                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L))
+                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
                     .toCompletableFuture()
                     .join();
             Page<PendingMutationRecord> remaining = secondRepository
@@ -112,11 +117,23 @@ class SQLitePendingMutationRepositoryTest {
                     .join();
 
             assertEquals(1, recovered);
-            assertEquals(1, remaining.items().size());
-            assertEquals(mutationId, remaining.items().getFirst().mutationId());
+            assertEquals(2, remaining.items().size());
             assertEquals(
-                    PendingMutationState.REVIEW_REQUIRED,
-                    remaining.items().getFirst().state());
+                    1L,
+                    remaining.items().stream()
+                            .filter(record -> record.state() == PendingMutationState.REVIEW_REQUIRED)
+                            .count());
+            assertEquals(
+                    1L,
+                    remaining.items().stream()
+                            .filter(record -> record.state() == PendingMutationState.CLAIMED)
+                            .count());
+            assertEquals(
+                    1,
+                    secondRepository
+                            .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
+                            .toCompletableFuture()
+                            .join());
         } finally {
             secondRuntime.close(Duration.ofSeconds(5));
         }

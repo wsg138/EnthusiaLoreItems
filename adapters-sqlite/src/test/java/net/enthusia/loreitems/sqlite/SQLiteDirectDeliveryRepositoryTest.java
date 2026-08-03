@@ -167,6 +167,12 @@ class SQLiteDirectDeliveryRepositoryTest {
                         Instant.ofEpochMilli(1_000L))
                 .toCompletableFuture()
                 .join();
+        firstRepository.acceptExternal(
+                        new ExternalDeliveryCommand(
+                                new DefinitionKey("restart-safe"), UUID.randomUUID(), "restart-2"),
+                        Instant.ofEpochMilli(1_001L))
+                .toCompletableFuture()
+                .join();
         firstRepository.claimPending(
                         "worker-before-restart",
                         Instant.ofEpochMilli(2_000L),
@@ -181,7 +187,7 @@ class SQLiteDirectDeliveryRepositoryTest {
             SQLiteDirectDeliveryRepository secondRepository =
                     new SQLiteDirectDeliveryRepository(secondRuntime);
             int recovered = secondRepository
-                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L))
+                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
                     .toCompletableFuture()
                     .join();
             Page<DirectDeliveryRecord> remaining = secondRepository
@@ -190,8 +196,23 @@ class SQLiteDirectDeliveryRepositoryTest {
                     .join();
 
             assertEquals(1, recovered);
-            assertEquals(1, remaining.items().size());
-            assertEquals(DirectDeliveryState.REVIEW_REQUIRED, remaining.items().getFirst().state());
+            assertEquals(2, remaining.items().size());
+            assertEquals(
+                    1L,
+                    remaining.items().stream()
+                            .filter(record -> record.state() == DirectDeliveryState.REVIEW_REQUIRED)
+                            .count());
+            assertEquals(
+                    1L,
+                    remaining.items().stream()
+                            .filter(record -> record.state() == DirectDeliveryState.RESERVED)
+                            .count());
+            assertEquals(
+                    1,
+                    secondRepository
+                            .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 1)
+                            .toCompletableFuture()
+                            .join());
         } finally {
             secondRuntime.close(Duration.ofSeconds(5));
         }

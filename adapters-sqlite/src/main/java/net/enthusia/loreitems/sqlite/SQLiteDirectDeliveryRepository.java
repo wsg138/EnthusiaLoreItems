@@ -52,9 +52,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         if (normalizedToken.isEmpty()) {
             throw new IllegalArgumentException("claimToken must not be blank");
         }
-        if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
-            throw new IllegalArgumentException("limit is outside bounded page limits");
-        }
+        requireBoundedLimit(limit);
         long leaseMillis = lease.toMillis();
         if (leaseMillis < MIN_LEASE_MILLIS) {
             throw new IllegalArgumentException("lease must be positive");
@@ -100,16 +98,21 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     @Override
-    public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now) {
+    public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit) {
         Objects.requireNonNull(now, NOW_ARGUMENT);
+        requireBoundedLimit(limit);
+        long nowMillis = now.toEpochMilli();
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
                             + "claim_expires_at = NULL, updated_at = ? "
+                            + "WHERE rowid IN (SELECT rowid FROM direct_deliveries "
                             + "WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                            + "AND claim_expires_at <= ?")) {
-                statement.setLong(1, now.toEpochMilli());
-                statement.setLong(2, now.toEpochMilli());
+                            + "AND claim_expires_at <= ? "
+                            + "ORDER BY claim_expires_at, delivery_id LIMIT ?)")) {
+                statement.setLong(1, nowMillis);
+                statement.setLong(2, nowMillis);
+                statement.setInt(3, limit);
                 return statement.executeUpdate();
             }
         });
@@ -138,6 +141,12 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             }
             return new Page<>(records, request.offset(), request.limit(), hasMore);
         });
+    }
+
+    private static void requireBoundedLimit(int limit) {
+        if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
+            throw new IllegalArgumentException("limit is outside bounded page limits");
+        }
     }
 
     private static ExternalDeliveryAcceptance acceptExternal(
