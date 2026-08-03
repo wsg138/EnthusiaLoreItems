@@ -14,7 +14,14 @@ public sealed interface ItemIdentityReadResult
         }
     }
 
-    record Invalid(ItemIdentityFailure failure, String detail) implements ItemIdentityReadResult {
+    record Invalid(
+            ItemIdentityFailure failure,
+            String detail,
+            LoreItemIdentity identityEvidence) implements ItemIdentityReadResult {
+        public Invalid(ItemIdentityFailure failure, String detail) {
+            this(failure, detail, null);
+        }
+
         public Invalid {
             Objects.requireNonNull(failure, "failure");
             Objects.requireNonNull(detail, "detail");
