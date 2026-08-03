@@ -34,7 +34,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             ExternalDeliveryCommand command, Instant now) {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(now, "now");
-        return storage.execute(connection -> inTransaction(
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection, transaction -> acceptExternal(transaction, command, now.toEpochMilli())));
     }
 
@@ -55,7 +55,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         if (leaseMillis < 1L) {
             throw new IllegalArgumentException("lease must be positive");
         }
-        return storage.execute(connection -> inTransaction(connection, transaction ->
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction ->
                 claimPending(transaction, normalizedToken, now.toEpochMilli(), leaseMillis, limit)));
     }
 
@@ -349,27 +349,6 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 resultSet.getInt("attempt_count"),
                 resultSet.getLong("created_at"),
                 resultSet.getLong("updated_at"));
-    }
-
-    private static <T> T inTransaction(Connection connection, TransactionWork<T> work)
-            throws Exception {
-        boolean previousAutoCommit = connection.getAutoCommit();
-        connection.setAutoCommit(false);
-        try {
-            T result = work.execute(connection);
-            connection.commit();
-            return result;
-        } catch (Exception exception) {
-            connection.rollback();
-            throw exception;
-        } finally {
-            connection.setAutoCommit(previousAutoCommit);
-        }
-    }
-
-    @FunctionalInterface
-    private interface TransactionWork<T> {
-        T execute(Connection connection) throws Exception;
     }
 
     private record ExistingRequest(
