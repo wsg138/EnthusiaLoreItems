@@ -334,7 +334,9 @@ public final class SQLiteItemAnomalyObservationStore
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character >= 0x20) {
+                    if (character < 0x20) {
+                        escaped.append(String.format("\\u%04x", (int) character));
+                    } else {
                         escaped.append(character);
                     }
                 }
