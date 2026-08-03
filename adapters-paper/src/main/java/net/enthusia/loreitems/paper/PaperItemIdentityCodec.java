@@ -97,18 +97,20 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
             return new ItemIdentityReadResult.Untracked();
         }
         if (presentIdentityKeys != IDENTITY_KEYS.size()) {
-            return invalid(ItemIdentityFailure.PARTIAL_DATA, "Lore-item identity fields are incomplete");
+            return invalid(
+                    ItemIdentityFailure.PARTIAL_DATA,
+                    "Lore-item identity fields are incomplete",
+                    readIdentityEvidence(data));
         }
         return readCompleteIdentity(item, data);
     }
 
     private static ItemIdentityReadResult readCompleteIdentity(
             ItemStack item, PersistentDataContainer data) {
-        Integer version = data.get(VERSION_KEY, PersistentDataType.INTEGER);
         byte[] definitionBytes = data.get(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY);
         byte[] instanceBytes = data.get(INSTANCE_KEY, PersistentDataType.BYTE_ARRAY);
         Long revision = data.get(REVISION_KEY, PersistentDataType.LONG);
-        if (version == null || definitionBytes == null || instanceBytes == null || revision == null) {
+        if (definitionBytes == null || instanceBytes == null || revision == null) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity fields use invalid data types");
         }
 
@@ -117,6 +119,13 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
             identity = decodeIdentity(definitionBytes, instanceBytes, revision);
         } catch (IllegalArgumentException exception) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity values are invalid");
+        }
+        Integer version = data.get(VERSION_KEY, PersistentDataType.INTEGER);
+        if (version == null) {
+            return invalid(
+                    ItemIdentityFailure.MALFORMED_DATA,
+                    "Lore-item identity version uses an invalid data type",
+                    identity);
         }
         if (version != CURRENT_VERSION) {
             return invalid(
@@ -131,6 +140,20 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
                     identity);
         }
         return new ItemIdentityReadResult.Tracked(identity);
+    }
+
+    private static LoreItemIdentity readIdentityEvidence(PersistentDataContainer data) {
+        byte[] definitionBytes = data.get(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY);
+        byte[] instanceBytes = data.get(INSTANCE_KEY, PersistentDataType.BYTE_ARRAY);
+        Long revision = data.get(REVISION_KEY, PersistentDataType.LONG);
+        if (definitionBytes == null || instanceBytes == null || revision == null) {
+            return null;
+        }
+        try {
+            return decodeIdentity(definitionBytes, instanceBytes, revision);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private static boolean isUnstackableSingleItem(ItemStack item) {
