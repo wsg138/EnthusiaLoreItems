@@ -81,6 +81,9 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         if (useCase == null) {
             return;
         }
+        AnomalyWarningSink warningSink = plugin.getServer()
+                .getServicesManager()
+                .load(AnomalyWarningSink.class);
         ReportKey key = new ReportKey(kind, identity.instanceId().value());
         if (!tryBegin(key)) {
             return;
@@ -102,13 +105,13 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                             unwrap(failure));
                     return;
                 }
-                if (result.shouldWarnStaff()) {
-                    AnomalyWarningSink warningSink = plugin.getServer()
-                            .getServicesManager()
-                            .load(AnomalyWarningSink.class);
-                    if (warningSink != null) {
-                        warningSink.requestWarning();
-                    }
+                if (result == null) {
+                    plugin.getLogger().severe(
+                            "Lore-item identity anomaly persistence returned no result.");
+                    return;
+                }
+                if (result.shouldWarnStaff() && warningSink != null) {
+                    warningSink.requestWarning();
                 }
             });
         } catch (RuntimeException exception) {
