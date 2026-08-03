@@ -1,4 +1,4 @@
-name: Export Codacy Annotations
+name: Apply Codacy Adoption Fixes
 
 on:
   pull_request:
@@ -6,42 +6,109 @@ on:
       - main
 
 permissions:
-  contents: read
-  checks: read
-  statuses: read
+  contents: write
 
 jobs:
-  export:
+  apply:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
-      - name: Wait for Codacy and export annotations
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Apply exact Codacy fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path_value, old, new):
+              path = Path(path_value)
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise RuntimeError(f"Expected one match in {path}: {old!r}")
+              path.write_text(text.replace(old, new))
+
+          replace_once(
+              "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperHeldItemAdoptionOperator.java",
+              '    private static final String SHA_256 = "SHA-256";\n',
+              '    private static final String SHA_256 = "SHA-256";\n'
+              '    private static final int SINGLE_ITEM_AMOUNT = 1;\n')
+          replace_once(
+              "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperHeldItemAdoptionOperator.java",
+              'if (item.getAmount() != 1)',
+              'if (item.getAmount() != SINGLE_ITEM_AMOUNT)')
+          replace_once(
+              "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperHeldItemAdoptionOperator.java",
+              'item.getAmount() != 1 || item.getMaxStackSize() != 1',
+              'item.getAmount() != SINGLE_ITEM_AMOUNT\n'
+              '                || item.getMaxStackSize() != SINGLE_ITEM_AMOUNT')
+
+          replace_once(
+              "adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperHeldItemAdoptionOperatorTest.java",
+              '    private ServerMock server;\n',
+              '')
+          replace_once(
+              "adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperHeldItemAdoptionOperatorTest.java",
+              '        server = MockBukkit.mock();\n        player = server.addPlayer();',
+              '        ServerMock server = MockBukkit.mock();\n        player = server.addPlayer();')
+
+          replace_once(
+              "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteHeldItemAdoptionStore.java",
+              '    private static final String OBSERVATION_SOURCE = "held-item-adoption";\n',
+              '    private static final String OBSERVATION_SOURCE = "held-item-adoption";\n'
+              '    private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";\n'
+              '    private static final String COMPLETED_STATE = "COMPLETED";\n')
+          replace_once(
+              "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteHeldItemAdoptionStore.java",
+              '    private static final int MAX_REVIEW_REASON_LENGTH = 4_096;\n',
+              '    private static final int MAX_REVIEW_REASON_LENGTH = 4_096;\n'
+              '    private static final char FIRST_NON_CONTROL_CHARACTER = 0x20;\n')
+          replace_once(
+              "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteHeldItemAdoptionStore.java",
+              'if ("REVIEW_REQUIRED".equals(mutation.state()))',
+              'if (REVIEW_REQUIRED_STATE.equals(mutation.state()))')
+          replace_once(
+              "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteHeldItemAdoptionStore.java",
+              'if ("COMPLETED".equals(mutation.state())',
+              'if (COMPLETED_STATE.equals(mutation.state())')
+          replace_once(
+              "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteHeldItemAdoptionStore.java",
+              'if (character < 0x20)',
+              'if (character < FIRST_NON_CONTROL_CHARACTER)')
+
+          for file_name in (
+              "HeldItemAdoptionPreparation.java",
+              "PreparedHeldItemAdoption.java"):
+              path = Path("application/src/main/java/net/enthusia/loreitems/application") / file_name
+              text = path.read_text()
+              header = '        long claimExpiresAtEpochMillis) {\n'
+              if text.count(header) != 1 or text.count('preparedAtEpochMillis < 0L') != 1:
+                  raise RuntimeError(f"Unexpected epoch-validation shape in {path}")
+              text = text.replace(
+                  header,
+                  header + '    private static final long EARLIEST_EPOCH_MILLIS = 0L;\n\n')
+              text = text.replace(
+                  'preparedAtEpochMillis < 0L',
+                  'preparedAtEpochMillis < EARLIEST_EPOCH_MILLIS')
+              path.write_text(text)
+      - name: Verify
+        run: gradle --no-daemon clean check
+      - name: Commit verified fixes and clean diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p codacy-export
-          for attempt in {1..60}; do
-            gh api --paginate "/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" > codacy-export/check-runs.json
-            if jq -e '[.check_runs[] | select(((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production")) and .status == "completed")] | length > 0' codacy-export/check-runs.json >/dev/null; then
-              break
-            fi
-            sleep 10
-          done
-          jq '[.check_runs[] | select((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production"))]' codacy-export/check-runs.json > codacy-export/codacy-check-runs.json
-          jq -e 'length > 0 and all(.status == "completed")' codacy-export/codacy-check-runs.json >/dev/null
-          : > codacy-export/annotations.jsonl
-          jq -r '.[].id' codacy-export/codacy-check-runs.json | while read -r check_id; do
-            gh api --paginate "/repos/${REPOSITORY}/check-runs/${check_id}/annotations?per_page=100" | jq -c '.[]' >> codacy-export/annotations.jsonl
-          done
-          jq -s '.' codacy-export/annotations.jsonl > codacy-export/annotations.json
-          cat codacy-export/codacy-check-runs.json
-          cat codacy-export/annotations.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: codacy-annotations
-          path: codacy-export
-          retention-days: 1
+          rm .github/workflows/export-codacy-annotations.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git diff --cached --check
+          git commit -m "resolve adoption Codacy findings"
+          git push origin HEAD:${{ github.head_ref }}
