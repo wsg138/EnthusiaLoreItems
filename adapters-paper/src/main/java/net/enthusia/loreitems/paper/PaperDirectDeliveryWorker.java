@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
@@ -69,7 +70,16 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
         if (closed) {
             return;
         }
-        useCase.wakePlayer(playerId, claimLimit).whenComplete((ignored, throwable) -> {
+        CompletionStage<Integer> wakeup;
+        try {
+            wakeup = Objects.requireNonNull(
+                    useCase.wakePlayer(playerId, claimLimit),
+                    "direct-delivery wakeup stage");
+        } catch (RuntimeException exception) {
+            logFailure("Could not submit queued direct-delivery wakeup.", exception);
+            return;
+        }
+        wakeup.whenComplete((ignored, throwable) -> {
             if (throwable != null) {
                 logFailure("Could not wake queued direct deliveries for a player.", throwable);
                 return;
@@ -88,8 +98,12 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
             return;
         }
         try {
-            useCase.recoverExpiredClaims(claimLimit)
-                    .thenCompose(ignored -> useCase.claimPending(claimLimit))
+            CompletionStage<Integer> recovery = Objects.requireNonNull(
+                    useCase.recoverExpiredClaims(claimLimit),
+                    "direct-delivery recovery stage");
+            recovery.thenCompose(ignored -> Objects.requireNonNull(
+                            useCase.claimPending(claimLimit),
+                            "direct-delivery claim stage"))
                     .whenComplete((page, throwable) -> {
                         if (throwable != null) {
                             claimInFlight.set(false);
@@ -107,6 +121,11 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
     private void processClaimed(Page<PreparedDirectDelivery> page) {
         try {
             if (closed) {
+                return;
+            }
+            if (page == null) {
+                plugin.getLogger().severe(
+                        "Direct-delivery claim work completed without a result page.");
                 return;
             }
             for (PreparedDirectDelivery delivery : page.items()) {
@@ -128,15 +147,23 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
             case APPLIED -> complete(delivery, result);
             case NO_SPACE -> defer(delivery);
             case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
-            default -> requireReview(
-                    delivery,
-                    "Unsupported direct-delivery apply result: " + result.status(),
-                    null);
         }
     }
 
     private void defer(PreparedDirectDelivery delivery) {
-        useCase.defer(delivery, RETRY_DELAY).whenComplete((deferred, throwable) -> {
+        CompletionStage<Boolean> deferral;
+        try {
+            deferral = Objects.requireNonNull(
+                    useCase.defer(delivery, RETRY_DELAY),
+                    "direct-delivery deferral stage");
+        } catch (RuntimeException exception) {
+            requireReview(
+                    delivery,
+                    "The safe offline/full-inventory deferral could not be submitted.",
+                    exception);
+            return;
+        }
+        deferral.whenComplete((deferred, throwable) -> {
             if (throwable != null) {
                 requireReview(
                         delivery,
@@ -154,27 +181,38 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
     private void complete(
             PreparedDirectDelivery delivery,
             PaperDirectDeliveryOperator.ApplyResult result) {
-        useCase.complete(
+        CompletionStage<Boolean> completion;
+        try {
+            completion = Objects.requireNonNull(
+                    useCase.complete(
+                            delivery,
+                            Objects.requireNonNull(result.inventorySlot(), "inventorySlot"),
+                            Objects.requireNonNull(result.afterFingerprint(), "afterFingerprint")),
+                    "direct-delivery completion stage");
+        } catch (RuntimeException exception) {
+            requireReview(
+                    delivery,
+                    "The item was inserted but durable completion could not be submitted.",
+                    exception);
+            return;
+        }
+        completion.whenComplete((completed, throwable) -> {
+            if (throwable != null) {
+                requireReview(
                         delivery,
-                        Objects.requireNonNull(result.inventorySlot(), "inventorySlot"),
-                        Objects.requireNonNull(result.afterFingerprint(), "afterFingerprint"))
-                .whenComplete((completed, throwable) -> {
-                    if (throwable != null) {
-                        requireReview(
-                                delivery,
-                                "The item was inserted but durable completion failed.",
-                                throwable);
-                    } else if (!Boolean.TRUE.equals(completed)) {
-                        requireReview(
-                                delivery,
-                                "The item was inserted but the claimed completion transition was lost.",
-                                null);
-                    } else {
-                        notifyPlayer(
-                                delivery.playerId(),
-                                "A queued lore item was delivered to your inventory.");
-                    }
-                });
+                        "The item was inserted but durable completion failed.",
+                        throwable);
+            } else if (!Boolean.TRUE.equals(completed)) {
+                requireReview(
+                        delivery,
+                        "The item was inserted but the claimed completion transition was lost.",
+                        null);
+            } else {
+                notifyPlayer(
+                        delivery.playerId(),
+                        "A queued lore item was delivered to your inventory.");
+            }
+        });
     }
 
     private void requireReview(
@@ -185,7 +223,10 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
             logFailure("Direct delivery entered review after an operational failure.", precedingFailure);
         }
         try {
-            useCase.requireReview(delivery, reason).whenComplete((reviewed, throwable) -> {
+            CompletionStage<Boolean> review = Objects.requireNonNull(
+                    useCase.requireReview(delivery, reason),
+                    "direct-delivery review stage");
+            review.whenComplete((reviewed, throwable) -> {
                 if (throwable != null) {
                     logFailure("Could not persist direct-delivery review state.", throwable);
                     return;
