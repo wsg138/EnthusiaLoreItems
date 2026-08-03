@@ -35,7 +35,9 @@ import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketEvent;
+import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.inventory.EquipmentSlot;
@@ -187,10 +189,13 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onBucketUse(PlayerBucketEvent event) {
-        if (hasLoreIdentityEvidence(itemInHand(event))) {
-            event.setCancelled(true);
-        }
+    public void onBucketEmpty(PlayerBucketEmptyEvent event) {
+        protectBucketUse(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketFill(PlayerBucketFillEvent event) {
+        protectBucketUse(event);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -220,6 +225,12 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDispense(BlockPreDispenseEvent event) {
         if (hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void protectBucketUse(PlayerBucketEvent event) {
+        if (hasLoreIdentityEvidence(itemInHand(event))) {
             event.setCancelled(true);
         }
     }
