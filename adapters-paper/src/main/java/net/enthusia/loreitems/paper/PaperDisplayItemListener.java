@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -57,6 +58,10 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private final Object workLock = new Object();
     private final Map<WorkKey, Set<LoreItemIdentity>> pending = new HashMap<>();
     private final Queue<DisplayItemObservationUseCase.Request> queued = new ArrayDeque<>();
+    private final ThreadLocal<ArrayDeque<DisplayItemObservationUseCase.Request>>
+            submissionTrampoline = ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Boolean> submitting =
+            ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private int inFlight;
     private volatile boolean closed;
@@ -85,7 +90,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityPickupItem(EntityPickupItemEvent event) {
         if (!(event.getEntity() instanceof Player)
-                && hasLoreIdentityEvidence(event.getItem().getItemStack())) {
+                && identityCodec.hasIdentityEvidence(event.getItem().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -267,7 +272,27 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             }
             inFlight++;
         }
-        startSubmission(request);
+        dispatchSubmission(request);
+    }
+
+    private void dispatchSubmission(DisplayItemObservationUseCase.Request request) {
+        ArrayDeque<DisplayItemObservationUseCase.Request> trampoline =
+                submissionTrampoline.get();
+        trampoline.addLast(request);
+        if (submitting.get()) {
+            return;
+        }
+        submitting.set(Boolean.TRUE);
+        try {
+            DisplayItemObservationUseCase.Request next;
+            while ((next = trampoline.pollFirst()) != null) {
+                startSubmission(next);
+            }
+        } finally {
+            trampoline.clear();
+            submitting.remove();
+            submissionTrampoline.remove();
+        }
     }
 
     private void startSubmission(DisplayItemObservationUseCase.Request request) {
@@ -292,7 +317,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 plugin.getLogger().log(
                         Level.SEVERE,
                         "Could not persist display-item observation.",
-                        failure);
+                        unwrap(failure));
             }
             finishSubmission();
         });
@@ -308,7 +333,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             }
         }
         if (next != null) {
-            startSubmission(next);
+            dispatchSubmission(next);
         }
     }
 
@@ -316,6 +341,9 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             Set<LoreItemIdentity> target,
             List<LoreItemIdentity> identities) {
         for (LoreItemIdentity identity : identities) {
+            if (target.contains(identity)) {
+                continue;
+            }
             if (target.size() >= MAX_IDENTITIES_PER_WORK) {
                 return false;
             }
@@ -350,9 +378,11 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 : null;
     }
 
-    private boolean hasLoreIdentityEvidence(ItemStack item) {
-        return !(identityCodec.readIdentity(item)
-                instanceof ItemIdentityReadResult.Untracked);
+    private static Throwable unwrap(Throwable throwable) {
+        if (throwable instanceof CompletionException exception && exception.getCause() != null) {
+            return exception.getCause();
+        }
+        return throwable;
     }
 
     private static String locationKey(Entity entity) {
