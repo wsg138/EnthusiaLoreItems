@@ -1,0 +1,177 @@
+name: Remediate direct delivery Codacy findings
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: remediate-direct-delivery-codacy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/loreitems-pr2-creation-delivery-protection
+          fetch-depth: 0
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Apply exact reviewed fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          worker_path = Path("adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java")
+          worker = worker_path.read_text()
+          worker = replace_once(
+              worker,
+              """        switch (result.status()) {
+              case APPLIED -> complete(delivery, result);
+              case NO_SPACE -> defer(delivery);
+              case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+          }
+          """,
+              """        switch (result.status()) {
+              case APPLIED -> complete(delivery, result);
+              case NO_SPACE -> defer(delivery);
+              case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+              default -> requireReview(
+                      delivery,
+                      "Unsupported direct-delivery apply result: " + result.status(),
+                      null);
+          }
+          """,
+              "worker exhaustive switch")
+          worker = replace_once(worker, "            pollTask = null;\n", "", "worker null assignment")
+          worker_path.write_text(worker)
+
+          plugin_path = Path("plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java")
+          plugin = plugin_path.read_text()
+          plugin = replace_once(
+              plugin,
+              "            directDeliveryWorker = null;\n",
+              "",
+              "plugin null assignment")
+          plugin_path.write_text(plugin)
+
+          prepared_path = Path("application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java")
+          prepared = prepared_path.read_text()
+          prepared = replace_once(
+              prepared,
+              "    private static final long MIN_TIMESTAMP = 0L;\n",
+              "    private static final long MIN_TIMESTAMP = 0L;\n"
+              "    private static final int MIN_ATTEMPT_COUNT = 1;\n",
+              "prepared delivery constant")
+          prepared = replace_once(
+              prepared,
+              "        if (attemptCount < 1) {\n",
+              "        if (attemptCount < MIN_ATTEMPT_COUNT) {\n",
+              "prepared delivery conditional")
+          prepared_path.write_text(prepared)
+
+          sqlite_path = Path("adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java")
+          sqlite = sqlite_path.read_text()
+          sqlite = replace_once(
+              sqlite,
+              "    private static final String COMPLETED_STATE = \"COMPLETED\";\n",
+              "    private static final String COMPLETED_STATE = \"COMPLETED\";\n"
+              "    private static final String DELIVERY_ID_COLUMN = \"delivery_id\";\n"
+              "    private static final String INSTANCE_ID_COLUMN = \"instance_id\";\n"
+              "    private static final String PLAYER_ID_COLUMN = \"player_id\";\n",
+              "SQLite column constants")
+          query_block = """        List<ExpiredClaim> expired = new ArrayList<>();
+          try (PreparedStatement statement = connection.prepareStatement(
+                  "SELECT delivery_id, instance_id, player_id, state, claim_token "
+                          + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                          + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
+              statement.setLong(1, now);
+              statement.setInt(2, limit);
+              try (ResultSet resultSet = statement.executeQuery()) {
+                  while (resultSet.next()) {
+                      expired.add(new ExpiredClaim(
+                              UUID.fromString(resultSet.getString("delivery_id")),
+                              UUID.fromString(resultSet.getString("instance_id")),
+                              UUID.fromString(resultSet.getString("player_id")),
+                              resultSet.getString("state"),
+                              resultSet.getString("claim_token")));
+                  }
+              }
+          }
+          """
+          sqlite = replace_once(
+              sqlite,
+              query_block,
+              "        List<ExpiredClaim> expired = findExpiredClaims(connection, now, limit);\n",
+              "expired-claim query extraction")
+          helper = """
+          private static List<ExpiredClaim> findExpiredClaims(
+                  Connection connection,
+                  long now,
+                  int limit) throws SQLException {
+              List<ExpiredClaim> expired = new ArrayList<>();
+              try (PreparedStatement statement = connection.prepareStatement(
+                      "SELECT delivery_id, instance_id, player_id, state, claim_token "
+                              + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
+                              + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
+                  statement.setLong(1, now);
+                  statement.setInt(2, limit);
+                  try (ResultSet resultSet = statement.executeQuery()) {
+                      while (resultSet.next()) {
+                          expired.add(new ExpiredClaim(
+                                  UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
+                                  UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
+                                  UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
+                                  resultSet.getString("state"),
+                                  resultSet.getString("claim_token")));
+                      }
+                  }
+              }
+              return expired;
+          }
+
+          """
+          sqlite = replace_once(
+              sqlite,
+              "    private static boolean transitionDelivery(\n",
+              helper + "    private static boolean transitionDelivery(\n",
+              "expired-claim helper insertion")
+          replacements = {
+              'resultSet.getString("delivery_id")': 'resultSet.getString(DELIVERY_ID_COLUMN)',
+              'resultSet.getString("instance_id")': 'resultSet.getString(INSTANCE_ID_COLUMN)',
+              'resultSet.getString("player_id")': 'resultSet.getString(PLAYER_ID_COLUMN)',
+          }
+          for old, new in replacements.items():
+              count = sqlite.count(old)
+              if count != 3:
+                  raise SystemExit(f"SQLite duplicate literal {old}: expected three remaining matches, found {count}")
+              sqlite = sqlite.replace(old, new)
+          sqlite_path.write_text(sqlite)
+          PY
+          git rm .github/workflows/codacy-current-evidence.yml
+          git rm .github/workflows/remediate-direct-delivery-codacy.yml
+          git diff --check
+          gradle --no-daemon clean check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add adapters-paper adapters-sqlite application plugin
+          git commit -m "fix direct delivery static analysis findings"
+          git push origin HEAD:agent/loreitems-pr2-creation-delivery-protection
