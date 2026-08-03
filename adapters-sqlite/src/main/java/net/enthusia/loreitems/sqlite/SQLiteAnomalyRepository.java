@@ -20,7 +20,6 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 public final class SQLiteAnomalyRepository implements AnomalyRepository {
     private static final String ANOMALY_ID_ARGUMENT = "anomalyId";
 
-
     private final SQLiteStorageRuntime storage;
 
     public SQLiteAnomalyRepository(SQLiteStorageRuntime storage) {
@@ -71,6 +70,21 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+                            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+                statement.setInt(1, request.limit() + 1);
+                statement.setInt(2, request.offset());
+                return readPage(statement, request);
+            }
+        });
+    }
+
+    @Override
+    public CompletionStage<Page<InstanceAnomaly>> listActiveWarnings(PageRequest request) {
+        Objects.requireNonNull(request, "request");
+        return storage.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+                            + "AND anomaly_type IN ('DUPLICATE_INSTANCE', 'MALFORMED_STACK') "
                             + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
