@@ -1,0 +1,40 @@
+name: Export current protection Codacy annotations
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+
+jobs:
+  export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Export target checks and annotations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 04f25f85050a77929bb2731f745bf429c192ade3
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p codacy-evidence
+          gh api -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100" > codacy-evidence/all-check-runs.json
+          gh api -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/commits/${TARGET_SHA}/status?per_page=100" > codacy-evidence/combined-status.json
+          jq '[.check_runs[] | select((((.app.slug // "") + " " + (.name // "")) | ascii_downcase | contains("codacy")))]' codacy-evidence/all-check-runs.json > codacy-evidence/codacy-check-runs.json
+          : > codacy-evidence/annotation-pages.jsonl
+          while IFS= read -r check_id; do
+            gh api --paginate --slurp -H "Accept: application/vnd.github+json" "/repos/${REPOSITORY}/check-runs/${check_id}/annotations?per_page=100" | jq -c --argjson checkRunId "${check_id}" '{checkRunId: $checkRunId, annotations: (add // [])}' >> codacy-evidence/annotation-pages.jsonl
+          done < <(jq -r '.[].id' codacy-evidence/codacy-check-runs.json)
+          if [ -s codacy-evidence/annotation-pages.jsonl ]; then jq -s '.' codacy-evidence/annotation-pages.jsonl > codacy-evidence/codacy-annotations.json; else printf '[]\n' > codacy-evidence/codacy-annotations.json; fi
+          jq -n --arg targetSha "${TARGET_SHA}" --slurpfile checkRuns codacy-evidence/codacy-check-runs.json --slurpfile annotations codacy-evidence/codacy-annotations.json --slurpfile statuses codacy-evidence/combined-status.json '{targetSha: $targetSha, checkRuns: $checkRuns[0], annotationPages: $annotations[0], combinedStatus: $statuses[0]}' > codacy-evidence/evidence.json
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-protection-codacy-04f25f85050a77929bb2731f745bf429c192ade3
+          path: codacy-evidence/
+          if-no-files-found: error
+          retention-days: 3
