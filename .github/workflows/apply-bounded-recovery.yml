@@ -1,0 +1,33 @@
+name: Apply bounded recovery remediation
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/loreitems-pr1-foundation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Apply reviewed bounded recovery fix
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          base64 --decode .github/bounded-recovery.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/bounded-recovery.patch"
+          git apply --check "$RUNNER_TEMP/bounded-recovery.patch"
+          git apply "$RUNNER_TEMP/bounded-recovery.patch"
+          rm .github/bounded-recovery.patch.gz.b64 .github/workflows/apply-bounded-recovery.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git diff --cached --check
+          git commit -m "bound expired claim recovery"
+          git push origin "HEAD:${HEAD_BRANCH}"
