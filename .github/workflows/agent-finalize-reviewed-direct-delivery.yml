@@ -1,0 +1,56 @@
+name: Agent finalize reviewed direct delivery
+
+on:
+  push:
+    branches:
+      - agent/loreitems-pr2-creation-delivery-protection
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-finalize-direct-delivery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/loreitems-pr2-creation-delivery-protection
+          fetch-depth: 0
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Restore, apply, verify, and publish exact reviewed tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/blobs/128a06f7607a937cbb8a93593dda89a3c65f8a5b" \
+            | jq -r '.content' | tr -d '\n' | base64 --decode > /tmp/direct-delivery.patch.gz
+          gzip --decompress /tmp/direct-delivery.patch.gz
+          git read-tree --reset -u 198142ee7ac1fb0b94d8875203a4c8524f1687aa
+          git apply --index /tmp/direct-delivery.patch
+          git rm .github/workflows/agent-source-bundle.yml
+          git diff --cached --check
+          rm -rf /tmp/loreitems-javac
+          mkdir -p /tmp/loreitems-javac
+          find domain/src/main/java application/src/main/java -name '*.java' -print0 \
+            | xargs -0 javac --release 21 -Xlint:all -Werror -d /tmp/loreitems-javac
+          gradle --no-daemon clean check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "replace direct delivery with reviewed implementation"
+          git push origin HEAD:agent/loreitems-pr2-creation-delivery-protection
