@@ -80,6 +80,22 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             "OMINOUS_TRIAL_KEY",
             "RESIN_CLUMP",
             "TRIAL_KEY");
+    private static final Set<String> CONSUMPTIVE_ENTITY_MATERIALS = Set.of(
+            "AMETHYST_SHARD",
+            "BAMBOO",
+            "BROWN_MUSHROOM",
+            "CHEST",
+            "DANDELION",
+            "HAY_BLOCK",
+            "LEAD",
+            "NAME_TAG",
+            "POPPY",
+            "RED_MUSHROOM",
+            "SADDLE",
+            "SEAGRASS",
+            "SLIME_BALL",
+            "WHEAT",
+            "WOLF_ARMOR");
 
     private final Plugin plugin;
     private final Supplier<VoidLossUseCase> useCaseSupplier;
@@ -300,7 +316,9 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         if (target instanceof ArmorStand || target instanceof ItemFrame) {
             return;
         }
-        if (hasLoreIdentityEvidence(itemInHand(event.getPlayer(), event.getHand()))) {
+        ItemStack item = itemInHand(event.getPlayer(), event.getHand());
+        if (losesIdentityOnEntityInteraction(item.getType())
+                && hasLoreIdentityEvidence(item)) {
             event.setCancelled(true);
         }
     }
@@ -373,6 +391,16 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         return CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
                 || name.endsWith("_DYE")
                 || name.endsWith("_SPAWN_EGG");
+    }
+
+    private static boolean losesIdentityOnEntityInteraction(Material material) {
+        String name = material.name();
+        return losesIdentityOnInteraction(material)
+                || material.isEdible()
+                || CONSUMPTIVE_ENTITY_MATERIALS.contains(name)
+                || name.endsWith("_CARPET")
+                || name.endsWith("_HORSE_ARMOR")
+                || name.endsWith("_SEEDS");
     }
 
     private void beginVoidLoss(Item item, LoreItemIdentity identity) {
