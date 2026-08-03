@@ -20,6 +20,7 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0014 | 2026-08-02 | Implementation PR 1 / PR #2 | External gate pending | [Codec foundation completion and full-PR review](0014-2026-08-02-pr2-codec-foundation-completion.md) |
 | 0015 | 2026-08-02 | Implementation PR 1 / PR #2 | Merge verification | [Codacy remediation and merge readiness](0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md) |
 | 0016 | 2026-08-02 | Implementation PR 1 / PR #2 | Superseded interim blocker | [Remaining Codacy evidence blocker](0016-2026-08-02-pr2-codacy-evidence-blocker.md) |
-| 0017 | 2026-08-02 | Implementation PR 1 / PR #2 | Final verification | [Exact-head Codacy and Actions verification](0017-2026-08-02-pr2-final-verification.md) |
+| 0017 | 2026-08-02 | Implementation PR 1 / PR #2 | Superseded final verification | [Exact-head Codacy and Actions verification](0017-2026-08-02-pr2-final-verification.md) |
+| 0018 | 2026-08-03 | Implementation PR 1 / PR #2 | Final merge verification | [Final Codacy fixes and merge verification](0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
