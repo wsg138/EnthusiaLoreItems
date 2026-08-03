@@ -127,7 +127,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         registerCommands();
-        activateProtectionListeners();
+        if (!activateProtectionListeners()) {
+            return;
+        }
         getServer().getServicesManager().register(
                 LoreItemsServiceV1.class,
                 registeredService,
@@ -161,7 +163,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         LoreItemsAdministrationCommandExecutor administrationExecutor =
                 new LoreItemsAdministrationCommandExecutor(
                         this,
-                        configuration.get().current().defaultPageSize());
+                        () -> configuration.get().current().defaultPageSize());
         command.setExecutor(new LoreItemsCommandExecutor(
                 createExecutor,
                 adoptExecutor,
@@ -169,34 +171,32 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 administrationExecutor));
     }
 
-    private void activateProtectionListeners() {
+    private boolean activateProtectionListeners() {
         PaperTrackedItemProtectionListener protection = null;
         PaperDisplayItemListener display = null;
         try {
-            int mutationBudget = configuration.get().current().mutationBudgetPerTick();
             protection = new PaperTrackedItemProtectionListener(
                     this,
                     voidLossDelegate::get,
-                    mutationBudget);
+                    () -> configuration.get().current().mutationBudgetPerTick());
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
-                    mutationBudget);
+                    () -> configuration.get().current().mutationBudgetPerTick());
             protection.start();
             display.start();
             protectionListener = protection;
             displayItemListener = display;
+            return true;
         } catch (RuntimeException exception) {
-            if (display != null) {
-                display.close();
-            }
-            if (protection != null) {
-                protection.close();
-            }
+            closeQuietly(display, "display-item listener");
+            closeQuietly(protection, "tracked-item protection listener");
             getLogger().log(
                     java.util.logging.Level.SEVERE,
-                    "Could not start tracked-item protection listeners.",
+                    "Could not start tracked-item protection listeners; disabling LoreItems.",
                     exception);
+            getServer().getPluginManager().disablePlugin(this);
+            return false;
         }
     }
 
@@ -210,30 +210,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
             voidLossDelegate.set(unavailableVoidLossUseCase());
             displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
         }
-        PaperIdentityAnomalyListener anomalyListener = identityAnomalyListener;
-        if (anomalyListener != null) {
-            anomalyListener.close();
-        }
-        PaperAnomalyWarningWorker warningWorker = anomalyWarningWorker;
-        if (warningWorker != null) {
-            warningWorker.close();
-        }
-        PaperDisplayItemListener display = displayItemListener;
-        if (display != null) {
-            display.close();
-        }
-        PaperTrackedItemProtectionListener listener = protectionListener;
-        if (listener != null) {
-            listener.close();
-        }
-        PaperDirectDeliveryWorker worker = directDeliveryWorker;
-        if (worker != null) {
-            worker.close();
-        }
-        PaperMutationRecoveryWorker recoveryWorker = mutationRecoveryWorker;
-        if (recoveryWorker != null) {
-            recoveryWorker.close();
-        }
+        closeQuietly(identityAnomalyListener, "identity-anomaly listener");
+        closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
+        closeQuietly(displayItemListener, "display-item listener");
+        closeQuietly(protectionListener, "tracked-item protection listener");
+        closeQuietly(directDeliveryWorker, "direct-delivery worker");
+        closeQuietly(mutationRecoveryWorker, "mutation-recovery worker");
         getServer().getServicesManager().unregisterAll(this);
         lifecycleExecutor.shutdownNow();
         failPendingReloads(STOPPING_RELOAD_DETAIL);
@@ -412,9 +394,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     anomalyObservationUseCase,
                     loaded);
             getLogger().info(
-                    "Durable storage is active; definition creation, adoption, queued direct "
-                            + "delivery, protection, display observations, anomaly evidence, "
-                            + "audit views, and terminal void loss are available.");
+                    "Durable storage is active; definition creation, adoption, protection, "
+                            + "display observations, and terminal void loss are available. "
+                            + "Delivery, recovery, anomaly, and administration components are "
+                            + "activating on the server thread.");
         }
     }
 
@@ -436,19 +419,23 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     try {
                         worker.start();
                         directDeliveryWorker = worker;
+                        getLogger().info("Queued direct-delivery processing is active.");
                     } catch (RuntimeException exception) {
-                        worker.close();
+                        closeQuietly(worker, "direct-delivery worker");
                         getLogger().log(
                                 java.util.logging.Level.SEVERE,
-                                "Could not start the direct-delivery worker; queued work remains durable.",
+                                "Could not start the direct-delivery worker; disabling LoreItems.",
                                 exception);
+                        getServer().getPluginManager().disablePlugin(this);
                     }
                 }
             });
         } catch (RuntimeException exception) {
+            publishUnavailableServices(
+                    "Direct-delivery activation could not be scheduled.");
             getLogger().log(
                     java.util.logging.Level.SEVERE,
-                    "Could not activate the direct-delivery worker.",
+                    "Could not activate the direct-delivery worker; writes remain unavailable.",
                     exception);
         }
     }
@@ -472,19 +459,23 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     try {
                         worker.start();
                         mutationRecoveryWorker = worker;
+                        getLogger().info("Expired item-mutation recovery is active.");
                     } catch (RuntimeException exception) {
-                        worker.close();
+                        closeQuietly(worker, "mutation-recovery worker");
                         getLogger().log(
                                 java.util.logging.Level.SEVERE,
-                                "Could not start expired mutation recovery; durable claims remain auditable.",
+                                "Could not start expired mutation recovery; disabling LoreItems.",
                                 exception);
+                        getServer().getPluginManager().disablePlugin(this);
                     }
                 }
             });
         } catch (RuntimeException exception) {
+            publishUnavailableServices(
+                    "Expired mutation recovery activation could not be scheduled.");
             getLogger().log(
                     java.util.logging.Level.SEVERE,
-                    "Could not activate expired mutation recovery.",
+                    "Could not activate expired mutation recovery; writes remain unavailable.",
                     exception);
         }
     }
@@ -529,9 +520,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         anomalyListener.start();
                         anomalyWarningWorker = warningWorker;
                         identityAnomalyListener = anomalyListener;
+                        getLogger().info(
+                                "Lore-item anomaly detection, warnings, and administration are active.");
                     } catch (RuntimeException exception) {
-                        anomalyListener.close();
-                        warningWorker.close();
+                        closeQuietly(anomalyListener, "identity-anomaly listener");
+                        closeQuietly(warningWorker, "anomaly-warning worker");
                         services.unregister(AnomalyWarningSink.class, warningWorker);
                         services.unregister(
                                 ItemAnomalyObservationUseCase.class,
@@ -541,15 +534,20 @@ public final class LoreItemsPlugin extends JavaPlugin {
                                 administrationUseCase);
                         getLogger().log(
                                 java.util.logging.Level.SEVERE,
-                                "Could not activate lore-item anomaly and administration services.",
+                                "Could not activate lore-item anomaly and administration services; "
+                                        + "disabling LoreItems.",
                                 exception);
+                        getServer().getPluginManager().disablePlugin(this);
                     }
                 }
             });
         } catch (RuntimeException exception) {
+            publishUnavailableServices(
+                    "Lore-item anomaly and administration activation could not be scheduled.");
             getLogger().log(
                     java.util.logging.Level.SEVERE,
-                    "Could not schedule lore-item anomaly and administration services.",
+                    "Could not schedule lore-item anomaly and administration services; "
+                            + "writes remain unavailable.",
                     exception);
         }
     }
@@ -643,9 +641,24 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private void handleInitializationFailure(Exception exception) {
         publishUnavailableServices(
                 "Foundation initialization failed: " + safeMessage(exception));
-        getLogger().severe(
-                "LoreItems foundation initialization failed; writes remain unavailable: "
-                        + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
+        getLogger().log(
+                java.util.logging.Level.SEVERE,
+                "LoreItems foundation initialization failed; writes remain unavailable.",
+                exception);
+    }
+
+    private void closeQuietly(AutoCloseable component, String name) {
+        if (component == null) {
+            return;
+        }
+        try {
+            component.close();
+        } catch (Exception exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not close the LoreItems " + name + '.',
+                    exception);
+        }
     }
 
     private static CreateDefinitionUseCase unavailableCreateDefinitionUseCase() {
