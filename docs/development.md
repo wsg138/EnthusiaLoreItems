@@ -102,6 +102,16 @@ Verified removal completes one SQLite transaction that advances the mutation thr
 
 Protection remains active during storage startup and degraded mode, but terminal void destruction is withheld unless durable storage has accepted the intent. In-flight void work and retry cooldown bookkeeping are bounded, no world or inventory scan occurs, no chunk is force-loaded, and no live Bukkit entity or item reference crosses the asynchronous storage boundary.
 
+## Display entities and mob pickup prevention
+
+Tracked items placed in ordinary or glow item frames and in armor-stand equipment slots are observed through Paper's event surface. Item-frame changes and breaks, armor-stand manipulation, and armor-stand damage schedule a next-tick reread of the exact entity UUID and slot. Glow item frames follow the same path because they implement the item-frame contract. No world scan or chunk force-load is used.
+
+A confirmed item records the exact display entity location and slot as `CONFIRMED_NOW`. When the same exact durable location is observed empty after a supported removal or destruction event, the previous location is retained as `LAST_CONFIRMED` rather than erased or replaced with a guess. Unknown instances, definition/revision mismatches, inactive instances, unresolved identity anomalies, conflicting current state, terminal state, and stale removal evidence do not replace durable current state. Observation, current-state compare-and-set, and audit evidence commit atomically on the bounded SQLite executor.
+
+Paper work is coalesced by display entity, location type, slot, and event source. Candidate identities per coalesced slot and queued persistence requests are hard-bounded. When the configured concurrency limit is occupied, observations enter a bounded FIFO and drain as prior writes complete instead of being silently discarded. Capacity exhaustion logs a warning and preserves existing durable evidence. No live Bukkit entity or mutable item reference crosses the asynchronous storage boundary.
+
+Non-player entities cannot pick up an item that contains either valid tracked identity or malformed LoreItems identity evidence. Player pickup and untracked vanilla item pickup remain unchanged. The listener does not repair, split, delete, or otherwise mutate malformed physical evidence.
+
 ## Degraded startup and recovery
 
 If the database cannot open or migrate, the runtime enters `DEGRADED_READ_ONLY`. No write-capable service is published, and delivery requests return `SERVICE_UNAVAILABLE`. The plugin does not pretend a request was accepted.
@@ -110,6 +120,6 @@ Operators should preserve the database file, inspect the logged startup error, v
 
 ## Current limitations
 
-The current PR 2 slices create definitions, adopt held items, execute durable direct delivery with offline/full-inventory waiting, protect tracked items from environmental and durability loss, and record intentional terminal void loss. Item-frame/glow-frame/armor-stand support, mob pickup prevention, identity-losing use/conversion restrictions, initial audit browsing, duplicate/malformed five-minute staff warnings, broad reconciliation, GUIs, editing, deletion, and campaigns remain unfinished.
+The current PR 2 slices create definitions, adopt held items, execute durable direct delivery with offline/full-inventory waiting, protect tracked items from environmental and durability loss, record intentional terminal void loss, track supported item-frame/glow-frame/armor-stand event paths, and prevent non-player pickup of tracked or malformed LoreItems evidence. Remaining identity-losing use/conversion restrictions, initial audit browsing, duplicate/malformed five-minute staff warnings, broad reconciliation, GUIs, editing, deletion, and campaigns remain unfinished.
 
 No live Paper/Leaf server behavior has been tested. Automated MockBukkit, codec, and SQLite tests do not prove real-server event ordering, item-component serialization, reload behavior, command registration, or operator workflow.
