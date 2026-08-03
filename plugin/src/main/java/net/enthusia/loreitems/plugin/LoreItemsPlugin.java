@@ -29,10 +29,13 @@ import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
 import net.enthusia.loreitems.application.PersistingDirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
+import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
 import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
+import net.enthusia.loreitems.application.PreparedVoidLoss;
 import net.enthusia.loreitems.application.StorageState;
+import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
 import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
@@ -41,6 +44,7 @@ import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryWorker;
 import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
+import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
@@ -49,6 +53,7 @@ import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
+import net.enthusia.loreitems.sqlite.SQLiteVoidLossStore;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -67,6 +72,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(unavailableCreateDefinitionUseCase());
     private final AtomicReference<AdoptHeldItemUseCase> adoptHeldItemDelegate =
             new AtomicReference<>(unavailableAdoptHeldItemUseCase());
+    private final AtomicReference<VoidLossUseCase> voidLossDelegate =
+            new AtomicReference<>(unavailableVoidLossUseCase());
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
     private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
             request -> createDefinitionDelegate.get().create(request);
@@ -88,11 +95,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
+    private volatile PaperTrackedItemProtectionListener protectionListener;
     private volatile boolean stopping;
 
     @Override
     public void onEnable() {
         registerCommands();
+        activateProtectionListener();
         getServer().getServicesManager().register(
                 LoreItemsServiceV1.class,
                 registeredService,
@@ -129,6 +138,23 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 giveExecutor));
     }
 
+    private void activateProtectionListener() {
+        try {
+            PaperTrackedItemProtectionListener listener =
+                    new PaperTrackedItemProtectionListener(
+                            this,
+                            voidLossDelegate::get,
+                            configuration.get().current().mutationBudgetPerTick());
+            listener.start();
+            protectionListener = listener;
+        } catch (RuntimeException exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not start tracked-item protection listeners.",
+                    exception);
+        }
+    }
+
     @Override
     public void onDisable() {
         synchronized (lifecycleLock) {
@@ -136,6 +162,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             serviceDelegate.set(new UnavailableService("The plugin is stopping."));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
+            voidLossDelegate.set(unavailableVoidLossUseCase());
+        }
+        PaperTrackedItemProtectionListener listener = protectionListener;
+        if (listener != null) {
+            listener.close();
         }
         PaperDirectDeliveryWorker worker = directDeliveryWorker;
         if (worker != null) {
@@ -282,12 +313,19 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new SQLiteHeldItemAdoptionStore(runtime),
                 clock,
                 Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
+        VoidLossUseCase voidLossUseCase = new PersistingVoidLossUseCase(
+                new SQLiteVoidLossStore(runtime),
+                clock,
+                Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
         if (publishWritableServices(
-                deliveryService, createDefinitionUseCase, adoptHeldItemUseCase)) {
+                deliveryService,
+                createDefinitionUseCase,
+                adoptHeldItemUseCase,
+                voidLossUseCase)) {
             activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
             getLogger().info(
-                    "Durable storage is active; definition creation, adoption, and queued "
-                            + "direct delivery are available.");
+                    "Durable storage is active; definition creation, adoption, queued direct "
+                            + "delivery, protection, and terminal void loss are available.");
         }
     }
 
@@ -344,10 +382,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private boolean publishWritableServices(
             LoreItemsServiceV1 service,
             CreateDefinitionUseCase createDefinitionUseCase,
-            AdoptHeldItemUseCase adoptHeldItemUseCase) {
+            AdoptHeldItemUseCase adoptHeldItemUseCase,
+            VoidLossUseCase voidLossUseCase) {
         Objects.requireNonNull(service, "service");
         Objects.requireNonNull(createDefinitionUseCase, "createDefinitionUseCase");
         Objects.requireNonNull(adoptHeldItemUseCase, "adoptHeldItemUseCase");
+        Objects.requireNonNull(voidLossUseCase, "voidLossUseCase");
         synchronized (lifecycleLock) {
             if (stopping) {
                 return false;
@@ -355,6 +395,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             serviceDelegate.set(service);
             createDefinitionDelegate.set(createDefinitionUseCase);
             adoptHeldItemDelegate.set(adoptHeldItemUseCase);
+            voidLossDelegate.set(voidLossUseCase);
             return true;
         }
     }
@@ -368,6 +409,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             serviceDelegate.set(new UnavailableService(detail));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
+            voidLossDelegate.set(unavailableVoidLossUseCase());
             return true;
         }
     }
@@ -438,6 +480,34 @@ public final class LoreItemsPlugin extends JavaPlugin {
             @Override
             public CompletionStage<Boolean> requireReview(
                     PreparedHeldItemAdoption adoption,
+                    String reason) {
+                return CompletableFuture.completedFuture(false);
+            }
+        };
+    }
+
+    private static VoidLossUseCase unavailableVoidLossUseCase() {
+        return new VoidLossUseCase() {
+            @Override
+            public CompletionStage<PrepareResult> prepare(Request request) {
+                return CompletableFuture.completedFuture(PrepareResult.of(
+                        PrepareStatus.SERVICE_UNAVAILABLE,
+                        "Durable storage is unavailable; the item remains protected."));
+            }
+
+            @Override
+            public CompletionStage<Boolean> complete(PreparedVoidLoss loss) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            @Override
+            public CompletionStage<Boolean> abort(PreparedVoidLoss loss, String reason) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            @Override
+            public CompletionStage<Boolean> requireReview(
+                    PreparedVoidLoss loss,
                     String reason) {
                 return CompletableFuture.completedFuture(false);
             }
