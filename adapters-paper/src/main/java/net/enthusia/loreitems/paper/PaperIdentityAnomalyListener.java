@@ -59,6 +59,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperIdentityAnomalyListener implements Listener, AutoCloseable {
     private static final int MAX_CONFLICT_PATH_LENGTH =
             LocationDescriptor.MAX_CONTAINER_PATH_LENGTH;
+    private static final int NO_SKIPPED_SLOT = -1;
 
     private final Plugin plugin;
     private final PaperItemAnomalyReporter anomalyReporter;
@@ -87,7 +88,23 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventorySlotChange(PlayerInventorySlotChangeEvent event) {
-        scanPlayerInventory(event.getPlayer(), "inventory-slot-change");
+        ItemStack changed = event.getNewItemStack();
+        if (changed == null || changed.getType().isAir()) {
+            return;
+        }
+        Player player = event.getPlayer();
+        int slot = event.getSlot();
+        ObservedCopy copy = observe(
+                changed,
+                playerLocation(player, "slot:" + slot),
+                "inventory-slot-change");
+        if (copy != null) {
+            compareWithInventory(
+                    player,
+                    copy,
+                    slot,
+                    "inventory-slot-change");
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -384,9 +401,12 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
+            if (item == null || item.getType().isAir()) {
+                continue;
+            }
             LocationDescriptor location = inventoryLocation(
                     inventory, "slot:" + slot);
-            if (item == null || item.getType().isAir() || location == null) {
+            if (location == null) {
                 continue;
             }
             ObservedCopy copy = observe(item, location, source);
@@ -399,11 +419,22 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
             Player player,
             ObservedCopy external,
             String source) {
+        compareWithInventory(player, external, NO_SKIPPED_SLOT, source);
+    }
+
+    private void compareWithInventory(
+            Player player,
+            ObservedCopy external,
+            int skippedSlot,
+            String source) {
         if (external == null) {
             return;
         }
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
+            if (slot == skippedSlot) {
+                continue;
+            }
             ItemStack item = contents[slot];
             if (item == null || item.getType().isAir()) {
                 continue;
@@ -429,9 +460,12 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
+            if (item == null || item.getType().isAir()) {
+                continue;
+            }
             LocationDescriptor location = inventoryLocation(
                     inventory, "slot:" + slot);
-            if (item == null || item.getType().isAir() || location == null) {
+            if (location == null) {
                 continue;
             }
             ObservedCopy inventoryCopy = observe(item, location, source);
@@ -471,8 +505,20 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
             ObservedCopy first,
             ObservedCopy second,
             String source) {
-        String firstDescription = describe(first.location());
-        String secondDescription = describe(second.location());
+        if (first.location().equals(second.location())) {
+            return;
+        }
+        String firstCandidate = describe(first.location());
+        String secondCandidate = describe(second.location());
+        boolean firstIsOrdered = firstCandidate.compareTo(secondCandidate) <= 0;
+        String firstDescription = firstIsOrdered ? firstCandidate : secondCandidate;
+        String secondDescription = firstIsOrdered ? secondCandidate : firstCandidate;
+        LocationDescriptor firstLocation = firstIsOrdered
+                ? first.location()
+                : second.location();
+        LocationDescriptor secondLocation = firstIsOrdered
+                ? second.location()
+                : first.location();
         String detail = "Same lore instance observed at copy1=" + firstDescription
                 + " and copy2=" + secondDescription + '.';
         String path = truncate(
@@ -486,7 +532,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         anomalyReporter.recordDuplicate(
                 first.identity(),
                 conflict,
-                List.of(first.location(), second.location()),
+                List.of(firstLocation, secondLocation),
                 source,
                 detail);
     }
@@ -571,10 +617,11 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
     }
 
     private static String blockKey(Item item) {
+        Location location = item.getLocation();
         return item.getWorld().getKey() + ":"
-                + item.getLocation().getBlockX() + ":"
-                + item.getLocation().getBlockY() + ":"
-                + item.getLocation().getBlockZ();
+                + location.getBlockX() + ":"
+                + location.getBlockY() + ":"
+                + location.getBlockZ();
     }
 
     private static String describe(LocationDescriptor location) {
