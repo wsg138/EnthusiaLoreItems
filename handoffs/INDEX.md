@@ -23,5 +23,6 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0017 | 2026-08-02 | Implementation PR 1 / PR #2 | Superseded final verification | [Exact-head Codacy and Actions verification](0017-2026-08-02-pr2-final-verification.md) |
 | 0018 | 2026-08-03 | Implementation PR 1 / PR #2 | Final merge verification | [Final Codacy fixes and merge verification](0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md) |
 | 0019 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Held-item definition creation](0019-2026-08-03-pr3-held-item-definition-creation.md) |
+| 0020 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Held-item adoption](0020-2026-08-03-pr3-held-item-adoption.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
