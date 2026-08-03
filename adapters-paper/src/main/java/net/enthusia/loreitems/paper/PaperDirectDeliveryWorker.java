@@ -110,7 +110,9 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
                             logFailure("Could not recover or claim queued direct deliveries.", throwable);
                             return;
                         }
-                        scheduleMain(() -> processClaimed(page));
+                        if (!scheduleMain(() -> processClaimed(page))) {
+                            claimInFlight.set(false);
+                        }
                     });
         } catch (RuntimeException exception) {
             claimInFlight.set(false);
@@ -251,19 +253,19 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
         });
     }
 
-    private void scheduleMain(Runnable task) {
+    private boolean scheduleMain(Runnable task) {
         if (closed) {
-            claimInFlight.set(false);
-            return;
+            return false;
         }
         try {
             plugin.getServer().getScheduler().runTask(plugin, task);
+            return true;
         } catch (IllegalPluginAccessException exception) {
-            claimInFlight.set(false);
             plugin.getLogger().log(
                     Level.FINE,
                     "Could not schedule direct-delivery main-thread work during shutdown.",
                     exception);
+            return false;
         }
     }
 
