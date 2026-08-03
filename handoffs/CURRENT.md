@@ -6,19 +6,20 @@
 - Repository: `wsg138/EnthusiaLoreItems`
 - Pull request: #3 — Creation, adoption, direct delivery, and protection
 - Branch: `agent/loreitems-pr2-creation-delivery-protection`
-- Status: draft; held-item definition creation, held-item adoption, and durable direct-delivery execution/recovery are complete; tracked-item protection is next
+- Status: draft; held-item definition creation, held-item adoption, and durable direct-delivery execution/recovery are complete, including late Codacy remediation and diagnostic cleanup; tracked-item protection is next
 
 Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR head, draft/ready state, mergeability, exact-head GitHub Actions, Codacy result, submitted reviews, unresolved threads, and comments newer than the latest immutable report.
 
 ## Latest report
 
-- [`0021-2026-08-03-pr3-direct-delivery-recovery.md`](0021-2026-08-03-pr3-direct-delivery-recovery.md)
+- [`0022-2026-08-03-pr3-direct-delivery-codacy-cleanup.md`](0022-2026-08-03-pr3-direct-delivery-codacy-cleanup.md)
 
-Report 0021 records the complete durable direct-delivery slice: self/online/offline/full-inventory command handling, preallocated fresh instance identity, prepared template claims, exact-slot Paper insertion and verification, join/restart polling, bounded recovery, transactional completion, ambiguity-to-review fencing, harsh-review findings and fixes, full Gradle verification, Codacy evidence, and the preserved phase boundary.
+Report 0022 reconciles the stale direct-delivery completion state with newer live GitHub, classifies and fixes all eight late Codacy findings, verifies that the retained remediation preserves delivery and shutdown behavior, removes every temporary self-modifying workflow and exported diagnostic file, records the clean-head full Gradle result, and preserves the PR 2 phase boundary.
 
 ## Required prior reports
 
-- [`0020-2026-08-03-pr3-held-item-adoption.md`](0020-2026-08-03-pr3-held-item-adoption.md) — preceding held-item adoption state machine and exact-slot mutation invariants.
+- [`0021-2026-08-03-pr3-direct-delivery-recovery.md`](0021-2026-08-03-pr3-direct-delivery-recovery.md) — complete direct-delivery execution/recovery design, tests, and preceding implementation evidence.
+- [`0020-2026-08-03-pr3-held-item-adoption.md`](0020-2026-08-03-pr3-held-item-adoption.md) — held-item adoption state machine and exact-slot mutation invariants.
 - [`0019-2026-08-03-pr3-held-item-definition-creation.md`](0019-2026-08-03-pr3-held-item-definition-creation.md) — held-item definition creation and PR #3 starting state.
 - [`0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md`](0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md) — Foundation PR #2 completion and merge evidence.
 - [`0014-2026-08-02-pr2-codec-foundation-completion.md`](0014-2026-08-02-pr2-codec-foundation-completion.md) — Paper template/identity codec design and verification inherited by the active phase.
@@ -34,7 +35,9 @@ The architecture document present in this repository is [`../docs/architecture.m
 
 ## Exact next step
 
-Resume draft PR #3 and implement the next bounded protection slice: tracked-item environmental and durability protection plus terminal void-loss handling.
+First reconcile the final documentation head against live exact-head GitHub Actions, Codacy, submitted reviews, and unresolved threads. The direct-delivery slice must remain complete and clean; do not revive any temporary diagnostic workflow or exported annotation file.
+
+Then resume draft PR #3 and implement the next bounded protection slice: tracked-item environmental and durability protection plus terminal void-loss handling.
 
 Cancel or neutralize destructive environmental and durability event paths for valid tracked items while preserving malformed/duplicate evidence. Treat a true void terminal loss as durable terminal state rather than silently recreating or retrying the item. Keep all Bukkit/entity/item access on the owning Paper thread, perform persistence asynchronously through bounded ports, avoid world scans and chunk loading, and add focused tests for every protected or terminal event path.
 
