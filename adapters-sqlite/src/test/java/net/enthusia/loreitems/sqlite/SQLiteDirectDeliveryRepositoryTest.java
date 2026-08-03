@@ -250,14 +250,14 @@ class SQLiteDirectDeliveryRepositoryTest {
         DIRECT_DELIVERIES("SELECT COUNT(*) FROM direct_deliveries"),
         EXTERNAL_REQUESTS("SELECT COUNT(*) FROM external_delivery_requests");
 
-        private final String statementText;
+        private final String sqlText;
 
-        CountTable(String statementText) {
-            this.statementText = statementText;
+        CountTable(String sqlText) {
+            this.sqlText = sqlText;
         }
 
         String statementText() {
-            return statementText;
+            return sqlText;
         }
     }
 }
