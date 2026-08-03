@@ -239,7 +239,7 @@ class SQLiteDirectDeliveryRepositoryTest {
 
     private static int count(Connection connection, CountTable table) throws Exception {
         // The query is selected from a closed enum of test-only count statements.
-        try (PreparedStatement statement = connection.prepareStatement(table.sql()); // nosemgrep
+        try (PreparedStatement statement = connection.prepareStatement(table.statementText()); // nosemgrep
              var resultSet = statement.executeQuery()) {
             return resultSet.getInt(1);
         }
@@ -250,14 +250,14 @@ class SQLiteDirectDeliveryRepositoryTest {
         DIRECT_DELIVERIES("SELECT COUNT(*) FROM direct_deliveries"),
         EXTERNAL_REQUESTS("SELECT COUNT(*) FROM external_delivery_requests");
 
-        private final String sql;
+        private final String statementText;
 
-        CountTable(String sql) {
-            this.sql = sql;
+        CountTable(String statementText) {
+            this.statementText = statementText;
         }
 
-        String sql() {
-            return sql;
+        String statementText() {
+            return statementText;
         }
     }
 }

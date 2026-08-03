@@ -17,6 +17,9 @@ public record InstanceAnomaly(
         Long resolvedAtEpochMillis,
         String resolutionDetail,
         long stateRevision) {
+    private static final long MIN_TIMESTAMP = 0L;
+    private static final long MIN_STATE_REVISION = 0L;
+
     public static final int MAX_DETAIL_LENGTH = 65_536;
     public static final int MAX_ACTOR_LENGTH = 200;
 
@@ -26,11 +29,11 @@ public record InstanceAnomaly(
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(status, "status");
         detail = requireText(detail, "detail", MAX_DETAIL_LENGTH);
-        if (firstSeenAtEpochMillis < 0L
+        if (firstSeenAtEpochMillis < MIN_TIMESTAMP
                 || lastSeenAtEpochMillis < firstSeenAtEpochMillis) {
             throw new IllegalArgumentException("Invalid anomaly timestamps");
         }
-        if (stateRevision < 0L) {
+        if (stateRevision < MIN_STATE_REVISION) {
             throw new IllegalArgumentException("stateRevision must not be negative");
         }
         if ((acknowledgedAtEpochMillis == null) != (acknowledgedBy == null)) {
@@ -45,34 +48,12 @@ public record InstanceAnomaly(
             resolutionDetail = requireText(
                     resolutionDetail, "resolutionDetail", MAX_DETAIL_LENGTH);
         }
-        switch (status) {
-            case OPEN -> {
-                if (acknowledgedAtEpochMillis != null
-                        || acknowledgedBy != null
-                        || resolvedAtEpochMillis != null
-                        || resolutionDetail != null) {
-                    throw new IllegalArgumentException(
-                            "Open anomaly must not contain acknowledgement or resolution");
-                }
-            }
-            case ACKNOWLEDGED -> {
-                if (acknowledgedAtEpochMillis == null || acknowledgedBy == null) {
-                    throw new IllegalArgumentException(
-                            "Acknowledged anomaly requires acknowledgement metadata");
-                }
-                if (resolvedAtEpochMillis != null || resolutionDetail != null) {
-                    throw new IllegalArgumentException(
-                            "Acknowledged anomaly must not contain resolution metadata");
-                }
-            }
-            case RESOLVED -> {
-                if (resolvedAtEpochMillis == null || resolutionDetail == null) {
-                    throw new IllegalArgumentException(
-                            "Resolved anomaly requires resolution metadata");
-                }
-            }
-            default -> throw new IllegalStateException("Unhandled anomaly status");
-        }
+        validateStatusMetadata(
+                status,
+                acknowledgedAtEpochMillis,
+                acknowledgedBy,
+                resolvedAtEpochMillis,
+                resolutionDetail);
         if (acknowledgedAtEpochMillis != null
                 && acknowledgedAtEpochMillis < firstSeenAtEpochMillis) {
             throw new IllegalArgumentException("Invalid acknowledgement timestamp");
@@ -80,6 +61,65 @@ public record InstanceAnomaly(
         if (resolvedAtEpochMillis != null
                 && resolvedAtEpochMillis < lastSeenAtEpochMillis) {
             throw new IllegalArgumentException("Resolution cannot precede last seen");
+        }
+    }
+
+
+    private static void validateStatusMetadata(
+            Status status,
+            Long acknowledgedAtEpochMillis,
+            String acknowledgedBy,
+            Long resolvedAtEpochMillis,
+            String resolutionDetail) {
+        switch (status) {
+            case OPEN -> validateOpenMetadata(
+                    acknowledgedAtEpochMillis,
+                    acknowledgedBy,
+                    resolvedAtEpochMillis,
+                    resolutionDetail);
+            case ACKNOWLEDGED -> validateAcknowledgedMetadata(
+                    acknowledgedAtEpochMillis,
+                    acknowledgedBy,
+                    resolvedAtEpochMillis,
+                    resolutionDetail);
+            case RESOLVED -> validateResolvedMetadata(resolvedAtEpochMillis, resolutionDetail);
+        }
+    }
+
+    private static void validateOpenMetadata(
+            Long acknowledgedAtEpochMillis,
+            String acknowledgedBy,
+            Long resolvedAtEpochMillis,
+            String resolutionDetail) {
+        if (acknowledgedAtEpochMillis != null
+                || acknowledgedBy != null
+                || resolvedAtEpochMillis != null
+                || resolutionDetail != null) {
+            throw new IllegalArgumentException(
+                    "Open anomaly must not contain acknowledgement or resolution");
+        }
+    }
+
+    private static void validateAcknowledgedMetadata(
+            Long acknowledgedAtEpochMillis,
+            String acknowledgedBy,
+            Long resolvedAtEpochMillis,
+            String resolutionDetail) {
+        if (acknowledgedAtEpochMillis == null || acknowledgedBy == null) {
+            throw new IllegalArgumentException(
+                    "Acknowledged anomaly requires acknowledgement metadata");
+        }
+        if (resolvedAtEpochMillis != null || resolutionDetail != null) {
+            throw new IllegalArgumentException(
+                    "Acknowledged anomaly must not contain resolution metadata");
+        }
+    }
+
+    private static void validateResolvedMetadata(
+            Long resolvedAtEpochMillis, String resolutionDetail) {
+        if (resolvedAtEpochMillis == null || resolutionDetail == null) {
+            throw new IllegalArgumentException(
+                    "Resolved anomaly requires resolution metadata");
         }
     }
 

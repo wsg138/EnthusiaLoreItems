@@ -9,13 +9,17 @@ public record InstanceCurrentState(
         Long lastObservationId,
         long stateRevision,
         long updatedAtEpochMillis) {
+    private static final long MIN_STATE_REVISION = 0L;
+    private static final long MIN_TIMESTAMP = 0L;
+    private static final long MIN_OBSERVATION_ID = 1L;
+
     public InstanceCurrentState {
         Objects.requireNonNull(instanceId, "instanceId");
         Objects.requireNonNull(state, "state");
-        if (stateRevision < 0L) {
+        if (stateRevision < MIN_STATE_REVISION) {
             throw new IllegalArgumentException("stateRevision must not be negative");
         }
-        if (updatedAtEpochMillis < 0L) {
+        if (updatedAtEpochMillis < MIN_TIMESTAMP) {
             throw new IllegalArgumentException("updatedAtEpochMillis must not be negative");
         }
         if (state == State.MISSING_UNRESOLVED) {
@@ -25,7 +29,7 @@ public record InstanceCurrentState(
             }
         } else {
             Objects.requireNonNull(location, "location");
-            if (lastObservationId == null || lastObservationId < 1L) {
+            if (lastObservationId == null || lastObservationId < MIN_OBSERVATION_ID) {
                 throw new IllegalArgumentException(
                         "Observed states require a positive last observation identifier");
             }

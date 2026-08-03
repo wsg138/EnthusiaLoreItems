@@ -10,6 +10,8 @@ public record LoreInstance(
         LoreInstanceLifecycle lifecycle,
         long createdAtEpochMillis,
         Long terminalAtEpochMillis) {
+    private static final long MIN_TIMESTAMP = 0L;
+
     public LoreInstance {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(definitionId, "definitionId");
@@ -19,7 +21,7 @@ public record LoreInstance(
         if (desiredRevision.compareTo(appliedRevision) < 0) {
             throw new IllegalArgumentException("desiredRevision must not precede appliedRevision");
         }
-        if (createdAtEpochMillis < 0L) {
+        if (createdAtEpochMillis < MIN_TIMESTAMP) {
             throw new IllegalArgumentException("createdAtEpochMillis must not be negative");
         }
         if (lifecycle.terminal() != (terminalAtEpochMillis != null)) {

@@ -167,7 +167,8 @@ class SQLiteUnitOfWorkTest {
     private static void execute(SQLiteStorageRuntime runtime, String sql) {
         runtime.execute(connection -> {
                     try (Statement statement = connection.createStatement()) {
-                        statement.execute(sql);
+                        // SQL is a closed test-only fault-injection fixture.
+                        statement.execute(sql); // nosemgrep
                     }
                     return null;
                 })

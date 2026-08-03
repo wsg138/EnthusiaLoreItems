@@ -4,26 +4,26 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class AtomicConfiguration {
-    private final AtomicReference<FoundationConfiguration> current;
+    private final AtomicReference<FoundationConfiguration> snapshot;
 
     public AtomicConfiguration(FoundationConfiguration initial) {
-        current = new AtomicReference<>(Objects.requireNonNull(initial, "initial"));
+        snapshot = new AtomicReference<>(Objects.requireNonNull(initial, "initial"));
     }
 
     public FoundationConfiguration current() {
-        return current.get();
+        return snapshot.get();
     }
 
     public ReloadResult replace(FoundationConfiguration candidate) {
         Objects.requireNonNull(candidate, "candidate");
         while (true) {
-            FoundationConfiguration existing = current.get();
+            FoundationConfiguration existing = snapshot.get();
             if (!existing.hasSameStartupResources(candidate)) {
                 return new ReloadResult(
                         false,
                         "Database timeout, queue capacity, and shutdown timeout require a restart.");
             }
-            if (current.compareAndSet(existing, candidate)) {
+            if (snapshot.compareAndSet(existing, candidate)) {
                 return new ReloadResult(true, "Configuration snapshot replaced atomically.");
             }
         }

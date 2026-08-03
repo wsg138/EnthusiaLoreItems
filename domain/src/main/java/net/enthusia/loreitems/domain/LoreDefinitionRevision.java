@@ -9,19 +9,24 @@ public record LoreDefinitionRevision(
         int codecVersion,
         byte[] templateBlob,
         long createdAtEpochMillis) {
+    private static final int MIN_CODEC_VERSION = 1;
+    private static final int MIN_TEMPLATE_BYTES = 1;
+    private static final long MIN_TIMESTAMP = 0L;
+
     public static final int MAX_TEMPLATE_BYTES = 4 * 1024 * 1024;
 
     public LoreDefinitionRevision {
         Objects.requireNonNull(definitionId, "definitionId");
         Objects.requireNonNull(revision, "revision");
         Objects.requireNonNull(templateBlob, "templateBlob");
-        if (codecVersion < 1) {
+        if (codecVersion < MIN_CODEC_VERSION) {
             throw new IllegalArgumentException("codecVersion must be positive");
         }
-        if (templateBlob.length < 1 || templateBlob.length > MAX_TEMPLATE_BYTES) {
+        if (templateBlob.length < MIN_TEMPLATE_BYTES
+                || templateBlob.length > MAX_TEMPLATE_BYTES) {
             throw new IllegalArgumentException("templateBlob must contain 1-4194304 bytes");
         }
-        if (createdAtEpochMillis < 0L) {
+        if (createdAtEpochMillis < MIN_TIMESTAMP) {
             throw new IllegalArgumentException("createdAtEpochMillis must not be negative");
         }
         templateBlob = templateBlob.clone();

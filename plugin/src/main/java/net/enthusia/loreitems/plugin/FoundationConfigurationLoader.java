@@ -12,6 +12,9 @@ import java.util.Set;
 import net.enthusia.loreitems.application.FoundationConfiguration;
 
 final class FoundationConfigurationLoader {
+    private static final int MIN_SEPARATOR_INDEX = 1;
+    private static final int NO_COMMENT_INDEX = -1;
+
     private static final Set<String> KNOWN_KEYS = Set.of(
             "database-busy-timeout-millis",
             "database-queue-capacity",
@@ -39,6 +42,8 @@ final class FoundationConfigurationLoader {
         return parse(Files.readAllLines(configurationFile, StandardCharsets.UTF_8));
     }
 
+    // Parsing is single-threaded and the map never escapes this method.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private static FoundationConfiguration parse(Iterable<String> lines) {
         FoundationConfiguration defaults = FoundationConfiguration.defaults();
         Map<String, String> values = new HashMap<>();
@@ -50,7 +55,7 @@ final class FoundationConfigurationLoader {
                 continue;
             }
             int separator = line.indexOf(':');
-            if (separator < 1) {
+            if (separator < MIN_SEPARATOR_INDEX) {
                 throw new IllegalArgumentException("Invalid config line " + lineNumber);
             }
             String key = line.substring(0, separator).strip();
@@ -80,8 +85,7 @@ final class FoundationConfigurationLoader {
 
     private void copyDefault(Path destination) throws IOException {
         try (InputStream stream = FoundationConfigurationLoader.class
-                .getClassLoader()
-                .getResourceAsStream("config.yml")) {
+                .getResourceAsStream("/config.yml")) {
             if (stream == null) {
                 throw new IOException("Missing packaged config.yml");
             }
@@ -117,6 +121,6 @@ final class FoundationConfigurationLoader {
 
     private static String stripComment(String line) {
         int comment = line.indexOf('#');
-        return comment < 0 ? line : line.substring(0, comment);
+        return comment == NO_COMMENT_INDEX ? line : line.substring(0, comment);
     }
 }

@@ -11,12 +11,14 @@ public record AuditEventRecord(
         String actorId,
         String detailJson,
         long occurredAtEpochMillis) {
+    private static final long MIN_AUDIT_ID = 0L;
+
     public static final int MAX_TYPE_LENGTH = 120;
     public static final int MAX_ID_LENGTH = 200;
     public static final int MAX_DETAIL_JSON_LENGTH = 65_536;
 
     public AuditEventRecord {
-        if (auditId < 0L) {
+        if (auditId < MIN_AUDIT_ID) {
             throw new IllegalArgumentException("auditId must not be negative");
         }
         aggregateType = normalizeRequired(aggregateType, "aggregateType", MAX_TYPE_LENGTH);

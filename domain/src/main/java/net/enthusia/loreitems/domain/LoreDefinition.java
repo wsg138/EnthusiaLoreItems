@@ -9,6 +9,8 @@ public record LoreDefinition(
         TemplateRevision currentRevision,
         long createdAtEpochMillis,
         Long deletedAtEpochMillis) {
+    private static final long MIN_TIMESTAMP = 0L;
+
     public static final int MAX_DISPLAY_NAME_LENGTH = 256;
 
     public LoreDefinition {
@@ -20,7 +22,7 @@ public record LoreDefinition(
         if (displayName.isEmpty() || displayName.length() > MAX_DISPLAY_NAME_LENGTH) {
             throw new IllegalArgumentException("Definition display name must be 1-256 characters");
         }
-        if (createdAtEpochMillis < 0L) {
+        if (createdAtEpochMillis < MIN_TIMESTAMP) {
             throw new IllegalArgumentException("createdAtEpochMillis must not be negative");
         }
         if (deletedAtEpochMillis != null && deletedAtEpochMillis < createdAtEpochMillis) {

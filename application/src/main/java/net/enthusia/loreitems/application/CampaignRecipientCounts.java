@@ -8,6 +8,8 @@ public record CampaignRecipientCounts(
         long delivered,
         long cancelled,
         long reviewRequired) {
+    private static final long MIN_COUNT = 0L;
+
     public CampaignRecipientCounts {
         requireNonNegative(pendingName, "pendingName");
         requireNonNegative(pendingOffline, "pendingOffline");
@@ -37,7 +39,7 @@ public record CampaignRecipientCounts(
     }
 
     private static void requireNonNegative(long value, String name) {
-        if (value < 0L) {
+        if (value < MIN_COUNT) {
             throw new IllegalArgumentException(name + " must not be negative");
         }
     }

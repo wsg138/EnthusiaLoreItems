@@ -200,7 +200,7 @@ class SQLiteDefinitionRepositoryTest {
         runtime.execute(connection -> {
                     try (Statement statement = connection.createStatement()) {
                         // The SQL is a closed enum of test-only fault-injection fixtures.
-                        statement.execute(fixture.sql()); // nosemgrep
+                        statement.execute(fixture.statementText()); // nosemgrep
                     }
                     return null;
                 })
@@ -237,14 +237,14 @@ class SQLiteDefinitionRepositoryTest {
                         + "BEFORE INSERT ON lore_definition_revisions WHEN NEW.revision = 2 "
                         + "BEGIN SELECT RAISE(ABORT, 'forced append failure'); END");
 
-        private final String sql;
+        private final String statementText;
 
-        SqlFixture(String sql) {
-            this.sql = sql;
+        SqlFixture(String statementText) {
+            this.statementText = statementText;
         }
 
-        String sql() {
-            return sql;
+        String statementText() {
+            return statementText;
         }
     }
 

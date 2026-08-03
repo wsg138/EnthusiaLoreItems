@@ -11,6 +11,8 @@ import com.tngtech.archunit.lang.ArchRule;
 @AnalyzeClasses(
         packages = "net.enthusia.loreitems",
         importOptions = ImportOption.DoNotIncludeTests.class)
+// ArchUnit executes @ArchTest fields as test cases.
+@SuppressWarnings("PMD.TestClassWithoutTestCases")
 class HexagonalArchitectureTest {
     @ArchTest
     static final ArchRule DOMAIN_IS_PLATFORM_FREE =

@@ -10,10 +10,14 @@ public record InstanceObservation(
         Confidence confidence,
         String source,
         long observedAtEpochMillis) {
+    private static final long UNASSIGNED_OBSERVATION_ID = 0L;
+    private static final long MIN_PERSISTED_OBSERVATION_ID = 1L;
+    private static final long MIN_TIMESTAMP = 0L;
+
     public static final int MAX_SOURCE_LENGTH = 120;
 
     public InstanceObservation {
-        if (observationId < 0L) {
+        if (observationId < UNASSIGNED_OBSERVATION_ID) {
             throw new IllegalArgumentException("observationId must not be negative");
         }
         Objects.requireNonNull(instanceId, "instanceId");
@@ -25,7 +29,7 @@ public record InstanceObservation(
         if (source.isEmpty() || source.length() > MAX_SOURCE_LENGTH) {
             throw new IllegalArgumentException("Invalid observation source");
         }
-        if (observedAtEpochMillis < 0L) {
+        if (observedAtEpochMillis < MIN_TIMESTAMP) {
             throw new IllegalArgumentException("observedAtEpochMillis must not be negative");
         }
         if (confidence == Confidence.TERMINAL_VOID
@@ -41,10 +45,10 @@ public record InstanceObservation(
     }
 
     public InstanceObservation withObservationId(long assignedObservationId) {
-        if (observationId != 0L) {
+        if (observationId != UNASSIGNED_OBSERVATION_ID) {
             throw new IllegalStateException("Observation already has a persistent identifier");
         }
-        if (assignedObservationId < 1L) {
+        if (assignedObservationId < MIN_PERSISTED_OBSERVATION_ID) {
             throw new IllegalArgumentException("assignedObservationId must be positive");
         }
         return new InstanceObservation(

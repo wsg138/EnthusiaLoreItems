@@ -31,6 +31,8 @@ import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
+// Paper plugins may own bounded lifecycle executors; this is not a J2EE web application.
+@SuppressWarnings("PMD.DoNotUseThreads")
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
@@ -149,84 +151,112 @@ public final class LoreItemsPlugin extends JavaPlugin {
         try {
             FoundationConfiguration loaded =
                     new FoundationConfigurationLoader(dataDirectory).loadOrCreate();
-            synchronized (lifecycleLock) {
-                if (stopping) {
-                    return;
-                }
-                configuration.set(new AtomicConfiguration(loaded));
+            if (!publishConfiguration(loaded)) {
+                return;
             }
-
-            MetricsPort metrics = MetricsPort.noOp();
-            BoundedDatabaseExecutor databaseExecutor = new BoundedDatabaseExecutor(
-                    "loreitems-database", loaded.databaseQueueCapacity(), metrics);
-            SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
-                    new SQLiteConnectionFactory(
-                            dataDirectory.resolve("loreitems.db"), loaded.databaseBusyTimeoutMillis()),
-                    new MigrationRunner(),
-                    databaseExecutor,
-                    metrics);
-            boolean published;
-            synchronized (lifecycleLock) {
-                published = !stopping;
-                if (published) {
-                    storageRuntime = runtime;
-                }
-            }
-            if (!published) {
+            SQLiteStorageRuntime runtime = createStorageRuntime(dataDirectory, loaded);
+            if (!publishStorageRuntime(runtime)) {
                 runtime.close(Duration.ZERO);
                 return;
             }
-            SQLiteStorageRuntime.StartupResult startup = runtime.start().toCompletableFuture().join();
-            if (stopping) {
-                return;
-            }
-            if (startup.state() != StorageState.READ_WRITE) {
-                synchronized (lifecycleLock) {
-                    if (stopping) {
-                        return;
-                    }
-                    serviceDelegate.set(new UnavailableService(
-                            "LoreItems is in degraded read-only mode: " + startup.detail()));
-                }
-                getLogger().severe(
-                        "LoreItems entered degraded read-only mode: " + startup.detail());
-                return;
-            }
+            initializeStorage(runtime, loaded);
+        } catch (Exception exception) {
+            handleInitializationFailure(exception);
+        }
+    }
 
-            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
-            int recoveryLimit = loaded.deliveryClaimBatchSize();
-            int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
-                    .toCompletableFuture()
-                    .join();
-            if (recovered > 0) {
-                getLogger().warning(
-                        "Moved " + recovered + " expired delivery claims to REVIEW_REQUIRED.");
+    private boolean publishConfiguration(FoundationConfiguration loaded) {
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return false;
             }
-            if (recovered == recoveryLimit) {
-                getLogger().warning(
-                        "The bounded startup recovery batch was full; additional expired "
-                                + "delivery claims may remain for later recovery.");
+            configuration.set(new AtomicConfiguration(loaded));
+            return true;
+        }
+    }
+
+    private static SQLiteStorageRuntime createStorageRuntime(
+            Path dataDirectory, FoundationConfiguration loaded) {
+        MetricsPort metrics = MetricsPort.noOp();
+        BoundedDatabaseExecutor databaseExecutor = new BoundedDatabaseExecutor(
+                "loreitems-database", loaded.databaseQueueCapacity(), metrics);
+        return new SQLiteStorageRuntime(
+                new SQLiteConnectionFactory(
+                        dataDirectory.resolve("loreitems.db"), loaded.databaseBusyTimeoutMillis()),
+                new MigrationRunner(),
+                databaseExecutor,
+                metrics);
+    }
+
+    private boolean publishStorageRuntime(SQLiteStorageRuntime runtime) {
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return false;
             }
-            synchronized (lifecycleLock) {
-                if (stopping) {
-                    return;
-                }
-                serviceDelegate.set(new FoundationLoreItemsService(
-                        new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())));
-            }
+            storageRuntime = runtime;
+            return true;
+        }
+    }
+
+    private void initializeStorage(
+            SQLiteStorageRuntime runtime, FoundationConfiguration loaded) {
+        SQLiteStorageRuntime.StartupResult startup = runtime.start().toCompletableFuture().join();
+        if (stopping) {
+            return;
+        }
+        if (startup.state() != StorageState.READ_WRITE) {
+            publishDegradedService(startup);
+            return;
+        }
+        SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+        recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
+        if (publishService(new FoundationLoreItemsService(
+                new PersistingExternalDeliveryUseCase(repository, Clock.systemUTC())))) {
             getLogger().info(
                     "Durable foundation storage is active; physical inventory delivery remains deferred.");
-        } catch (Exception exception) {
-            synchronized (lifecycleLock) {
-                if (!stopping) {
-                    serviceDelegate.set(new UnavailableService(
-                            "Foundation initialization failed: " + safeMessage(exception)));
-                }
-            }
-            getLogger().severe(
-                    "LoreItems foundation initialization failed; writes remain unavailable: "
-                            + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
         }
+    }
+
+    private void publishDegradedService(SQLiteStorageRuntime.StartupResult startup) {
+        if (publishService(new UnavailableService(
+                "LoreItems is in degraded read-only mode: " + startup.detail()))) {
+            getLogger().severe(
+                    "LoreItems entered degraded read-only mode: " + startup.detail());
+        }
+    }
+
+    private boolean publishService(LoreItemsServiceV1 service) {
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return false;
+            }
+            serviceDelegate.set(service);
+            return true;
+        }
+    }
+
+    private void recoverExpiredClaims(
+            SQLiteDirectDeliveryRepository repository, int recoveryLimit) {
+        int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
+                .toCompletableFuture()
+                .join();
+        if (recovered > 0) {
+            getLogger().warning(
+                    "Moved " + recovered + " expired delivery claims to REVIEW_REQUIRED.");
+        }
+        if (recovered == recoveryLimit) {
+            getLogger().warning(
+                    "The bounded startup recovery batch was full; additional expired "
+                            + "delivery claims may remain for later recovery.");
+        }
+    }
+
+    private void handleInitializationFailure(Exception exception) {
+        publishService(new UnavailableService(
+                "Foundation initialization failed: " + safeMessage(exception)));
+        getLogger().severe(
+                "LoreItems foundation initialization failed; writes remain unavailable: "
+                        + exception.getClass().getSimpleName() + ": " + safeMessage(exception));
     }
 
     private static String safeMessage(Exception exception) {

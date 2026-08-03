@@ -207,7 +207,7 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
             LoreDefinitionId definitionId) {
         runtime.execute(connection -> {
                     // The SQL is selected from a closed test-only mutation enum.
-                    try (PreparedStatement statement = connection.prepareStatement(mutation.sql())) { // nosemgrep
+                    try (PreparedStatement statement = connection.prepareStatement(mutation.statementText())) { // nosemgrep
                         statement.setString(1, lookupKey);
                         statement.setString(2, definitionId.value().toString());
                         statement.executeUpdate();
@@ -221,14 +221,14 @@ class SQLiteDeletedDefinitionMarkerRepositoryTest {
         UPDATE_KEY("UPDATE deleted_definition_markers SET lookup_key = ? WHERE definition_id = ?"),
         DELETE_MARKER("DELETE FROM deleted_definition_markers WHERE lookup_key = ? AND definition_id = ?");
 
-        private final String sql;
+        private final String statementText;
 
-        MarkerMutation(String sql) {
-            this.sql = sql;
+        MarkerMutation(String statementText) {
+            this.statementText = statementText;
         }
 
-        String sql() {
-            return sql;
+        String statementText() {
+            return statementText;
         }
     }
 
