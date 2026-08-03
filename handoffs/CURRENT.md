@@ -12,34 +12,33 @@ Obtain the current head SHA, draft state, checks, Codacy result, and review comm
 
 ## Latest report
 
-- [`0009-2026-08-02-pr2-distribution-persistence.md`](0009-2026-08-02-pr2-distribution-persistence.md)
+- [`0010-2026-08-02-pr2-distribution-verification.md`](0010-2026-08-02-pr2-distribution-verification.md)
 
 ## Required prior reports
 
-- [`0008-2026-08-02-pr2-tracking-persistence.md`](0008-2026-08-02-pr2-tracking-persistence.md) — preceding observation/current-state/anomaly slice and the distribution-persistence scope resumed by report 0009.
-- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified unit-of-work boundary, prior CI/Codacy state, and PR 1 limitations.
-- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition/revision/instance persistence and identity constraints used by campaign delivery references.
+- [`0009-2026-08-02-pr2-distribution-persistence.md`](0009-2026-08-02-pr2-distribution-persistence.md) — distribution campaign/recipient implementation, failed-run evidence, corrected implementation CI, and transient pre-final Codacy state.
+- [`0008-2026-08-02-pr2-tracking-persistence.md`](0008-2026-08-02-pr2-tracking-persistence.md) — preceding observation/current-state/anomaly persistence slice.
+- [`0007-2026-08-02-pr2-unit-of-work-verification.md`](0007-2026-08-02-pr2-unit-of-work-verification.md) — verified unit-of-work boundary, prior CI state, and PR 1 limitations.
+- [`0005-2026-08-02-pr2-definition-instance-persistence.md`](0005-2026-08-02-pr2-definition-instance-persistence.md) — definition/revision/instance persistence and soft-delete context needed by deleted-definition markers.
 - [`0003-2026-08-02-pr2-storage-runtime.md`](0003-2026-08-02-pr2-storage-runtime.md) — bounded database executor, storage lifecycle, connection ownership, and recovery rules.
 
 ## Exact next step
 
-Continue PR #2 on `agent/loreitems-pr1-foundation`. Do not begin deleted-definition marker persistence yet. First inspect Codacy's detailed issue list for the current PR head and triage only findings introduced or exposed by the distribution campaign/recipient persistence slice and the migration-runner trigger support. Fix every validated compatibility, error-prone, security, performance, or correctness issue, rerun `gradle --no-daemon clean check`, and verify the refreshed Codacy result, PR comments, submitted reviews, and unresolved threads.
+Continue PR #2 on `agent/loreitems-pr1-foundation`. Implement only deleted-definition marker domain/application persistence plus its SQLite adapter and focused tests. Preserve immutable deleted-definition identity/history, bounded lookup/list behavior, transaction and connection-ownership rules, and compatibility with the existing definition soft-delete lifecycle.
 
-After that focused Codacy triage is resolved or each remaining finding is specifically demonstrated to be false or out of scope, the next repository family is deleted-definition marker domain/application persistence plus its SQLite adapter and focused tests.
-
-Do not begin group-file parsing or moves, physical campaign delivery, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, deletion execution, or later phases.
+Do not begin group-file parsing or moves, physical campaign delivery, commands, GUIs, item creation/adoption, protection listeners, tracking/reconciliation execution, editing, deletion execution, or later phases. After implementation, verify exact-head GitHub Actions, Codacy, CodeRabbit, submitted reviews, and unresolved review threads before selecting another repository family.
 
 ## Focused startup reads
 
-After reading the latest and required prior reports and verifying live PR state, inspect only the files and Codacy findings relevant to:
+After reading the latest and required prior reports and verifying live PR state, inspect only the files relevant to:
 
-- the new distribution campaign and recipient domain models and repository ports;
-- `SQLiteDistributionCampaignRepository` and `SQLiteDistributionRecipientRepository`;
-- V1 distribution tables, constraints, indexes, and immutable-snapshot triggers;
-- `MigrationRunner` trigger statement splitting;
-- source-fingerprint normalization and uniqueness;
-- campaign lifecycle, activation/completion guards, cancellation semantics, claim fencing, unresolved-name binding, bounded pages/counts, and restart recovery;
-- any Codacy issue reported against the new or directly modified files;
+- the existing `deleted_definition_markers` V1 table and its current constraints;
+- definition soft-delete lifecycle and active-key/history behavior;
+- immutable marker identity, lookup key, deletion timestamp, and any required audit linkage;
+- bounded marker lookup/list repository ports and SQLite implementation;
+- the verified `UnitOfWork` boundary when a definition soft-delete and marker/audit persistence must commit together;
+- bounded database executor and connection ownership rules;
+- focused restart and transactional rollback tests;
 - exact-head GitHub Actions, Codacy, CodeRabbit, review comments, submitted reviews, and unresolved review threads.
 
-Read broader architecture or requirements sections only when a reported finding requires the binding rule, a conflict appears, a safety/data-loss issue is suspected, or PR completion is being reviewed.
+Read broader architecture or requirements sections only when the immediate marker design is not already settled, a conflict appears, a safety/data-loss issue is suspected, or PR completion is being reviewed.
