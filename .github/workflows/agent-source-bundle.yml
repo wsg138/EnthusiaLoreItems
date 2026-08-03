@@ -1,15 +1,13 @@
 name: Agent source bundle
 
 on:
-  push:
-    branches:
-      - agent/loreitems-pr2-creation-delivery-protection
+  pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: agent-source-bundle-${{ github.ref }}
+  group: agent-source-bundle-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
