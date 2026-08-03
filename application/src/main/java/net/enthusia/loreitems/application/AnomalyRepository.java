@@ -13,6 +13,8 @@ public interface AnomalyRepository {
 
     CompletionStage<Page<InstanceAnomaly>> listActive(PageRequest request);
 
+    CompletionStage<Page<InstanceAnomaly>> listActiveWarnings(PageRequest request);
+
     CompletionStage<Page<InstanceAnomaly>> listByInstance(
             LoreInstanceId instanceId, PageRequest request);
 
