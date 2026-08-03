@@ -13,7 +13,7 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Wait for Codacy and export annotations
         env:
@@ -24,12 +24,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p codacy-export
-          for attempt in {1..30}; do
+          for attempt in {1..60}; do
             gh api --paginate "/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" > codacy-export/check-runs.json
-            jq -e '[.check_runs[] | select((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production"))] | length > 0' codacy-export/check-runs.json >/dev/null && break
+            if jq -e '[.check_runs[] | select(((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production")) and .status == "completed")] | length > 0' codacy-export/check-runs.json >/dev/null; then
+              break
+            fi
             sleep 10
           done
           jq '[.check_runs[] | select((.name | ascii_downcase | contains("codacy")) or (.app.slug == "codacy-production"))]' codacy-export/check-runs.json > codacy-export/codacy-check-runs.json
+          jq -e 'length > 0 and all(.status == "completed")' codacy-export/codacy-check-runs.json >/dev/null
           : > codacy-export/annotations.jsonl
           jq -r '.[].id' codacy-export/codacy-check-runs.json | while read -r check_id; do
             gh api --paginate "/repos/${REPOSITORY}/check-runs/${check_id}/annotations?per_page=100" | jq -c '.[]' >> codacy-export/annotations.jsonl
