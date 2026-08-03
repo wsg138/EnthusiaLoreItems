@@ -11,5 +11,6 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0005 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Definition, revision, and instance persistence](0005-2026-08-02-pr2-definition-instance-persistence.md) |
 | 0006 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Atomic application unit of work](0006-2026-08-02-pr2-unit-of-work.md) |
 | 0007 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Unit-of-work verification refresh](0007-2026-08-02-pr2-unit-of-work-verification.md) |
+| 0008 | 2026-08-02 | Implementation PR 1 / PR #2 | In progress | [Observation, current-state, and anomaly persistence](0008-2026-08-02-pr2-tracking-persistence.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
