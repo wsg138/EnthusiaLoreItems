@@ -6,6 +6,7 @@ import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -482,7 +483,12 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                 "instance:" + first.identity().instanceId().value()
                         + ":pair:" + Integer.toUnsignedString(path.hashCode()),
                 path);
-        anomalyReporter.recordDuplicate(first.identity(), conflict, source, detail);
+        anomalyReporter.recordDuplicate(
+                first.identity(),
+                conflict,
+                List.of(first.location(), second.location()),
+                source,
+                detail);
     }
 
     private static LocationDescriptor playerLocation(HumanEntity player, String path) {
