@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
+import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -15,14 +17,26 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.block.Block;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.damage.DamageType;
 import org.bukkit.entity.Item;
+import org.bukkit.event.block.BlockCookEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.ItemDespawnEvent;
 import org.bukkit.event.entity.ItemMergeEvent;
+import org.bukkit.event.inventory.BrewingStandFuelEvent;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.FurnaceBurnEvent;
+import org.bukkit.event.inventory.InventoryAction;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
@@ -116,6 +130,92 @@ class PaperTrackedItemProtectionListenerTest {
                 2.0);
         listener.onItemDamage(ordinaryFire);
         assertFalse(ordinaryFire.isCancelled());
+    }
+
+    @Test
+    void trackedItemsCannotBeConsumedCookedOrUsedAsFuel() {
+        ItemStack tracked = trackedItem();
+        PlayerItemConsumeEvent consume =
+                new PlayerItemConsumeEvent(player, tracked, EquipmentSlot.HAND);
+        listener.onConsume(consume);
+        assertTrue(consume.isCancelled());
+
+        PlayerItemConsumeEvent malformedConsume =
+                new PlayerItemConsumeEvent(player, malformedTrackedItem(), EquipmentSlot.HAND);
+        listener.onConsume(malformedConsume);
+        assertTrue(malformedConsume.isCancelled());
+
+        Block block = player.getWorld().getBlockAt(0, 64, 0);
+        BlockCookEvent cook =
+                new BlockCookEvent(block, tracked, ItemStack.of(Material.IRON_INGOT));
+        listener.onCook(cook);
+        assertTrue(cook.isCancelled());
+
+        FurnaceBurnEvent furnaceFuel = new FurnaceBurnEvent(block, tracked, 200);
+        listener.onFurnaceFuel(furnaceFuel);
+        assertTrue(furnaceFuel.isCancelled());
+
+        BrewingStandFuelEvent brewingFuel =
+                new BrewingStandFuelEvent(block, tracked, 20);
+        listener.onBrewingFuel(brewingFuel);
+        assertTrue(brewingFuel.isCancelled());
+
+        PlayerItemConsumeEvent ordinaryConsume = new PlayerItemConsumeEvent(
+                player, ItemStack.of(Material.APPLE), EquipmentSlot.HAND);
+        listener.onConsume(ordinaryConsume);
+        assertFalse(ordinaryConsume.isCancelled());
+    }
+
+    @Test
+    void trackedInputsCannotBeTakenFromResultSlots() {
+        Inventory inventory = server.createInventory(null, 9);
+        inventory.setItem(0, trackedItem());
+        InventoryClickEvent resultClick = new InventoryClickEvent(
+                player.openInventory(inventory),
+                InventoryType.SlotType.RESULT,
+                2,
+                ClickType.LEFT,
+                InventoryAction.PICKUP_ALL);
+
+        listener.onInventoryResultClick(resultClick);
+
+        assertTrue(resultClick.isCancelled());
+
+        inventory.setItem(0, ItemStack.of(Material.DIAMOND));
+        InventoryClickEvent ordinaryClick = new InventoryClickEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.RESULT,
+                2,
+                ClickType.LEFT,
+                InventoryAction.PICKUP_ALL);
+        listener.onInventoryResultClick(ordinaryClick);
+        assertFalse(ordinaryClick.isCancelled());
+    }
+
+    @Test
+    void trackedPlacementArrowAndDispenseConversionsAreCancelled() {
+        ItemStack tracked = trackedItem();
+        Block placed = player.getWorld().getBlockAt(1, 64, 0);
+        Block against = player.getWorld().getBlockAt(1, 63, 0);
+        BlockPlaceEvent place = new BlockPlaceEvent(
+                placed,
+                placed.getState(),
+                against,
+                tracked,
+                player,
+                true,
+                EquipmentSlot.HAND);
+        listener.onBlockPlace(place);
+        assertTrue(place.isCancelled());
+
+        PlayerReadyArrowEvent readyArrow = new PlayerReadyArrowEvent(
+                player, ItemStack.of(Material.BOW), tracked);
+        listener.onReadyArrow(readyArrow);
+        assertTrue(readyArrow.isCancelled());
+
+        BlockPreDispenseEvent dispense = new BlockPreDispenseEvent(against, tracked, 0);
+        listener.onDispense(dispense);
+        assertTrue(dispense.isCancelled());
     }
 
     @Test
