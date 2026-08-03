@@ -101,6 +101,33 @@ class PaperItemAnomalyReporterTest {
     }
 
     @Test
+    void ignoresRepeatedEvidenceDuringThePostCompletionCooldown() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        register(useCase);
+        reporter = new PaperItemAnomalyReporter(plugin, 1);
+
+        LocationDescriptor conflict = conflictLocation("same");
+        List<LocationDescriptor> evidence =
+                List.of(playerLocation("same-a"), playerLocation("same-b"));
+        reporter.recordDuplicate(
+                FIRST_IDENTITY,
+                conflict,
+                evidence,
+                "test",
+                "first observation");
+        useCase.firstResult.complete(recorded());
+
+        reporter.recordDuplicate(
+                FIRST_IDENTITY,
+                conflict,
+                evidence,
+                "test",
+                "immediate repeat");
+
+        assertEquals(1, useCase.callCount);
+    }
+
+    @Test
     void onlyNewActiveAnomaliesRequestAnImmediateStaffWarning() {
         RecordingUseCase useCase = new RecordingUseCase();
         RecordingWarningSink warningSink = new RecordingWarningSink();
