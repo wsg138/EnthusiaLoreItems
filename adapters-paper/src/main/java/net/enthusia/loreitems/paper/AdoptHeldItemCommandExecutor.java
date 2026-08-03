@@ -102,7 +102,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
                     handlePreparation(useCase, request, result, throwable));
         } catch (IllegalArgumentException | ItemCodecException exception) {
             release(playerId);
-            player.sendMessage(exception.getMessage());
+            player.sendMessage(safeMessage(
+                    exception,
+                    "The adoption request was invalid; the held item was not changed."));
         } catch (RuntimeException exception) {
             release(playerId);
             plugin.getLogger().log(Level.SEVERE, "Could not start held-item adoption.", exception);
@@ -293,6 +295,11 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
 
     private void logFailure(String message, Throwable throwable) {
         plugin.getLogger().log(Level.SEVERE, message, unwrap(throwable));
+    }
+
+    private static String safeMessage(RuntimeException exception, String fallback) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 
     private static Throwable unwrap(Throwable throwable) {
