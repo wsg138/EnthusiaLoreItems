@@ -34,137 +34,128 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
 
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected one match, found {count}")
-              return text.replace(old, new, 1)
+          def read_lines(path: Path) -> list[str]:
+              return path.read_text().splitlines()
+
+          def write_lines(path: Path, lines: list[str]) -> None:
+              path.write_text("\n".join(lines) + "\n")
+
+          def unique_index(lines: list[str], target: str, label: str) -> int:
+              matches = [index for index, line in enumerate(lines) if line == target]
+              if len(matches) != 1:
+                  raise SystemExit(f"{label}: expected one match, found {len(matches)}")
+              return matches[0]
+
+          def remove_unique_line(lines: list[str], target: str, label: str) -> None:
+              del lines[unique_index(lines, target, label)]
 
           worker_path = Path("adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDirectDeliveryWorker.java")
-          worker = worker_path.read_text()
-          worker = replace_once(
+          worker = read_lines(worker_path)
+          review_case = unique_index(
               worker,
-              """        switch (result.status()) {
-              case APPLIED -> complete(delivery, result);
-              case NO_SPACE -> defer(delivery);
-              case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
-          }
-          """,
-              """        switch (result.status()) {
-              case APPLIED -> complete(delivery, result);
-              case NO_SPACE -> defer(delivery);
-              case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
-              default -> requireReview(
-                      delivery,
-                      "Unsupported direct-delivery apply result: " + result.status(),
-                      null);
-          }
-          """,
-              "worker exhaustive switch")
-          worker = replace_once(worker, "            pollTask = null;\n", "", "worker null assignment")
-          worker_path.write_text(worker)
+              "            case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);",
+              "worker review case")
+          if worker[review_case + 1] != "        }":
+              raise SystemExit("worker switch closing brace did not follow review case")
+          worker[review_case + 1:review_case + 1] = [
+              "            default -> requireReview(",
+              "                    delivery,",
+              "                    \"Unsupported direct-delivery apply result: \" + result.status(),",
+              "                    null);",
+          ]
+          remove_unique_line(worker, "            pollTask = null;", "worker null assignment")
+          write_lines(worker_path, worker)
 
           plugin_path = Path("plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java")
-          plugin = plugin_path.read_text()
-          plugin = replace_once(
-              plugin,
-              "            directDeliveryWorker = null;\n",
-              "",
-              "plugin null assignment")
-          plugin_path.write_text(plugin)
+          plugin = read_lines(plugin_path)
+          remove_unique_line(plugin, "            directDeliveryWorker = null;", "plugin null assignment")
+          write_lines(plugin_path, plugin)
 
           prepared_path = Path("application/src/main/java/net/enthusia/loreitems/application/PreparedDirectDelivery.java")
-          prepared = prepared_path.read_text()
-          prepared = replace_once(
+          prepared = read_lines(prepared_path)
+          timestamp_constant = unique_index(
               prepared,
-              "    private static final long MIN_TIMESTAMP = 0L;\n",
-              "    private static final long MIN_TIMESTAMP = 0L;\n"
-              "    private static final int MIN_ATTEMPT_COUNT = 1;\n",
-              "prepared delivery constant")
-          prepared = replace_once(
+              "    private static final long MIN_TIMESTAMP = 0L;",
+              "prepared timestamp constant")
+          prepared.insert(timestamp_constant + 1, "    private static final int MIN_ATTEMPT_COUNT = 1;")
+          attempt_check = unique_index(
               prepared,
-              "        if (attemptCount < 1) {\n",
-              "        if (attemptCount < MIN_ATTEMPT_COUNT) {\n",
-              "prepared delivery conditional")
-          prepared_path.write_text(prepared)
+              "        if (attemptCount < 1) {",
+              "prepared attempt conditional")
+          prepared[attempt_check] = "        if (attemptCount < MIN_ATTEMPT_COUNT) {"
+          write_lines(prepared_path, prepared)
 
           sqlite_path = Path("adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDirectDeliveryRepository.java")
-          sqlite = sqlite_path.read_text()
-          sqlite = replace_once(
+          sqlite = read_lines(sqlite_path)
+          completed_state = unique_index(
               sqlite,
-              "    private static final String COMPLETED_STATE = \"COMPLETED\";\n",
-              "    private static final String COMPLETED_STATE = \"COMPLETED\";\n"
-              "    private static final String DELIVERY_ID_COLUMN = \"delivery_id\";\n"
-              "    private static final String INSTANCE_ID_COLUMN = \"instance_id\";\n"
-              "    private static final String PLAYER_ID_COLUMN = \"player_id\";\n",
-              "SQLite column constants")
-          query_block = """        List<ExpiredClaim> expired = new ArrayList<>();
-          try (PreparedStatement statement = connection.prepareStatement(
-                  "SELECT delivery_id, instance_id, player_id, state, claim_token "
-                          + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                          + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
-              statement.setLong(1, now);
-              statement.setInt(2, limit);
-              try (ResultSet resultSet = statement.executeQuery()) {
-                  while (resultSet.next()) {
-                      expired.add(new ExpiredClaim(
-                              UUID.fromString(resultSet.getString("delivery_id")),
-                              UUID.fromString(resultSet.getString("instance_id")),
-                              UUID.fromString(resultSet.getString("player_id")),
-                              resultSet.getString("state"),
-                              resultSet.getString("claim_token")));
-                  }
-              }
-          }
-          """
-          sqlite = replace_once(
-              sqlite,
-              query_block,
-              "        List<ExpiredClaim> expired = findExpiredClaims(connection, now, limit);\n",
-              "expired-claim query extraction")
-          helper = """
-          private static List<ExpiredClaim> findExpiredClaims(
-                  Connection connection,
-                  long now,
-                  int limit) throws SQLException {
-              List<ExpiredClaim> expired = new ArrayList<>();
-              try (PreparedStatement statement = connection.prepareStatement(
-                      "SELECT delivery_id, instance_id, player_id, state, claim_token "
-                              + "FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') "
-                              + "AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?")) {
-                  statement.setLong(1, now);
-                  statement.setInt(2, limit);
-                  try (ResultSet resultSet = statement.executeQuery()) {
-                      while (resultSet.next()) {
-                          expired.add(new ExpiredClaim(
-                                  UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),
-                                  UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),
-                                  UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-                                  resultSet.getString("state"),
-                                  resultSet.getString("claim_token")));
-                      }
-                  }
-              }
-              return expired;
-          }
+              "    private static final String COMPLETED_STATE = \"COMPLETED\";",
+              "SQLite completed state constant")
+          sqlite[completed_state + 1:completed_state + 1] = [
+              "    private static final String DELIVERY_ID_COLUMN = \"delivery_id\";",
+              "    private static final String INSTANCE_ID_COLUMN = \"instance_id\";",
+              "    private static final String PLAYER_ID_COLUMN = \"player_id\";",
+          ]
 
-          """
-          sqlite = replace_once(
+          method_start = unique_index(
               sqlite,
-              "    private static boolean transitionDelivery(\n",
-              helper + "    private static boolean transitionDelivery(\n",
-              "expired-claim helper insertion")
+              "    private static int moveExpiredClaimsToReviewInTransaction(",
+              "expired-claim method")
+          query_start = next(
+              index for index in range(method_start, len(sqlite))
+              if sqlite[index] == "        List<ExpiredClaim> expired = new ArrayList<>();")
+          update_start = next(
+              index for index in range(query_start, len(sqlite))
+              if sqlite[index] == "        int updated = 0;")
+          sqlite[query_start:update_start] = [
+              "        List<ExpiredClaim> expired = findExpiredClaims(connection, now, limit);"
+          ]
+
+          transition_start = unique_index(
+              sqlite,
+              "    private static boolean transitionDelivery(",
+              "transitionDelivery method")
+          helper = [
+              "    private static List<ExpiredClaim> findExpiredClaims(",
+              "            Connection connection,",
+              "            long now,",
+              "            int limit) throws SQLException {",
+              "        List<ExpiredClaim> expired = new ArrayList<>();",
+              "        try (PreparedStatement statement = connection.prepareStatement(",
+              "                \"SELECT delivery_id, instance_id, player_id, state, claim_token \"",
+              "                        + \"FROM direct_deliveries WHERE state IN ('RESERVED', 'APPLIED', 'VERIFIED') \"",
+              "                        + \"AND claim_expires_at <= ? ORDER BY claim_expires_at, delivery_id LIMIT ?\")) {",
+              "            statement.setLong(1, now);",
+              "            statement.setInt(2, limit);",
+              "            try (ResultSet resultSet = statement.executeQuery()) {",
+              "                while (resultSet.next()) {",
+              "                    expired.add(new ExpiredClaim(",
+              "                            UUID.fromString(resultSet.getString(DELIVERY_ID_COLUMN)),",
+              "                            UUID.fromString(resultSet.getString(INSTANCE_ID_COLUMN)),",
+              "                            UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),",
+              "                            resultSet.getString(\"state\"),",
+              "                            resultSet.getString(\"claim_token\")));",
+              "                }",
+              "            }",
+              "        }",
+              "        return expired;",
+              "    }",
+              "",
+          ]
+          sqlite[transition_start:transition_start] = helper
+
           replacements = {
               'resultSet.getString("delivery_id")': 'resultSet.getString(DELIVERY_ID_COLUMN)',
               'resultSet.getString("instance_id")': 'resultSet.getString(INSTANCE_ID_COLUMN)',
               'resultSet.getString("player_id")': 'resultSet.getString(PLAYER_ID_COLUMN)',
           }
           for old, new in replacements.items():
-              count = sqlite.count(old)
+              count = sum(line.count(old) for line in sqlite)
               if count != 3:
-                  raise SystemExit(f"SQLite duplicate literal {old}: expected three remaining matches, found {count}")
-              sqlite = sqlite.replace(old, new)
-          sqlite_path.write_text(sqlite)
+                  raise SystemExit(
+                      f"SQLite duplicate literal {old}: expected three remaining matches, found {count}")
+              sqlite = [line.replace(old, new) for line in sqlite]
+          write_lines(sqlite_path, sqlite)
           PY
           git rm .github/workflows/codacy-current-evidence.yml
           git rm .github/workflows/remediate-direct-delivery-codacy.yml
@@ -172,6 +163,6 @@ jobs:
           gradle --no-daemon clean check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add adapters-paper adapters-sqlite application plugin
+          git add -A
           git commit -m "fix direct delivery static analysis findings"
           git push origin HEAD:agent/loreitems-pr2-creation-delivery-protection
