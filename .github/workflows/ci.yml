@@ -43,7 +43,7 @@ jobs:
           import re
 
           workflow = pathlib.Path('.github/workflows/agent-apply-direct-delivery.yml').read_text()
-          match = re.search(r"printf '%s' '([^']+)' \\| base64 --decode", workflow)
+          match = re.search(r"printf '%s' '([^']+)'", workflow)
           if match is None:
               raise SystemExit('Could not find the encoded direct-delivery patch')
           pathlib.Path('/tmp/direct-delivery.patch').write_bytes(
