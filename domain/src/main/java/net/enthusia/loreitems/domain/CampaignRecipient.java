@@ -51,8 +51,16 @@ public record CampaignRecipient(
                         || deliveredAtEpochMillis > updatedAtEpochMillis)) {
             throw new IllegalArgumentException("Invalid deliveredAt timestamp");
         }
-        validateIdentity();
-        validateStateMetadata();
+        validateIdentity(recipientKey, originalValue, playerId);
+        validateStateMetadata(
+                recipientKey,
+                playerId,
+                state,
+                instanceId,
+                claimToken,
+                claimExpiresAtEpochMillis,
+                nextAttemptAtEpochMillis,
+                deliveredAtEpochMillis);
     }
 
     public static CampaignRecipient unresolvedName(
@@ -95,7 +103,8 @@ public record CampaignRecipient(
                 createdAtEpochMillis);
     }
 
-    private void validateIdentity() {
+    private static void validateIdentity(
+            CampaignRecipientKey recipientKey, String originalValue, UUID playerId) {
         if (recipientKey.playerUuidKey()) {
             if (playerId == null || !recipientKey.playerUuid().equals(playerId)) {
                 throw new IllegalArgumentException(
@@ -108,27 +117,35 @@ public record CampaignRecipient(
         }
     }
 
-    private void validateStateMetadata() {
+    private static void validateStateMetadata(
+            CampaignRecipientKey recipientKey,
+            UUID playerId,
+            CampaignRecipientState state,
+            LoreInstanceId instanceId,
+            String claimToken,
+            Long claimExpiresAtEpochMillis,
+            Long nextAttemptAtEpochMillis,
+            Long deliveredAtEpochMillis) {
         switch (state) {
             case PENDING_NAME -> {
                 if (!recipientKey.unresolvedNameKey() || playerId != null) {
                     throw new IllegalArgumentException(
                             "PENDING_NAME requires an unresolved name and no player UUID");
                 }
-                requireNoInstanceOrDelivery();
-                requireNoClaim();
+                requireNoInstanceOrDelivery(state, instanceId, deliveredAtEpochMillis);
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
                 if (nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
                             "PENDING_NAME must not have a delivery retry timestamp");
                 }
             }
             case PENDING_OFFLINE, PENDING_SPACE -> {
-                requirePlayer();
-                requireNoInstanceOrDelivery();
-                requireNoClaim();
+                requirePlayer(state, playerId);
+                requireNoInstanceOrDelivery(state, instanceId, deliveredAtEpochMillis);
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
             }
             case RESERVED -> {
-                requirePlayer();
+                requirePlayer(state, playerId);
                 if (claimToken == null || claimExpiresAtEpochMillis == null) {
                     throw new IllegalArgumentException("RESERVED recipient requires a live claim");
                 }
@@ -138,27 +155,27 @@ public record CampaignRecipient(
                 }
             }
             case DELIVERED -> {
-                requirePlayer();
+                requirePlayer(state, playerId);
                 if (instanceId == null || deliveredAtEpochMillis == null) {
                     throw new IllegalArgumentException(
                             "DELIVERED recipient requires an instance and delivery timestamp");
                 }
-                requireNoClaim();
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
                 if (nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
                             "DELIVERED recipient must not have a retry timestamp");
                 }
             }
             case CANCELLED -> {
-                requireNoInstanceOrDelivery();
-                requireNoClaim();
+                requireNoInstanceOrDelivery(state, instanceId, deliveredAtEpochMillis);
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
                 if (nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
                             "CANCELLED recipient must not have a retry timestamp");
                 }
             }
             case REVIEW_REQUIRED -> {
-                requireNoClaim();
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
                 if (deliveredAtEpochMillis != null || nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
                             "REVIEW_REQUIRED recipient must not claim delivery or retry state");
@@ -168,20 +185,26 @@ public record CampaignRecipient(
         }
     }
 
-    private void requirePlayer() {
+    private static void requirePlayer(CampaignRecipientState state, UUID playerId) {
         if (playerId == null) {
             throw new IllegalArgumentException(state + " recipient requires a player UUID");
         }
     }
 
-    private void requireNoInstanceOrDelivery() {
+    private static void requireNoInstanceOrDelivery(
+            CampaignRecipientState state,
+            LoreInstanceId instanceId,
+            Long deliveredAtEpochMillis) {
         if (instanceId != null || deliveredAtEpochMillis != null) {
             throw new IllegalArgumentException(
                     state + " recipient must not contain delivered instance metadata");
         }
     }
 
-    private void requireNoClaim() {
+    private static void requireNoClaim(
+            CampaignRecipientState state,
+            String claimToken,
+            Long claimExpiresAtEpochMillis) {
         if (claimToken != null || claimExpiresAtEpochMillis != null) {
             throw new IllegalArgumentException(state + " recipient must not contain claim metadata");
         }
