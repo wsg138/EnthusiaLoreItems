@@ -237,14 +237,14 @@ class SQLiteDefinitionRepositoryTest {
                         + "BEFORE INSERT ON lore_definition_revisions WHEN NEW.revision = 2 "
                         + "BEGIN SELECT RAISE(ABORT, 'forced append failure'); END");
 
-        private final String statementText;
+        private final String sqlText;
 
-        SqlFixture(String statementText) {
-            this.statementText = statementText;
+        SqlFixture(String sqlText) {
+            this.sqlText = sqlText;
         }
 
         String statementText() {
-            return statementText;
+            return sqlText;
         }
     }
 
