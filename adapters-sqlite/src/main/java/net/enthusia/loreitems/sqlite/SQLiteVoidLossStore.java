@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AuditEventRecord;
@@ -161,8 +162,8 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
         }
         if (!"CLAIMED".equals(mutation.state())
                 || !loss.claimToken().toString().equals(mutation.claimToken())
-                || mutation.claimExpiresAt() == null
-                || mutation.claimExpiresAt() <= completedAt) {
+                || mutation.claimExpiresAt().isEmpty()
+                || mutation.claimExpiresAt().getAsLong() <= completedAt) {
             return false;
         }
         requireTransition(connection, loss, "CLAIMED", "APPLIED", completedAt, false);
@@ -289,10 +290,13 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
                     return null;
                 }
                 long expiry = resultSet.getLong("claim_expires_at");
+                OptionalLong claimExpiresAt = resultSet.wasNull()
+                        ? OptionalLong.empty()
+                        : OptionalLong.of(expiry);
                 return new MutationRow(
                         resultSet.getString("state"),
                         resultSet.getString("claim_token"),
-                        resultSet.wasNull() ? null : expiry);
+                        claimExpiresAt);
             }
         }
     }
@@ -452,5 +456,5 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
     private record MutationRow(
             String state,
             String claimToken,
-            Long claimExpiresAt) {}
+            OptionalLong claimExpiresAt) {}
 }
