@@ -21,6 +21,11 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 
 public final class SQLiteDistributionCampaignRepository
         implements DistributionCampaignRepository {
+    private static final String NOW_ARGUMENT = "now";
+    private static final int MIN_RECIPIENT_COUNT = 1;
+    private static final long UNIX_EPOCH_MILLIS = 0L;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDistributionCampaignRepository(SQLiteStorageRuntime storage) {
@@ -100,13 +105,13 @@ public final class SQLiteDistributionCampaignRepository
         Objects.requireNonNull(campaignId, "campaignId");
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(target, "target");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
         if (target == DistributionCampaignState.CANCELLED) {
             throw new IllegalArgumentException(
                     "Campaign cancellation must use cancel so pending recipients are cancelled atomically");
         }
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> transitionStateInTransaction(
@@ -120,9 +125,9 @@ public final class SQLiteDistributionCampaignRepository
             Instant now) {
         Objects.requireNonNull(campaignId, "campaignId");
         Objects.requireNonNull(expected, "expected");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(DistributionCampaignState.CANCELLED);
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> cancelInTransaction(
@@ -213,7 +218,7 @@ public final class SQLiteDistributionCampaignRepository
             try (ResultSet resultSet = statement.executeQuery()) {
                 resultSet.next();
                 long count = resultSet.getLong("recipient_count");
-                if (count < 1L) {
+                if (count < MIN_RECIPIENT_COUNT) {
                     return false;
                 }
                 long minimum = resultSet.getLong("minimum_index");
@@ -282,7 +287,7 @@ public final class SQLiteDistributionCampaignRepository
 
     private static long requireNonNegative(Instant instant, String name) {
         long value = instant.toEpochMilli();
-        if (value < 0L) {
+        if (value < UNIX_EPOCH_MILLIS) {
             throw new IllegalArgumentException(name + " must not precede the Unix epoch");
         }
         return value;

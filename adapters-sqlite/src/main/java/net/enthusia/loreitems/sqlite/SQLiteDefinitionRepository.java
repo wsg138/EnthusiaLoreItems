@@ -21,6 +21,10 @@ import net.enthusia.loreitems.domain.LoreDefinitionRevision;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
 public final class SQLiteDefinitionRepository implements DefinitionRepository {
+    private static final String DEFINITION_ID_ARGUMENT = "definitionId";
+    private static final int SINGLE_UPDATED_ROW = 1;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDefinitionRepository(SQLiteStorageRuntime storage) {
@@ -54,7 +58,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
 
     @Override
     public CompletionStage<Optional<LoreDefinition>> findById(LoreDefinitionId definitionId) {
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         return storage.execute(connection -> findDefinition(
                 connection,
                 "SELECT definition_id, lookup_key, display_name, current_revision, created_at, "
@@ -76,7 +80,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
     @Override
     public CompletionStage<Optional<LoreDefinitionRevision>> findRevision(
             LoreDefinitionId definitionId, TemplateRevision revision) {
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(revision, "revision");
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -97,7 +101,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
     @Override
     public CompletionStage<Page<LoreDefinitionRevision>> listRevisions(
             LoreDefinitionId definitionId, PageRequest request) {
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
             List<LoreDefinitionRevision> revisions = new ArrayList<>();
@@ -144,7 +148,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
             LoreDefinitionId definitionId,
             TemplateRevision expectedCurrentRevision,
             LoreDefinitionRevision newRevision) {
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(newRevision, "newRevision");
         if (!definitionId.equals(newRevision.definitionId())) {
@@ -166,7 +170,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
                 statement.setLong(3, expectedCurrentRevision.value());
                 updated = statement.executeUpdate();
             }
-            if (updated != 1) {
+            if (updated != SINGLE_UPDATED_ROW) {
                 return false;
             }
             insertRevision(transaction, newRevision);
@@ -179,7 +183,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
             LoreDefinitionId definitionId,
             TemplateRevision expectedCurrentRevision,
             Instant deletedAt) {
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(deletedAt, "deletedAt");
         if (deletedAt.toEpochMilli() < 0L) {
@@ -195,7 +199,7 @@ public final class SQLiteDefinitionRepository implements DefinitionRepository {
             TemplateRevision expectedCurrentRevision,
             Instant deletedAt) throws SQLException {
         Objects.requireNonNull(connection, "connection");
-        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionId, DEFINITION_ID_ARGUMENT);
         Objects.requireNonNull(expectedCurrentRevision, "expectedCurrentRevision");
         Objects.requireNonNull(deletedAt, "deletedAt");
         long deletedAtMillis = deletedAt.toEpochMilli();

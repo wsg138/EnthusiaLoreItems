@@ -13,14 +13,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.enthusia.loreitems.application.MetricsPort;
 
+// Paper plugins are not J2EE web applications; this bounded worker is the intentional database boundary.
+@SuppressWarnings("PMD.DoNotUseThreads")
 public final class BoundedDatabaseExecutor {
+    private static final int MIN_QUEUE_CAPACITY = 1;
     private final ThreadPoolExecutor executor;
     private final MetricsPort metrics;
     private final AtomicBoolean accepting = new AtomicBoolean(true);
 
     public BoundedDatabaseExecutor(String threadName, int queueCapacity, MetricsPort metrics) {
         Objects.requireNonNull(threadName, "threadName");
-        if (queueCapacity < 1) {
+        if (queueCapacity < MIN_QUEUE_CAPACITY) {
             throw new IllegalArgumentException("queueCapacity must be positive");
         }
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -90,8 +93,11 @@ public final class BoundedDatabaseExecutor {
         long started = System.nanoTime();
         try {
             future.complete(task.call());
-        } catch (Throwable throwable) {
-            future.completeExceptionally(throwable);
+        } catch (Exception exception) {
+            future.completeExceptionally(exception);
+        } catch (Error error) {
+            future.completeExceptionally(error);
+            throw error;
         } finally {
             metrics.recordDurationNanos("database.task.duration", System.nanoTime() - started);
             metrics.setGauge("database.queue.depth", executor.getQueue().size());

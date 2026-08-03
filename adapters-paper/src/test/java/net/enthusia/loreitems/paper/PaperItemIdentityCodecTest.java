@@ -32,7 +32,6 @@ class PaperItemIdentityCodecTest {
     private static final NamespacedKey VERSION_KEY = key("identity_version");
     private static final NamespacedKey DEFINITION_KEY = key("definition_id");
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
-    private static final NamespacedKey REVISION_KEY = key("applied_revision");
     private static final NamespacedKey FOREIGN_KEY = key("foreign_test_value");
 
     private PaperItemIdentityCodec codec;

@@ -23,6 +23,10 @@ import net.enthusia.loreitems.domain.DirectDeliveryState;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepository {
+    private static final String NOW_ARGUMENT = "now";
+    private static final long MIN_LEASE_MILLIS = 1L;
+    private static final int SINGLE_UPDATED_ROW = 1;
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDirectDeliveryRepository(SQLiteStorageRuntime storage) {
@@ -33,7 +37,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     public CompletionStage<ExternalDeliveryAcceptance> acceptExternal(
             ExternalDeliveryCommand command, Instant now) {
         Objects.requireNonNull(command, "command");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection, transaction -> acceptExternal(transaction, command, now.toEpochMilli())));
     }
@@ -42,7 +46,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     public CompletionStage<Page<DirectDeliveryRecord>> claimPending(
             String claimToken, Instant now, Duration lease, int limit) {
         Objects.requireNonNull(claimToken, "claimToken");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(lease, "lease");
         String normalizedToken = claimToken.strip();
         if (normalizedToken.isEmpty()) {
@@ -52,7 +56,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
         long leaseMillis = lease.toMillis();
-        if (leaseMillis < 1L) {
+        if (leaseMillis < MIN_LEASE_MILLIS) {
             throw new IllegalArgumentException("lease must be positive");
         }
         return storage.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction ->
@@ -70,7 +74,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(claimToken, "claimToken");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
         boolean clearClaim = target == DirectDeliveryState.COMPLETED
                 || target == DirectDeliveryState.REVIEW_REQUIRED;
@@ -90,14 +94,14 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 statement.setString(4, expected.name());
                 statement.setString(5, claimToken);
                 statement.setLong(6, now.toEpochMilli());
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
 
     @Override
     public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now) {
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE direct_deliveries SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
@@ -140,40 +144,57 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             Connection connection, ExternalDeliveryCommand command, long now) throws SQLException {
         ExistingRequest existing = findExistingRequest(connection, command.externalOperationId());
         if (existing != null) {
-            if (!existing.definitionKey().equals(command.definitionKey().value())
-                    || !existing.playerId().equals(command.playerId())) {
-                return new ExternalDeliveryAcceptance(
-                        ExternalDeliveryOutcome.VALIDATION_FAILURE,
-                        command.externalOperationId(),
-                        Optional.ofNullable(existing.deliveryId()),
-                        "The external operation ID was already used with different arguments.");
-            }
-            ExternalDeliveryOutcome stored = ExternalDeliveryOutcome.valueOf(existing.outcome());
-            ExternalDeliveryOutcome replay = stored == ExternalDeliveryOutcome.ACCEPTED_QUEUED
-                    ? ExternalDeliveryOutcome.ALREADY_ACCEPTED
-                    : stored;
-            return new ExternalDeliveryAcceptance(
-                    replay,
-                    command.externalOperationId(),
-                    Optional.ofNullable(existing.deliveryId()),
-                    "Returned the durable result for the existing external operation.");
+            return replayExisting(command, existing);
         }
 
         DefinitionRevision definition = findDefinition(connection, command.definitionKey().value());
         if (definition == null) {
-            insertExternalRequest(
-                    connection,
-                    command,
-                    null,
-                    ExternalDeliveryOutcome.UNKNOWN_DEFINITION,
-                    now);
-            return new ExternalDeliveryAcceptance(
-                    ExternalDeliveryOutcome.UNKNOWN_DEFINITION,
-                    command.externalOperationId(),
-                    Optional.empty(),
-                    "No active lore definition has that key.");
+            return rejectUnknownDefinition(connection, command, now);
         }
+        return acceptNewDelivery(connection, command, definition, now);
+    }
 
+    private static ExternalDeliveryAcceptance replayExisting(
+            ExternalDeliveryCommand command, ExistingRequest existing) {
+        if (!existing.definitionKey().equals(command.definitionKey().value())
+                || !existing.playerId().equals(command.playerId())) {
+            return new ExternalDeliveryAcceptance(
+                    ExternalDeliveryOutcome.VALIDATION_FAILURE,
+                    command.externalOperationId(),
+                    Optional.ofNullable(existing.deliveryId()),
+                    "The external operation ID was already used with different arguments.");
+        }
+        ExternalDeliveryOutcome stored = ExternalDeliveryOutcome.valueOf(existing.outcome());
+        ExternalDeliveryOutcome replay = stored == ExternalDeliveryOutcome.ACCEPTED_QUEUED
+                ? ExternalDeliveryOutcome.ALREADY_ACCEPTED
+                : stored;
+        return new ExternalDeliveryAcceptance(
+                replay,
+                command.externalOperationId(),
+                Optional.ofNullable(existing.deliveryId()),
+                "Returned the durable result for the existing external operation.");
+    }
+
+    private static ExternalDeliveryAcceptance rejectUnknownDefinition(
+            Connection connection, ExternalDeliveryCommand command, long now) throws SQLException {
+        insertExternalRequest(
+                connection,
+                command,
+                null,
+                ExternalDeliveryOutcome.UNKNOWN_DEFINITION,
+                now);
+        return new ExternalDeliveryAcceptance(
+                ExternalDeliveryOutcome.UNKNOWN_DEFINITION,
+                command.externalOperationId(),
+                Optional.empty(),
+                "No active lore definition has that key.");
+    }
+
+    private static ExternalDeliveryAcceptance acceptNewDelivery(
+            Connection connection,
+            ExternalDeliveryCommand command,
+            DefinitionRevision definition,
+            long now) throws SQLException {
         UUID instanceId = UUID.randomUUID();
         UUID deliveryId = UUID.randomUUID();
         insertInstance(connection, instanceId, definition, now);
@@ -223,7 +244,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 update.setLong(2, expiresAt);
                 update.setLong(3, now);
                 update.setString(4, candidate.deliveryId().toString());
-                if (update.executeUpdate() == 1) {
+                if (update.executeUpdate() == SINGLE_UPDATED_ROW) {
                     claimed.add(new DirectDeliveryRecord(
                             candidate.deliveryId(),
                             candidate.instanceId(),

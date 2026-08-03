@@ -2,11 +2,14 @@ plugins {
     id("com.gradleup.shadow")
 }
 
+val paperApiVersion: String by project
+val paperApiDependency = "io.papermc.paper:paper-api:$paperApiVersion"
+
 dependencies {
     implementation(project(":api"))
     implementation(project(":adapters-paper"))
     implementation(project(":adapters-sqlite"))
-    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    compileOnly(paperApiDependency)
 }
 
 tasks {

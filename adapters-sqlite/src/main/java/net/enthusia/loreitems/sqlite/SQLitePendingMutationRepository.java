@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.sqlite;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,6 +21,10 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.PendingMutationState;
 
 public final class SQLitePendingMutationRepository implements PendingMutationRepository {
+    private static final String NOW_ARGUMENT = "now";
+    private static final long MIN_LEASE_MILLIS = 1L;
+    private static final int SINGLE_UPDATED_ROW = 1;
+
     private final SQLiteStorageRuntime storage;
 
     public SQLitePendingMutationRepository(SQLiteStorageRuntime storage) {
@@ -63,7 +68,7 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
     public CompletionStage<Page<PendingMutationRecord>> claimPending(
             String claimToken, Instant now, Duration lease, int limit) {
         Objects.requireNonNull(claimToken, "claimToken");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(lease, "lease");
         String normalizedToken = claimToken.strip();
         if (normalizedToken.isEmpty()) {
@@ -73,28 +78,17 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
         long leaseMillis = lease.toMillis();
-        if (leaseMillis < 1L) {
+        if (leaseMillis < MIN_LEASE_MILLIS) {
             throw new IllegalArgumentException("lease must be positive");
         }
-        return storage.execute(connection -> {
-            boolean previousAutoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
-            try {
-                Page<PendingMutationRecord> result = claimPending(
-                        connection,
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> claimPending(
+                        transaction,
                         normalizedToken,
                         now.toEpochMilli(),
                         leaseMillis,
-                        limit);
-                connection.commit();
-                return result;
-            } catch (Exception exception) {
-                connection.rollback();
-                throw exception;
-            } finally {
-                connection.setAutoCommit(previousAutoCommit);
-            }
-        });
+                        limit)));
     }
 
     @Override
@@ -108,7 +102,7 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(claimToken, "claimToken");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
         boolean clearClaim = target == PendingMutationState.COMPLETED
                 || target == PendingMutationState.REVIEW_REQUIRED;
@@ -128,14 +122,14 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
                 statement.setString(4, expected.name());
                 statement.setString(5, claimToken);
                 statement.setLong(6, now.toEpochMilli());
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
 
     @Override
     public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now) {
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE pending_mutations SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
@@ -174,11 +168,20 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
     }
 
     private static Page<PendingMutationRecord> claimPending(
-            java.sql.Connection connection,
+            Connection connection,
             String claimToken,
             long now,
             long leaseMillis,
             int limit) throws SQLException {
+        List<PendingMutationRecord> candidates = findClaimCandidates(connection, now, limit);
+        boolean hasMore = trimLookahead(candidates, limit);
+        List<PendingMutationRecord> claimed =
+                claimCandidates(connection, claimToken, now, leaseMillis, candidates);
+        return new Page<>(claimed, 0, limit, hasMore);
+    }
+
+    private static List<PendingMutationRecord> findClaimCandidates(
+            Connection connection, long now, int limit) throws SQLException {
         List<PendingMutationRecord> candidates = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT * FROM pending_mutations WHERE state = 'PENDING' "
@@ -192,11 +195,23 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
                 }
             }
         }
-        boolean hasMore = candidates.size() > limit;
-        if (hasMore) {
-            candidates.remove(candidates.size() - 1);
-        }
+        return candidates;
+    }
 
+    private static boolean trimLookahead(List<?> values, int limit) {
+        boolean hasMore = values.size() > limit;
+        if (hasMore) {
+            values.remove(values.size() - 1);
+        }
+        return hasMore;
+    }
+
+    private static List<PendingMutationRecord> claimCandidates(
+            Connection connection,
+            String claimToken,
+            long now,
+            long leaseMillis,
+            List<PendingMutationRecord> candidates) throws SQLException {
         List<PendingMutationRecord> claimed = new ArrayList<>(candidates.size());
         long expiresAt = Math.addExact(now, leaseMillis);
         try (PreparedStatement update = connection.prepareStatement(
@@ -204,28 +219,42 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
                         + "claim_expires_at = ?, attempt_count = attempt_count + 1, updated_at = ? "
                         + "WHERE mutation_id = ? AND state = 'PENDING'")) {
             for (PendingMutationRecord candidate : candidates) {
-                update.setString(1, claimToken);
-                update.setLong(2, expiresAt);
-                update.setLong(3, now);
-                update.setString(4, candidate.mutationId().toString());
-                if (update.executeUpdate() == 1) {
-                    claimed.add(new PendingMutationRecord(
-                            candidate.mutationId(),
-                            candidate.mutationType(),
-                            candidate.definitionId(),
-                            candidate.instanceId(),
-                            candidate.desiredRevision(),
-                            PendingMutationState.CLAIMED,
-                            claimToken,
-                            expiresAt,
-                            candidate.attemptCount() + 1,
-                            candidate.nextAttemptAtEpochMillis(),
-                            candidate.createdAtEpochMillis(),
-                            now));
+                bindClaim(update, claimToken, expiresAt, now, candidate);
+                if (update.executeUpdate() == SINGLE_UPDATED_ROW) {
+                    claimed.add(claimedRecord(candidate, claimToken, expiresAt, now));
                 }
             }
         }
-        return new Page<>(claimed, 0, limit, hasMore);
+        return claimed;
+    }
+
+    private static void bindClaim(
+            PreparedStatement update,
+            String claimToken,
+            long expiresAt,
+            long now,
+            PendingMutationRecord candidate) throws SQLException {
+        update.setString(1, claimToken);
+        update.setLong(2, expiresAt);
+        update.setLong(3, now);
+        update.setString(4, candidate.mutationId().toString());
+    }
+
+    private static PendingMutationRecord claimedRecord(
+            PendingMutationRecord candidate, String claimToken, long expiresAt, long now) {
+        return new PendingMutationRecord(
+                candidate.mutationId(),
+                candidate.mutationType(),
+                candidate.definitionId(),
+                candidate.instanceId(),
+                candidate.desiredRevision(),
+                PendingMutationState.CLAIMED,
+                claimToken,
+                expiresAt,
+                candidate.attemptCount() + 1,
+                candidate.nextAttemptAtEpochMillis(),
+                candidate.createdAtEpochMillis(),
+                now);
     }
 
     private static PendingMutationRecord readRecord(ResultSet resultSet) throws SQLException {

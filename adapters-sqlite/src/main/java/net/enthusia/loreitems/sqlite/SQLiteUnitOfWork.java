@@ -40,10 +40,10 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
 
     private static final class SQLiteContext implements UnitOfWork.Context {
         private final Connection connection;
-        private final UnitOfWork.DefinitionMutations definitions = this::markDeleted;
-        private final UnitOfWork.DeletedDefinitionMarkerMutations deletedDefinitionMarkers =
+        private final UnitOfWork.DefinitionMutations definitionMutations = this::markDeleted;
+        private final UnitOfWork.DeletedDefinitionMarkerMutations markerMutations =
                 this::createDeletedDefinitionMarker;
-        private final UnitOfWork.AuditAppender audit = this::appendAudit;
+        private final UnitOfWork.AuditAppender auditAppender = this::appendAudit;
         private boolean active = true;
 
         private SQLiteContext(Connection connection) {
@@ -53,19 +53,19 @@ public final class SQLiteUnitOfWork implements UnitOfWork {
         @Override
         public UnitOfWork.DefinitionMutations definitions() {
             ensureActive();
-            return definitions;
+            return definitionMutations;
         }
 
         @Override
         public UnitOfWork.DeletedDefinitionMarkerMutations deletedDefinitionMarkers() {
             ensureActive();
-            return deletedDefinitionMarkers;
+            return markerMutations;
         }
 
         @Override
         public UnitOfWork.AuditAppender audit() {
             ensureActive();
-            return audit;
+            return auditAppender;
         }
 
         private boolean markDeleted(

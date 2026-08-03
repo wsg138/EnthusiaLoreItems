@@ -21,6 +21,9 @@ import net.enthusia.loreitems.domain.LoreInstanceLifecycle;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
 public final class SQLiteInstanceRepository implements InstanceRepository {
+    private static final long UNIX_EPOCH_MILLIS = 0L;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteInstanceRepository(SQLiteStorageRuntime storage) {
@@ -144,7 +147,7 @@ public final class SQLiteInstanceRepository implements InstanceRepository {
         Objects.requireNonNull(terminalAt, "terminalAt");
         expected.transitionTo(target);
         long terminalAtMillis = terminalAt.toEpochMilli();
-        if (terminalAtMillis < 0L) {
+        if (terminalAtMillis < UNIX_EPOCH_MILLIS) {
             throw new IllegalArgumentException("terminalAt must not precede the Unix epoch");
         }
         return storage.execute(connection -> {

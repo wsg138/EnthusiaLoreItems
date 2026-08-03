@@ -26,19 +26,40 @@ public final class MigrationRunner {
         connection.setAutoCommit(false);
         try {
             executeScript(connection, readResource(FOUNDATION_RESOURCE));
-            try (PreparedStatement insert = connection.prepareStatement(
-                    "INSERT INTO schema_history(version, description, applied_at) VALUES (?, ?, ?)")) {
-                insert.setInt(1, FOUNDATION_VERSION);
-                insert.setString(2, "foundation");
-                insert.setLong(3, System.currentTimeMillis());
-                insert.executeUpdate();
-            }
+            insertHistory(connection);
             connection.commit();
         } catch (SQLException | RuntimeException exception) {
-            connection.rollback();
+            rollbackAfterFailure(connection, exception);
+            restoreAutoCommitAfterFailure(connection, previousAutoCommit, exception);
             throw exception;
-        } finally {
+        }
+        connection.setAutoCommit(previousAutoCommit);
+    }
+
+    private static void insertHistory(Connection connection) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement(
+                "INSERT INTO schema_history(version, description, applied_at) VALUES (?, ?, ?)")) {
+            insert.setInt(1, FOUNDATION_VERSION);
+            insert.setString(2, "foundation");
+            insert.setLong(3, System.currentTimeMillis());
+            insert.executeUpdate();
+        }
+    }
+
+    private static void rollbackAfterFailure(Connection connection, Exception failure) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+        }
+    }
+
+    private static void restoreAutoCommitAfterFailure(
+            Connection connection, boolean previousAutoCommit, Exception failure) {
+        try {
             connection.setAutoCommit(previousAutoCommit);
+        } catch (SQLException restoreFailure) {
+            failure.addSuppressed(restoreFailure);
         }
     }
 
@@ -63,7 +84,7 @@ public final class MigrationRunner {
     }
 
     private static String readResource(String resource) {
-        try (InputStream stream = MigrationRunner.class.getClassLoader().getResourceAsStream(resource)) {
+        try (InputStream stream = MigrationRunner.class.getResourceAsStream("/" + resource)) {
             if (stream == null) {
                 throw new IllegalStateException("Missing migration resource: " + resource);
             }

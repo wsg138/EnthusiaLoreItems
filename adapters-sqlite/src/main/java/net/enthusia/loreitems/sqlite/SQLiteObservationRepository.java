@@ -19,6 +19,10 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class SQLiteObservationRepository implements ObservationRepository {
+    private static final long UNASSIGNED_OBSERVATION_ID = 0L;
+    private static final long MIN_PERSISTED_OBSERVATION_ID = 1L;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteObservationRepository(SQLiteStorageRuntime storage) {
@@ -28,7 +32,7 @@ public final class SQLiteObservationRepository implements ObservationRepository 
     @Override
     public CompletionStage<InstanceObservation> append(InstanceObservation observation) {
         Objects.requireNonNull(observation, "observation");
-        if (observation.observationId() != 0L) {
+        if (observation.observationId() != UNASSIGNED_OBSERVATION_ID) {
             throw new IllegalArgumentException(
                     "New observations must not already have a persistent identifier");
         }
@@ -59,7 +63,7 @@ public final class SQLiteObservationRepository implements ObservationRepository 
 
     @Override
     public CompletionStage<Optional<InstanceObservation>> findById(long observationId) {
-        if (observationId < 1L) {
+        if (observationId < MIN_PERSISTED_OBSERVATION_ID) {
             throw new IllegalArgumentException("observationId must be positive");
         }
         return storage.execute(connection -> {

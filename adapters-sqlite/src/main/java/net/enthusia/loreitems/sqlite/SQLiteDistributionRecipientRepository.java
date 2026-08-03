@@ -1,13 +1,25 @@
 package net.enthusia.loreitems.sqlite;
 
-import java.sql.Connection;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.CAMPAIGN_ID_ARGUMENT;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.MIN_LEASE_MILLIS;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.NOW_ARGUMENT;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.RECIPIENT_KEY_ARGUMENT;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.SINGLE_UPDATED_ROW;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.claimPending;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.count;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.insertBatch;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.normalizeClaimToken;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.readPage;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.readRecipient;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.requireDraftCampaign;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.requireNonNegative;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.selectColumns;
+import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.validateInitialRecipient;
+
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +38,19 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class SQLiteDistributionRecipientRepository
         implements DistributionRecipientRepository {
+    private static final String RECIPIENT_KEY_PREDICATE =
+            "WHERE campaign_id = ? AND recipient_key = ? ";
+    private static final String RESERVED_CLAIM_PREDICATE =
+            "AND state = 'RESERVED' AND claim_token = ? ";
+    private static final String CAMPAIGN_EXISTS_PREFIX =
+            "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign ";
+    private static final String CAMPAIGN_CORRELATION =
+            "WHERE campaign.campaign_id = distribution_recipients.campaign_id ";
+    private static final String REVIEW_REQUIRED_UPDATE =
+            "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', ";
+    private static final String CLEAR_NEXT_ATTEMPT =
+            "next_attempt_at = NULL, updated_at = ? ";
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDistributionRecipientRepository(SQLiteStorageRuntime storage) {
@@ -35,7 +60,7 @@ public final class SQLiteDistributionRecipientRepository
     @Override
     public CompletionStage<Void> insertBatch(
             UUID campaignId, List<CampaignRecipient> recipients) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         Objects.requireNonNull(recipients, "recipients");
         List<CampaignRecipient> snapshot = List.copyOf(recipients);
         if (snapshot.isEmpty() || snapshot.size() > MAX_INSERT_BATCH) {
@@ -49,7 +74,7 @@ public final class SQLiteDistributionRecipientRepository
                 connection,
                 transaction -> {
                     requireDraftCampaign(transaction, campaignId);
-                    insertBatch(transaction, snapshot);
+                    SQLiteDistributionRecipientSupport.insertBatch(transaction, snapshot);
                     return null;
                 }));
     }
@@ -57,11 +82,11 @@ public final class SQLiteDistributionRecipientRepository
     @Override
     public CompletionStage<Optional<CampaignRecipient>> find(
             UUID campaignId, CampaignRecipientKey recipientKey) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(recipientKey, "recipientKey");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE campaign_id = ? AND recipient_key = ?")) {
+                    selectColumns() + " " + RECIPIENT_KEY_PREDICATE)) {
                 statement.setString(1, campaignId.toString());
                 statement.setString(2, recipientKey.value());
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -76,7 +101,7 @@ public final class SQLiteDistributionRecipientRepository
     @Override
     public CompletionStage<Page<CampaignRecipient>> listByCampaign(
             UUID campaignId, PageRequest request) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -93,8 +118,8 @@ public final class SQLiteDistributionRecipientRepository
     @Override
     public CompletionStage<Page<CampaignRecipient>> listByCampaignAndState(
             UUID campaignId, CampaignRecipientState state, PageRequest request) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(state, SQLiteDistributionRecipientSupport.STATE_ARGUMENT);
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -112,7 +137,7 @@ public final class SQLiteDistributionRecipientRepository
     @Override
     public CompletionStage<Page<CampaignRecipient>> listUnresolvedByKey(
             CampaignRecipientKey recipientKey, PageRequest request) {
-        Objects.requireNonNull(recipientKey, "recipientKey");
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
         Objects.requireNonNull(request, "request");
         if (!recipientKey.unresolvedNameKey()) {
             throw new IllegalArgumentException("Unresolved lookup requires a name recipient key");
@@ -130,8 +155,9 @@ public final class SQLiteDistributionRecipientRepository
     }
 
     @Override
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Method-local EnumMap is confined to one database task.
     public CompletionStage<CampaignRecipientCounts> countByState(UUID campaignId) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         return storage.execute(connection -> {
             Map<CampaignRecipientState, Long> counts =
                     new EnumMap<>(CampaignRecipientState.class);
@@ -142,7 +168,7 @@ public final class SQLiteDistributionRecipientRepository
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
                         counts.put(
-                                CampaignRecipientState.valueOf(resultSet.getString("state")),
+                                CampaignRecipientState.valueOf(resultSet.getString(SQLiteDistributionRecipientSupport.STATE_COLUMN)),
                                 resultSet.getLong("state_count"));
                     }
                 }
@@ -164,23 +190,23 @@ public final class SQLiteDistributionRecipientRepository
             CampaignRecipientKey recipientKey,
             UUID playerId,
             Instant now) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(recipientKey, "recipientKey");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
         Objects.requireNonNull(playerId, "playerId");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         if (!recipientKey.unresolvedNameKey()) {
             throw new IllegalArgumentException("Name binding requires an unresolved-name key");
         }
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE distribution_recipients SET player_id = ?, "
                             + "state = 'PENDING_OFFLINE', updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
+                            + RECIPIENT_KEY_PREDICATE
                             + "AND state = 'PENDING_NAME' AND player_id IS NULL "
                             + "AND updated_at <= ? "
-                            + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
-                            + "WHERE campaign.campaign_id = distribution_recipients.campaign_id "
+                            + CAMPAIGN_EXISTS_PREFIX
+                            + CAMPAIGN_CORRELATION
                             + "AND campaign.state IN ('DRAFT', 'ACTIVE', 'PAUSED')) "
                             + "AND NOT EXISTS (SELECT 1 FROM distribution_recipients other "
                             + "WHERE other.campaign_id = distribution_recipients.campaign_id "
@@ -192,7 +218,7 @@ public final class SQLiteDistributionRecipientRepository
                 statement.setString(4, recipientKey.value());
                 statement.setLong(5, nowMillis);
                 statement.setString(6, playerId.toString());
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
@@ -204,22 +230,22 @@ public final class SQLiteDistributionRecipientRepository
             Instant now,
             Duration lease,
             int limit) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         String normalizedToken = normalizeClaimToken(claimToken);
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(lease, "lease");
         if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         long leaseMillis = lease.toMillis();
-        if (leaseMillis < 1L) {
+        if (leaseMillis < MIN_LEASE_MILLIS) {
             throw new IllegalArgumentException("lease must be positive");
         }
         long expiresAt = Math.addExact(nowMillis, leaseMillis);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
-                transaction -> claimPending(
+                transaction -> SQLiteDistributionRecipientSupport.claimPending(
                         transaction,
                         campaignId,
                         normalizedToken,
@@ -236,10 +262,10 @@ public final class SQLiteDistributionRecipientRepository
             String claimToken,
             Instant now,
             Instant nextAttemptAt) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(recipientKey, "recipientKey");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
         Objects.requireNonNull(targetPendingState, "targetPendingState");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(nextAttemptAt, "nextAttemptAt");
         CampaignRecipientState.RESERVED.transitionTo(targetPendingState);
         if (!targetPendingState.claimable()) {
@@ -247,7 +273,7 @@ public final class SQLiteDistributionRecipientRepository
                     "Released campaign claims must return to an offline or full-inventory state");
         }
         String normalizedToken = normalizeClaimToken(claimToken);
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         long nextAttemptMillis = requireNonNegative(nextAttemptAt, "nextAttemptAt");
         if (nextAttemptMillis < nowMillis) {
             throw new IllegalArgumentException("nextAttemptAt must not precede now");
@@ -256,11 +282,11 @@ public final class SQLiteDistributionRecipientRepository
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE distribution_recipients SET state = ?, claim_token = NULL, "
                             + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
-                            + "AND state = 'RESERVED' AND claim_token = ? "
+                            + RECIPIENT_KEY_PREDICATE
+                            + RESERVED_CLAIM_PREDICATE
                             + "AND claim_expires_at > ? AND instance_id IS NULL "
-                            + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
-                            + "WHERE campaign.campaign_id = distribution_recipients.campaign_id "
+                            + CAMPAIGN_EXISTS_PREFIX
+                            + CAMPAIGN_CORRELATION
                             + "AND campaign.state IN ('ACTIVE', 'PAUSED'))")) {
                 statement.setString(1, targetPendingState.name());
                 statement.setLong(2, nextAttemptMillis);
@@ -269,7 +295,7 @@ public final class SQLiteDistributionRecipientRepository
                 statement.setString(5, recipientKey.value());
                 statement.setString(6, normalizedToken);
                 statement.setLong(7, nowMillis);
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
@@ -281,8 +307,8 @@ public final class SQLiteDistributionRecipientRepository
             String claimToken,
             LoreInstanceId instanceId,
             Instant deliveredAt) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(recipientKey, "recipientKey");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
         Objects.requireNonNull(instanceId, "instanceId");
         Objects.requireNonNull(deliveredAt, "deliveredAt");
         String normalizedToken = normalizeClaimToken(claimToken);
@@ -292,12 +318,12 @@ public final class SQLiteDistributionRecipientRepository
                     "UPDATE distribution_recipients SET state = 'DELIVERED', instance_id = ?, "
                             + "claim_token = NULL, claim_expires_at = NULL, next_attempt_at = NULL, "
                             + "delivered_at = ?, updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
-                            + "AND state = 'RESERVED' AND claim_token = ? "
+                            + RECIPIENT_KEY_PREDICATE
+                            + RESERVED_CLAIM_PREDICATE
                             + "AND claim_expires_at > ? "
                             + "AND (instance_id IS NULL OR instance_id = ?) "
-                            + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
-                            + "WHERE campaign.campaign_id = distribution_recipients.campaign_id "
+                            + CAMPAIGN_EXISTS_PREFIX
+                            + CAMPAIGN_CORRELATION
                             + "AND campaign.state IN ('ACTIVE', 'PAUSED', 'CANCELLED'))")) {
                 String instanceValue = instanceId.value().toString();
                 statement.setString(1, instanceValue);
@@ -308,7 +334,7 @@ public final class SQLiteDistributionRecipientRepository
                 statement.setString(6, normalizedToken);
                 statement.setLong(7, deliveredAtMillis);
                 statement.setString(8, instanceValue);
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
@@ -320,24 +346,24 @@ public final class SQLiteDistributionRecipientRepository
             String claimToken,
             LoreInstanceId instanceId,
             Instant now) {
-        Objects.requireNonNull(campaignId, "campaignId");
-        Objects.requireNonNull(recipientKey, "recipientKey");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
+        Objects.requireNonNull(recipientKey, RECIPIENT_KEY_ARGUMENT);
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         String normalizedToken = normalizeClaimToken(claimToken);
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> {
             String sql = instanceId == null
-                    ? "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
+                    ? REVIEW_REQUIRED_UPDATE
                             + "claim_token = NULL, claim_expires_at = NULL, "
-                            + "next_attempt_at = NULL, updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
-                            + "AND state = 'RESERVED' AND claim_token = ? "
+                            + CLEAR_NEXT_ATTEMPT
+                            + RECIPIENT_KEY_PREDICATE
+                            + RESERVED_CLAIM_PREDICATE
                             + "AND claim_expires_at > ?"
-                    : "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
+                    : REVIEW_REQUIRED_UPDATE
                             + "instance_id = ?, claim_token = NULL, claim_expires_at = NULL, "
-                            + "next_attempt_at = NULL, updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
-                            + "AND state = 'RESERVED' AND claim_token = ? "
+                            + CLEAR_NEXT_ATTEMPT
+                            + RECIPIENT_KEY_PREDICATE
+                            + RESERVED_CLAIM_PREDICATE
                             + "AND claim_expires_at > ? "
                             + "AND (instance_id IS NULL OR instance_id = ?)";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -355,23 +381,23 @@ public final class SQLiteDistributionRecipientRepository
                 if (instanceValue != null) {
                     statement.setString(index, instanceValue);
                 }
-                return statement.executeUpdate() == 1;
+                return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
     }
 
     @Override
     public CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit) {
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_ARGUMENT);
         if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
-        long nowMillis = requireNonNegative(now, "now");
+        long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
+                    REVIEW_REQUIRED_UPDATE
                             + "claim_token = NULL, claim_expires_at = NULL, "
-                            + "next_attempt_at = NULL, updated_at = ? "
+                            + CLEAR_NEXT_ATTEMPT
                             + "WHERE rowid IN (SELECT rowid FROM distribution_recipients "
                             + "WHERE state = 'RESERVED' AND claim_expires_at <= ? "
                             + "ORDER BY claim_expires_at, campaign_id, snapshot_index LIMIT ?)")) {
@@ -383,208 +409,4 @@ public final class SQLiteDistributionRecipientRepository
         });
     }
 
-    private static void validateInitialRecipient(
-            UUID campaignId, CampaignRecipient recipient) {
-        Objects.requireNonNull(recipient, "recipient");
-        if (!campaignId.equals(recipient.campaignId())) {
-            throw new IllegalArgumentException("Recipient belongs to another campaign");
-        }
-        if (recipient.state() != CampaignRecipientState.PENDING_NAME
-                && recipient.state() != CampaignRecipientState.PENDING_OFFLINE) {
-            throw new IllegalArgumentException(
-                    "Initial recipients must be unresolved names or UUID-bound offline recipients");
-        }
-        if (recipient.instanceId() != null
-                || recipient.claimToken() != null
-                || recipient.claimExpiresAtEpochMillis() != null
-                || recipient.attemptCount() != 0
-                || recipient.nextAttemptAtEpochMillis() != null
-                || recipient.deliveredAtEpochMillis() != null) {
-            throw new IllegalArgumentException("Initial recipient contains mutable workflow metadata");
-        }
-    }
-
-    private static void requireDraftCampaign(Connection connection, UUID campaignId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT state FROM distribution_campaigns WHERE campaign_id = ?")) {
-            statement.setString(1, campaignId.toString());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new IllegalArgumentException("Unknown distribution campaign");
-                }
-                if (!"DRAFT".equals(resultSet.getString("state"))) {
-                    throw new IllegalStateException(
-                            "Distribution recipient snapshot is sealed after activation");
-                }
-            }
-        }
-    }
-
-    private static void insertBatch(
-            Connection connection, List<CampaignRecipient> recipients) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO distribution_recipients(campaign_id, recipient_key, "
-                        + "snapshot_index, original_value, player_id, state, instance_id, "
-                        + "claim_token, claim_expires_at, attempt_count, next_attempt_at, "
-                        + "delivered_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, NULL, NULL, ?)")) {
-            for (CampaignRecipient recipient : recipients) {
-                statement.setString(1, recipient.campaignId().toString());
-                statement.setString(2, recipient.recipientKey().value());
-                statement.setInt(3, recipient.snapshotIndex());
-                statement.setString(4, recipient.originalValue());
-                if (recipient.playerId() == null) {
-                    statement.setNull(5, Types.VARCHAR);
-                } else {
-                    statement.setString(5, recipient.playerId().toString());
-                }
-                statement.setString(6, recipient.state().name());
-                statement.setLong(7, recipient.updatedAtEpochMillis());
-                statement.addBatch();
-            }
-            statement.executeBatch();
-        }
-    }
-
-    private static Page<CampaignRecipient> claimPending(
-            Connection connection,
-            UUID campaignId,
-            String claimToken,
-            long now,
-            long expiresAt,
-            int limit) throws SQLException {
-        List<CampaignRecipient> candidates = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                selectColumns() + " WHERE campaign_id = ? "
-                        + "AND state IN ('PENDING_OFFLINE', 'PENDING_SPACE') "
-                        + "AND player_id IS NOT NULL "
-                        + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
-                        + "WHERE campaign.campaign_id = distribution_recipients.campaign_id "
-                        + "AND campaign.state = 'ACTIVE') "
-                        + "ORDER BY snapshot_index, recipient_key LIMIT ?")) {
-            statement.setString(1, campaignId.toString());
-            statement.setLong(2, now);
-            statement.setInt(3, limit + 1);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    candidates.add(readRecipient(resultSet));
-                }
-            }
-        }
-        boolean hasMore = candidates.size() > limit;
-        if (hasMore) {
-            candidates.remove(candidates.size() - 1);
-        }
-
-        List<CampaignRecipient> claimed = new ArrayList<>(candidates.size());
-        try (PreparedStatement update = connection.prepareStatement(
-                "UPDATE distribution_recipients SET state = 'RESERVED', claim_token = ?, "
-                        + "claim_expires_at = ?, attempt_count = attempt_count + 1, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? AND state = ? "
-                        + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
-                        + "WHERE campaign.campaign_id = distribution_recipients.campaign_id "
-                        + "AND campaign.state = 'ACTIVE')")) {
-            for (CampaignRecipient candidate : candidates) {
-                update.setString(1, claimToken);
-                update.setLong(2, expiresAt);
-                update.setLong(3, now);
-                update.setString(4, campaignId.toString());
-                update.setString(5, candidate.recipientKey().value());
-                update.setString(6, candidate.state().name());
-                update.setLong(7, now);
-                if (update.executeUpdate() == 1) {
-                    claimed.add(new CampaignRecipient(
-                            candidate.campaignId(),
-                            candidate.recipientKey(),
-                            candidate.snapshotIndex(),
-                            candidate.originalValue(),
-                            candidate.playerId(),
-                            CampaignRecipientState.RESERVED,
-                            candidate.instanceId(),
-                            claimToken,
-                            expiresAt,
-                            candidate.attemptCount() + 1,
-                            null,
-                            null,
-                            now));
-                }
-            }
-        }
-        return new Page<>(claimed, 0, limit, hasMore);
-    }
-
-    private static Page<CampaignRecipient> readPage(
-            PreparedStatement statement, PageRequest request) throws SQLException {
-        List<CampaignRecipient> recipients = new ArrayList<>();
-        try (ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                recipients.add(readRecipient(resultSet));
-            }
-        }
-        boolean hasMore = recipients.size() > request.limit();
-        if (hasMore) {
-            recipients.remove(recipients.size() - 1);
-        }
-        return new Page<>(recipients, request.offset(), request.limit(), hasMore);
-    }
-
-    private static String selectColumns() {
-        return "SELECT campaign_id, recipient_key, snapshot_index, original_value, "
-                + "player_id, state, instance_id, claim_token, claim_expires_at, "
-                + "attempt_count, next_attempt_at, delivered_at, updated_at "
-                + "FROM distribution_recipients";
-    }
-
-    private static CampaignRecipient readRecipient(ResultSet resultSet) throws SQLException {
-        String playerValue = resultSet.getString("player_id");
-        String instanceValue = resultSet.getString("instance_id");
-        return new CampaignRecipient(
-                UUID.fromString(resultSet.getString("campaign_id")),
-                new CampaignRecipientKey(resultSet.getString("recipient_key")),
-                resultSet.getInt("snapshot_index"),
-                resultSet.getString("original_value"),
-                playerValue == null ? null : UUID.fromString(playerValue),
-                CampaignRecipientState.valueOf(resultSet.getString("state")),
-                instanceValue == null
-                        ? null
-                        : new LoreInstanceId(UUID.fromString(instanceValue)),
-                resultSet.getString("claim_token"),
-                nullableLong(resultSet, "claim_expires_at"),
-                resultSet.getInt("attempt_count"),
-                nullableLong(resultSet, "next_attempt_at"),
-                nullableLong(resultSet, "delivered_at"),
-                resultSet.getLong("updated_at"));
-    }
-
-    private static Long nullableLong(ResultSet resultSet, String column) throws SQLException {
-        long value = resultSet.getLong(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    private static long count(
-            Map<CampaignRecipientState, Long> counts, CampaignRecipientState state) {
-        return counts.getOrDefault(state, 0L);
-    }
-
-    private static String normalizeClaimToken(String claimToken) {
-        Objects.requireNonNull(claimToken, "claimToken");
-        String normalized = claimToken.strip();
-        if (normalized.isEmpty()
-                || normalized.length() > CampaignRecipient.MAX_CLAIM_TOKEN_LENGTH) {
-            throw new IllegalArgumentException("Invalid claim token");
-        }
-        return normalized;
-    }
-
-    private static long requireNonNegative(Instant instant, String name) {
-        long value = instant.toEpochMilli();
-        if (value < 0L) {
-            throw new IllegalArgumentException(name + " must not precede the Unix epoch");
-        }
-        return value;
-    }
 }

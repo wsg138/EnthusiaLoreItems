@@ -19,6 +19,9 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 
 public final class SQLiteDeletedDefinitionMarkerRepository
         implements DeletedDefinitionMarkerRepository {
+    private static final int SINGLE_UPDATED_ROW = 1;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDeletedDefinitionMarkerRepository(SQLiteStorageRuntime storage) {
@@ -46,7 +49,7 @@ public final class SQLiteDeletedDefinitionMarkerRepository
             statement.setString(1, marker.definitionId().value().toString());
             statement.setString(2, marker.lookupKey().value());
             statement.setLong(3, marker.deletedAtEpochMillis());
-            if (statement.executeUpdate() == 1) {
+            if (statement.executeUpdate() == SINGLE_UPDATED_ROW) {
                 return;
             }
         }

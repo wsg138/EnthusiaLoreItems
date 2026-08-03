@@ -22,6 +22,7 @@ import org.bukkit.persistence.PersistentDataType;
 public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack> {
     public static final int CURRENT_VERSION = 1;
 
+    private static final int UUID_BYTE_COUNT = 16;
     private static final NamespacedKey VERSION_KEY = key("identity_version");
     private static final NamespacedKey DEFINITION_KEY = key("definition_id");
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
@@ -85,16 +86,23 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         if (meta == null) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Item metadata is unavailable");
         }
-        PersistentDataContainer data = meta.getPersistentDataContainer();
-        Set<NamespacedKey> presentKeys = data.getKeys();
-        long presentIdentityKeys = IDENTITY_KEYS.stream().filter(presentKeys::contains).count();
+        return readIdentity(item, meta.getPersistentDataContainer());
+    }
+
+    private static ItemIdentityReadResult readIdentity(
+            ItemStack item, PersistentDataContainer data) {
+        long presentIdentityKeys = IDENTITY_KEYS.stream().filter(data.getKeys()::contains).count();
         if (presentIdentityKeys == 0L) {
             return new ItemIdentityReadResult.Untracked();
         }
         if (presentIdentityKeys != IDENTITY_KEYS.size()) {
             return invalid(ItemIdentityFailure.PARTIAL_DATA, "Lore-item identity fields are incomplete");
         }
+        return readCompleteIdentity(item, data);
+    }
 
+    private static ItemIdentityReadResult readCompleteIdentity(
+            ItemStack item, PersistentDataContainer data) {
         Integer version = data.get(VERSION_KEY, PersistentDataType.INTEGER);
         byte[] definitionBytes = data.get(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY);
         byte[] instanceBytes = data.get(INSTANCE_KEY, PersistentDataType.BYTE_ARRAY);
@@ -107,12 +115,20 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
                     ItemIdentityFailure.UNSUPPORTED_VERSION,
                     "Unsupported lore-item identity version " + version);
         }
-        if (item.getAmount() != 1 || item.getMaxStackSize() != 1) {
+        if (!isUnstackableSingleItem(item)) {
             return invalid(
                     ItemIdentityFailure.STACKING_VIOLATION,
                     "Tracked lore items must have amount and maximum stack size equal to one");
         }
+        return decodeIdentity(definitionBytes, instanceBytes, revision);
+    }
 
+    private static boolean isUnstackableSingleItem(ItemStack item) {
+        return item.getAmount() == 1 && item.getMaxStackSize() == 1;
+    }
+
+    private static ItemIdentityReadResult decodeIdentity(
+            byte[] definitionBytes, byte[] instanceBytes, long revision) {
         try {
             LoreItemIdentity identity = new LoreItemIdentity(
                     new LoreDefinitionId(uuidFromBytes(definitionBytes)),
@@ -147,14 +163,14 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
     }
 
     private static byte[] uuidBytes(UUID value) {
-        return ByteBuffer.allocate(16)
+        return ByteBuffer.allocate(UUID_BYTE_COUNT)
                 .putLong(value.getMostSignificantBits())
                 .putLong(value.getLeastSignificantBits())
                 .array();
     }
 
     private static UUID uuidFromBytes(byte[] value) {
-        if (value.length != 16) {
+        if (value.length != UUID_BYTE_COUNT) {
             throw new IllegalArgumentException("UUID payload must contain 16 bytes");
         }
         ByteBuffer buffer = ByteBuffer.wrap(value);

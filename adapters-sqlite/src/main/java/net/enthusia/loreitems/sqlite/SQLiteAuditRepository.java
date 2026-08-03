@@ -15,6 +15,9 @@ import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 
 public final class SQLiteAuditRepository implements AuditRepository {
+    private static final long UNASSIGNED_AUDIT_ID = 0L;
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteAuditRepository(SQLiteStorageRuntime storage) {
@@ -101,7 +104,7 @@ public final class SQLiteAuditRepository implements AuditRepository {
 
     private static void validatePendingEvent(AuditEventRecord event) {
         Objects.requireNonNull(event, "event");
-        if (event.auditId() != 0L) {
+        if (event.auditId() != UNASSIGNED_AUDIT_ID) {
             throw new IllegalArgumentException("New audit events must not already have an id");
         }
     }

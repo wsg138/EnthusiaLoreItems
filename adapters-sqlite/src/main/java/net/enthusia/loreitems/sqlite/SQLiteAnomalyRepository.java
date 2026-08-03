@@ -18,6 +18,9 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class SQLiteAnomalyRepository implements AnomalyRepository {
+    private static final String ANOMALY_ID_ARGUMENT = "anomalyId";
+
+
     private final SQLiteStorageRuntime storage;
 
     public SQLiteAnomalyRepository(SQLiteStorageRuntime storage) {
@@ -48,7 +51,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
 
     @Override
     public CompletionStage<Optional<InstanceAnomaly>> findById(UUID anomalyId) {
-        Objects.requireNonNull(anomalyId, "anomalyId");
+        Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     selectColumns() + " WHERE anomaly_id = ?")) {
@@ -99,7 +102,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
             long expectedStateRevision,
             String detail,
             long observedAtEpochMillis) {
-        Objects.requireNonNull(anomalyId, "anomalyId");
+        Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         String normalizedDetail = requireText(
                 detail, "detail", InstanceAnomaly.MAX_DETAIL_LENGTH);
         if (expectedStateRevision < 0L || observedAtEpochMillis < 0L) {
@@ -128,7 +131,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
             long expectedStateRevision,
             String actorId,
             long acknowledgedAtEpochMillis) {
-        Objects.requireNonNull(anomalyId, "anomalyId");
+        Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         String normalizedActor = requireText(
                 actorId, "actorId", InstanceAnomaly.MAX_ACTOR_LENGTH);
         if (expectedStateRevision < 0L || acknowledgedAtEpochMillis < 0L) {
@@ -157,7 +160,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
             long expectedStateRevision,
             String resolutionDetail,
             long resolvedAtEpochMillis) {
-        Objects.requireNonNull(anomalyId, "anomalyId");
+        Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         String normalizedResolution = requireText(
                 resolutionDetail, "resolutionDetail", InstanceAnomaly.MAX_DETAIL_LENGTH);
         if (expectedStateRevision < 0L || resolvedAtEpochMillis < 0L) {
