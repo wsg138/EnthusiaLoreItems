@@ -12,6 +12,7 @@ import java.util.UUID;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
+import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
@@ -36,6 +37,9 @@ import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryPickupItemEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
@@ -47,6 +51,7 @@ import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -82,6 +87,42 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventorySlotChange(PlayerInventorySlotChangeEvent event) {
         scanPlayerInventory(event.getPlayer(), "inventory-slot-change");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) {
+            return;
+        }
+        scanPlayerInventory(player, "inventory-close-player");
+        Inventory topInventory = event.getView().getTopInventory();
+        if (topInventory != player.getInventory()) {
+            scanStorageInventory(topInventory, player, "inventory-close-storage");
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryMove(InventoryMoveItemEvent event) {
+        LocationDescriptor sourceLocation = inventoryLocation(
+                event.getSource(), "moving-item");
+        if (sourceLocation == null) {
+            return;
+        }
+        ObservedCopy moving = observe(
+                event.getItem(), sourceLocation, "inventory-move-source");
+        compareWithInventory(
+                event.getDestination(), moving, "inventory-move-destination");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryPickup(InventoryPickupItemEvent event) {
+        Item item = event.getItem();
+        ObservedCopy dropped = observe(
+                item.getItemStack(),
+                droppedLocation(item),
+                "inventory-pickup-item");
+        compareWithInventory(
+                event.getInventory(), dropped, "inventory-pickup-destination");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -330,14 +371,26 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                     item,
                     playerLocation(player, "slot:" + slot),
                     source);
-            if (copy == null) {
+            recordIfDuplicate(firstCopies, copy, source);
+        }
+    }
+
+    private void scanStorageInventory(
+            Inventory inventory,
+            Player player,
+            String source) {
+        Map<UUID, ObservedCopy> firstCopies = new HashMap<>();
+        ItemStack[] contents = inventory.getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            LocationDescriptor location = inventoryLocation(
+                    inventory, "slot:" + slot);
+            if (item == null || item.getType().isAir() || location == null) {
                 continue;
             }
-            ObservedCopy previous = firstCopies.putIfAbsent(
-                    copy.identity().instanceId().value(), copy);
-            if (previous != null) {
-                recordDuplicate(previous, copy, source);
-            }
+            ObservedCopy copy = observe(item, location, source);
+            recordIfDuplicate(firstCopies, copy, source);
+            compareWithInventory(player, copy, source);
         }
     }
 
@@ -362,6 +415,43 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                     && inventoryCopy.identity().equals(external.identity())) {
                 recordDuplicate(external, inventoryCopy, source);
             }
+        }
+    }
+
+    private void compareWithInventory(
+            Inventory inventory,
+            ObservedCopy external,
+            String source) {
+        if (external == null) {
+            return;
+        }
+        ItemStack[] contents = inventory.getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            LocationDescriptor location = inventoryLocation(
+                    inventory, "slot:" + slot);
+            if (item == null || item.getType().isAir() || location == null) {
+                continue;
+            }
+            ObservedCopy inventoryCopy = observe(item, location, source);
+            if (inventoryCopy != null
+                    && inventoryCopy.identity().equals(external.identity())) {
+                recordDuplicate(external, inventoryCopy, source);
+            }
+        }
+    }
+
+    private static void recordIfDuplicate(
+            Map<UUID, ObservedCopy> firstCopies,
+            ObservedCopy copy,
+            String source) {
+        if (copy == null) {
+            return;
+        }
+        ObservedCopy previous = firstCopies.putIfAbsent(
+                copy.identity().instanceId().value(), copy);
+        if (previous != null) {
+            throw new DuplicateObservation(previous, copy, source);
         }
     }
 
@@ -415,6 +505,32 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                 block.getWorld().getKey() + ":" + block.getX() + ":" + block.getY()
                         + ":" + block.getZ(),
                 path);
+    }
+
+    private static LocationDescriptor inventoryLocation(
+            Inventory inventory,
+            String path) {
+        InventoryHolder holder = inventory.getHolder();
+        if (holder instanceof Player player) {
+            return playerLocation(player, path);
+        }
+        Location location = inventory.getLocation();
+        if (location != null && location.getWorld() != null) {
+            return new LocationDescriptor(
+                    LocationDescriptor.Type.BLOCK_CONTAINER,
+                    location.getWorld().getKey() + ":"
+                            + location.getBlockX() + ":"
+                            + location.getBlockY() + ":"
+                            + location.getBlockZ(),
+                    path);
+        }
+        if (holder instanceof Entity entity) {
+            return new LocationDescriptor(
+                    LocationDescriptor.Type.DUPLICATE_CONFLICT,
+                    "entity-inventory:" + entity.getUniqueId(),
+                    path);
+        }
+        return null;
     }
 
     private static LocationDescriptor displayLocation(
@@ -476,4 +592,15 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
     private record ObservedCopy(
             LoreItemIdentity identity,
             LocationDescriptor location) {}
+
+    private static final class DuplicateObservation extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private DuplicateObservation(
+                ObservedCopy first,
+                ObservedCopy second,
+                String source) {
+            super(first + "|" + second + "|" + source);
+        }
+    }
 }
