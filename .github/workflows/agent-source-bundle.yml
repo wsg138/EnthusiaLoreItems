@@ -1,0 +1,26 @@
+name: Agent source bundle
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-source-bundle-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Archive exact source tree
+        run: tar --exclude=.git -czf /tmp/enthusia-loreitems-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-source-bundle
+          path: /tmp/enthusia-loreitems-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
