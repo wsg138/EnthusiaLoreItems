@@ -40,7 +40,7 @@ jobs:
             | base64 --decode | gzip --decompress > /tmp/direct-delivery.patch
           git apply --check /tmp/direct-delivery.patch
           git apply /tmp/direct-delivery.patch
-          git show HEAD~3:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git show 50826acfb8a068610b77972936e048e212dd9d53^:.github/workflows/ci.yml > .github/workflows/ci.yml
           rm -rf .github/agent-patch
           rm .github/workflows/agent-apply-direct-delivery.yml
           git diff --check
