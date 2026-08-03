@@ -55,7 +55,8 @@ class PaperItemIdentityCodecTest {
         ItemMeta sourceMeta = Objects.requireNonNull(source.getItemMeta());
         sourceMeta.displayName(Component.text("Visible Lore Item"));
         sourceMeta.lore(List.of(Component.text("Visible lore remains unchanged")));
-        sourceMeta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
+        sourceMeta.getPersistentDataContainer().set(
+                FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
         assertTrue(source.setItemMeta(sourceMeta));
         LoreItemIdentity identity = identity();
 
@@ -72,7 +73,8 @@ class PaperItemIdentityCodecTest {
         assertEquals(List.of(Component.text("Visible lore remains unchanged")), trackedMeta.lore());
         assertEquals(
                 PRESERVED_VALUE,
-                trackedMeta.getPersistentDataContainer().get(FOREIGN_KEY, PersistentDataType.STRING));
+                trackedMeta.getPersistentDataContainer().get(
+                        FOREIGN_KEY, PersistentDataType.STRING));
 
         ItemIdentityReadResult.Tracked result =
                 assertInstanceOf(ItemIdentityReadResult.Tracked.class, codec.readIdentity(tracked));
@@ -83,7 +85,8 @@ class PaperItemIdentityCodecTest {
     void clearIdentityRemovesOnlyLoreItemsFields() {
         ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.COMPASS), identity());
         ItemMeta meta = Objects.requireNonNull(tracked.getItemMeta());
-        meta.getPersistentDataContainer().set(FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
+        meta.getPersistentDataContainer().set(
+                FOREIGN_KEY, PersistentDataType.STRING, PRESERVED_VALUE);
         assertTrue(tracked.setItemMeta(meta));
 
         ItemStack cleared = codec.clearIdentity(tracked);
@@ -92,7 +95,8 @@ class PaperItemIdentityCodecTest {
         ItemMeta clearedMeta = Objects.requireNonNull(cleared.getItemMeta());
         assertEquals(
                 PRESERVED_VALUE,
-                clearedMeta.getPersistentDataContainer().get(FOREIGN_KEY, PersistentDataType.STRING));
+                clearedMeta.getPersistentDataContainer().get(
+                        FOREIGN_KEY, PersistentDataType.STRING));
         assertInstanceOf(ItemIdentityReadResult.Tracked.class, codec.readIdentity(tracked));
     }
 
@@ -110,6 +114,20 @@ class PaperItemIdentityCodecTest {
     }
 
     @Test
+    void missingVersionRetainsRecoverableIdentityEvidence() {
+        LoreItemIdentity expectedIdentity = identity();
+        ItemStack tracked = codec.writeIdentity(ItemStack.of(Material.DIAMOND), expectedIdentity);
+        ItemMeta meta = Objects.requireNonNull(tracked.getItemMeta());
+        meta.getPersistentDataContainer().remove(VERSION_KEY);
+        assertTrue(tracked.setItemMeta(meta));
+
+        ItemIdentityReadResult.Invalid result =
+                assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(tracked));
+        assertEquals(ItemIdentityFailure.PARTIAL_DATA, result.failure());
+        assertEquals(expectedIdentity, result.identityEvidence());
+    }
+
+    @Test
     void unsupportedAndMalformedIdentityFailClosed() {
         LoreItemIdentity expectedIdentity = identity();
         ItemStack unsupported = codec.writeIdentity(ItemStack.of(Material.DIAMOND), expectedIdentity);
@@ -121,7 +139,8 @@ class PaperItemIdentityCodecTest {
 
         ItemStack malformed = codec.writeIdentity(ItemStack.of(Material.DIAMOND), expectedIdentity);
         ItemMeta malformedMeta = Objects.requireNonNull(malformed.getItemMeta());
-        malformedMeta.getPersistentDataContainer().set(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY, new byte[] {1});
+        malformedMeta.getPersistentDataContainer().set(
+                DEFINITION_KEY, PersistentDataType.BYTE_ARRAY, new byte[] {1});
         assertTrue(malformed.setItemMeta(malformedMeta));
         ItemIdentityReadResult.Invalid malformedResult =
                 assertInstanceOf(ItemIdentityReadResult.Invalid.class, codec.readIdentity(malformed));
@@ -147,7 +166,9 @@ class PaperItemIdentityCodecTest {
         PaperItemIdentityCodec guarded =
                 new PaperItemIdentityCodec(new PaperItemCodecThreadGuard(() -> false));
 
-        assertThrows(IllegalStateException.class, () -> guarded.readIdentity(ItemStack.of(Material.PAPER)));
+        assertThrows(
+                IllegalStateException.class,
+                () -> guarded.readIdentity(ItemStack.of(Material.PAPER)));
         assertThrows(
                 IllegalStateException.class,
                 () -> guarded.writeIdentity(ItemStack.of(Material.PAPER), identity()));
@@ -155,8 +176,10 @@ class PaperItemIdentityCodecTest {
 
     private static LoreItemIdentity identity() {
         return new LoreItemIdentity(
-                new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
-                new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
+                new LoreDefinitionId(UUID.fromString(
+                        "11111111-1111-1111-1111-111111111111")),
+                new LoreInstanceId(UUID.fromString(
+                        "22222222-2222-2222-2222-222222222222")),
                 new TemplateRevision(7));
     }
 
@@ -172,6 +195,7 @@ class PaperItemIdentityCodecTest {
     }
 
     private static NamespacedKey key(String value) {
-        return Objects.requireNonNull(NamespacedKey.fromString("enthusialoreitems:" + value));
+        return Objects.requireNonNull(
+                NamespacedKey.fromString("enthusialoreitems:" + value));
     }
 }
