@@ -14,6 +14,8 @@ Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, P
 
 - [`0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md`](0015-2026-08-02-pr2-codacy-remediation-and-merge-readiness.md)
 
+Report 0015 contains the detailed 50-finding Codacy evidence table, classifications, suppressions, remediation, harsh-review fixes, and pre-final-head verification evidence.
+
 ## Required prior reports
 
 - [`0014-2026-08-02-pr2-codec-foundation-completion.md`](0014-2026-08-02-pr2-codec-foundation-completion.md) — complete codec-foundation scope and pre-Codacy exact-head baseline.
