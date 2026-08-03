@@ -33,7 +33,7 @@ jobs:
         if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
-          for chunk in 00 01 02 03 04; do
+          for chunk in 00 01 02 03-0 03-1 03-2 04; do
             if [[ ! -f ".github/agent-patch/direct-delivery-${chunk}" ]]; then
               exit 0
             fi
@@ -41,7 +41,9 @@ jobs:
           cat .github/agent-patch/direct-delivery-00 \
               .github/agent-patch/direct-delivery-01 \
               .github/agent-patch/direct-delivery-02 \
-              .github/agent-patch/direct-delivery-03 \
+              .github/agent-patch/direct-delivery-03-0 \
+              .github/agent-patch/direct-delivery-03-1 \
+              .github/agent-patch/direct-delivery-03-2 \
               .github/agent-patch/direct-delivery-04 \
             | base64 --decode | gzip --decompress > /tmp/direct-delivery.patch
           echo 'cc3fdcbc6cb64d366e46de003e68baccd78abdf266fc3a4564985f0b9ab2104f  /tmp/direct-delivery.patch' \
