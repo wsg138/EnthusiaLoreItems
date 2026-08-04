@@ -130,7 +130,9 @@ final class SQLiteTemplateUpdatePreparation {
                     + " or desired revision " + candidate.instanceDesiredRevision() + '.';
         }
         if (observedRevision > candidate.instanceDesiredRevision()) {
-            return "Observed physical revision is newer than the queued desired revision.";
+            return "Database applied revision " + candidate.instanceAppliedRevision()
+                    + " is newer than the queued desired revision "
+                    + candidate.instanceDesiredRevision() + '.';
         }
         return null;
     }
