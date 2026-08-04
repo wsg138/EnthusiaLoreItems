@@ -1,17 +1,5 @@
 ---
 # SQL analyzers apply non-SQLite dialect and organization-specific RAC_* policies to this
 # immutable SQLite migration. Java code and tests remain fully analyzed.
-#
-# These event, administration, lifecycle, and fixture files intentionally centralize one auditable
-# orchestration boundary. Exclude only Codacy's size/complexity metric engine for these exact files;
-# PMD and the other Java analyzers continue to inspect their implementation.
-engines:
-  metric:
-    exclude_paths:
-      - "adapters-paper/src/main/java/net/enthusia/loreitems/paper/LoreItemsAdministrationCommandExecutor.java"
-      - "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperIdentityAnomalyListener.java"
-      - "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackedItemProtectionListener.java"
-      - "adapters-sqlite/src/test/java/net/enthusia/loreitems/sqlite/SQLiteItemAnomalyObservationStoreTest.java"
-      - "plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java"
 exclude_paths:
   - "adapters-sqlite/src/main/resources/db/migration/V1__foundation.sql"
