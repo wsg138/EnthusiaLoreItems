@@ -5,9 +5,13 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
+import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.TrackingMetrics;
+import net.enthusia.loreitems.application.TrackingMetricsSource;
+import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.IllegalPluginAccessException;
@@ -15,17 +19,20 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class PaperAnomalyWarningWorker
-        implements AnomalyWarningSink, AutoCloseable {
+        implements AnomalyWarningSink, TrackingMetricsSource, AutoCloseable {
     private static final long TICKS_PER_SECOND = 20L;
     private static final int MIN_POSITIVE_VALUE = 1;
+    private static final int TRACKING_BUDGET_PER_TICK = 16;
 
     private final Plugin plugin;
     private final LoreItemsAdministrationUseCase useCase;
     private final int pageSize;
     private final long intervalTicks;
     private final Object queryLock = new Object();
+    private final TrackingMetrics trackingMetrics = new TrackingMetrics();
 
     private BukkitTask task;
+    private PaperPhysicalTrackingListener trackingListener;
     private boolean queryInFlight;
     private boolean rerunRequested;
     private volatile boolean closed;
@@ -48,20 +55,49 @@ public final class PaperAnomalyWarningWorker
     }
 
     public void start() {
-        synchronized (queryLock) {
-            if (closed) {
-                throw new IllegalStateException("Anomaly warning worker is closed");
+        TrackingObservationUseCase trackingUseCase = resolveTrackingUseCase();
+        PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
+                plugin,
+                () -> trackingUseCase,
+                () -> TRACKING_BUDGET_PER_TICK,
+                trackingMetrics);
+        try {
+            physical.start();
+            synchronized (queryLock) {
+                if (closed) {
+                    throw new IllegalStateException("Anomaly warning worker is closed");
+                }
+                if (task != null) {
+                    throw new IllegalStateException("Anomaly warning worker is already started");
+                }
+                task = plugin.getServer().getScheduler().runTaskTimer(
+                        plugin,
+                        this::requestWarning,
+                        intervalTicks,
+                        intervalTicks);
+                trackingListener = physical;
             }
-            if (task != null) {
-                throw new IllegalStateException("Anomaly warning worker is already started");
-            }
-            task = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin,
-                    this::requestWarning,
-                    intervalTicks,
-                    intervalTicks);
+        } catch (RuntimeException exception) {
+            physical.close();
+            throw exception;
         }
         requestWarning();
+    }
+
+    private TrackingObservationUseCase resolveTrackingUseCase() {
+        ItemAnomalyObservationUseCase service = plugin.getServer()
+                .getServicesManager()
+                .load(ItemAnomalyObservationUseCase.class);
+        if (service instanceof TrackingObservationUseCase tracking) {
+            return tracking;
+        }
+        throw new IllegalStateException(
+                "Registered item-observation service does not support physical tracking");
+    }
+
+    @Override
+    public TrackingMetrics.Snapshot trackingMetrics() {
+        return trackingMetrics.snapshot();
     }
 
     @Override
@@ -170,13 +206,19 @@ public final class PaperAnomalyWarningWorker
     @Override
     public void close() {
         BukkitTask current;
+        PaperPhysicalTrackingListener physical;
         synchronized (queryLock) {
             closed = true;
             rerunRequested = false;
             current = task;
+            physical = trackingListener;
+            trackingListener = null;
         }
         if (current != null) {
             current.cancel();
+        }
+        if (physical != null) {
+            physical.close();
         }
     }
 }
