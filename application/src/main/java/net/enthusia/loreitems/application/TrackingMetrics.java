@@ -6,6 +6,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong queued = new AtomicLong();
     private final AtomicLong inFlight = new AtomicLong();
+    private final AtomicLong additionalQueued = new AtomicLong();
+    private final AtomicLong additionalInFlight = new AtomicLong();
     private final AtomicLong scanBacklog = new AtomicLong();
     private final AtomicLong accepted = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
@@ -19,6 +21,8 @@ public final class TrackingMetrics implements MetricsPort {
         switch (name) {
             case "tracking.queued" -> queued.set(value);
             case "tracking.in_flight" -> inFlight.set(value);
+            case "tracking.additional.queued" -> additionalQueued.set(value);
+            case "tracking.additional.in_flight" -> additionalInFlight.set(value);
             case "tracking.scan_backlog" -> scanBacklog.set(value);
             default -> {
                 // Metrics outside this phase are intentionally ignored by this focused port.
@@ -47,10 +51,35 @@ public final class TrackingMetrics implements MetricsPort {
         }
     }
 
+    public MetricsPort additionalQueueView() {
+        return new MetricsPort() {
+            @Override
+            public void setGauge(String name, long value) {
+                switch (name) {
+                    case "tracking.queued" ->
+                            TrackingMetrics.this.setGauge("tracking.additional.queued", value);
+                    case "tracking.in_flight" ->
+                            TrackingMetrics.this.setGauge("tracking.additional.in_flight", value);
+                    default -> TrackingMetrics.this.setGauge(name, value);
+                }
+            }
+
+            @Override
+            public void increment(String name) {
+                TrackingMetrics.this.increment(name);
+            }
+
+            @Override
+            public void recordDurationNanos(String name, long durationNanos) {
+                TrackingMetrics.this.recordDurationNanos(name, durationNanos);
+            }
+        };
+    }
+
     public Snapshot snapshot() {
         return new Snapshot(
-                queued.get(),
-                inFlight.get(),
+                queued.get() + additionalQueued.get(),
+                inFlight.get() + additionalInFlight.get(),
                 scanBacklog.get(),
                 accepted.get(),
                 rejected.get(),
