@@ -19,6 +19,7 @@ final class PaperTrackingAdministrationItems {
     static final int PREVIOUS = 45;
     static final int STATUS = 49;
     static final int NEXT = 53;
+    private static final int FIRST_PAGE = 1;
 
     private PaperTrackingAdministrationItems() {}
 
@@ -27,13 +28,13 @@ final class PaperTrackingAdministrationItems {
             int pageNumber,
             boolean hasMore,
             List<String> statusLore) {
-        if (pageNumber > 1) {
+        if (pageNumber > FIRST_PAGE) {
             inventory.setItem(
                     PREVIOUS,
                     item(
                             Material.ARROW,
                             "Previous page",
-                            List.of("Page " + (pageNumber - 1))));
+                            List.of("Page " + (pageNumber - FIRST_PAGE))));
         }
         if (hasMore) {
             inventory.setItem(
@@ -41,7 +42,7 @@ final class PaperTrackingAdministrationItems {
                     item(
                             Material.ARROW,
                             "Next page",
-                            List.of("Page " + (pageNumber + 1))));
+                            List.of("Page " + (pageNumber + FIRST_PAGE))));
         }
         inventory.setItem(STATUS, item(Material.CLOCK, "Tracking status", statusLore));
     }
