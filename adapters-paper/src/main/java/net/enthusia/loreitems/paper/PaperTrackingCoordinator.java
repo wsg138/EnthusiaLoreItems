@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
@@ -145,10 +147,17 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
+        List<TrackingObservationUseCase.Request> pending;
         synchronized (lock) {
+            if (closed) {
+                return;
+            }
             closed = true;
+            pending = new ArrayList<>(queued);
             queued.clear();
+            inFlight = Math.addExact(inFlight, pending.size());
             updateGauges();
         }
+        pending.forEach(this::start);
     }
 }
