@@ -17,6 +17,7 @@ import org.bukkit.scheduler.BukkitTask;
 public final class PaperAnomalyWarningWorker
         implements AnomalyWarningSink, AutoCloseable {
     private static final long TICKS_PER_SECOND = 20L;
+    private static final int MIN_POSITIVE_VALUE = 1;
 
     private final Plugin plugin;
     private final LoreItemsAdministrationUseCase useCase;
@@ -36,10 +37,10 @@ public final class PaperAnomalyWarningWorker
             int pageSize) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
-        if (intervalSeconds < 1) {
+        if (intervalSeconds < MIN_POSITIVE_VALUE) {
             throw new IllegalArgumentException("intervalSeconds must be positive");
         }
-        if (pageSize < 1 || pageSize > PageRequest.MAX_LIMIT) {
+        if (pageSize < MIN_POSITIVE_VALUE || pageSize > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("pageSize is outside supported bounds");
         }
         this.pageSize = pageSize;
@@ -173,7 +174,6 @@ public final class PaperAnomalyWarningWorker
             closed = true;
             rerunRequested = false;
             current = task;
-            task = null;
         }
         if (current != null) {
             current.cancel();
