@@ -1,0 +1,33 @@
+name: Remove temporary diagnostics
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Remove temporary files and workflow
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/codacy-diagnostics.yml \
+            .github/workflows/ci-diagnostics.yml \
+            .github/workflows/ci-diagnostics-comment.yml \
+            .github/workflows/cleanup-temporary-files.yml \
+            ci-failure.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "remove temporary diagnostic tooling"
+          git push origin "HEAD:${HEAD_REF}"
