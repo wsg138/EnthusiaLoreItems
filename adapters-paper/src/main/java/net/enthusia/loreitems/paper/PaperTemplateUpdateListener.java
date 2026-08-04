@@ -127,6 +127,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
                 PaperInventoryReference.capture(event.getSource());
         Optional<PaperInventoryReference> destination =
                 PaperInventoryReference.capture(event.getDestination());
+        source.ifPresent(this::invalidate);
+        destination.ifPresent(this::invalidate);
         scheduleNextTick(() -> {
             source.ifPresent(this::enqueue);
             destination.ifPresent(this::enqueue);
@@ -137,14 +139,17 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     public void onInventoryPickup(InventoryPickupItemEvent event) {
         Optional<PaperInventoryReference> inventory =
                 PaperInventoryReference.capture(event.getInventory());
+        inventory.ifPresent(this::invalidate);
         scheduleNextTick(() -> inventory.ifPresent(this::enqueue));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerPickup(EntityPickupItemEvent event) {
         if (event.getEntity() instanceof Player player) {
-            scheduleNextTick(() -> enqueue(
-                    new PaperInventoryReference.PlayerMain(player.getUniqueId())));
+            PaperInventoryReference.PlayerMain main =
+                    new PaperInventoryReference.PlayerMain(player.getUniqueId());
+            invalidate(main);
+            scheduleNextTick(() -> enqueue(main));
         }
     }
 
@@ -152,6 +157,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         PaperInventoryReference.PlayerMain main =
                 new PaperInventoryReference.PlayerMain(player.getUniqueId());
         Optional<PaperInventoryReference> top = PaperInventoryReference.capture(topInventory);
+        invalidate(main);
+        top.ifPresent(this::invalidate);
         scheduleNextTick(() -> {
             enqueue(main);
             top.ifPresent(this::enqueue);
@@ -170,12 +177,16 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
                 new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
     }
 
+    private void invalidate(PaperInventoryReference reference) {
+        scanner.reset(reference);
+        accessRegistry.invalidate(reference);
+    }
+
     private void enqueue(PaperInventoryReference reference) {
         if (closed) {
             return;
         }
-        scanner.reset(reference);
-        accessRegistry.invalidate(reference);
+        invalidate(reference);
         if (!queuedReferences.add(reference)) {
             return;
         }
