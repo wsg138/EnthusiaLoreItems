@@ -38,10 +38,7 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -113,9 +110,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
-        Optional<InventorySnapshot> source = InventorySnapshot.capture(event.getSource());
-        Optional<InventorySnapshot> destination =
-                InventorySnapshot.capture(event.getDestination());
+        Optional<PaperPhysicalInventorySnapshot> source =
+                PaperPhysicalInventorySnapshot.capture(event.getSource());
+        Optional<PaperPhysicalInventorySnapshot> destination =
+                PaperPhysicalInventorySnapshot.capture(event.getDestination());
         LoreItemIdentity identity = scanner.trackedIdentity(event.getItem());
         scheduleNextTick(() -> {
             scanReference(source, "inventory-move-source");
@@ -133,8 +131,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "hopper-pickup-source");
-        Optional<InventorySnapshot> destination =
-                InventorySnapshot.capture(event.getInventory());
+        Optional<PaperPhysicalInventorySnapshot> destination =
+                PaperPhysicalInventorySnapshot.capture(event.getInventory());
         LoreItemIdentity identity = scanner.trackedIdentity(item.getItemStack());
         scheduleNextTick(() -> {
             submitMatchingIdentity(destination, identity, "hopper-pickup-destination");
@@ -321,7 +319,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
     }
 
-    private void scanReference(Optional<InventorySnapshot> snapshot, String source) {
+    private void scanReference(
+            Optional<PaperPhysicalInventorySnapshot> snapshot, String source) {
         snapshot.ifPresent(reference -> reference.resolve(plugin).ifPresent(inventory ->
                 scanner.scanInventory(
                         inventory,
@@ -333,7 +332,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private void submitMatchingIdentity(
-            Optional<InventorySnapshot> snapshot,
+            Optional<PaperPhysicalInventorySnapshot> snapshot,
             LoreItemIdentity identity,
             String source) {
         if (identity == null) {
@@ -459,45 +458,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         scanSaturated = false;
         coordinator.close();
         HandlerList.unregisterAll(this);
-    }
-
-    private record InventorySnapshot(
-            PaperInventoryReference reference,
-            LocationDescriptor.Type type,
-            String key) {
-        private static Optional<InventorySnapshot> capture(Inventory inventory) {
-            Optional<PaperInventoryReference> reference = PaperInventoryReference.capture(inventory);
-            if (reference.isEmpty()) {
-                return Optional.empty();
-            }
-            InventoryHolder holder = inventory.getHolder();
-            if (holder instanceof Player player) {
-                boolean main = inventory instanceof PlayerInventory;
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        main ? LocationDescriptor.Type.PLAYER_INVENTORY
-                                : LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                        "player:" + player.getUniqueId()));
-            }
-            Location location = inventory.getLocation();
-            if (location != null && location.getWorld() != null) {
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        LocationDescriptor.Type.BLOCK_CONTAINER,
-                        PaperInventoryReference.blockKey(location)));
-            }
-            if (holder instanceof Entity entity) {
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        LocationDescriptor.Type.BLOCK_CONTAINER,
-                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
-            }
-            return Optional.empty();
-        }
-
-        private Optional<Inventory> resolve(Plugin plugin) {
-            return reference.resolve(plugin);
-        }
     }
 
     private record ChunkReference(UUID worldId, int x, int z) {
