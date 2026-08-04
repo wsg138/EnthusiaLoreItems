@@ -10,21 +10,40 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Print exact-head Codacy checks and annotations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: 84ef294e313c1f8135c1f930f50676e9a0c47791
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # Rerun marker 1
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
           headers=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
-          checks="$(curl -fsSL "${headers[@]}" "${api}/commits/${TARGET_SHA}/check-runs?per_page=100")"
-          echo "$checks" | jq '{total_count, check_runs: [.check_runs[] | {id, name, status, conclusion, started_at, completed_at, output}]}'
-          echo "$checks" | jq -r '.check_runs[] | select(.name | ascii_downcase | contains("codacy")) | .id' | while read -r check_id; do
-            [ -n "$check_id" ] || continue
-            annotations="$(curl -fsSL "${headers[@]}" "${api}/check-runs/${check_id}/annotations?per_page=100")"
-            echo "$annotations" | jq '[.[] | {path, start_line, message}]'
+          codacy=''
+          for attempt in $(seq 1 60); do
+            checks="$(curl -fsSL "${headers[@]}" "${api}/commits/${TARGET_SHA}/check-runs?per_page=100")"
+            codacy="$(echo "$checks" | jq -c '[.check_runs[] | select(.name | ascii_downcase | contains("codacy"))]')"
+            if [ "$(echo "$codacy" | jq 'length')" -gt 0 ] \
+              && [ "$(echo "$codacy" | jq '[.[] | select(.status != "completed")] | length')" -eq 0 ]; then
+              break
+            fi
+            sleep 15
+          done
+          echo "$codacy" | jq '[.[] | {id, name, status, conclusion, started_at, completed_at, output}]'
+          count="$(echo "$codacy" | jq 'length')"
+          [ "$count" -gt 0 ] || { echo "No exact-head Codacy check appeared."; exit 1; }
+          echo "$codacy" | jq -e 'all(.[]; .status == "completed" and .conclusion == "success")'
+          echo "$codacy" | jq -r '.[].id' | while read -r check_id; do
+            page=1
+            total=0
+            while :; do
+              annotations="$(curl -fsSL "${headers[@]}" "${api}/check-runs/${check_id}/annotations?per_page=100&page=${page}")"
+              page_count="$(echo "$annotations" | jq 'length')"
+              total=$((total + page_count))
+              echo "$annotations" | jq '[.[] | {path, start_line, message}]'
+              [ "$page_count" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            [ "$total" -eq 0 ] || { echo "Codacy returned ${total} annotations."; exit 1; }
           done
