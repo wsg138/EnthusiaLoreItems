@@ -39,6 +39,7 @@ import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperDisplayItemListenerTest {
+    private static final int FIRST_REQUEST_COUNT = 1;
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString(
                     "11111111-1111-1111-1111-111111111111")),
@@ -164,6 +165,8 @@ class PaperDisplayItemListenerTest {
         assertEquals(2, blockingUseCase.requests.size());
     }
 
+    // The bounded loop deliberately creates distinct immutable identities and event snapshots.
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     @Test
     void oneDisplaySlotHasAHardIdentityCandidateLimit() {
         ItemFrame frame = (ItemFrame) player.getWorld().spawnEntity(
@@ -172,7 +175,7 @@ class PaperDisplayItemListenerTest {
             listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
                     player,
                     frame,
-                    trackedItem(identity(index)),
+                    trackedItem(identityForIndex(index)),
                     PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
         }
 
@@ -246,7 +249,7 @@ class PaperDisplayItemListenerTest {
         return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND_HELMET), identity);
     }
 
-    private static LoreItemIdentity identity(int index) {
+    private static LoreItemIdentity identityForIndex(int index) {
         return new LoreItemIdentity(
                 IDENTITY.definitionId(),
                 new LoreInstanceId(new UUID(0L, index)),
@@ -271,7 +274,7 @@ class PaperDisplayItemListenerTest {
         @Override
         public CompletionStage<Result> record(Request request) {
             requests.add(request);
-            if (requests.size() == 1) {
+            if (requests.size() == FIRST_REQUEST_COUNT) {
                 return first;
             }
             return CompletableFuture.completedFuture(Result.of(
