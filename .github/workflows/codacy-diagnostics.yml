@@ -18,6 +18,7 @@ jobs:
           TARGET_SHA: 84ef294e313c1f8135c1f930f50676e9a0c47791
         run: |
           set -euo pipefail
+          # Rerun marker 1
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
           headers=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
           checks="$(curl -fsSL "${headers[@]}" "${api}/commits/${TARGET_SHA}/check-runs?per_page=100")"
