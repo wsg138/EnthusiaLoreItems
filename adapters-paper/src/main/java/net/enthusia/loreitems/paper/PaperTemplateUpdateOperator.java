@@ -193,6 +193,7 @@ public final class PaperTemplateUpdateOperator {
             ItemStack current,
             ItemStack desired) {
         ItemStack result = desired.clone();
+        PaperTemplateItemComparator.clearMutableContents(result);
         preserveShulkerContents(current, result);
         preserveBundleContents(current, result);
         return result;
