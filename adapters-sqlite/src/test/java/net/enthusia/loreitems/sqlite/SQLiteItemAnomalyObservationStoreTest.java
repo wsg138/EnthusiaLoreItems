@@ -31,6 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteItemAnomalyObservationStoreTest {
+    private static final String PLAYER_PREFIX = "player:";
+
     @TempDir
     Path temporaryDirectory;
 
@@ -43,7 +45,7 @@ class SQLiteItemAnomalyObservationStoreTest {
                     new SQLiteItemAnomalyObservationStore(runtime);
             LocationDescriptor malformedLocation = new LocationDescriptor(
                     LocationDescriptor.Type.PLAYER_INVENTORY,
-                    "player:" + UUID.randomUUID(),
+                    PLAYER_PREFIX + UUID.randomUUID(),
                     "slot:7");
             ItemAnomalyObservationUseCase.Request firstRequest = request(
                     identity,
@@ -89,7 +91,7 @@ class SQLiteItemAnomalyObservationStoreTest {
             TestIdentity identity = seedActiveInstance(runtime);
             LocationDescriptor firstCopy = new LocationDescriptor(
                     LocationDescriptor.Type.PLAYER_INVENTORY,
-                    "player:" + UUID.randomUUID(),
+                    PLAYER_PREFIX + UUID.randomUUID(),
                     "slot:2");
             LocationDescriptor secondCopy = new LocationDescriptor(
                     LocationDescriptor.Type.DROPPED_ITEM,
@@ -151,7 +153,7 @@ class SQLiteItemAnomalyObservationStoreTest {
                             mismatched,
                             new LocationDescriptor(
                                     LocationDescriptor.Type.PLAYER_INVENTORY,
-                                    "player:" + UUID.randomUUID(),
+                                    PLAYER_PREFIX + UUID.randomUUID(),
                                     "slot:1"),
                             "test-mismatch",
                             "Observed identity disagreed with durable definition");
@@ -219,7 +221,7 @@ class SQLiteItemAnomalyObservationStoreTest {
         new SQLiteInstanceRepository(runtime).create(instance).toCompletableFuture().join();
         LocationDescriptor initialLocation = new LocationDescriptor(
                 LocationDescriptor.Type.PLAYER_INVENTORY,
-                "player:" + UUID.randomUUID(),
+                PLAYER_PREFIX + UUID.randomUUID(),
                 "slot:0");
         InstanceObservation initialObservation = new SQLiteObservationRepository(runtime)
                 .append(new InstanceObservation(
