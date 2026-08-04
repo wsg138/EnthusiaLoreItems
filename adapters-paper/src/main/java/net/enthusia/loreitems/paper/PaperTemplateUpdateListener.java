@@ -9,7 +9,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.IntSupplier;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.entity.Player;
@@ -208,6 +210,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
                 accessRegistry.markIncomplete(reference);
                 reportSaturation();
             }
+            default -> throw new IllegalStateException(
+                    "Unsupported template-update backlog result: " + result);
         }
     }
 
@@ -271,9 +275,23 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private void dispatchUniqueAccessibleItems() {
-        for (PaperTemplateUpdateScanner.Candidate candidate : accessRegistry.drainUnique(
-                plugin.getServer().getOnlinePlayers())) {
-            coordinator.submit(candidate);
+        dispatchCandidates(
+                accessRegistry.drainUnique(plugin.getServer().getOnlinePlayers()),
+                coordinator::submit,
+                this::enqueue);
+    }
+
+    static void dispatchCandidates(
+            List<PaperTemplateUpdateScanner.Candidate> candidates,
+            Predicate<PaperTemplateUpdateScanner.Candidate> submitter,
+            Consumer<PaperInventoryReference> retrySink) {
+        Objects.requireNonNull(candidates, "candidates");
+        Objects.requireNonNull(submitter, "submitter");
+        Objects.requireNonNull(retrySink, "retrySink");
+        for (PaperTemplateUpdateScanner.Candidate candidate : candidates) {
+            if (!submitter.test(candidate)) {
+                retrySink.accept(candidate.reference().inventoryReference());
+            }
         }
     }
 
@@ -337,6 +355,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
 
 /** Two-tier bounded FIFO that retains transient scan bursts without unbounded allocation. */
 final class PaperTemplateUpdateScanBacklog {
+    private static final int MIN_TIER_CAPACITY = 1;
+
     enum OfferResult {
         READY,
         DEFERRED,
@@ -350,7 +370,7 @@ final class PaperTemplateUpdateScanBacklog {
     private final Set<PaperInventoryReference> queued = new HashSet<>();
 
     PaperTemplateUpdateScanBacklog(int tierCapacity) {
-        if (tierCapacity < 1) {
+        if (tierCapacity < MIN_TIER_CAPACITY) {
             throw new IllegalArgumentException("tierCapacity must be positive");
         }
         this.tierCapacity = tierCapacity;
