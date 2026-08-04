@@ -69,6 +69,34 @@ class PaperTrackingCoordinatorTest {
     }
 
     @Test
+    void resolvesQueuedServiceBeforeDatabaseCompletionThreadRuns() {
+        AtomicInteger supplierCalls = new AtomicInteger();
+        List<Thread> supplierThreads = new CopyOnWriteArrayList<>();
+        BlockingUseCase useCase = new BlockingUseCase();
+        Thread submittingThread = Thread.currentThread();
+        coordinator = new PaperTrackingCoordinator(
+                plugin,
+                () -> {
+                    supplierCalls.incrementAndGet();
+                    supplierThreads.add(Thread.currentThread());
+                    return useCase;
+                },
+                () -> 1,
+                MetricsPort.noOp());
+
+        assertTrue(coordinator.submit(request(1)));
+        assertTrue(coordinator.submit(request(2)));
+        assertEquals(2, supplierCalls.get());
+        assertEquals(List.of(submittingThread, submittingThread), supplierThreads);
+
+        CompletableFuture.runAsync(() -> useCase.complete(0)).join();
+        awaitRequestCount(useCase, 2);
+
+        assertEquals(2, supplierCalls.get());
+        useCase.completeAll();
+    }
+
+    @Test
     @Timeout(5)
     void closeDrainsBacklogWithoutExceedingConfiguredInFlightBound() {
         BlockingUseCase useCase = new BlockingUseCase();
