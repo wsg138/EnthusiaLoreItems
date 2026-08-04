@@ -135,7 +135,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 throw new IllegalStateException("Tracking in-flight accounting underflow");
             }
             inFlight--;
-            if (!closed && !queued.isEmpty() && inFlight < completionMaxInFlight()) {
+            if (!queued.isEmpty() && inFlight < completionMaxInFlight()) {
                 next = Optional.of(queued.remove());
                 inFlight++;
             }
@@ -143,12 +143,16 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 saturated = false;
                 plugin.getLogger().fine("Lore-item tracking backlog has drained.");
             }
-            if (closed && inFlight == 0) {
-                quiesced.complete(null);
-            }
+            completeQuiescenceIfDrained();
             updateGauges();
         }
         next.ifPresent(this::startCounted);
+    }
+
+    private void completeQuiescenceIfDrained() {
+        if (closed && queued.isEmpty() && inFlight == 0) {
+            quiesced.complete(null);
+        }
     }
 
     private int completionMaxInFlight() {
@@ -204,24 +208,24 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
-        List<TrackingObservationUseCase.Request> pending = List.of();
+        List<TrackingObservationUseCase.Request> starting = new ArrayList<>();
         boolean firstClose;
         synchronized (lock) {
             firstClose = !closed;
             if (firstClose) {
                 closed = true;
                 saturated = false;
-                pending = new ArrayList<>(queued);
-                queued.clear();
-                inFlight = Math.addExact(inFlight, pending.size());
-                if (inFlight == 0) {
-                    quiesced.complete(null);
+                int maxInFlight = completionMaxInFlight();
+                while (inFlight < maxInFlight && !queued.isEmpty()) {
+                    starting.add(queued.remove());
+                    inFlight++;
                 }
+                completeQuiescenceIfDrained();
                 updateGauges();
             }
         }
         if (firstClose) {
-            pending.forEach(this::startCounted);
+            starting.forEach(this::startCounted);
         }
         awaitQuiescence();
     }

@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -61,7 +62,7 @@ class PaperTrackingCoordinatorTest {
         assertEquals(1, useCase.requests.size());
 
         budget.set(0);
-        useCase.stages.getFirst().complete(recorded());
+        useCase.complete(0);
 
         assertEquals(2, useCase.requests.size());
         useCase.completeAll();
@@ -69,7 +70,7 @@ class PaperTrackingCoordinatorTest {
 
     @Test
     @Timeout(5)
-    void closeSubmitsAndDrainsTheEntireBoundedCoordinatorBacklog() {
+    void closeDrainsBacklogWithoutExceedingConfiguredInFlightBound() {
         BlockingUseCase useCase = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(
                 plugin, () -> useCase, () -> 1, MetricsPort.noOp());
@@ -80,10 +81,19 @@ class PaperTrackingCoordinatorTest {
         assertEquals(1, useCase.requests.size());
 
         CompletableFuture<Void> closing = CompletableFuture.runAsync(coordinator::close);
-        awaitRequestCount(useCase, 3);
-        useCase.completeAll();
-        closing.join();
+        assertFalse(closing.isDone());
+        assertEquals(1, useCase.requests.size());
 
+        useCase.complete(0);
+        awaitRequestCount(useCase, 2);
+        assertFalse(closing.isDone());
+
+        useCase.complete(1);
+        awaitRequestCount(useCase, 3);
+        assertFalse(closing.isDone());
+
+        useCase.complete(2);
+        closing.join();
         assertEquals(3, useCase.requests.size());
     }
 
@@ -123,6 +133,10 @@ class PaperTrackingCoordinatorTest {
             CompletableFuture<Result> stage = new CompletableFuture<>();
             stages.add(stage);
             return stage;
+        }
+
+        private void complete(int index) {
+            stages.get(index).complete(recorded());
         }
 
         private void completeAll() {
