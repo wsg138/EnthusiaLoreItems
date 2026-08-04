@@ -13,6 +13,7 @@ import org.bukkit.scheduler.BukkitTask;
 public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long POLL_INTERVAL_TICKS = 100L;
+    private static final int MIN_RECOVERY_LIMIT = 1;
 
     private final Plugin plugin;
     private final PendingMutationRepository repository;
@@ -28,7 +29,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
-        if (recoveryLimit < 1) {
+        if (recoveryLimit < MIN_RECOVERY_LIMIT) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
         this.recoveryLimit = recoveryLimit;
@@ -92,7 +93,6 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     public void close() {
         closed = true;
         BukkitTask current = task;
-        task = null;
         if (current != null) {
             current.cancel();
         }
