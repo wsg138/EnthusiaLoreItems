@@ -22,6 +22,13 @@ public final class PersistingItemAnomalyObservationUseCase
     }
 
     PersistingItemAnomalyObservationUseCase(
+            ItemAnomalyObservationStore store,
+            Clock clock,
+            Supplier<UUID> anomalyIdSupplier) {
+        this(store, trackingStore(store), clock, anomalyIdSupplier);
+    }
+
+    PersistingItemAnomalyObservationUseCase(
             ItemAnomalyObservationStore anomalyStore,
             TrackingObservationStore trackingStore,
             Clock clock,
