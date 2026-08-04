@@ -565,7 +565,9 @@ public final class PaperTrackingAdministrationGui implements Listener {
         ItemMeta meta = item.getItemMeta();
         meta.displayName(Component.text(name));
         meta.lore(lore.stream().map(Component::text).toList());
-        item.setItemMeta(meta);
+        if (!item.setItemMeta(meta)) {
+            throw new IllegalStateException("Could not apply lore-item administration metadata");
+        }
         return item;
     }
 
