@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.paper;
 
+import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.Objects;
@@ -12,7 +13,6 @@ import java.util.logging.Level;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
-import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
 
 /** Bounded bridge from natural-access observations to durable template-update claims. */
@@ -23,6 +23,7 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
     private final Plugin plugin;
     private final TemplateUpdateExecutionUseCase useCase;
     private final PaperTemplateUpdateOperator operator;
+    private final Clock clock;
     private final int maxInFlight;
     private final int maxQueued;
     private final Object lock = new Object();
@@ -38,9 +39,19 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             TemplateUpdateExecutionUseCase useCase,
             PaperTemplateUpdateOperator operator,
             int maxInFlight) {
+        this(plugin, useCase, operator, maxInFlight, Clock.systemUTC());
+    }
+
+    PaperTemplateUpdateCoordinator(
+            Plugin plugin,
+            TemplateUpdateExecutionUseCase useCase,
+            PaperTemplateUpdateOperator operator,
+            int maxInFlight,
+            Clock clock) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
         this.operator = Objects.requireNonNull(operator, "operator");
+        this.clock = Objects.requireNonNull(clock, "clock");
         if (maxInFlight < MIN_MAX_IN_FLIGHT) {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
@@ -119,6 +130,10 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             release(candidate, update, "The plugin is stopping.");
             return;
         }
+        if (claimExpired(update)) {
+            skipExpiredClaim(candidate, update);
+            return;
+        }
         if (!scheduleMain(() -> applyOnMainThread(candidate, update))) {
             release(
                     candidate,
@@ -132,6 +147,10 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             PreparedTemplateUpdate update) {
         if (isClosed()) {
             release(candidate, update, "The plugin is stopping.");
+            return;
+        }
+        if (claimExpired(update)) {
+            skipExpiredClaim(candidate, update);
             return;
         }
         PaperTemplateUpdateOperator.ApplyResult result;
@@ -279,6 +298,20 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
         });
     }
 
+    private void skipExpiredClaim(
+            PaperTemplateUpdateScanner.Candidate candidate,
+            PreparedTemplateUpdate update) {
+        plugin.getLogger().warning(
+                "Skipped physical template update for expired claim "
+                        + update.mutationId()
+                        + "; bounded recovery will move it to REVIEW_REQUIRED.");
+        finish(candidate);
+    }
+
+    private boolean claimExpired(PreparedTemplateUpdate update) {
+        return clock.millis() >= update.claimExpiresAtEpochMillis();
+    }
+
     private void finish(PaperTemplateUpdateScanner.Candidate completed) {
         PaperTemplateUpdateScanner.Candidate next = null;
         synchronized (lock) {
@@ -313,7 +346,7 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
         try {
             plugin.getServer().getScheduler().runTask(plugin, task);
             return true;
-        } catch (IllegalPluginAccessException exception) {
+        } catch (RuntimeException exception) {
             plugin.getLogger().log(
                     Level.FINE,
                     "Could not schedule template-update main-thread work during shutdown.",
