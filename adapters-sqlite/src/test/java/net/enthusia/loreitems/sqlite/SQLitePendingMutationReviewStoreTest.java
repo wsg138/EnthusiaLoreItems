@@ -22,6 +22,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class SQLitePendingMutationReviewStoreTest {
     private static final String TEMPLATE_UPDATE = "TEMPLATE_UPDATE";
+    private static final String RETRIED_EVENT = "mutation_review_retried";
+    private static final String CANCELLED_EVENT = "mutation_review_cancelled";
 
     @TempDir
     Path temporaryDirectory;
@@ -41,7 +43,7 @@ class SQLitePendingMutationReviewStoreTest {
                             mutationId,
                             TEMPLATE_UPDATE,
                             PendingMutationReviewStore.Resolution.RETRY,
-                            audit(mutationId, "mutation_review_retried", now),
+                            audit(mutationId, RETRIED_EVENT, now),
                             now)
                     .toCompletableFuture().join();
             Page<PendingMutationRecord> claimed = repository.claimPending(
@@ -56,7 +58,7 @@ class SQLitePendingMutationReviewStoreTest {
             assertEquals(1, claimed.items().size());
             assertEquals(mutationId, claimed.items().getFirst().mutationId());
             assertEquals(2, claimed.items().getFirst().attemptCount());
-            assertAudit(runtime, mutationId, "mutation_review_retried");
+            assertAudit(runtime, mutationId, RETRIED_EVENT);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -77,7 +79,7 @@ class SQLitePendingMutationReviewStoreTest {
                             mutationId,
                             TEMPLATE_UPDATE,
                             PendingMutationReviewStore.Resolution.CANCEL,
-                            audit(mutationId, "mutation_review_cancelled", now),
+                            audit(mutationId, CANCELLED_EVENT, now),
                             now)
                     .toCompletableFuture().join();
             PendingMutationReviewStore.Status repeated = reviewStore.resolve(
@@ -86,7 +88,7 @@ class SQLitePendingMutationReviewStoreTest {
                             PendingMutationReviewStore.Resolution.RETRY,
                             audit(
                                     mutationId,
-                                    "mutation_review_retried",
+                                    RETRIED_EVENT,
                                     Instant.ofEpochMilli(6_000L)),
                             Instant.ofEpochMilli(6_000L))
                     .toCompletableFuture().join();
@@ -103,7 +105,7 @@ class SQLitePendingMutationReviewStoreTest {
             assertTrue(claim.items().isEmpty());
             assertTrue(repository.listNonTerminal(TEMPLATE_UPDATE, PageRequest.first(10))
                     .toCompletableFuture().join().items().isEmpty());
-            assertAudit(runtime, mutationId, "mutation_review_cancelled");
+            assertAudit(runtime, mutationId, CANCELLED_EVENT);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -136,7 +138,7 @@ class SQLitePendingMutationReviewStoreTest {
                                     mutationId,
                                     TEMPLATE_UPDATE,
                                     PendingMutationReviewStore.Resolution.RETRY,
-                                    audit(mutationId, "mutation_review_retried", now),
+                                    audit(mutationId, RETRIED_EVENT, now),
                                     now)
                             .toCompletableFuture().join());
 
@@ -163,7 +165,7 @@ class SQLitePendingMutationReviewStoreTest {
                             mutationId,
                             "INSTANCE_REMOVAL",
                             PendingMutationReviewStore.Resolution.CANCEL,
-                            audit(mutationId, "mutation_review_cancelled", now),
+                            audit(mutationId, CANCELLED_EVENT, now),
                             now)
                     .toCompletableFuture().join();
 
