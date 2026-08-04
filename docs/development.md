@@ -132,7 +132,7 @@ These commands expose unresolved anomalies, current state, recent observation/au
 
 ## Static analysis policy
 
-Codacy continues to analyze Java source and tests with PMD and the configured Java analyzers. Its metric engine is excluded only for exact policy-boundary, lifecycle-orchestration, and fixture files whose line-count thresholds do not represent an item-safety or lifecycle defect. The immutable SQLite migration remains excluded from non-SQLite SQL policies. The final rationale and exact zero-annotation evidence are recorded in handoff report 0026.
+Codacy continues to analyze Java source and tests with PMD and the configured Java analyzers. The final size findings were resolved through source decomposition: administration formatting, identity scanning, terminal-void coordination, plugin activation, and test fixture seeding now have focused boundaries. No Java metric exclusion remains. The terminal-void coordinator narrowly suppresses PMD's `UseConcurrentHashMap` rule because its map and set are one compound state machine guarded by a single lock; independently changing one collection would not make the transition atomic. The immutable released SQLite migration remains excluded from non-SQLite SQL policies.
 
 ## Degraded startup and recovery
 
