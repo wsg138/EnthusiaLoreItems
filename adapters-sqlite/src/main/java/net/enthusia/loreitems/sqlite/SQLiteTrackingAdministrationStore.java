@@ -90,10 +90,12 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
         }
         ObservationRow selected = findObservation(
                 connection, request.selectedObservationId(), anomaly.instanceId());
-        if (selected == null || !selected.selectable()) {
+        if (selected == null
+                || !selected.selectable()
+                || selected.observedAt() < anomaly.firstSeenAt()) {
             return result(
                     LoreItemsAdministrationUseCase.DuplicateResolutionStatus.INVALID_SELECTION,
-                    "The selected observation is not a conflicting physical location for this instance.");
+                    "The selected observation is not evidence for this active duplicate conflict.");
         }
         CurrentRow current = findCurrent(connection, anomaly.instanceId());
         if (current == null || !CONFLICTING.equals(current.state())) {
@@ -116,8 +118,8 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
     private static AnomalyRow findAnomaly(Connection connection, String anomalyId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT instance_id, definition_id, anomaly_type, status, state_revision "
-                        + "FROM instance_anomalies WHERE anomaly_id = ?")) {
+                "SELECT instance_id, definition_id, anomaly_type, status, state_revision, "
+                        + "first_seen_at FROM instance_anomalies WHERE anomaly_id = ?")) {
             statement.setString(1, anomalyId);
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {
@@ -128,7 +130,8 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                         resultSet.getString("definition_id"),
                         resultSet.getString("anomaly_type"),
                         resultSet.getString("status"),
-                        resultSet.getLong("state_revision"));
+                        resultSet.getLong("state_revision"),
+                        resultSet.getLong("first_seen_at"));
             }
         }
     }
@@ -136,7 +139,7 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
     private static ObservationRow findObservation(
             Connection connection, long observationId, String instanceId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT location_type, location_key, container_path, confidence "
+                "SELECT location_type, location_key, container_path, confidence, observed_at "
                         + "FROM instance_observations WHERE observation_id = ? "
                         + "AND instance_id = ?")) {
             statement.setLong(1, observationId);
@@ -150,7 +153,8 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                         resultSet.getString("location_key"),
                         resultSet.getString("container_path"),
                         InstanceObservation.Confidence.valueOf(
-                                resultSet.getString("confidence")));
+                                resultSet.getString("confidence")),
+                        resultSet.getLong("observed_at"));
             }
         }
     }
@@ -292,7 +296,8 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
             String definitionId,
             String type,
             String status,
-            long stateRevision) {
+            long stateRevision,
+            long firstSeenAt) {
         private boolean active() {
             return "OPEN".equals(status) || "ACKNOWLEDGED".equals(status);
         }
@@ -304,7 +309,8 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
             LocationDescriptor.Type type,
             String key,
             String path,
-            InstanceObservation.Confidence confidence) {
+            InstanceObservation.Confidence confidence,
+            long observedAt) {
         private boolean selectable() {
             if (confidence != InstanceObservation.Confidence.CONFLICTING) {
                 return false;
