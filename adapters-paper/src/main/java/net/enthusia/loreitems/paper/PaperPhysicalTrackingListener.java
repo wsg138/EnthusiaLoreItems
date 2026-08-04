@@ -274,7 +274,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         int maximumAttempts = Math.addExact(budget, worlds.size());
         while (enqueued < budget && attempts < maximumAttempts) {
             if (worldCursor >= worlds.size()) {
-                resetSeedCursor();
+                advanceSeedWorld(worlds.size());
             }
             World world = worlds.get(worldCursor);
             Chunk[] snapshot = loadedChunkSnapshot(world);
@@ -304,13 +304,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private void advanceSeedWorld(int worldCount) {
         worldCursor = (worldCursor + 1) % worldCount;
-        chunkCursor = 0;
-        seededWorldId = null;
-        seededChunks = EMPTY_CHUNKS;
-    }
-
-    private void resetSeedCursor() {
-        worldCursor = 0;
         chunkCursor = 0;
         seededWorldId = null;
         seededChunks = EMPTY_CHUNKS;
@@ -478,7 +471,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         scans.clear();
         deathDrops.clear();
-        resetSeedCursor();
         scanSaturated = false;
         coordinator.close();
         HandlerList.unregisterAll(this);
