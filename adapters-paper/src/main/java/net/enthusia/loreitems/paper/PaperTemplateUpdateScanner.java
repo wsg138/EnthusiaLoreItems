@@ -52,7 +52,7 @@ final class PaperTemplateUpdateScanner {
                 || (!cursor.pending().isEmpty()
                         && cursor.passes() >= MAX_CONTINUATION_PASSES)) {
             cursors.remove(inventoryReference);
-            return ScanResult.abandoned();
+            return ScanResult.abandonedScan();
         }
         if (!cursor.pending().isEmpty()) {
             return ScanResult.continuation();
@@ -293,7 +293,7 @@ final class PaperTemplateUpdateScanner {
             return new ScanResult(0, true, false);
         }
 
-        static ScanResult abandoned() {
+        static ScanResult abandonedScan() {
             return new ScanResult(0, false, true);
         }
     }
