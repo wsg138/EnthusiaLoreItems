@@ -4,7 +4,6 @@ import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
@@ -22,10 +21,8 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
-import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
-import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -41,7 +38,6 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -52,22 +48,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int QUEUE_MULTIPLIER = 32;
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
-    private static final String ITEM_FRAME_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
-    private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
-        EquipmentSlot.HAND,
-        EquipmentSlot.OFF_HAND,
-        EquipmentSlot.FEET,
-        EquipmentSlot.LEGS,
-        EquipmentSlot.CHEST,
-        EquipmentSlot.HEAD
-    };
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
     private final MetricsPort metrics;
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
+    private final PaperDisplayEntityScanner displayScanner;
     private final Queue<ScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
 
@@ -89,6 +77,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.coordinator = new PaperTrackingCoordinator(
                 plugin, useCaseSupplier, budgetSupplier, metrics);
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
+        this.displayScanner = new PaperDisplayEntityScanner(scanner);
         currentBudget();
     }
 
@@ -384,62 +373,17 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 return;
             }
             if (entity instanceof Item item) {
-                scanEntityItem(
+                scanner.submitItem(
                         item.getItemStack(),
                         droppedLocation(item),
                         presence,
-                        source + "-item",
-                        limit);
-            } else if (entity instanceof ItemFrame frame) {
-                scanEntityItem(
-                        frame.getItem(),
-                        displayLocation(frame, LocationDescriptor.Type.ITEM_FRAME, ITEM_FRAME_PATH),
-                        presence,
-                        source + "-item-frame",
-                        limit);
-            } else if (entity instanceof ArmorStand stand) {
-                scanArmorStand(stand, presence, source, limit);
+                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                        source + "-item");
+                limit.consume();
+            } else {
+                displayScanner.scan(entity, presence, source, limit);
             }
         }
-    }
-
-    private void scanArmorStand(
-            ArmorStand stand,
-            TrackingObservationUseCase.Presence presence,
-            String source,
-            PaperScanLimit limit) {
-        for (EquipmentSlot slot : ARMOR_STAND_SLOTS) {
-            if (!limit.hasRemaining()) {
-                return;
-            }
-            scanEntityItem(
-                    stand.getEquipment().getItem(slot),
-                    displayLocation(
-                            stand,
-                            LocationDescriptor.Type.ARMOR_STAND,
-                            SLOT_PREFIX + slot.name().toLowerCase(Locale.ROOT)),
-                    presence,
-                    source + "-armor-stand",
-                    limit);
-        }
-    }
-
-    private void scanEntityItem(
-            ItemStack item,
-            LocationDescriptor location,
-            TrackingObservationUseCase.Presence presence,
-            String source,
-            PaperScanLimit limit) {
-        if (item == null || item.getType().isAir() || !limit.hasRemaining()) {
-            return;
-        }
-        scanner.submitItem(
-                item,
-                location,
-                presence,
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                source);
-        limit.consume();
     }
 
     private void scanChunkContainers(
@@ -502,19 +446,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         + location.getBlockX() + ':' + location.getBlockY() + ':'
                         + location.getBlockZ(),
                 "item-entity");
-    }
-
-    static LocationDescriptor displayLocation(
-            Entity entity, LocationDescriptor.Type type, String path) {
-        Location location = entity.getLocation();
-        return new LocationDescriptor(
-                type,
-                entity.getWorld().getKey() + ":"
-                        + location.getBlockX() + ":"
-                        + location.getBlockY() + ":"
-                        + location.getBlockZ() + ":"
-                        + entity.getUniqueId(),
-                path);
     }
 
     @Override
