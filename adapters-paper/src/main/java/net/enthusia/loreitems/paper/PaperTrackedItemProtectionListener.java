@@ -63,6 +63,10 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+// This main-thread protection adapter intentionally keeps every destructive Bukkit/Paper surface in
+// one auditable policy boundary. Its workflow collections are compound state guarded by workflowLock;
+// replacing only the map with ConcurrentHashMap would not make those transitions atomic.
+@SuppressWarnings({"PMD.ExcessiveClassLength", "PMD.UseConcurrentHashMap"})
 public final class PaperTrackedItemProtectionListener implements Listener, AutoCloseable {
     private static final int MAX_COMPLETION_ATTEMPTS = 3;
     private static final int MIN_IN_FLIGHT = 1;
