@@ -20,7 +20,7 @@ import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
-/** Bounded main-thread discovery of uniquely located tracked items in one inventory tree. */
+/** Bounded main-thread discovery of tracked items in one inventory tree. */
 final class PaperTemplateUpdateScanner {
     private static final int MAX_ITEMS_PER_PASS = 256;
     private static final int MAX_NESTING_DEPTH = 8;
@@ -59,7 +59,7 @@ final class PaperTemplateUpdateScanner {
         }
 
         cursors.remove(inventoryReference);
-        return ScanResult.complete(cursor.submitUnique(consumer));
+        return ScanResult.complete(cursor.emitObserved(consumer));
     }
 
     void reset(PaperInventoryReference reference) {
@@ -228,15 +228,15 @@ final class PaperTemplateUpdateScanner {
                             : accumulator.increment());
         }
 
-        private int submitUnique(Consumer<Candidate> consumer) {
-            int submitted = 0;
+        private int emitObserved(Consumer<Candidate> consumer) {
+            int observed = 0;
             for (CandidateAccumulator accumulator : candidates.values()) {
-                if (accumulator.count() == 1) {
+                for (int copy = 0; copy < accumulator.count(); copy++) {
                     consumer.accept(accumulator.first());
-                    submitted++;
+                    observed++;
                 }
             }
-            return submitted;
+            return observed;
         }
     }
 
