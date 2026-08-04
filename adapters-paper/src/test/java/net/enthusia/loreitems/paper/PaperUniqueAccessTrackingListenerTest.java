@@ -29,6 +29,7 @@ import org.mockbukkit.mockbukkit.entity.PlayerMock;
 import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 class PaperUniqueAccessTrackingListenerTest {
+    private static final String PLAYER_NAME = "alice";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString(
                     "11111111-1111-1111-1111-111111111111")),
@@ -59,13 +60,9 @@ class PaperUniqueAccessTrackingListenerTest {
                     TrackingObservationUseCase.Status.RECORDED,
                     "ok"));
         };
-        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
-                plugin,
-                () -> useCase,
-                () -> 4,
-                MetricsPort.noOp());
+        PaperUniqueAccessTrackingListener listener = listener(useCase);
         listener.start();
-        PlayerMock player = server.addPlayer("alice");
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
         player.getInventory().setItem(0, trackedItem());
 
         listener.onQuit(new PlayerQuitEvent(
@@ -86,40 +83,26 @@ class PaperUniqueAccessTrackingListenerTest {
                     TrackingObservationUseCase.Status.RECORDED,
                     "ok"));
         };
-        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
-                plugin,
-                () -> useCase,
-                () -> 4,
-                MetricsPort.noOp());
-        PlayerMock player = server.addPlayer("alice");
+        PaperUniqueAccessTrackingListener listener = listener(useCase);
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
         ItemStack tracked = trackedItem();
         player.getInventory().setItem(0, tracked);
         player.getInventory().setItem(1, tracked.clone());
 
         listener.submitPlayer(player, false, "test-duplicate");
 
-        TrackingObservationUseCase.Request request = observed.get();
         assertEquals(
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                request.mode());
+                observed.get().mode());
         listener.close();
     }
 
     @Test
     void playerAndContainerCopiesShareOneUniquenessDecision() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        TrackingObservationUseCase useCase = request -> {
-            observed.add(request);
-            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
-                    TrackingObservationUseCase.Status.RECORDED,
-                    "ok"));
-        };
-        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
-                plugin,
-                () -> useCase,
-                () -> 4,
-                MetricsPort.noOp());
-        PlayerMock player = server.addPlayer("alice");
+        TrackingObservationUseCase useCase = recordingUseCase(observed);
+        PaperUniqueAccessTrackingListener listener = listener(useCase);
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
         ItemStack tracked = trackedItem();
         player.getInventory().setItem(0, tracked);
         Inventory container = server.createInventory(null, 9);
@@ -132,27 +115,16 @@ class PaperUniqueAccessTrackingListenerTest {
                 "minecraft:overworld:0:64:0",
                 "test-cross-inventory-duplicate");
 
-        assertEquals(2, observed.size());
-        assertTrue(observed.stream().allMatch(request -> request.mode()
-                == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        assertReconciliation(observed);
         listener.close();
     }
 
     @Test
     void playerAndDisplayCopiesShareOneUniquenessDecision() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        TrackingObservationUseCase useCase = request -> {
-            observed.add(request);
-            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
-                    TrackingObservationUseCase.Status.RECORDED,
-                    "ok"));
-        };
-        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
-                plugin,
-                () -> useCase,
-                () -> 4,
-                MetricsPort.noOp());
-        PlayerMock player = server.addPlayer("alice");
+        TrackingObservationUseCase useCase = recordingUseCase(observed);
+        PaperUniqueAccessTrackingListener listener = listener(useCase);
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
         ItemStack tracked = trackedItem();
         player.getInventory().setItem(0, tracked);
         LocationDescriptor display = new LocationDescriptor(
@@ -166,10 +138,30 @@ class PaperUniqueAccessTrackingListenerTest {
                 display,
                 "test-display-duplicate");
 
+        assertReconciliation(observed);
+        listener.close();
+    }
+
+    private PaperUniqueAccessTrackingListener listener(TrackingObservationUseCase useCase) {
+        return new PaperUniqueAccessTrackingListener(
+                plugin, () -> useCase, () -> 4, MetricsPort.noOp());
+    }
+
+    private static TrackingObservationUseCase recordingUseCase(
+            List<TrackingObservationUseCase.Request> observed) {
+        return request -> {
+            observed.add(request);
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "ok"));
+        };
+    }
+
+    private static void assertReconciliation(
+            List<TrackingObservationUseCase.Request> observed) {
         assertEquals(2, observed.size());
         assertTrue(observed.stream().allMatch(request -> request.mode()
                 == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
-        listener.close();
     }
 
     private static ItemStack trackedItem() {
