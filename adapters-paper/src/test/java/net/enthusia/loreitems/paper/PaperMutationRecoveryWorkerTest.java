@@ -93,6 +93,7 @@ class PaperMutationRecoveryWorkerTest {
 
         @Override
         public CompletionStage<Page<PendingMutationRecord>> claimPending(
+                String mutationType,
                 String claimToken,
                 Instant now,
                 Duration lease,
@@ -113,6 +114,12 @@ class PaperMutationRecoveryWorkerTest {
         @Override
         public CompletionStage<Page<PendingMutationRecord>> listNonTerminal(
                 PageRequest request) {
+            return unsupported();
+        }
+
+        @Override
+        public CompletionStage<Page<PendingMutationRecord>> listNonTerminal(
+                String mutationType, PageRequest request) {
             return unsupported();
         }
 
