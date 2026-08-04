@@ -87,6 +87,49 @@ class PaperTemplateUpdateAccessRegistryTest {
         assertEquals(1, registry.drainUnique(server.getOnlinePlayers()).size());
     }
 
+    @Test
+    void scanBacklogRetainsOneBoundedOverflowTierInFifoOrder() {
+        PaperTemplateUpdateScanBacklog backlog = new PaperTemplateUpdateScanBacklog(2);
+        PaperInventoryReference first = blockReference(1);
+        PaperInventoryReference second = blockReference(2);
+        PaperInventoryReference third = blockReference(3);
+        PaperInventoryReference fourth = blockReference(4);
+        PaperInventoryReference rejected = blockReference(5);
+
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(second));
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED, backlog.offer(third));
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED, backlog.offer(fourth));
+        assertEquals(
+                PaperTemplateUpdateScanBacklog.OfferResult.ALREADY_QUEUED,
+                backlog.offer(third));
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.REJECTED, backlog.offer(rejected));
+
+        assertEquals(first, backlog.poll());
+        assertEquals(second, backlog.poll());
+        assertEquals(third, backlog.poll());
+        assertEquals(fourth, backlog.poll());
+        assertTrue(backlog.isEmpty());
+    }
+
+    @Test
+    void removingAQueuedReferencePromotesDeferredWorkAndAllowsRequeue() {
+        PaperTemplateUpdateScanBacklog backlog = new PaperTemplateUpdateScanBacklog(1);
+        PaperInventoryReference first = blockReference(1);
+        PaperInventoryReference deferred = blockReference(2);
+
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
+        assertEquals(
+                PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED,
+                backlog.offer(deferred));
+        backlog.remove(first);
+
+        assertEquals(deferred, backlog.poll());
+        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
+        assertEquals(first, backlog.poll());
+        assertTrue(backlog.isEmpty());
+    }
+
     private PaperTemplateUpdateAccessRegistry coveredRegistry() {
         PaperTemplateUpdateAccessRegistry registry = new PaperTemplateUpdateAccessRegistry();
         registry.replace(
@@ -107,5 +150,13 @@ class PaperTemplateUpdateAccessRegistryTest {
         return new PaperTemplateUpdateScanner.Candidate(
                 IDENTITY,
                 PaperTemplateUpdateItemReference.root(reference, slot));
+    }
+
+    private static PaperInventoryReference blockReference(int coordinate) {
+        return new PaperInventoryReference.Block(
+                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                coordinate,
+                coordinate,
+                coordinate);
     }
 }

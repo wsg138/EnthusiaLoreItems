@@ -42,8 +42,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private final PaperTemplateUpdateAccessRegistry accessRegistry =
             new PaperTemplateUpdateAccessRegistry();
     private final PaperTemplateUpdateCoordinator coordinator;
-    private final Queue<PaperInventoryReference> scans = new ArrayDeque<>();
-    private final Set<PaperInventoryReference> queuedReferences = new HashSet<>();
+    private final PaperTemplateUpdateScanBacklog scanBacklog;
 
     private BukkitTask scanTask;
     private boolean saturated;
@@ -62,6 +61,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
                 Objects.requireNonNull(useCase, "useCase"),
                 Objects.requireNonNull(operator, "operator"),
                 budget);
+        this.scanBacklog = new PaperTemplateUpdateScanBacklog(maxQueuedScans(budget));
     }
 
     void start() {
@@ -187,36 +187,32 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             return;
         }
         invalidate(reference);
-        if (!queuedReferences.add(reference)) {
-            return;
-        }
-        queue(reference);
+        offer(reference);
     }
 
     private void enqueueContinuation(PaperInventoryReference reference) {
-        if (closed || !queuedReferences.add(reference)) {
-            return;
+        if (!closed) {
+            offer(reference);
         }
-        queue(reference);
     }
 
-    private void queue(PaperInventoryReference reference) {
-        if (scans.size() >= maxQueuedScans()) {
-            queuedReferences.remove(reference);
-            scanner.reset(reference);
-            accessRegistry.markIncomplete(reference);
-            reportSaturation();
-            return;
-        }
-        scans.add(reference);
-        if (scans.size() == maxQueuedScans()) {
-            reportSaturation();
+    private void offer(PaperInventoryReference reference) {
+        PaperTemplateUpdateScanBacklog.OfferResult result = scanBacklog.offer(reference);
+        switch (result) {
+            case READY, ALREADY_QUEUED -> {
+                // The reference is retained by the bounded backlog.
+            }
+            case DEFERRED -> reportSaturation();
+            case REJECTED -> {
+                scanner.reset(reference);
+                accessRegistry.markIncomplete(reference);
+                reportSaturation();
+            }
         }
     }
 
     private void forget(PaperInventoryReference reference) {
-        queuedReferences.remove(reference);
-        scans.remove(reference);
+        scanBacklog.remove(reference);
         scanner.reset(reference);
         accessRegistry.remove(reference);
     }
@@ -224,14 +220,13 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private void drain() {
         int budget = currentBudget();
         for (int count = 0; count < budget; count++) {
-            PaperInventoryReference reference = scans.poll();
+            PaperInventoryReference reference = scanBacklog.poll();
             if (reference == null) {
                 break;
             }
-            queuedReferences.remove(reference);
             scan(reference);
         }
-        if (scans.isEmpty()) {
+        if (scanBacklog.isEmpty()) {
             dispatchUniqueAccessibleItems();
             if (saturated) {
                 saturated = false;
@@ -290,8 +285,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         return value;
     }
 
-    private int maxQueuedScans() {
-        long scaled = (long) currentBudget() * SCAN_QUEUE_MULTIPLIER;
+    private static int maxQueuedScans(int budget) {
+        long scaled = (long) budget * SCAN_QUEUE_MULTIPLIER;
         return (int) Math.min(
                 MAX_SCAN_QUEUE_CAPACITY,
                 Math.max(MIN_SCAN_QUEUE_CAPACITY, scaled));
@@ -301,7 +296,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         if (!saturated) {
             saturated = true;
             plugin.getLogger().warning(
-                    "Template-update scan backlog is full; durable mutations remain pending.");
+                    "Template-update scan backlog is saturated; durable mutations remain pending.");
         }
     }
 
@@ -324,8 +319,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         if (task != null) {
             task.cancel();
         }
-        scans.clear();
-        queuedReferences.clear();
+        scanBacklog.clear();
         scanner.clear();
         accessRegistry.clear();
         coordinator.close();
@@ -337,6 +331,81 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         private PlayerReferences {
             Objects.requireNonNull(main, "main");
             Objects.requireNonNull(ender, "ender");
+        }
+    }
+}
+
+/** Two-tier bounded FIFO that retains transient scan bursts without unbounded allocation. */
+final class PaperTemplateUpdateScanBacklog {
+    enum OfferResult {
+        READY,
+        DEFERRED,
+        ALREADY_QUEUED,
+        REJECTED
+    }
+
+    private final int tierCapacity;
+    private final Queue<PaperInventoryReference> ready = new ArrayDeque<>();
+    private final Queue<PaperInventoryReference> deferred = new ArrayDeque<>();
+    private final Set<PaperInventoryReference> queued = new HashSet<>();
+
+    PaperTemplateUpdateScanBacklog(int tierCapacity) {
+        if (tierCapacity < 1) {
+            throw new IllegalArgumentException("tierCapacity must be positive");
+        }
+        this.tierCapacity = tierCapacity;
+    }
+
+    OfferResult offer(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        if (!queued.add(reference)) {
+            return OfferResult.ALREADY_QUEUED;
+        }
+        if (ready.size() < tierCapacity) {
+            ready.add(reference);
+            return OfferResult.READY;
+        }
+        if (deferred.size() < tierCapacity) {
+            deferred.add(reference);
+            return OfferResult.DEFERRED;
+        }
+        queued.remove(reference);
+        return OfferResult.REJECTED;
+    }
+
+    PaperInventoryReference poll() {
+        PaperInventoryReference reference = ready.poll();
+        if (reference == null) {
+            return null;
+        }
+        queued.remove(reference);
+        promoteDeferred();
+        return reference;
+    }
+
+    void remove(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        boolean removed = ready.remove(reference);
+        removed = deferred.remove(reference) || removed;
+        queued.remove(reference);
+        if (removed) {
+            promoteDeferred();
+        }
+    }
+
+    boolean isEmpty() {
+        return ready.isEmpty() && deferred.isEmpty();
+    }
+
+    void clear() {
+        ready.clear();
+        deferred.clear();
+        queued.clear();
+    }
+
+    private void promoteDeferred() {
+        while (ready.size() < tierCapacity && !deferred.isEmpty()) {
+            ready.add(deferred.remove());
         }
     }
 }
