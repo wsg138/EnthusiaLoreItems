@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -89,10 +90,13 @@ class PaperTemplateUpdateScannerTest {
 
     private void populateShulkers(boolean includeEarlyDuplicate) {
         PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
+        // Ten roots plus 270 nested items intentionally exceed the 256-item pass limit.
         for (int rootSlot = 0; rootSlot < 10; rootSlot++) {
             ItemStack shulkerItem = ItemStack.of(Material.SHULKER_BOX);
-            BlockStateMeta meta = (BlockStateMeta) shulkerItem.getItemMeta();
-            ShulkerBox shulker = (ShulkerBox) meta.getBlockState();
+            BlockStateMeta meta = assertInstanceOf(
+                    BlockStateMeta.class, shulkerItem.getItemMeta());
+            ShulkerBox shulker = assertInstanceOf(
+                    ShulkerBox.class, meta.getBlockState());
             for (int nestedSlot = 0; nestedSlot < shulker.getInventory().getSize(); nestedSlot++) {
                 ItemStack nested = ItemStack.of(Material.COBBLESTONE);
                 boolean lateTarget = rootSlot == 9 && nestedSlot == 26;
