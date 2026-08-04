@@ -26,6 +26,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
 
@@ -34,6 +35,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     private static final int UNIQUE_LOCATION_COUNT = 1;
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final String SLOT_PREFIX = "slot:";
+    private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
@@ -122,14 +124,14 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
         collector.collectArray(
-                inventory.getStorageContents(),
+                contentsOrEmpty(inventory.getStorageContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 SLOT_PREFIX,
                 observations,
                 limit);
         collector.collectArray(
-                inventory.getArmorContents(),
+                contentsOrEmpty(inventory.getArmorContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 "armor:",
@@ -152,7 +154,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 0,
                 limit);
         collector.collectArray(
-                player.getEnderChest().getContents(),
+                contentsOrEmpty(player.getEnderChest().getContents()),
                 LocationDescriptor.Type.PLAYER_ENDER_CHEST,
                 key,
                 SLOT_PREFIX,
@@ -170,7 +172,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         collector.collectArray(
-                inventory.getContents(),
+                contentsOrEmpty(inventory.getContents()),
                 target.type(),
                 target.key(),
                 SLOT_PREFIX,
@@ -199,6 +201,10 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                             mode,
                             source)));
         });
+    }
+
+    private static ItemStack[] contentsOrEmpty(ItemStack[] contents) {
+        return contents == null ? EMPTY_CONTENTS : contents;
     }
 
     private void scheduleNextTick(Runnable action) {
