@@ -46,6 +46,19 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
     }
 
     @Test
+    void rejectsOffsetPagingBeforeCallingStorage() {
+        CapturingStore store = new CapturingStore();
+        PersistingTemplateRevisionRolloutUseCase useCase = new PersistingTemplateRevisionRolloutUseCase(
+                store,
+                Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> useCase.listIncomplete(new PageRequest(10, 10)));
+        assertEquals(0, store.listCalls);
+    }
+
+    @Test
     void validatesContinuationLimitsBeforeCallingStorage() {
         CapturingStore store = new CapturingStore();
         PersistingTemplateRevisionRolloutUseCase useCase = new PersistingTemplateRevisionRolloutUseCase(
@@ -66,6 +79,7 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
         private AuditEventRecord audit;
         private int initialBatchLimit;
         private int continuationCalls;
+        private int listCalls;
 
         @Override
         public CompletionStage<TemplateRevisionStartResult> start(
@@ -95,6 +109,7 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
         @Override
         public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
                 PageRequest request) {
+            listCalls++;
             return CompletableFuture.completedFuture(
                     new Page<>(List.of(), request.offset(), request.limit(), false));
         }

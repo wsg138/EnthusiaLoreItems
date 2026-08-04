@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLitePendingMutationRepositoryTest {
+    private static final long LARGE_REVISION = (long) Integer.MAX_VALUE + 10L;
+
     @TempDir
     Path temporaryDirectory;
 
@@ -29,6 +31,24 @@ class SQLitePendingMutationRepositoryTest {
             UUID dueId = seedPendingMutations(repository);
             assertClaimSelection(repository, dueId);
             assertClaimFencing(repository, dueId);
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void preservesDesiredRevisionsAboveTheIntegerRange() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("long-revision.db"));
+        try {
+            SQLitePendingMutationRepository repository =
+                    new SQLitePendingMutationRepository(runtime);
+            repository.insert(pendingWithDesiredRevision(UUID.randomUUID(), LARGE_REVISION, 1_000L))
+                    .toCompletableFuture().join();
+
+            PendingMutationRecord restored = repository.listNonTerminal(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+
+            assertEquals(LARGE_REVISION, restored.desiredRevision());
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -131,6 +151,23 @@ class SQLitePendingMutationRepositoryTest {
                 null,
                 0,
                 nextAttemptAt,
+                createdAt,
+                createdAt);
+    }
+
+    private static PendingMutationRecord pendingWithDesiredRevision(
+            UUID mutationId, long desiredRevision, long createdAt) {
+        return new PendingMutationRecord(
+                mutationId,
+                "TEMPLATE_UPDATE",
+                null,
+                null,
+                desiredRevision,
+                PendingMutationState.PENDING,
+                null,
+                null,
+                0,
+                null,
                 createdAt,
                 createdAt);
     }

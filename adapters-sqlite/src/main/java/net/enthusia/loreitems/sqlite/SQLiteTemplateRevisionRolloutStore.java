@@ -80,6 +80,7 @@ public final class SQLiteTemplateRevisionRolloutStore
     public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
             PageRequest request) {
         Objects.requireNonNull(request, "request");
+        requireFirstPage(request);
         return storage.execute(connection -> listIncomplete(connection, request));
     }
 
@@ -318,9 +319,8 @@ public final class SQLiteTemplateRevisionRolloutStore
                         + "WHERE instance_row.definition_id = definition_row.definition_id "
                         + "AND instance_row.lifecycle_state = 'ACTIVE' "
                         + "AND instance_row.desired_revision < definition_row.current_revision) "
-                        + "ORDER BY lookup_key, definition_id LIMIT ? OFFSET ?")) {
+                        + "ORDER BY lookup_key, definition_id LIMIT ?")) {
             statement.setInt(1, request.limit() + 1);
-            statement.setInt(2, request.offset());
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
                     candidates.add(readRolloutCandidate(resultSet));
@@ -380,6 +380,13 @@ public final class SQLiteTemplateRevisionRolloutStore
         if (auditEvent.occurredAtEpochMillis() != newRevision.createdAtEpochMillis()) {
             throw new IllegalArgumentException(
                     "Revision and audit timestamps must match");
+        }
+    }
+
+    private static void requireFirstPage(PageRequest request) {
+        if (request.offset() != 0) {
+            throw new IllegalArgumentException(
+                    "Incomplete rollouts must be polled from the first page");
         }
     }
 

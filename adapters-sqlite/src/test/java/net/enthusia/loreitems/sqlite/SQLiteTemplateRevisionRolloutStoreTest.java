@@ -54,6 +54,23 @@ class SQLiteTemplateRevisionRolloutStoreTest {
     }
 
     @Test
+    void rejectsOffsetPagingOverTheShrinkingIncompleteSet() {
+        Path database = temporaryDirectory.resolve("offset.db");
+        seed(database, 1);
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            SQLiteTemplateRevisionRolloutStore store =
+                    new SQLiteTemplateRevisionRolloutStore(runtime);
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> store.listIncomplete(new PageRequest(1, 10)));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void rollsBackRevisionInstancesMutationsAndAuditWhenBatchInsertionFails() {
         Path database = temporaryDirectory.resolve("rollback.db");
         Scenario scenario = seed(database, 2);

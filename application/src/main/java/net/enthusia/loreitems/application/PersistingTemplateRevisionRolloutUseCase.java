@@ -59,7 +59,16 @@ public final class PersistingTemplateRevisionRolloutUseCase
     @Override
     public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
             PageRequest request) {
-        return store.listIncomplete(Objects.requireNonNull(request, "request"));
+        Objects.requireNonNull(request, "request");
+        requireFirstPage(request);
+        return store.listIncomplete(request);
+    }
+
+    private static void requireFirstPage(PageRequest request) {
+        if (request.offset() != 0) {
+            throw new IllegalArgumentException(
+                    "Incomplete rollouts must be polled from the first page");
+        }
     }
 
     private static void requireBoundedLimit(int limit) {
