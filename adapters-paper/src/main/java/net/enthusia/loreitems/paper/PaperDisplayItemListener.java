@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -38,11 +39,15 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+// Pending work and queue limits are compound state guarded by workLock; replacing only the map with
+// a concurrent map would not make those transitions atomic.
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private static final int MIN_CAPACITY = 1;
     private static final int PENDING_CAPACITY_MULTIPLIER = 4;
     private static final int MAX_IDENTITIES_PER_WORK = 16;
     private static final String ITEM_FRAME_PATH = "item";
+    private static final String SLOT_PREFIX = "slot:";
     private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
         EquipmentSlot.HAND,
         EquipmentSlot.OFF_HAND,
@@ -168,27 +173,8 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 locationKey(display),
                 containerPath,
                 source);
-        synchronized (workLock) {
-            if (closed) {
-                return;
-            }
-            Set<LoreItemIdentity> existing = pending.get(key);
-            if (existing != null) {
-                if (!addBounded(existing, identities)) {
-                    logCandidateOverflow();
-                }
-                return;
-            }
-            if (pending.size() >= currentMaxPending()) {
-                plugin.getLogger().warning(
-                        "Display-item observation backlog is full; current durable evidence was preserved.");
-                return;
-            }
-            Set<LoreItemIdentity> candidates = new HashSet<>();
-            if (!addBounded(candidates, identities)) {
-                logCandidateOverflow();
-            }
-            pending.put(key, candidates);
+        if (!enqueueCandidates(key, identities)) {
+            return;
         }
         try {
             plugin.getServer().getScheduler().runTask(
@@ -205,6 +191,37 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         }
     }
 
+    private boolean enqueueCandidates(
+            WorkKey key,
+            List<LoreItemIdentity> identities) {
+        synchronized (workLock) {
+            if (closed) {
+                return false;
+            }
+            Set<LoreItemIdentity> existing = pending.get(key);
+            if (existing != null) {
+                if (!addBounded(existing, identities)) {
+                    logCandidateOverflow();
+                }
+                return false;
+            }
+            if (pending.size() >= currentMaxPending()) {
+                plugin.getLogger().warning(
+                        "Display-item observation backlog is full; current durable evidence was preserved.");
+                return false;
+            }
+            Set<LoreItemIdentity> candidates = new HashSet<>();
+            if (!addBounded(candidates, identities)) {
+                logCandidateOverflow();
+            }
+            pending.put(key, candidates);
+            return true;
+        }
+    }
+
+    // Every bounded candidate represents distinct immutable evidence and therefore requires its own
+    // request and location value; reusing one mutable object would corrupt asynchronous evidence.
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private void reconcile(WorkKey key) {
         Set<LoreItemIdentity> candidates;
         synchronized (workLock) {
@@ -289,8 +306,11 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         }
         submitting.set(Boolean.TRUE);
         try {
-            DisplayItemObservationUseCase.Request next;
-            while ((next = trampoline.pollFirst()) != null) {
+            while (true) {
+                DisplayItemObservationUseCase.Request next = trampoline.pollFirst();
+                if (next == null) {
+                    break;
+                }
                 startSubmission(next);
             }
         } finally {
@@ -329,19 +349,17 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     }
 
     private void finishSubmission() {
-        DisplayItemObservationUseCase.Request next = null;
+        Optional<DisplayItemObservationUseCase.Request> next = Optional.empty();
         synchronized (workLock) {
             inFlight--;
             if (!closed
                     && !queued.isEmpty()
                     && inFlight < currentMaxInFlight()) {
-                next = queued.remove();
+                next = Optional.of(queued.remove());
                 inFlight++;
             }
         }
-        if (next != null) {
-            dispatchSubmission(next);
-        }
+        next.ifPresent(this::dispatchSubmission);
     }
 
     private static boolean addBounded(
@@ -416,12 +434,12 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     }
 
     private static String slotPath(EquipmentSlot slot) {
-        return "slot:" + slot.name().toLowerCase(Locale.ROOT);
+        return SLOT_PREFIX + slot.name().toLowerCase(Locale.ROOT);
     }
 
     private static EquipmentSlot slotFromPath(String path) {
         return EquipmentSlot.valueOf(
-                path.substring("slot:".length()).toUpperCase(Locale.ROOT));
+                path.substring(SLOT_PREFIX.length()).toUpperCase(Locale.ROOT));
     }
 
     @Override
