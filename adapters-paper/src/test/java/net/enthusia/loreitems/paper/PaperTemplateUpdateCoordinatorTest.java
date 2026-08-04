@@ -69,19 +69,8 @@ class PaperTemplateUpdateCoordinatorTest {
         player.getInventory().setItem(0, original);
         PreparedTemplateUpdate update = preparedUpdate();
         RecordingUseCase useCase = new RecordingUseCase(update);
-        coordinator = new PaperTemplateUpdateCoordinator(
-                plugin,
-                useCase,
-                new PaperTemplateUpdateOperator(),
-                1,
-                Clock.fixed(Instant.ofEpochMilli(CLAIM_EXPIRY), ZoneOffset.UTC));
-        PaperTemplateUpdateScanner.Candidate candidate =
-                new PaperTemplateUpdateScanner.Candidate(
-                        observedIdentity(),
-                        PaperTemplateUpdateItemReference.root(
-                                new PaperInventoryReference.PlayerMain(
-                                        player.getUniqueId()),
-                                0));
+        coordinator = coordinator(useCase);
+        PaperTemplateUpdateScanner.Candidate candidate = candidate();
 
         assertTrue(coordinator.submit(candidate));
         assertTrue(coordinator.submit(candidate));
@@ -93,6 +82,40 @@ class PaperTemplateUpdateCoordinatorTest {
         assertEquals(0, useCase.releaseCalls);
         assertEquals(0, useCase.completeCalls);
         assertEquals(0, useCase.reviewCalls);
+    }
+
+    @Test
+    void deduplicatesAnInstanceWhilePreparationRemainsInFlight() {
+        RecordingUseCase useCase = new RecordingUseCase(preparedUpdate());
+        CompletableFuture<TemplateUpdatePrepareResult> pending = new CompletableFuture<>();
+        useCase.pendingPreparation = pending;
+        coordinator = coordinator(useCase);
+        PaperTemplateUpdateScanner.Candidate candidate = candidate();
+
+        assertTrue(coordinator.submit(candidate));
+        assertTrue(coordinator.submit(candidate));
+        assertEquals(1, useCase.prepareCalls);
+
+        pending.complete(TemplateUpdatePrepareResult.prepared(preparedUpdate()));
+        assertTrue(coordinator.submit(candidate));
+        assertEquals(2, useCase.prepareCalls);
+    }
+
+    private PaperTemplateUpdateCoordinator coordinator(RecordingUseCase useCase) {
+        return new PaperTemplateUpdateCoordinator(
+                plugin,
+                useCase,
+                new PaperTemplateUpdateOperator(),
+                1,
+                Clock.fixed(Instant.ofEpochMilli(CLAIM_EXPIRY), ZoneOffset.UTC));
+    }
+
+    private PaperTemplateUpdateScanner.Candidate candidate() {
+        return new PaperTemplateUpdateScanner.Candidate(
+                observedIdentity(),
+                PaperTemplateUpdateItemReference.root(
+                        new PaperInventoryReference.PlayerMain(player.getUniqueId()),
+                        0));
     }
 
     private PreparedTemplateUpdate preparedUpdate() {
@@ -131,6 +154,7 @@ class PaperTemplateUpdateCoordinatorTest {
     private static final class RecordingUseCase
             implements TemplateUpdateExecutionUseCase {
         private final PreparedTemplateUpdate update;
+        private CompletableFuture<TemplateUpdatePrepareResult> pendingPreparation;
         private int prepareCalls;
         private int releaseCalls;
         private int completeCalls;
@@ -144,6 +168,11 @@ class PaperTemplateUpdateCoordinatorTest {
         public CompletionStage<TemplateUpdatePrepareResult> prepare(
                 LoreItemIdentity observedIdentity) {
             prepareCalls++;
+            if (pendingPreparation != null) {
+                CompletableFuture<TemplateUpdatePrepareResult> pending = pendingPreparation;
+                pendingPreparation = null;
+                return pending;
+            }
             return CompletableFuture.completedFuture(
                     TemplateUpdatePrepareResult.prepared(update));
         }
