@@ -1,7 +1,13 @@
+import com.github.spotbugs.snom.Confidence
+import com.github.spotbugs.snom.Effort
+import com.github.spotbugs.snom.SpotBugsExtension
+import com.github.spotbugs.snom.SpotBugsTask
+
 plugins {
     base
     jacoco
     id("com.gradleup.shadow") version "8.3.6" apply false
+    id("com.github.spotbugs") version "6.0.10" apply false
 }
 
 group = "net.enthusia.loreitems"
@@ -15,10 +21,25 @@ allprojects {
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "jacoco")
+    apply(plugin = "com.github.spotbugs")
 
     extensions.configure<JavaPluginExtension> {
         toolchain.languageVersion.set(JavaLanguageVersion.of(21))
         withSourcesJar()
+    }
+
+    extensions.configure<SpotBugsExtension> {
+        ignoreFailures = true
+        showProgress = true
+        effort = Effort.MAX
+        reportLevel = Confidence.LOW
+        toolVersion = "4.8.4"
+    }
+
+    tasks.withType<SpotBugsTask>().configureEach {
+        if (name == "spotbugsTest") {
+            enabled = false
+        }
     }
 
     tasks.withType<JavaCompile>().configureEach {
