@@ -1,7 +1,9 @@
 package net.enthusia.loreitems.paper;
 
+import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -14,7 +16,9 @@ import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Location;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -23,7 +27,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -34,6 +40,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperUniqueAccessTrackingListener implements Listener, AutoCloseable {
     private static final int UNIQUE_LOCATION_COUNT = 1;
     private static final int MAX_ITEMS_PER_SCAN = 256;
+    private static final String ITEM_FRAME_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
     private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
@@ -104,9 +111,96 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemFrameChange(PlayerItemFrameChangeEvent event) {
+        scheduleDisplayAccess(
+                event.getPlayer().getUniqueId(),
+                event.getItemFrame().getUniqueId(),
+                LocationDescriptor.Type.ITEM_FRAME,
+                ITEM_FRAME_PATH,
+                null,
+                "item-frame-change-unique");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onArmorStandManipulate(PlayerArmorStandManipulateEvent event) {
+        EquipmentSlot slot = event.getSlot();
+        scheduleDisplayAccess(
+                event.getPlayer().getUniqueId(),
+                event.getRightClicked().getUniqueId(),
+                LocationDescriptor.Type.ARMOR_STAND,
+                slotPath(slot),
+                slot,
+                "armor-stand-manipulate-unique");
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
         submitPlayer(event.getPlayer(), true, "player-quit-unique");
+    }
+
+    private void scheduleDisplayAccess(
+            UUID playerId,
+            UUID displayId,
+            LocationDescriptor.Type type,
+            String path,
+            EquipmentSlot slot,
+            String source) {
+        scheduleNextTick(() -> submitDisplayAccess(
+                playerId, displayId, type, path, slot, source));
+    }
+
+    private void submitDisplayAccess(
+            UUID playerId,
+            UUID displayId,
+            LocationDescriptor.Type type,
+            String path,
+            EquipmentSlot slot,
+            String source) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        Entity display = plugin.getServer().getEntity(displayId);
+        ItemStack item = displayItem(display, type, slot);
+        if (player == null) {
+            submitDisplay(item, display, type, path, source);
+            return;
+        }
+        if (display == null) {
+            submitPlayer(player, false, source);
+            return;
+        }
+        submitPlayerAndDisplay(
+                player,
+                item,
+                PaperDisplayEntityScanner.location(display, type, path),
+                source);
+    }
+
+    private void submitDisplay(
+            ItemStack item,
+            Entity display,
+            LocationDescriptor.Type type,
+            String path,
+            String source) {
+        if (display == null) {
+            return;
+        }
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        collectItem(item, PaperDisplayEntityScanner.location(display, type, path), observations, limit);
+        submitUnique(observations, false, source);
+    }
+
+    private static ItemStack displayItem(
+            Entity display, LocationDescriptor.Type type, EquipmentSlot slot) {
+        if (type == LocationDescriptor.Type.ITEM_FRAME && display instanceof ItemFrame frame) {
+            return frame.getItem();
+        }
+        if (type == LocationDescriptor.Type.ARMOR_STAND
+                && display instanceof ArmorStand stand
+                && slot != null) {
+            return stand.getEquipment().getItem(slot);
+        }
+        return null;
     }
 
     private void submitAccess(
@@ -161,6 +255,33 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                     limit);
         }
         submitUnique(observations, false, source);
+    }
+
+    void submitPlayerAndDisplay(
+            Player player,
+            ItemStack item,
+            LocationDescriptor location,
+            String source) {
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        collectPlayer(player, observations, limit);
+        collectItem(item, location, observations, limit);
+        submitUnique(observations, false, source);
+    }
+
+    private void collectItem(
+            ItemStack item,
+            LocationDescriptor location,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
+            PaperScanLimit limit) {
+        collector.collectItem(
+                item,
+                location.type(),
+                location.locationKey(),
+                location.containerPath(),
+                observations,
+                0,
+                limit);
     }
 
     private void collectPlayer(
@@ -254,6 +375,10 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         return playerKey.equals(key)
                 && (type == LocationDescriptor.Type.PLAYER_INVENTORY
                         || type == LocationDescriptor.Type.PLAYER_ENDER_CHEST);
+    }
+
+    private static String slotPath(EquipmentSlot slot) {
+        return SLOT_PREFIX + slot.name().toLowerCase(Locale.ROOT);
     }
 
     private static ItemStack[] contentsOrEmpty(ItemStack[] contents) {
