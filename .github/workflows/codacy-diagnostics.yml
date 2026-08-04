@@ -15,7 +15,7 @@ jobs:
       - name: Print exact-head Codacy checks and annotations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ebee6166290aac96b7f1d52a9aaee7fcbc15b382
+          TARGET_SHA: 84ef294e313c1f8135c1f930f50676e9a0c47791
         run: |
           set -euo pipefail
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
@@ -24,13 +24,6 @@ jobs:
           echo "$checks" | jq '{total_count, check_runs: [.check_runs[] | {id, name, status, conclusion, started_at, completed_at, output}]}'
           echo "$checks" | jq -r '.check_runs[] | select(.name | ascii_downcase | contains("codacy")) | .id' | while read -r check_id; do
             [ -n "$check_id" ] || continue
-            page=1
-            while :; do
-              annotations="$(curl -fsSL "${headers[@]}" "${api}/check-runs/${check_id}/annotations?per_page=100&page=${page}")"
-              count="$(echo "$annotations" | jq 'length')"
-              echo "Codacy annotations page ${page} (${count})"
-              echo "$annotations" | jq '.'
-              [ "$count" -lt 100 ] && break
-              page=$((page + 1))
-            done
+            annotations="$(curl -fsSL "${headers[@]}" "${api}/check-runs/${check_id}/annotations?per_page=100")"
+            echo "$annotations" | jq '[.[] | {path, start_line, message}]'
           done
