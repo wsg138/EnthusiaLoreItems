@@ -30,7 +30,7 @@ public enum PendingMutationState {
     private Set<PendingMutationState> allowedTargets() {
         return switch (this) {
             case PENDING -> EnumSet.of(CLAIMED, REVIEW_REQUIRED);
-            case CLAIMED -> EnumSet.of(PENDING, APPLIED, REVIEW_REQUIRED);
+            case CLAIMED -> EnumSet.of(APPLIED, REVIEW_REQUIRED);
             case APPLIED -> EnumSet.of(VERIFIED, REVIEW_REQUIRED);
             case VERIFIED -> EnumSet.of(COMPLETED, REVIEW_REQUIRED);
             case REVIEW_REQUIRED -> EnumSet.of(PENDING, CANCELLED);

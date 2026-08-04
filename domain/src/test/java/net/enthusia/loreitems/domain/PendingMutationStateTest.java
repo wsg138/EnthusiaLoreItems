@@ -38,14 +38,4 @@ class PendingMutationStateTest {
         assertFalse(reviewed.terminal());
         assertTrue(PendingMutationState.CANCELLED.terminal());
     }
-
-    @Test
-    void anUnappliedClaimCanBeReleasedWithoutSkippingThePhysicalProtocol() {
-        assertEquals(
-                PendingMutationState.PENDING,
-                PendingMutationState.CLAIMED.transitionTo(PendingMutationState.PENDING));
-        assertThrows(
-                IllegalStateException.class,
-                () -> PendingMutationState.APPLIED.transitionTo(PendingMutationState.PENDING));
-    }
 }
