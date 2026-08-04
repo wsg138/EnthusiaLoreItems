@@ -17,6 +17,9 @@ import net.enthusia.loreitems.domain.PendingMutationState;
 public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateExecutionStore {
     private static final int SINGLE_UPDATED_ROW = 1;
     private static final long MIN_LEASE_MILLIS = 1L;
+    private static final String NOW_PARAMETER = "now";
+    private static final String TEMPLATE_UPDATE_MUTATION_FENCE =
+            "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' ";
 
     private final SQLiteStorageRuntime storage;
 
@@ -32,7 +35,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
             Duration lease) {
         Objects.requireNonNull(observedIdentity, "observedIdentity");
         String normalizedToken = normalizeClaimToken(claimToken);
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         Objects.requireNonNull(lease, "lease");
         long leaseMillis = lease.toMillis();
         if (leaseMillis < MIN_LEASE_MILLIS) {
@@ -55,7 +58,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
             Instant now) {
         Objects.requireNonNull(update, "update");
         String normalizedReason = normalizeReason(reason);
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> releaseInTransaction(
@@ -71,7 +74,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         Objects.requireNonNull(update, "update");
         String normalizedBefore = normalizeFingerprint(beforeFingerprint, "beforeFingerprint");
         String normalizedAfter = normalizeFingerprint(afterFingerprint, "afterFingerprint");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> completeInTransaction(
@@ -95,7 +98,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
                 beforeFingerprint, "beforeFingerprint");
         String normalizedAfter = normalizeOptionalFingerprint(
                 afterFingerprint, "afterFingerprint");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> requireReviewInTransaction(
@@ -118,7 +121,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE pending_mutations SET state = 'PENDING', claim_token = NULL, "
                         + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
+                        + TEMPLATE_UPDATE_MUTATION_FENCE
                         + "AND state = 'CLAIMED' AND claim_token = ? "
                         + "AND claim_expires_at > ?")) {
             statement.setLong(1, now);
@@ -179,7 +182,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE pending_mutations SET state = 'REVIEW_REQUIRED', "
                         + "claim_token = NULL, claim_expires_at = NULL, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
+                        + TEMPLATE_UPDATE_MUTATION_FENCE
                         + "AND state = 'CLAIMED' AND claim_token = ? "
                         + "AND claim_expires_at > ?")) {
             statement.setLong(1, now);
@@ -281,7 +284,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         expected.transitionTo(target);
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE pending_mutations SET state = ?, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
+                        + TEMPLATE_UPDATE_MUTATION_FENCE
                         + "AND state = ? AND claim_token = ? AND claim_expires_at > ?")) {
             bindMutationTransition(statement, update, expected, target, now);
             requireSingleUpdate(statement, "Template-update mutation state fence was lost");
@@ -298,7 +301,7 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
                         + "claim_expires_at = NULL, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
+                        + TEMPLATE_UPDATE_MUTATION_FENCE
                         + "AND state = ? AND claim_token = ? AND claim_expires_at > ?")) {
             bindMutationTransition(statement, update, expected, target, now);
             requireSingleUpdate(statement, "Template-update mutation state fence was lost");

@@ -29,6 +29,7 @@ import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperTemplateUpdateOperatorTest {
+    private static final String NEW_BLADE = "New Blade";
     private static final LoreDefinitionId DEFINITION_ID = new LoreDefinitionId(
             UUID.fromString("11111111-1111-1111-1111-111111111111"));
     private static final LoreInstanceId INSTANCE_ID = new LoreInstanceId(
@@ -61,7 +62,7 @@ class PaperTemplateUpdateOperatorTest {
     void replacesVisibleTemplateWhilePreservingTheHiddenInstanceIdentity() {
         ItemStack original = tracked(named(Material.DIAMOND_SWORD, "Old Blade"), REVISION_ONE);
         player.getInventory().setItem(0, original);
-        PreparedTemplateUpdate update = prepared(named(Material.DIAMOND_SWORD, "New Blade"));
+        PreparedTemplateUpdate update = prepared(named(Material.DIAMOND_SWORD, NEW_BLADE));
 
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
                 plugin,
@@ -71,7 +72,7 @@ class PaperTemplateUpdateOperatorTest {
 
         assertEquals(PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED, result.status());
         ItemStack stored = Objects.requireNonNull(player.getInventory().getItem(0));
-        assertEquals(Component.text("New Blade"), stored.getItemMeta().displayName());
+        assertEquals(Component.text(NEW_BLADE), stored.getItemMeta().displayName());
         assertEquals(targetIdentity(), trackedIdentity(stored));
         assertEquals(64, result.beforeFingerprint().length());
         assertEquals(64, result.afterFingerprint().length());
@@ -79,14 +80,14 @@ class PaperTemplateUpdateOperatorTest {
 
     @Test
     void verifiesAnAlreadyAppliedTargetDuringCrashRecovery() {
-        ItemStack target = tracked(named(Material.DIAMOND_SWORD, "New Blade"), REVISION_TWO);
+        ItemStack target = tracked(named(Material.DIAMOND_SWORD, NEW_BLADE), REVISION_TWO);
         player.getInventory().setItem(0, target);
 
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
                 plugin,
                 PaperTemplateUpdateItemReference.root(
                         new PaperInventoryReference.PlayerMain(player.getUniqueId()), 0),
-                prepared(named(Material.DIAMOND_SWORD, "New Blade")));
+                prepared(named(Material.DIAMOND_SWORD, NEW_BLADE)));
 
         assertEquals(
                 PaperTemplateUpdateOperator.ApplyResult.Status.ALREADY_APPLIED,
@@ -109,7 +110,7 @@ class PaperTemplateUpdateOperatorTest {
                 plugin,
                 PaperTemplateUpdateItemReference.root(
                         new PaperInventoryReference.PlayerMain(player.getUniqueId()), 0),
-                prepared(named(Material.DIAMOND_SWORD, "New Blade")));
+                prepared(named(Material.DIAMOND_SWORD, NEW_BLADE)));
 
         assertEquals(
                 PaperTemplateUpdateOperator.ApplyResult.Status.REVIEW_REQUIRED,
@@ -135,7 +136,7 @@ class PaperTemplateUpdateOperatorTest {
                 .nested(PaperTemplateUpdateItemReference.NestedStep.shulker(3));
 
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
-                plugin, reference, prepared(named(Material.DIAMOND_SWORD, "New Blade")));
+                plugin, reference, prepared(named(Material.DIAMOND_SWORD, NEW_BLADE)));
 
         assertEquals(PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED, result.status());
         ItemStack storedParent = Objects.requireNonNull(player.getInventory().getItem(0));
@@ -145,7 +146,7 @@ class PaperTemplateUpdateOperatorTest {
                 ShulkerBox.class, storedMeta.getBlockState());
         ItemStack storedLoreItem = Objects.requireNonNull(
                 storedShulker.getInventory().getItem(3));
-        assertEquals(Component.text("New Blade"), storedLoreItem.getItemMeta().displayName());
+        assertEquals(Component.text(NEW_BLADE), storedLoreItem.getItemMeta().displayName());
         assertEquals(targetIdentity(), trackedIdentity(storedLoreItem));
         assertEquals(7, Objects.requireNonNull(
                 storedShulker.getInventory().getItem(4)).getAmount());
@@ -198,7 +199,7 @@ class PaperTemplateUpdateOperatorTest {
                 .nested(PaperTemplateUpdateItemReference.NestedStep.bundle(1));
 
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
-                plugin, reference, prepared(named(Material.IRON_SWORD, "New Blade")));
+                plugin, reference, prepared(named(Material.IRON_SWORD, NEW_BLADE)));
 
         assertEquals(
                 PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED,
@@ -209,7 +210,7 @@ class PaperTemplateUpdateOperatorTest {
                 Objects.requireNonNull(player.getInventory().getItem(0)).getItemMeta());
         assertEquals(Material.GOLD_INGOT, storedMeta.getItems().getFirst().getType());
         ItemStack storedLoreItem = storedMeta.getItems().get(1);
-        assertEquals(Component.text("New Blade"), storedLoreItem.getItemMeta().displayName());
+        assertEquals(Component.text(NEW_BLADE), storedLoreItem.getItemMeta().displayName());
         assertEquals(targetIdentity(), trackedIdentity(storedLoreItem));
     }
 

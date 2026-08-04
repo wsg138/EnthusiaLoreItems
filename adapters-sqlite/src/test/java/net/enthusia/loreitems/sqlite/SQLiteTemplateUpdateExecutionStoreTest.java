@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteTemplateUpdateExecutionStoreTest {
+    private static final String WORKER_A = "worker-a";
     private static final TemplateRevision REVISION_ONE = new TemplateRevision(1L);
     private static final TemplateRevision REVISION_TWO = new TemplateRevision(2L);
     private static final Instant CLAIM_TIME = Instant.ofEpochMilli(5_000L);
@@ -45,7 +46,7 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             Scenario scenario = seedRollout(runtime);
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            PreparedTemplateUpdate first = prepare(repository, scenario, "worker-a");
+            PreparedTemplateUpdate first = prepare(repository, scenario, WORKER_A);
 
             assertTrue(repository.releaseTemplateUpdate(
                             first,
@@ -87,7 +88,7 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             Scenario scenario = seedRollout(runtime);
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            PreparedTemplateUpdate update = prepare(repository, scenario, "worker-a");
+            PreparedTemplateUpdate update = prepare(repository, scenario, WORKER_A);
             setAppliedRevision(runtime, scenario, REVISION_TWO);
 
             assertTrue(repository.completeTemplateUpdate(
@@ -113,7 +114,7 @@ class SQLiteTemplateUpdateExecutionStoreTest {
 
             TemplateUpdatePrepareResult result = repository.prepareTemplateUpdate(
                             scenario.identity(new TemplateRevision(3L)),
-                            "worker-a",
+                            WORKER_A,
                             CLAIM_TIME,
                             LEASE)
                     .toCompletableFuture().join();
@@ -133,7 +134,7 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             Scenario scenario = seedRollout(runtime);
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            PreparedTemplateUpdate update = prepare(repository, scenario, "worker-a");
+            PreparedTemplateUpdate update = prepare(repository, scenario, WORKER_A);
             installAuditFailureTrigger(runtime);
 
             assertThrows(

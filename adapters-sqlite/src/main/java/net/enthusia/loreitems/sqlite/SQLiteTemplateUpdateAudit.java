@@ -9,6 +9,7 @@ import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 
 final class SQLiteTemplateUpdateAudit {
+    private static final int FIRST_CONTROL_CHARACTER = 0x20;
     private static final String MUTATION_AGGREGATE = "pending_mutation";
     private static final String INSTANCE_AGGREGATE = "lore_instance";
     private static final String SYSTEM_ACTOR = "system";
@@ -164,7 +165,7 @@ final class SQLiteTemplateUpdateAudit {
     }
 
     private static void appendLiteralOrControl(StringBuilder escaped, char character) {
-        if (character < 0x20) {
+        if (character < FIRST_CONTROL_CHARACTER) {
             escaped.append("\\u")
                     .append(Character.forDigit((character >>> 12) & 0xF, 16))
                     .append(Character.forDigit((character >>> 8) & 0xF, 16))

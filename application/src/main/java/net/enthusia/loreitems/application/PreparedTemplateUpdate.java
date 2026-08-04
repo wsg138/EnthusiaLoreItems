@@ -11,6 +11,7 @@ public record PreparedTemplateUpdate(
         EncodedItemTemplate targetTemplate,
         long claimExpiresAtEpochMillis) {
     public static final int MAX_CLAIM_TOKEN_LENGTH = 200;
+    private static final long MIN_CLAIM_EXPIRY_EPOCH_MILLIS = 0L;
 
     public PreparedTemplateUpdate {
         Objects.requireNonNull(mutationId, "mutationId");
@@ -30,7 +31,7 @@ public record PreparedTemplateUpdate(
                 < observedIdentity.appliedRevision().value()) {
             throw new IllegalArgumentException("Target revision must not precede the observed revision");
         }
-        if (claimExpiresAtEpochMillis < 0L) {
+        if (claimExpiresAtEpochMillis < MIN_CLAIM_EXPIRY_EPOCH_MILLIS) {
             throw new IllegalArgumentException("Claim expiry must not be negative");
         }
     }

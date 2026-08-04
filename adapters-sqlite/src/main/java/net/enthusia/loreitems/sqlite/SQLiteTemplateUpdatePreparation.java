@@ -14,6 +14,8 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 
 final class SQLiteTemplateUpdatePreparation {
     private static final int SINGLE_UPDATED_ROW = 1;
+    private static final long SINGLE_NON_TERMINAL_MUTATION = 1L;
+    private static final String ACTIVE_LIFECYCLE = "ACTIVE";
 
     private SQLiteTemplateUpdatePreparation() {
     }
@@ -108,10 +110,10 @@ final class SQLiteTemplateUpdatePreparation {
             Candidate candidate,
             LoreItemIdentity observedIdentity) {
         long observedRevision = observedIdentity.appliedRevision().value();
-        if (candidate.nonTerminalMutationCount() > 1L) {
+        if (candidate.nonTerminalMutationCount() > SINGLE_NON_TERMINAL_MUTATION) {
             return "Multiple nonterminal template-update mutations exist for one instance.";
         }
-        if (!"ACTIVE".equals(candidate.lifecycleState())) {
+        if (!ACTIVE_LIFECYCLE.equals(candidate.lifecycleState())) {
             return "Template-update work targeted a non-active lore instance.";
         }
         if (candidate.mutationDesiredRevision() != candidate.instanceDesiredRevision()) {
@@ -190,7 +192,7 @@ final class SQLiteTemplateUpdatePreparation {
             Objects.requireNonNull(mutationId, "mutationId");
             Objects.requireNonNull(lifecycleState, "lifecycleState");
             Objects.requireNonNull(templateBlob, "templateBlob");
-            if (nonTerminalMutationCount < 1L) {
+            if (nonTerminalMutationCount < SINGLE_NON_TERMINAL_MUTATION) {
                 throw new IllegalArgumentException(
                         "A selected mutation must count as nonterminal");
             }
