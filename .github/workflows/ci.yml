@@ -33,10 +33,14 @@ jobs:
         run: gradle --no-daemon clean check
       - name: Verify new-code complexity
         if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          git diff --name-only --diff-filter=ACMR "${BASE_SHA}...HEAD" -- '*.java' > .lizard-files
+          git worktree add --detach .lizard-base "${BASE_SHA}"
           python3 -m venv .lizard-venv
           .lizard-venv/bin/pip install --disable-pip-version-check lizard==1.23.0
-          .lizard-venv/bin/python tools/check_lizard.py "${{ github.event.pull_request.base.sha }}"
+          .lizard-venv/bin/python tools/check_lizard.py .lizard-base .lizard-files
       - name: Verify exact-head Codacy
         if: github.event_name == 'pull_request'
         env:

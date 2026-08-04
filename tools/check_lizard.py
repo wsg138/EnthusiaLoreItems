@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import lizard
+import lizard  # pyright: ignore[reportMissingImports]
 
 METHOD_NLOC_LIMIT = 50
 METHOD_CCN_LIMIT = 10
@@ -27,52 +25,16 @@ class Violation:
     subject: str
 
 
-def git(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *arguments],
-        check=check,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def listed_files(manifest: Path) -> list[str]:
+    return [
+        line.strip()
+        for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
-def changed_java_files(base_sha: str) -> list[str]:
-    result = git(
-        "diff",
-        "--name-only",
-        "--diff-filter=ACMR",
-        f"{base_sha}...HEAD",
-        "--",
-        "*.java",
-    )
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def base_source(base_sha: str, path: str) -> str | None:
-    result = git("show", f"{base_sha}:{path}", check=False)
-    return result.stdout if result.returncode == 0 else None
-
-
-def analyze_source(source: str, display_path: str):
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        suffix=".java",
-        delete=False,
-    ) as temporary:
-        temporary.write(source)
-        temporary_path = Path(temporary.name)
-    try:
-        analysis = lizard.analyze_file(str(temporary_path))
-        analysis.filename = display_path
-        return analysis
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def analyze_path(path: str):
-    return lizard.analyze_file(path)
+def analyze_path(path: Path):
+    return lizard.analyze_file(str(path))
 
 
 def violations(analysis) -> dict[tuple[str, str], Violation]:
@@ -120,25 +82,25 @@ def violations(analysis) -> dict[tuple[str, str], Violation]:
     return found
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: check_lizard.py <base-sha>", file=sys.stderr)
-        return 2
-
-    base_sha = sys.argv[1]
+def introduced_violations(
+        base_directory: Path,
+        manifest: Path) -> list[tuple[str, Violation]]:
     introduced: list[tuple[str, Violation]] = []
-    for path in changed_java_files(base_sha):
-        current = violations(analyze_path(path))
-        source = base_source(base_sha, path)
-        baseline = violations(analyze_source(source, path)) if source is not None else {}
+    for relative_path in listed_files(manifest):
+        current_path = Path(relative_path)
+        current = violations(analyze_path(current_path))
+        base_path = base_directory / relative_path
+        baseline = violations(analyze_path(base_path)) if base_path.is_file() else {}
         for key, violation in current.items():
             if key not in baseline:
-                introduced.append((path, violation))
+                introduced.append((relative_path, violation))
+    return introduced
 
+
+def report(introduced: list[tuple[str, Violation]]) -> int:
     if not introduced:
         print("No new Codacy-Lizard threshold violations.")
         return 0
-
     introduced.sort(key=lambda entry: (entry[0], entry[1].line, entry[1].metric))
     print("New Codacy-Lizard threshold violations:", file=sys.stderr)
     for path, violation in introduced:
@@ -148,6 +110,16 @@ def main() -> int:
             file=sys.stderr,
         )
     return 1
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        print(
+            "usage: check_lizard.py <base-directory> <changed-files-manifest>",
+            file=sys.stderr,
+        )
+        return 2
+    return report(introduced_violations(Path(sys.argv[1]), Path(sys.argv[2])))
 
 
 if __name__ == "__main__":
