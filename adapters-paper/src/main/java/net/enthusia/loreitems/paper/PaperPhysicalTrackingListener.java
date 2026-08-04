@@ -49,6 +49,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
     private static final String SLOT_PREFIX = "slot:";
+    private static final Chunk[] EMPTY_CHUNKS = new Chunk[0];
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -63,6 +64,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private BukkitTask seedTask;
     private int worldCursor;
     private int chunkCursor;
+    private UUID seededWorldId;
+    private Chunk[] seededChunks = EMPTY_CHUNKS;
     private boolean scanSaturated;
     private boolean closed;
 
@@ -271,14 +274,12 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         int maximumAttempts = Math.addExact(budget, worlds.size());
         while (enqueued < budget && attempts < maximumAttempts) {
             if (worldCursor >= worlds.size()) {
-                worldCursor = 0;
-                chunkCursor = 0;
+                resetSeedCursor();
             }
             World world = worlds.get(worldCursor);
-            Chunk[] snapshot = world.getLoadedChunks();
+            Chunk[] snapshot = loadedChunkSnapshot(world);
             if (chunkCursor >= snapshot.length) {
-                worldCursor = (worldCursor + 1) % worlds.size();
-                chunkCursor = 0;
+                advanceSeedWorld(worlds.size());
                 attempts++;
                 continue;
             }
@@ -290,6 +291,29 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             enqueued++;
             attempts++;
         }
+    }
+
+    private Chunk[] loadedChunkSnapshot(World world) {
+        UUID worldId = world.getUID();
+        if (!worldId.equals(seededWorldId)) {
+            seededWorldId = worldId;
+            seededChunks = world.getLoadedChunks();
+        }
+        return seededChunks;
+    }
+
+    private void advanceSeedWorld(int worldCount) {
+        worldCursor = (worldCursor + 1) % worldCount;
+        chunkCursor = 0;
+        seededWorldId = null;
+        seededChunks = EMPTY_CHUNKS;
+    }
+
+    private void resetSeedCursor() {
+        worldCursor = 0;
+        chunkCursor = 0;
+        seededWorldId = null;
+        seededChunks = EMPTY_CHUNKS;
     }
 
     private void enqueue(ScanRequest request) {
@@ -454,6 +478,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         scans.clear();
         deathDrops.clear();
+        resetSeedCursor();
         scanSaturated = false;
         coordinator.close();
         HandlerList.unregisterAll(this);
