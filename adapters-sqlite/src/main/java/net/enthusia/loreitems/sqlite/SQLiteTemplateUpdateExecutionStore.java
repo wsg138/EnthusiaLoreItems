@@ -142,30 +142,27 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         if (claimed == null || !claimMatchesPrepared(claimed, update)) {
             return false;
         }
-        advanceMutation(
+        advanceMutationRetainingClaim(
                 connection,
                 update,
                 PendingMutationState.CLAIMED,
                 PendingMutationState.APPLIED,
-                now,
-                false);
+                now);
         advanceInstance(connection, update, claimed);
-        advanceMutation(
+        advanceMutationRetainingClaim(
                 connection,
                 update,
                 PendingMutationState.APPLIED,
                 PendingMutationState.VERIFIED,
-                now,
-                false);
+                now);
         SQLiteTemplateUpdateAudit.appendCompletion(
                 connection, update, beforeFingerprint, afterFingerprint, now);
-        advanceMutation(
+        advanceMutationAndClearClaim(
                 connection,
                 update,
                 PendingMutationState.VERIFIED,
                 PendingMutationState.COMPLETED,
-                now,
-                true);
+                now);
         return true;
     }
 
@@ -275,31 +272,51 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
         }
     }
 
-    private static void advanceMutation(
+    private static void advanceMutationRetainingClaim(
             Connection connection,
             PreparedTemplateUpdate update,
             PendingMutationState expected,
             PendingMutationState target,
-            long now,
-            boolean clearClaim) throws SQLException {
+            long now) throws SQLException {
         expected.transitionTo(target);
-        String sql = clearClaim
-                ? "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
-                        + "claim_expires_at = NULL, updated_at = ? "
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE pending_mutations SET state = ?, updated_at = ? "
                         + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
-                        + "AND state = ? AND claim_token = ? AND claim_expires_at > ?"
-                : "UPDATE pending_mutations SET state = ?, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
-                        + "AND state = ? AND claim_token = ? AND claim_expires_at > ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, target.name());
-            statement.setLong(2, now);
-            statement.setString(3, update.mutationId().toString());
-            statement.setString(4, expected.name());
-            statement.setString(5, update.claimToken());
-            statement.setLong(6, now);
+                        + "AND state = ? AND claim_token = ? AND claim_expires_at > ?")) {
+            bindMutationTransition(statement, update, expected, target, now);
             requireSingleUpdate(statement, "Template-update mutation state fence was lost");
         }
+    }
+
+    private static void advanceMutationAndClearClaim(
+            Connection connection,
+            PreparedTemplateUpdate update,
+            PendingMutationState expected,
+            PendingMutationState target,
+            long now) throws SQLException {
+        expected.transitionTo(target);
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
+                        + "claim_expires_at = NULL, updated_at = ? "
+                        + "WHERE mutation_id = ? AND mutation_type = 'TEMPLATE_UPDATE' "
+                        + "AND state = ? AND claim_token = ? AND claim_expires_at > ?")) {
+            bindMutationTransition(statement, update, expected, target, now);
+            requireSingleUpdate(statement, "Template-update mutation state fence was lost");
+        }
+    }
+
+    private static void bindMutationTransition(
+            PreparedStatement statement,
+            PreparedTemplateUpdate update,
+            PendingMutationState expected,
+            PendingMutationState target,
+            long now) throws SQLException {
+        statement.setString(1, target.name());
+        statement.setLong(2, now);
+        statement.setString(3, update.mutationId().toString());
+        statement.setString(4, expected.name());
+        statement.setString(5, update.claimToken());
+        statement.setLong(6, now);
     }
 
     private static void requireSingleUpdate(PreparedStatement statement, String message)
