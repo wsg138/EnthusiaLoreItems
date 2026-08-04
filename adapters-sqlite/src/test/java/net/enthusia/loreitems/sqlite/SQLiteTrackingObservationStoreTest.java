@@ -135,7 +135,7 @@ class SQLiteTrackingObservationStoreTest {
                         try (var statement = connection.createStatement()) {
                             statement.execute("CREATE TRIGGER fail_tracking_audit "
                                     + "BEFORE INSERT ON audit_events "
-                                    + "WHEN NEW.event_type = 'tracking_location_confirmed' "
+                                    + "WHEN NEW.event_type = 'tracking_location_moved' "
                                     + "BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END");
                         }
                         return null;
