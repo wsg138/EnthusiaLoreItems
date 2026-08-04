@@ -17,7 +17,6 @@ import org.bukkit.scheduler.BukkitTask;
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
 public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private static final int MIN_RECOVERY_LIMIT = 1;
-    private static final int MIN_TEMPLATE_UPDATE_BUDGET = 1;
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long RECOVERY_PERIOD_TICKS = 100L;
     private static final Duration TEMPLATE_UPDATE_CLAIM_LEASE = Duration.ofSeconds(30L);
@@ -34,27 +33,25 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     public PaperMutationRecoveryWorker(
             Plugin plugin,
             PendingMutationRepository repository,
-            TemplateUpdateExecutionStore templateUpdateStore,
-            int recoveryLimit,
-            int templateUpdateBudget) {
+            int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
-        Objects.requireNonNull(templateUpdateStore, "templateUpdateStore");
         if (recoveryLimit < MIN_RECOVERY_LIMIT) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
-        if (templateUpdateBudget < MIN_TEMPLATE_UPDATE_BUDGET) {
-            throw new IllegalArgumentException("templateUpdateBudget must be positive");
+        if (!(repository instanceof TemplateUpdateExecutionStore templateStore)) {
+            throw new IllegalArgumentException(
+                    "repository must also provide template-update execution storage");
         }
         this.recoveryLimit = recoveryLimit;
         this.templateUpdateListener = new PaperTemplateUpdateListener(
                 plugin,
                 new PersistingTemplateUpdateExecutionUseCase(
-                        templateUpdateStore,
+                        templateStore,
                         Clock.systemUTC(),
                         TEMPLATE_UPDATE_CLAIM_LEASE),
                 new PaperTemplateUpdateOperator(),
-                templateUpdateBudget);
+                recoveryLimit);
     }
 
     public void start() {
