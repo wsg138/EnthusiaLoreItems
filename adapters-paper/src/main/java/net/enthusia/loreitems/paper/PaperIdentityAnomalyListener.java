@@ -56,10 +56,15 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+// This main-thread event adapter intentionally centralizes bounded identity observation so every
+// supported transfer surface uses the same evidence semantics. Its HashMaps are method-local and
+// never concurrently shared, so ConcurrentHashMap would add no correctness.
+@SuppressWarnings({"PMD.ExcessiveClassLength", "PMD.UseConcurrentHashMap"})
 public final class PaperIdentityAnomalyListener implements Listener, AutoCloseable {
     private static final int MAX_CONFLICT_PATH_LENGTH =
             LocationDescriptor.MAX_CONTAINER_PATH_LENGTH;
     private static final int NO_SKIPPED_SLOT = -1;
+    private static final String SLOT_PREFIX = "slot:";
 
     private final Plugin plugin;
     private final PaperItemAnomalyReporter anomalyReporter;
@@ -96,7 +101,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
         int slot = event.getSlot();
         ObservedCopy copy = observe(
                 changed,
-                playerLocation(player, "slot:" + slot),
+                playerLocation(player, SLOT_PREFIX + slot),
                 "inventory-slot-change");
         if (copy != null) {
             compareWithInventory(
@@ -387,7 +392,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
             }
             ObservedCopy copy = observe(
                     item,
-                    playerLocation(player, "slot:" + slot),
+                    playerLocation(player, SLOT_PREFIX + slot),
                     source);
             recordIfDuplicate(firstCopies, copy, source);
         }
@@ -405,7 +410,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                 continue;
             }
             LocationDescriptor location = inventoryLocation(
-                    inventory, "slot:" + slot);
+                    inventory, SLOT_PREFIX + slot);
             if (location == null) {
                 continue;
             }
@@ -441,7 +446,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
             }
             ObservedCopy inventoryCopy = observe(
                     item,
-                    playerLocation(player, "slot:" + slot),
+                    playerLocation(player, SLOT_PREFIX + slot),
                     source);
             if (inventoryCopy != null
                     && inventoryCopy.identity().equals(external.identity())) {
@@ -464,7 +469,7 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                 continue;
             }
             LocationDescriptor location = inventoryLocation(
-                    inventory, "slot:" + slot);
+                    inventory, SLOT_PREFIX + slot);
             if (location == null) {
                 continue;
             }
