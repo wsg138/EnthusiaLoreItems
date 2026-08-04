@@ -40,20 +40,7 @@ class SQLiteTemplateUpdateSiblingFenceTest {
             Scenario scenario = seedRollout(runtime);
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            repository.insert(new PendingMutationRecord(
-                            UUID.randomUUID(),
-                            "TEMPLATE_UPDATE",
-                            scenario.definitionId(),
-                            scenario.instanceId(),
-                            REVISION_ONE.value(),
-                            PendingMutationState.PENDING,
-                            null,
-                            null,
-                            0,
-                            null,
-                            1_500L,
-                            1_500L))
-                    .toCompletableFuture().join();
+            insertSiblingMutation(repository, scenario);
 
             TemplateUpdatePrepareResult first = repository.prepareTemplateUpdate(
                             scenario.identity(),
@@ -87,6 +74,25 @@ class SQLiteTemplateUpdateSiblingFenceTest {
         } finally {
             runtime.close(Duration.ofSeconds(5L));
         }
+    }
+
+    private static void insertSiblingMutation(
+            SQLitePendingMutationRepository repository,
+            Scenario scenario) {
+        repository.insert(new PendingMutationRecord(
+                        UUID.randomUUID(),
+                        "TEMPLATE_UPDATE",
+                        scenario.definitionId(),
+                        scenario.instanceId(),
+                        REVISION_ONE.value(),
+                        PendingMutationState.PENDING,
+                        null,
+                        null,
+                        0,
+                        null,
+                        1_500L,
+                        1_500L))
+                .toCompletableFuture().join();
     }
 
     private static Scenario seedRollout(SQLiteStorageRuntime runtime) {
