@@ -30,8 +30,6 @@ public final class SQLiteItemAnomalyObservationStore
     private static final String ACTOR_ID = "paper-event-protection";
     private static final int SINGLE_ROW = 1;
     private static final long NO_OBSERVATION_ID = 0L;
-    private static final int JSON_ESCAPE_CAPACITY = 16;
-    private static final int CONTROL_CHARACTER_LIMIT = 0x20;
 
     private final SQLiteStorageRuntime storage;
     private final SQLiteTrackingObservationStore trackingStore;
@@ -334,8 +332,8 @@ public final class SQLiteItemAnomalyObservationStore
         String json = "{\"anomalyType\":\"" + request.kind().anomalyType().name()
                 + "\",\"status\":\"" + status.name()
                 + "\",\"evidenceLocations\":" + request.evidenceLocations().size()
-                + ",\"source\":\"" + escapeJson(request.source())
-                + "\",\"detail\":\"" + escapeJson(detail) + "\"}";
+                + ",\"source\":\"" + SQLiteJson.escape(request.source())
+                + "\",\"detail\":\"" + SQLiteJson.escape(detail) + "\"}";
         SQLiteAuditRepository.appendInTransaction(connection, AuditEventRecord.pending(
                 AGGREGATE_TYPE,
                 request.identity().instanceId().value().toString(),
@@ -363,28 +361,6 @@ public final class SQLiteItemAnomalyObservationStore
             ItemAnomalyObservationUseCase.Status status,
             String detail) {
         return ItemAnomalyObservationUseCase.Result.of(status, detail);
-    }
-
-    private static String escapeJson(String value) {
-        StringBuilder escaped = new StringBuilder(value.length() + JSON_ESCAPE_CAPACITY);
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            switch (character) {
-                case '\\' -> escaped.append("\\\\");
-                case '"' -> escaped.append("\\\"");
-                case '\n' -> escaped.append("\\n");
-                case '\r' -> escaped.append("\\r");
-                case '\t' -> escaped.append("\\t");
-                default -> {
-                    if (character < CONTROL_CHARACTER_LIMIT) {
-                        escaped.append(String.format("\\u%04x", (int) character));
-                    } else {
-                        escaped.append(character);
-                    }
-                }
-            }
-        }
-        return escaped.toString();
     }
 
     private record InstanceRow(
