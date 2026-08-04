@@ -7,6 +7,7 @@ on:
       - main
 
 permissions:
+  checks: read
   contents: read
 
 concurrency:
@@ -36,3 +37,9 @@ jobs:
           python3 -m venv .lizard-venv
           .lizard-venv/bin/pip install --disable-pip-version-check lizard==1.23.0
           .lizard-venv/bin/python tools/check_lizard.py "${{ github.event.pull_request.base.sha }}"
+      - name: Verify exact-head Codacy
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/check_codacy.py
