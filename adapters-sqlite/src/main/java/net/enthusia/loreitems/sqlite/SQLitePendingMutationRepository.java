@@ -12,24 +12,31 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.PendingMutationRecord;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PreparedTemplateUpdate;
+import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
+import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.PendingMutationState;
 
-public final class SQLitePendingMutationRepository implements PendingMutationRepository {
+public final class SQLitePendingMutationRepository
+        implements PendingMutationRepository, TemplateUpdateExecutionStore {
     private static final String NOW_ARGUMENT = "now";
     private static final String MUTATION_TYPE_ARGUMENT = "mutationType";
     private static final long MIN_LEASE_MILLIS = 1L;
     private static final int SINGLE_UPDATED_ROW = 1;
 
     private final SQLiteStorageRuntime storage;
+    private final SQLiteTemplateUpdateExecutionStore templateUpdates;
 
     public SQLitePendingMutationRepository(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.templateUpdates = new SQLiteTemplateUpdateExecutionStore(storage);
     }
 
     @Override
@@ -109,23 +116,34 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
         Objects.requireNonNull(claimToken, "claimToken");
         Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
-        boolean clearClaim = target.terminal() || target == PendingMutationState.REVIEW_REQUIRED;
-        String sql = clearClaim
+        boolean clearClaim = target.terminal()
+                || target == PendingMutationState.REVIEW_REQUIRED
+                || target == PendingMutationState.PENDING;
+        String sql = target == PendingMutationState.PENDING
                 ? "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
-                        + "claim_expires_at = NULL, updated_at = ? "
+                        + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
                         + "WHERE mutation_id = ? AND state = ? AND claim_token = ? "
                         + "AND claim_expires_at > ?"
-                : "UPDATE pending_mutations SET state = ?, updated_at = ? "
-                        + "WHERE mutation_id = ? AND state = ? AND claim_token = ? "
-                        + "AND claim_expires_at > ?";
+                : clearClaim
+                        ? "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
+                                + "claim_expires_at = NULL, updated_at = ? "
+                                + "WHERE mutation_id = ? AND state = ? AND claim_token = ? "
+                                + "AND claim_expires_at > ?"
+                        : "UPDATE pending_mutations SET state = ?, updated_at = ? "
+                                + "WHERE mutation_id = ? AND state = ? AND claim_token = ? "
+                                + "AND claim_expires_at > ?";
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, target.name());
-                statement.setLong(2, now.toEpochMilli());
-                statement.setString(3, mutationId.toString());
-                statement.setString(4, expected.name());
-                statement.setString(5, claimToken);
-                statement.setLong(6, now.toEpochMilli());
+                int index = 1;
+                statement.setString(index++, target.name());
+                if (target == PendingMutationState.PENDING) {
+                    statement.setLong(index++, now.toEpochMilli());
+                }
+                statement.setLong(index++, now.toEpochMilli());
+                statement.setString(index++, mutationId.toString());
+                statement.setString(index++, expected.name());
+                statement.setString(index++, claimToken);
+                statement.setLong(index, now.toEpochMilli());
                 return statement.executeUpdate() == SINGLE_UPDATED_ROW;
             }
         });
@@ -164,6 +182,44 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
         String normalizedType = normalizeMutationType(mutationType);
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> listNonTerminal(connection, normalizedType, request));
+    }
+
+    @Override
+    public CompletionStage<TemplateUpdatePrepareResult> prepareTemplateUpdate(
+            LoreItemIdentity observedIdentity,
+            String claimToken,
+            Instant now,
+            Duration lease) {
+        return templateUpdates.prepareTemplateUpdate(observedIdentity, claimToken, now, lease);
+    }
+
+    @Override
+    public CompletionStage<Boolean> releaseTemplateUpdate(
+            PreparedTemplateUpdate update,
+            String reason,
+            Instant now) {
+        return templateUpdates.releaseTemplateUpdate(update, reason, now);
+    }
+
+    @Override
+    public CompletionStage<Boolean> completeTemplateUpdate(
+            PreparedTemplateUpdate update,
+            String beforeFingerprint,
+            String afterFingerprint,
+            Instant now) {
+        return templateUpdates.completeTemplateUpdate(
+                update, beforeFingerprint, afterFingerprint, now);
+    }
+
+    @Override
+    public CompletionStage<Boolean> requireTemplateUpdateReview(
+            PreparedTemplateUpdate update,
+            String reason,
+            String beforeFingerprint,
+            String afterFingerprint,
+            Instant now) {
+        return templateUpdates.requireTemplateUpdateReview(
+                update, reason, beforeFingerprint, afterFingerprint, now);
     }
 
     private static Page<PendingMutationRecord> listNonTerminal(
