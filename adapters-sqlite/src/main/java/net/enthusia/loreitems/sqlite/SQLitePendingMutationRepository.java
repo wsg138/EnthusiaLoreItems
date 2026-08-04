@@ -22,6 +22,7 @@ import net.enthusia.loreitems.domain.PendingMutationState;
 
 public final class SQLitePendingMutationRepository implements PendingMutationRepository {
     private static final String NOW_ARGUMENT = "now";
+    private static final String MUTATION_TYPE_ARGUMENT = "mutationType";
     private static final long MIN_LEASE_MILLIS = 1L;
     private static final int SINGLE_UPDATED_ROW = 1;
 
@@ -66,7 +67,12 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
 
     @Override
     public CompletionStage<Page<PendingMutationRecord>> claimPending(
-            String claimToken, Instant now, Duration lease, int limit) {
+            String mutationType,
+            String claimToken,
+            Instant now,
+            Duration lease,
+            int limit) {
+        String normalizedType = normalizeMutationType(mutationType);
         Objects.requireNonNull(claimToken, "claimToken");
         Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(lease, "lease");
@@ -83,6 +89,7 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
                 connection,
                 transaction -> claimPending(
                         transaction,
+                        normalizedType,
                         normalizedToken,
                         now.toEpochMilli(),
                         leaseMillis,
@@ -102,8 +109,7 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
         Objects.requireNonNull(claimToken, "claimToken");
         Objects.requireNonNull(now, NOW_ARGUMENT);
         expected.transitionTo(target);
-        boolean clearClaim = target == PendingMutationState.COMPLETED
-                || target == PendingMutationState.REVIEW_REQUIRED;
+        boolean clearClaim = target.terminal() || target == PendingMutationState.REVIEW_REQUIRED;
         String sql = clearClaim
                 ? "UPDATE pending_mutations SET state = ?, claim_token = NULL, "
                         + "claim_expires_at = NULL, updated_at = ? "
@@ -149,25 +155,47 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
     @Override
     public CompletionStage<Page<PendingMutationRecord>> listNonTerminal(PageRequest request) {
         Objects.requireNonNull(request, "request");
-        return storage.execute(connection -> {
-            List<PendingMutationRecord> records = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT * FROM pending_mutations WHERE state <> 'COMPLETED' "
-                            + "ORDER BY created_at, mutation_id LIMIT ? OFFSET ?")) {
-                statement.setInt(1, request.limit() + 1);
-                statement.setInt(2, request.offset());
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    while (resultSet.next()) {
-                        records.add(readRecord(resultSet));
-                    }
+        return storage.execute(connection -> listNonTerminal(connection, null, request));
+    }
+
+    @Override
+    public CompletionStage<Page<PendingMutationRecord>> listNonTerminal(
+            String mutationType, PageRequest request) {
+        String normalizedType = normalizeMutationType(mutationType);
+        Objects.requireNonNull(request, "request");
+        return storage.execute(connection -> listNonTerminal(connection, normalizedType, request));
+    }
+
+    private static Page<PendingMutationRecord> listNonTerminal(
+            Connection connection,
+            String mutationType,
+            PageRequest request) throws SQLException {
+        List<PendingMutationRecord> records = new ArrayList<>();
+        String sql = mutationType == null
+                ? "SELECT * FROM pending_mutations "
+                        + "WHERE state NOT IN ('COMPLETED', 'CANCELLED') "
+                        + "ORDER BY created_at, mutation_id LIMIT ? OFFSET ?"
+                : "SELECT * FROM pending_mutations WHERE mutation_type = ? "
+                        + "AND state NOT IN ('COMPLETED', 'CANCELLED') "
+                        + "ORDER BY created_at, mutation_id LIMIT ? OFFSET ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = 1;
+            if (mutationType != null) {
+                statement.setString(index++, mutationType);
+            }
+            statement.setInt(index++, request.limit() + 1);
+            statement.setInt(index, request.offset());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    records.add(readRecord(resultSet));
                 }
             }
-            boolean hasMore = records.size() > request.limit();
-            if (hasMore) {
-                records.remove(records.size() - 1);
-            }
-            return new Page<>(records, request.offset(), request.limit(), hasMore);
-        });
+        }
+        boolean hasMore = records.size() > request.limit();
+        if (hasMore) {
+            records.remove(records.size() - 1);
+        }
+        return new Page<>(records, request.offset(), request.limit(), hasMore);
     }
 
     private static void requireBoundedLimit(int limit) {
@@ -176,13 +204,25 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
         }
     }
 
+    private static String normalizeMutationType(String mutationType) {
+        Objects.requireNonNull(mutationType, MUTATION_TYPE_ARGUMENT);
+        String normalized = mutationType.strip();
+        if (normalized.isEmpty()
+                || normalized.length() > PendingMutationRecord.MAX_MUTATION_TYPE_LENGTH) {
+            throw new IllegalArgumentException("Invalid mutation type");
+        }
+        return normalized;
+    }
+
     private static Page<PendingMutationRecord> claimPending(
             Connection connection,
+            String mutationType,
             String claimToken,
             long now,
             long leaseMillis,
             int limit) throws SQLException {
-        List<PendingMutationRecord> candidates = findClaimCandidates(connection, now, limit);
+        List<PendingMutationRecord> candidates =
+                findClaimCandidates(connection, mutationType, now, limit);
         boolean hasMore = trimLookahead(candidates, limit);
         List<PendingMutationRecord> claimed =
                 claimCandidates(connection, claimToken, now, leaseMillis, candidates);
@@ -190,14 +230,18 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
     }
 
     private static List<PendingMutationRecord> findClaimCandidates(
-            Connection connection, long now, int limit) throws SQLException {
+            Connection connection,
+            String mutationType,
+            long now,
+            int limit) throws SQLException {
         List<PendingMutationRecord> candidates = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT * FROM pending_mutations WHERE state = 'PENDING' "
+                "SELECT * FROM pending_mutations WHERE mutation_type = ? AND state = 'PENDING' "
                         + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
                         + "ORDER BY created_at, mutation_id LIMIT ?")) {
-            statement.setLong(1, now);
-            statement.setInt(2, limit + 1);
+            statement.setString(1, mutationType);
+            statement.setLong(2, now);
+            statement.setInt(3, limit + 1);
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
                     candidates.add(readRecord(resultSet));
