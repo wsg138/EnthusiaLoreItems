@@ -23,11 +23,12 @@ public final class PaperAnomalyWarningWorker
         implements AnomalyWarningSink, TrackingMetricsSource, AutoCloseable {
     private static final long TICKS_PER_SECOND = 20L;
     private static final int MIN_POSITIVE_VALUE = 1;
-    private static final int TRACKING_BUDGET_PER_TICK = 16;
+    private static final int DEFAULT_TRACKING_BUDGET_PER_TICK = 16;
 
     private final Plugin plugin;
     private final LoreItemsAdministrationUseCase useCase;
     private final int pageSize;
+    private final int trackingBudgetPerTick;
     private final long intervalTicks;
     private final Object queryLock = new Object();
     private final TrackingMetrics trackingMetricsState = new TrackingMetrics();
@@ -43,6 +44,20 @@ public final class PaperAnomalyWarningWorker
             LoreItemsAdministrationUseCase useCase,
             int intervalSeconds,
             int pageSize) {
+        this(
+                plugin,
+                useCase,
+                intervalSeconds,
+                pageSize,
+                DEFAULT_TRACKING_BUDGET_PER_TICK);
+    }
+
+    public PaperAnomalyWarningWorker(
+            Plugin plugin,
+            LoreItemsAdministrationUseCase useCase,
+            int intervalSeconds,
+            int pageSize,
+            int trackingBudgetPerTick) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
         if (intervalSeconds < MIN_POSITIVE_VALUE) {
@@ -51,7 +66,11 @@ public final class PaperAnomalyWarningWorker
         if (pageSize < MIN_POSITIVE_VALUE || pageSize > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("pageSize is outside supported bounds");
         }
+        if (trackingBudgetPerTick < MIN_POSITIVE_VALUE) {
+            throw new IllegalArgumentException("trackingBudgetPerTick must be positive");
+        }
         this.pageSize = pageSize;
+        this.trackingBudgetPerTick = trackingBudgetPerTick;
         this.intervalTicks = Math.multiplyExact(intervalSeconds, TICKS_PER_SECOND);
     }
 
@@ -96,12 +115,12 @@ public final class PaperAnomalyWarningWorker
         PaperUniqueAccessTrackingListener unique = new PaperUniqueAccessTrackingListener(
                 plugin,
                 this::trackingUseCase,
-                () -> TRACKING_BUDGET_PER_TICK,
+                () -> trackingBudgetPerTick,
                 trackingMetricsState.additionalQueueView());
         PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
                 plugin,
                 this::trackingUseCase,
-                () -> TRACKING_BUDGET_PER_TICK,
+                () -> trackingBudgetPerTick,
                 trackingMetricsState);
         StartedTracking started = StartedTracking.of(unique, physical);
         try {
