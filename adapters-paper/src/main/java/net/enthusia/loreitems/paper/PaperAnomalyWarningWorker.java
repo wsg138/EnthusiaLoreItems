@@ -32,6 +32,7 @@ public final class PaperAnomalyWarningWorker
     private final TrackingMetrics trackingMetrics = new TrackingMetrics();
 
     private BukkitTask task;
+    private PaperUniqueAccessTrackingListener uniqueAccessListener;
     private PaperPhysicalTrackingListener trackingListener;
     private boolean queryInFlight;
     private boolean rerunRequested;
@@ -56,12 +57,18 @@ public final class PaperAnomalyWarningWorker
 
     public void start() {
         TrackingObservationUseCase trackingUseCase = resolveTrackingUseCase();
+        PaperUniqueAccessTrackingListener unique = new PaperUniqueAccessTrackingListener(
+                plugin,
+                () -> trackingUseCase,
+                () -> TRACKING_BUDGET_PER_TICK,
+                trackingMetrics);
         PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
                 plugin,
                 () -> trackingUseCase,
                 () -> TRACKING_BUDGET_PER_TICK,
                 trackingMetrics);
         try {
+            unique.start();
             physical.start();
             synchronized (queryLock) {
                 if (closed) {
@@ -75,10 +82,12 @@ public final class PaperAnomalyWarningWorker
                         this::requestWarning,
                         intervalTicks,
                         intervalTicks);
+                uniqueAccessListener = unique;
                 trackingListener = physical;
             }
         } catch (RuntimeException exception) {
             physical.close();
+            unique.close();
             throw exception;
         }
         requestWarning();
@@ -206,12 +215,15 @@ public final class PaperAnomalyWarningWorker
     @Override
     public void close() {
         BukkitTask current;
+        PaperUniqueAccessTrackingListener unique;
         PaperPhysicalTrackingListener physical;
         synchronized (queryLock) {
             closed = true;
             rerunRequested = false;
             current = task;
+            unique = uniqueAccessListener;
             physical = trackingListener;
+            uniqueAccessListener = null;
             trackingListener = null;
         }
         if (current != null) {
@@ -219,6 +231,9 @@ public final class PaperAnomalyWarningWorker
         }
         if (physical != null) {
             physical.close();
+        }
+        if (unique != null) {
+            unique.close();
         }
     }
 }
