@@ -6,8 +6,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -19,6 +22,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperTrackingCoordinator implements AutoCloseable {
     private static final int MIN_CAPACITY = 1;
     private static final int QUEUE_MULTIPLIER = 8;
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
 
     private final Plugin plugin;
     private final Supplier<TrackingObservationUseCase> useCaseSupplier;
@@ -26,6 +30,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private final MetricsPort metrics;
     private final Object lock = new Object();
     private final Queue<TrackingObservationUseCase.Request> queued = new ArrayDeque<>();
+    private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private int inFlight;
     private boolean closed;
@@ -68,12 +73,13 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             updateGauges();
         }
         if (dispatch) {
-            start(request);
+            startCounted(request);
         }
         return true;
     }
 
-    private void start(TrackingObservationUseCase.Request request) {
+    /** Starts one request whose in-flight slot has already been counted exactly once. */
+    private void startCounted(TrackingObservationUseCase.Request request) {
         long startedAt = System.nanoTime();
         CompletionStage<TrackingObservationUseCase.Result> stage;
         try {
@@ -84,7 +90,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         } catch (RuntimeException exception) {
             metrics.increment("tracking.failed");
             plugin.getLogger().log(Level.SEVERE, "Could not start lore-item tracking.", exception);
-            finish();
+            completeCountedRequest();
             return;
         }
         stage.whenComplete((result, failure) -> {
@@ -104,21 +110,27 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                     metrics.increment("tracking.conflicts");
                 }
             }
-            finish();
+            completeCountedRequest();
         });
     }
 
-    private void finish() {
+    private void completeCountedRequest() {
         Optional<TrackingObservationUseCase.Request> next = Optional.empty();
         synchronized (lock) {
+            if (inFlight <= 0) {
+                throw new IllegalStateException("Tracking in-flight accounting underflow");
+            }
             inFlight--;
             if (!closed && !queued.isEmpty() && inFlight < currentMaxInFlight()) {
                 next = Optional.of(queued.remove());
                 inFlight++;
             }
+            if (closed && inFlight == 0) {
+                quiesced.complete(null);
+            }
             updateGauges();
         }
-        next.ifPresent(this::start);
+        next.ifPresent(this::startCounted);
     }
 
     private int currentMaxInFlight() {
@@ -150,14 +162,40 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         List<TrackingObservationUseCase.Request> pending;
         synchronized (lock) {
             if (closed) {
+                awaitQuiescence();
                 return;
             }
             closed = true;
             pending = new ArrayList<>(queued);
             queued.clear();
             inFlight = Math.addExact(inFlight, pending.size());
+            if (inFlight == 0) {
+                quiesced.complete(null);
+            }
             updateGauges();
         }
-        pending.forEach(this::start);
+        pending.forEach(this::startCounted);
+        awaitQuiescence();
+    }
+
+    private void awaitQuiescence() {
+        try {
+            quiesced.get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Interrupted while draining lore-item tracking evidence.",
+                    exception);
+        } catch (TimeoutException exception) {
+            plugin.getLogger().warning(
+                    "Timed out while draining lore-item tracking evidence; SQLite shutdown will "
+                            + "still attempt its bounded executor drain.");
+        } catch (java.util.concurrent.ExecutionException exception) {
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Lore-item tracking quiescence failed unexpectedly.",
+                    exception.getCause());
+        }
     }
 }
