@@ -61,7 +61,7 @@ public final class PaperAnomalyWarningWorker
                 plugin,
                 () -> trackingUseCase,
                 () -> TRACKING_BUDGET_PER_TICK,
-                trackingMetrics);
+                trackingMetrics.additionalQueueView());
         PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
                 plugin,
                 () -> trackingUseCase,
