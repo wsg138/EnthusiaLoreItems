@@ -15,9 +15,9 @@ import org.bukkit.inventory.meta.ItemMeta;
 /**
  * Canonical comparison for a physically stored template-update result.
  *
- * <p>Only hidden lore identity keys and mutable container contents are normalized. Mutable
- * contents are compared recursively, so visible template data and every retained item still have
- * to match.</p>
+ * <p>Only the root lore identity keys and mutable container contents are normalized. Mutable
+ * contents are compared recursively, so visible template data, retained items, and nested lore
+ * identities still have to match.</p>
  */
 final class PaperTemplateItemComparator {
     private static final int MAX_NESTING_DEPTH = 8;
@@ -29,18 +29,22 @@ final class PaperTemplateItemComparator {
     }
 
     boolean matches(ItemStack first, ItemStack second) {
-        return matches(first, second, 0);
+        return matches(first, second, 0, true);
     }
 
-    private boolean matches(ItemStack first, ItemStack second, int depth) {
+    private boolean matches(
+            ItemStack first,
+            ItemStack second,
+            int depth,
+            boolean normalizeRootIdentity) {
         if (first == null || second == null) {
             return first == second;
         }
         if (depth > MAX_NESTING_DEPTH || !sameBasicProperties(first, second)) {
             return false;
         }
-        ItemStack firstShell = normalizedShell(first);
-        ItemStack secondShell = normalizedShell(second);
+        ItemStack firstShell = normalizedShell(first, normalizeRootIdentity);
+        ItemStack secondShell = normalizedShell(second, normalizeRootIdentity);
         return sameShell(firstShell, secondShell)
                 && sameContents(shulkerContents(first), shulkerContents(second), depth)
                 && sameContents(bundleContents(first), bundleContents(second), depth);
@@ -50,11 +54,18 @@ final class PaperTemplateItemComparator {
         return first.getType() == second.getType() && first.getAmount() == second.getAmount();
     }
 
-    private ItemStack normalizedShell(ItemStack item) {
-        ItemStack shell = identityCodec.clearIdentity(item);
-        clearShulkerContents(shell);
-        clearBundleContents(shell);
+    private ItemStack normalizedShell(ItemStack item, boolean normalizeRootIdentity) {
+        ItemStack shell = normalizeRootIdentity
+                ? identityCodec.clearIdentity(item)
+                : item.clone();
+        clearMutableContents(shell);
         return shell;
+    }
+
+    static void clearMutableContents(ItemStack item) {
+        Objects.requireNonNull(item, "item");
+        clearShulkerContents(item);
+        clearBundleContents(item);
     }
 
     private static boolean sameShell(ItemStack first, ItemStack second) {
@@ -87,7 +98,7 @@ final class PaperTemplateItemComparator {
         if (firstEmpty || secondEmpty) {
             return firstEmpty && secondEmpty;
         }
-        return matches(first, second, depth);
+        return matches(first, second, depth, false);
     }
 
     private static void clearShulkerContents(ItemStack item) {
