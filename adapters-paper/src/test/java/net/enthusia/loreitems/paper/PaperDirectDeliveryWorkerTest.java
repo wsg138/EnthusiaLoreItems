@@ -64,7 +64,7 @@ class PaperDirectDeliveryWorkerTest {
     @Test
     void nullClaimPageReleasesTheWorkerForTheNextBoundedPoll() {
         RecordingUseCase useCase = new RecordingUseCase();
-        useCase.claimedPage = null;
+        useCase.returnNullClaimPage = true;
         Plugin plugin = MockBukkit.createMockPlugin();
         worker = new PaperDirectDeliveryWorker(
                 plugin,
@@ -109,6 +109,7 @@ class PaperDirectDeliveryWorkerTest {
             implements DirectDeliveryExecutionUseCase {
         private Page<PreparedDirectDelivery> claimedPage =
                 new Page<>(List.of(), 0, 4, false);
+        private boolean returnNullClaimPage;
         private boolean throwOnDefer;
         private boolean reviewCalled;
         private String reviewReason;
@@ -122,6 +123,9 @@ class PaperDirectDeliveryWorkerTest {
         @Override
         public CompletionStage<Page<PreparedDirectDelivery>> claimPending(int limit) {
             claimCalls++;
+            if (returnNullClaimPage) {
+                return CompletableFuture.completedFuture(null);
+            }
             return CompletableFuture.completedFuture(claimedPage);
         }
 
