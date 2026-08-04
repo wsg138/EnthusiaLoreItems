@@ -2,13 +2,6 @@ package net.enthusia.loreitems.paper;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
-import net.enthusia.loreitems.application.Page;
-import net.enthusia.loreitems.domain.InstanceAnomaly;
-import net.enthusia.loreitems.domain.InstanceCurrentState;
-import net.enthusia.loreitems.domain.InstanceObservation;
-import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import org.bukkit.inventory.Inventory;
@@ -145,21 +138,3 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
             DuplicateChoice duplicate,
             ObservationChoice selectedObservation) {}
 }
-
-record ObservationChoice(
-        long observationId,
-        LocationDescriptor location,
-        InstanceObservation.Confidence confidence,
-        String source,
-        long observedAt) {}
-
-record DuplicateChoice(UUID anomalyId, long stateRevision, long firstSeenAt) {}
-
-record StateEvidence(
-        Optional<InstanceCurrentState> current,
-        Page<InstanceObservation> observations) {}
-
-record EvidenceData(
-        Optional<InstanceCurrentState> current,
-        Page<InstanceObservation> observations,
-        Page<InstanceAnomaly> anomalies) {}
