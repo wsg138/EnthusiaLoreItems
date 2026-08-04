@@ -1,16 +1,11 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Queue;
-import java.util.Set;
 import java.util.function.Consumer;
-import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
@@ -39,7 +34,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private static final int MAX_SCAN_QUEUE_CAPACITY = 4_096;
 
     private final Plugin plugin;
-    private final IntSupplier budgetSupplier;
+    private final int budget;
     private final PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
     private final PaperTemplateUpdateAccessRegistry accessRegistry =
             new PaperTemplateUpdateAccessRegistry();
@@ -55,10 +50,12 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             Plugin plugin,
             TemplateUpdateExecutionUseCase useCase,
             PaperTemplateUpdateOperator operator,
-            IntSupplier budgetSupplier) {
+            int budget) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.budgetSupplier = Objects.requireNonNull(budgetSupplier, "budgetSupplier");
-        int budget = currentBudget();
+        if (budget < MIN_BUDGET) {
+            throw new IllegalArgumentException("budget must be positive");
+        }
+        this.budget = budget;
         this.coordinator = new PaperTemplateUpdateCoordinator(
                 plugin,
                 Objects.requireNonNull(useCase, "useCase"),
@@ -228,7 +225,6 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private void drain() {
-        int budget = currentBudget();
         for (int count = 0; count < budget; count++) {
             PaperInventoryReference reference = scanBacklog.poll();
             if (reference == null) {
@@ -237,7 +233,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             scan(reference);
         }
         if (scanBacklog.isEmpty()) {
-            retryRejectedScans(budget);
+            retryRejectedScans();
         }
         if (scanBacklog.isEmpty()) {
             dispatchUniqueAccessibleItems();
@@ -248,7 +244,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
     }
 
-    private void retryRejectedScans(int budget) {
+    private void retryRejectedScans() {
         for (int count = 0; count < budget; count++) {
             PaperInventoryReference reference = retryBacklog.poll();
             if (reference == null) {
@@ -314,14 +310,6 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
     }
 
-    private int currentBudget() {
-        int value = budgetSupplier.getAsInt();
-        if (value < MIN_BUDGET) {
-            throw new IllegalStateException("Configured template-update budget must be positive");
-        }
-        return value;
-    }
-
     private static int maxQueuedScans(int budget) {
         long scaled = (long) budget * SCAN_QUEUE_MULTIPLIER;
         return (int) Math.min(
@@ -370,130 +358,5 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             Objects.requireNonNull(main, "main");
             Objects.requireNonNull(ender, "ender");
         }
-    }
-}
-
-/** Two-tier bounded FIFO that retains transient scan bursts without unbounded allocation. */
-final class PaperTemplateUpdateScanBacklog {
-    private static final int MIN_TIER_CAPACITY = 1;
-
-    enum OfferResult {
-        READY,
-        DEFERRED,
-        ALREADY_QUEUED,
-        REJECTED
-    }
-
-    private final int tierCapacity;
-    private final Queue<PaperInventoryReference> ready = new ArrayDeque<>();
-    private final Queue<PaperInventoryReference> deferred = new ArrayDeque<>();
-    private final Set<PaperInventoryReference> queued = new HashSet<>();
-
-    PaperTemplateUpdateScanBacklog(int tierCapacity) {
-        if (tierCapacity < MIN_TIER_CAPACITY) {
-            throw new IllegalArgumentException("tierCapacity must be positive");
-        }
-        this.tierCapacity = tierCapacity;
-    }
-
-    OfferResult offer(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
-        if (!queued.add(reference)) {
-            return OfferResult.ALREADY_QUEUED;
-        }
-        if (ready.size() < tierCapacity) {
-            ready.add(reference);
-            return OfferResult.READY;
-        }
-        if (deferred.size() < tierCapacity) {
-            deferred.add(reference);
-            return OfferResult.DEFERRED;
-        }
-        queued.remove(reference);
-        return OfferResult.REJECTED;
-    }
-
-    PaperInventoryReference poll() {
-        PaperInventoryReference reference = ready.poll();
-        if (reference == null) {
-            return null;
-        }
-        queued.remove(reference);
-        promoteDeferred();
-        return reference;
-    }
-
-    void remove(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
-        boolean removed = ready.remove(reference);
-        removed = deferred.remove(reference) || removed;
-        queued.remove(reference);
-        if (removed) {
-            promoteDeferred();
-        }
-    }
-
-    boolean isEmpty() {
-        return ready.isEmpty() && deferred.isEmpty();
-    }
-
-    void clear() {
-        ready.clear();
-        deferred.clear();
-        queued.clear();
-    }
-
-    private void promoteDeferred() {
-        while (ready.size() < tierCapacity && !deferred.isEmpty()) {
-            ready.add(deferred.remove());
-        }
-    }
-}
-
-/** Deduplicated references rejected only because the bounded scan backlog was full. */
-final class PaperTemplateUpdateRetryBacklog {
-    private static final int MIN_CAPACITY = 1;
-
-    private final int capacity;
-    private final Queue<PaperInventoryReference> queued = new ArrayDeque<>();
-    private final Set<PaperInventoryReference> references = new HashSet<>();
-
-    PaperTemplateUpdateRetryBacklog(int capacity) {
-        if (capacity < MIN_CAPACITY) {
-            throw new IllegalArgumentException("capacity must be positive");
-        }
-        this.capacity = capacity;
-    }
-
-    boolean offer(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
-        if (references.contains(reference)) {
-            return false;
-        }
-        if (queued.size() >= capacity || !references.add(reference)) {
-            return false;
-        }
-        queued.add(reference);
-        return true;
-    }
-
-    PaperInventoryReference poll() {
-        PaperInventoryReference reference = queued.poll();
-        if (reference != null) {
-            references.remove(reference);
-        }
-        return reference;
-    }
-
-    void remove(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
-        if (references.remove(reference)) {
-            queued.remove(reference);
-        }
-    }
-
-    void clear() {
-        queued.clear();
-        references.clear();
     }
 }
