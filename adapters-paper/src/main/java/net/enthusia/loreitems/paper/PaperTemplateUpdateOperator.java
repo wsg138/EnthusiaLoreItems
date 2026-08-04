@@ -19,6 +19,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperTemplateUpdateOperator {
     private final PaperItemTemplateCodec templateCodec;
     private final PaperItemIdentityCodec identityCodec;
+    private final PaperTemplateItemComparator itemComparator;
 
     public PaperTemplateUpdateOperator() {
         this(new PaperItemTemplateCodec(), new PaperItemIdentityCodec());
@@ -29,6 +30,7 @@ public final class PaperTemplateUpdateOperator {
             PaperItemIdentityCodec identityCodec) {
         this.templateCodec = Objects.requireNonNull(templateCodec, "templateCodec");
         this.identityCodec = Objects.requireNonNull(identityCodec, "identityCodec");
+        this.itemComparator = new PaperTemplateItemComparator(identityCodec);
     }
 
     ApplyResult apply(
@@ -266,8 +268,11 @@ public final class PaperTemplateUpdateOperator {
                 && expected.equals(tracked.identity());
     }
 
-    private static boolean samePhysicalItem(ItemStack first, ItemStack second) {
-        return first.getAmount() == second.getAmount() && first.isSimilar(second);
+    private boolean samePhysicalItem(ItemStack first, ItemStack second) {
+        if (PaperItemFingerprint.of(first).equals(PaperItemFingerprint.of(second))) {
+            return true;
+        }
+        return itemComparator.matches(first, second);
     }
 
     private static boolean containsItem(ItemStack[] contents) {
