@@ -46,4 +46,14 @@
         <Class name="net.enthusia.loreitems.sqlite.SQLiteTrackingObservationStore$CurrentRow" />
         <Bug pattern="SE_BAD_FIELD" />
     </Match>
+
+    <!--
+      The metadata originates from the same non-air ItemStack and is therefore guaranteed
+      to be compatible with that stack; the boolean return cannot change the outcome.
+    -->
+    <Match>
+        <Class name="net.enthusia.loreitems.paper.PaperTrackingAdministrationGui" />
+        <Method name="item" />
+        <Bug pattern="RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT" />
+    </Match>
 </FindBugsFilter>
