@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.Optional;
@@ -50,6 +51,18 @@ class PaperAnomalyWarningWorkerTest {
         useCase.firstQuery.complete(emptyPage());
 
         assertEquals(2, useCase.warningQueryCount);
+    }
+
+    @Test
+    void rejectsANonPositiveTrackingBudget() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PaperAnomalyWarningWorker(
+                        plugin,
+                        new RecordingAdministrationUseCase(),
+                        300,
+                        10,
+                        0));
     }
 
     private static Page<InstanceAnomaly> emptyPage() {
