@@ -15,10 +15,24 @@ allprojects {
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "jacoco")
+    apply(plugin = "pmd")
 
     extensions.configure<JavaPluginExtension> {
         toolchain.languageVersion.set(JavaLanguageVersion.of(21))
         withSourcesJar()
+    }
+
+    extensions.configure<org.gradle.api.plugins.quality.PmdExtension> {
+        isConsoleOutput = true
+        toolVersion = "7.16.0"
+        rulesMinimumPriority = 5
+        ruleSets = listOf(
+            "category/java/bestpractices.xml",
+            "category/java/design.xml",
+            "category/java/errorprone.xml",
+            "category/java/performance.xml",
+            "category/java/security.xml",
+        )
     }
 
     tasks.withType<JavaCompile>().configureEach {
