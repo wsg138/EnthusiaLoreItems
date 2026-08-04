@@ -3,16 +3,3 @@
 # immutable SQLite migration. Java code and tests remain fully analyzed.
 exclude_paths:
   - "adapters-sqlite/src/main/resources/db/migration/V1__foundation.sql"
-
-# These exact classes are bounded orchestration surfaces whose branch counts reflect
-# event routing, GUI state transitions, and transactional state machines. PMD, SpotBugs,
-# compilation, tests, and architecture checks continue to analyze them; only Codacy's
-# file-level metric gate is excluded.
-engines:
-  metric:
-    exclude_paths:
-      - "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperPhysicalTrackingListener.java"
-      - "adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationGui.java"
-      - "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteItemAnomalyObservationStore.java"
-      - "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteTrackingAdministrationStore.java"
-      - "adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteTrackingObservationStore.java"
