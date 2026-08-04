@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
 import time
-import urllib.error
-import urllib.request
 
-API_ROOT = "https://api.github.com"
+API_HOST = "api.github.com"
 API_VERSION = "2022-11-28"
 CHECK_NAME = "Codacy Static Code Analysis"
 POLL_SECONDS = 10
@@ -21,25 +20,27 @@ REQUEST_TIMEOUT_SECONDS = 30
 def request_json(path: str) -> object:
     if not path.startswith("/repos/"):
         raise ValueError("GitHub API path must target a repository")
-    request = urllib.request.Request(
-        API_ROOT + path,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-            "X-GitHub-Api-Version": API_VERSION,
-            "User-Agent": "enthusia-loreitems-ci",
-        },
-        method="GET",
-    )
+    connection = http.client.HTTPSConnection(API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            return json.loads(body)
-    except urllib.error.HTTPError as exception:
-        body = exception.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"GitHub API request failed with {exception.code}: {body}"
-        ) from exception
+        connection.request(
+            "GET",
+            path,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                "X-GitHub-Api-Version": API_VERSION,
+                "User-Agent": "enthusia-loreitems-ci",
+            },
+        )
+        response = connection.getresponse()
+        body = response.read().decode("utf-8", errors="replace")
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(
+                f"GitHub API request failed with {response.status}: {body}"
+            )
+        return json.loads(body)
+    finally:
+        connection.close()
 
 
 def find_codacy_check(repository: str, head_sha: str) -> dict[str, object] | None:
