@@ -69,7 +69,7 @@ class PaperTemplateUpdateScannerTest {
     }
 
     @Test
-    void duplicateIdentitiesAcrossContinuationPassesAreNotSubmitted() {
+    void duplicateIdentitiesAcrossContinuationPassesAreReportedToTheAccessFence() {
         populateShulkers(true);
         PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
         List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
@@ -81,8 +81,10 @@ class PaperTemplateUpdateScannerTest {
 
         assertTrue(first.continuationRequired());
         assertFalse(second.continuationRequired());
-        assertEquals(0, second.submitted());
-        assertTrue(candidates.isEmpty());
+        assertEquals(2, second.submitted());
+        assertEquals(2, candidates.size());
+        assertTrue(candidates.stream().allMatch(candidate ->
+                TARGET_IDENTITY.equals(candidate.identity())));
     }
 
     private void populateShulkers(boolean includeEarlyDuplicate) {
