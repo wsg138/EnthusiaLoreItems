@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerTest {
-    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 2;
+    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 3;
     private static final String DEFINITION_ID = "10000000-0000-0000-0000-000000000001";
     private static final String INSTANCE_ID = "20000000-0000-0000-0000-000000000001";
     private static final String PENDING_MUTATION_ID =
@@ -37,18 +37,41 @@ class MigrationRunnerTest {
             assertEquals(EXPECTED_SCHEMA_VERSION_COUNT, countSchemaHistory(connection));
             assertEquals(1, countTable(connection, "direct_deliveries"));
             assertEquals(1, countIndex(connection, "uq_template_update_instance_revision"));
+            assertEquals(1, countIndex(connection, "idx_mutations_type_claimable"));
+            assertEquals(1, countIndex(connection, "idx_mutations_type_review"));
         }
     }
 
     @Test
-    void upgradesV1AndConsolidatesDuplicateTemplateUpdates() throws SQLException {
+    void upgradesV2MutationQueueAndAllowsCancelledState() throws SQLException {
         SQLiteConnectionFactory factory =
-                new SQLiteConnectionFactory(temporaryDirectory.resolve("upgrade.db"), 5_000);
+                new SQLiteConnectionFactory(temporaryDirectory.resolve("v2-upgrade.db"), 5_000);
         MigrationRunner runner = new MigrationRunner();
 
         try (Connection connection = factory.open()) {
             runner.migrate(connection);
-            removeVersionTwo(connection);
+            downgradePendingMutationsToV2(connection);
+
+            runner.migrate(connection);
+            insertMutationWithState(connection, PENDING_MUTATION_ID, "CANCELLED");
+
+            assertEquals(EXPECTED_SCHEMA_VERSION_COUNT, countSchemaHistory(connection));
+            assertEquals(1, countMutationState(connection, "CANCELLED"));
+            assertEquals(1, countIndex(connection, "idx_mutations_type_claimable"));
+            assertEquals(1, countIndex(connection, "idx_mutations_type_review"));
+        }
+    }
+
+    @Test
+    void replaysRolloutMigrationsAndConsolidatesDuplicateTemplateUpdates()
+            throws SQLException {
+        SQLiteConnectionFactory factory =
+                new SQLiteConnectionFactory(temporaryDirectory.resolve("rollout-replay.db"), 5_000);
+        MigrationRunner runner = new MigrationRunner();
+
+        try (Connection connection = factory.open()) {
+            runner.migrate(connection);
+            removeRolloutMigrationHistory(connection);
             insertDefinitionGraph(connection);
             insertTemplateUpdate(connection, PENDING_MUTATION_ID, "PENDING", 2_000L);
             insertTemplateUpdate(connection, COMPLETED_MUTATION_ID, "COMPLETED", 1_000L);
@@ -79,9 +102,54 @@ class MigrationRunnerTest {
         }
     }
 
-    private static void removeVersionTwo(Connection connection) throws SQLException {
+    private static void downgradePendingMutationsToV2(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate(
+                    "CREATE TABLE pending_mutations_v2_legacy ("
+                            + "mutation_id TEXT PRIMARY KEY,"
+                            + "mutation_type TEXT NOT NULL,"
+                            + "definition_id TEXT,"
+                            + "instance_id TEXT,"
+                            + "desired_revision INTEGER,"
+                            + "state TEXT NOT NULL CHECK (state IN ("
+                            + "'PENDING','CLAIMED','APPLIED','VERIFIED','COMPLETED','REVIEW_REQUIRED'"
+                            + ")),"
+                            + "claim_token TEXT,"
+                            + "claim_expires_at INTEGER,"
+                            + "attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),"
+                            + "next_attempt_at INTEGER,"
+                            + "created_at INTEGER NOT NULL,"
+                            + "updated_at INTEGER NOT NULL,"
+                            + "FOREIGN KEY (definition_id) REFERENCES lore_definitions(definition_id),"
+                            + "FOREIGN KEY (instance_id) REFERENCES lore_instances(instance_id)"
+                            + ")");
+            statement.executeUpdate(
+                    "INSERT INTO pending_mutations_v2_legacy SELECT * FROM pending_mutations");
+            statement.executeUpdate("DROP TABLE pending_mutations");
+            statement.executeUpdate(
+                    "ALTER TABLE pending_mutations_v2_legacy RENAME TO pending_mutations");
+            statement.executeUpdate(
+                    "CREATE INDEX idx_mutations_claimable "
+                            + "ON pending_mutations(state, next_attempt_at, created_at)");
+            statement.executeUpdate(
+                    "CREATE UNIQUE INDEX uq_template_update_instance_revision "
+                            + "ON pending_mutations(instance_id, desired_revision) "
+                            + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
+                            + "AND instance_id IS NOT NULL AND desired_revision IS NOT NULL");
+            statement.executeUpdate(
+                    "CREATE INDEX idx_template_update_mutations "
+                            + "ON pending_mutations(definition_id, desired_revision, state, "
+                            + "created_at, mutation_id) WHERE mutation_type = 'TEMPLATE_UPDATE'");
+        }
         try (PreparedStatement removeHistory = connection.prepareStatement(
-                "DELETE FROM schema_history WHERE version = 2")) {
+                "DELETE FROM schema_history WHERE version = 3")) {
+            removeHistory.executeUpdate();
+        }
+    }
+
+    private static void removeRolloutMigrationHistory(Connection connection) throws SQLException {
+        try (PreparedStatement removeHistory = connection.prepareStatement(
+                "DELETE FROM schema_history WHERE version IN (2, 3)")) {
             removeHistory.executeUpdate();
         }
         try (Statement statement = connection.createStatement()) {
@@ -149,6 +217,29 @@ class MigrationRunnerTest {
         }
     }
 
+    private static void insertMutationWithState(
+            Connection connection, String mutationId, String state) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement(
+                "INSERT INTO pending_mutations("
+                        + "mutation_id, mutation_type, state, attempt_count, created_at, updated_at"
+                        + ") VALUES (?, 'TEMPLATE_UPDATE', ?, 0, 1, 1)")) {
+            insert.setString(1, mutationId);
+            insert.setString(2, state);
+            insert.executeUpdate();
+        }
+    }
+
+    private static int countMutationState(Connection connection, String state) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM pending_mutations WHERE state = ?")) {
+            query.setString(1, state);
+            try (ResultSet resultSet = query.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
+        }
+    }
+
     private static int countTemplateUpdates(Connection connection) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
                      "SELECT COUNT(*) FROM pending_mutations "
@@ -176,8 +267,8 @@ class MigrationRunnerTest {
     }
 
     private static int countSchemaHistory(Connection connection) throws SQLException {
-        try (PreparedStatement query = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM schema_history");
+        try (PreparedStatement query =
+                     connection.prepareStatement("SELECT COUNT(*) FROM schema_history");
              ResultSet resultSet = query.executeQuery()) {
             resultSet.next();
             return resultSet.getInt(1);
