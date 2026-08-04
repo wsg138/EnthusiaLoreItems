@@ -189,9 +189,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     public void onDeath(PlayerDeathEvent event) {
         int remaining = MAX_ITEMS_PER_SCAN;
         for (ItemStack item : event.getDrops()) {
-            if (remaining-- <= 0) {
+            if (remaining <= 0) {
                 break;
             }
+            remaining--;
             LoreItemIdentity identity = scanner.trackedIdentity(item);
             if (identity != null) {
                 deathDrops.add(identity.instanceId().value());
@@ -268,30 +269,24 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         int enqueued = 0;
         int attempts = 0;
         int maximumAttempts = Math.addExact(budget, worlds.size());
-        World snapshotWorld = null;
-        Chunk[] snapshot = new Chunk[0];
         while (enqueued < budget && attempts < maximumAttempts) {
             if (worldCursor >= worlds.size()) {
                 worldCursor = 0;
                 chunkCursor = 0;
-                snapshotWorld = null;
             }
             World world = worlds.get(worldCursor);
-            if (world != snapshotWorld) {
-                snapshotWorld = world;
-                snapshot = world.getLoadedChunks();
-            }
+            Chunk[] snapshot = world.getLoadedChunks();
             if (chunkCursor >= snapshot.length) {
                 worldCursor = (worldCursor + 1) % worlds.size();
                 chunkCursor = 0;
-                snapshotWorld = null;
                 attempts++;
                 continue;
             }
             enqueue(ScanRequest.chunk(
-                    ChunkReference.capture(snapshot[chunkCursor++]),
+                    ChunkReference.capture(snapshot[chunkCursor]),
                     TrackingObservationUseCase.Presence.PRESENT,
                     "periodic-loaded-chunk"));
+            chunkCursor++;
             enqueued++;
             attempts++;
         }
