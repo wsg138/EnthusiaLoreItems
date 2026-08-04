@@ -525,7 +525,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 this,
                 administrationUseCase,
                 ANOMALY_WARNING_INTERVAL_SECONDS,
-                loaded.defaultPageSize());
+                loaded.defaultPageSize(),
+                loaded.mutationBudgetPerTick());
         PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
                 this,
                 loaded.mutationBudgetPerTick());
