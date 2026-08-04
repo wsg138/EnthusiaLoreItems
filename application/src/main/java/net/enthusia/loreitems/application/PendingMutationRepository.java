@@ -6,7 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.PendingMutationState;
 
-public interface PendingMutationRepository {
+public interface PendingMutationRepository extends TemplateUpdateExecutionStore {
     CompletionStage<Void> insert(PendingMutationRecord mutation);
 
     CompletionStage<Page<PendingMutationRecord>> claimPending(
