@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -14,11 +15,13 @@ import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.ItemAnomalyObservationStore;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.application.TrackingObservationStore;
+import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 
 public final class SQLiteItemAnomalyObservationStore
-        implements ItemAnomalyObservationStore {
+        implements ItemAnomalyObservationStore, TrackingObservationStore {
     private static final String ACTIVE_LIFECYCLE = "ACTIVE";
     private static final String TERMINAL_STATE = "TERMINAL_VOID";
     private static final String AGGREGATE_TYPE = "lore_instance";
@@ -31,9 +34,18 @@ public final class SQLiteItemAnomalyObservationStore
     private static final int CONTROL_CHARACTER_LIMIT = 0x20;
 
     private final SQLiteStorageRuntime storage;
+    private final SQLiteTrackingObservationStore trackingStore;
 
     public SQLiteItemAnomalyObservationStore(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.trackingStore = new SQLiteTrackingObservationStore(storage);
+    }
+
+    @Override
+    public CompletionStage<TrackingObservationUseCase.Result> record(
+            TrackingObservationUseCase.Request request,
+            Instant observedAt) {
+        return trackingStore.record(request, observedAt);
     }
 
     @Override
