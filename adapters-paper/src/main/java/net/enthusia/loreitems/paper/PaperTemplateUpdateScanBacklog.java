@@ -9,76 +9,58 @@ import java.util.Set;
 /** Two-tier bounded FIFO that retains transient scan bursts without unbounded allocation. */
 final class PaperTemplateUpdateScanBacklog {
     private static final int MIN_TIER_CAPACITY = 1;
+    private static final int TIER_COUNT = 2;
 
-    enum OfferResult {
-        READY,
-        DEFERRED,
-        ALREADY_QUEUED,
-        REJECTED
-    }
-
-    private final int tierCapacity;
-    private final Queue<PaperInventoryReference> ready = new ArrayDeque<>();
-    private final Queue<PaperInventoryReference> deferred = new ArrayDeque<>();
+    private final int readyCapacity;
+    private final int totalCapacity;
+    private final Queue<PaperInventoryReference> queue = new ArrayDeque<>();
     private final Set<PaperInventoryReference> queued = new HashSet<>();
 
     PaperTemplateUpdateScanBacklog(int tierCapacity) {
         if (tierCapacity < MIN_TIER_CAPACITY) {
             throw new IllegalArgumentException("tierCapacity must be positive");
         }
-        this.tierCapacity = tierCapacity;
+        this.readyCapacity = tierCapacity;
+        this.totalCapacity = Math.multiplyExact(tierCapacity, TIER_COUNT);
     }
 
-    OfferResult offer(PaperInventoryReference reference) {
+    PaperTemplateUpdateScanOfferResult offer(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, "reference");
         if (!queued.add(reference)) {
-            return OfferResult.ALREADY_QUEUED;
+            return PaperTemplateUpdateScanOfferResult.ALREADY_QUEUED;
         }
-        if (ready.size() < tierCapacity) {
-            ready.add(reference);
-            return OfferResult.READY;
+        int position = queue.size();
+        if (position >= totalCapacity) {
+            queued.remove(reference);
+            return PaperTemplateUpdateScanOfferResult.REJECTED;
         }
-        if (deferred.size() < tierCapacity) {
-            deferred.add(reference);
-            return OfferResult.DEFERRED;
-        }
-        queued.remove(reference);
-        return OfferResult.REJECTED;
+        queue.add(reference);
+        return position < readyCapacity
+                ? PaperTemplateUpdateScanOfferResult.READY
+                : PaperTemplateUpdateScanOfferResult.DEFERRED;
     }
 
     PaperInventoryReference poll() {
-        PaperInventoryReference reference = ready.poll();
-        if (reference == null) {
-            return null;
+        PaperInventoryReference reference = queue.poll();
+        if (reference != null) {
+            queued.remove(reference);
         }
-        queued.remove(reference);
-        promoteDeferred();
         return reference;
     }
 
     void remove(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, "reference");
-        boolean removed = ready.remove(reference);
-        removed = deferred.remove(reference) || removed;
-        queued.remove(reference);
-        if (removed) {
-            promoteDeferred();
+        if (queued.remove(reference)) {
+            queue.remove(reference);
         }
     }
 
     boolean isEmpty() {
-        return ready.isEmpty() && deferred.isEmpty();
+        return queue.isEmpty();
     }
 
     void clear() {
-        ready.clear();
-        deferred.clear();
+        queue.clear();
         queued.clear();
-    }
-
-    private void promoteDeferred() {
-        while (ready.size() < tierCapacity && !deferred.isEmpty()) {
-            ready.add(deferred.remove());
-        }
     }
 }
