@@ -18,7 +18,7 @@ public final class PersistingItemAnomalyObservationUseCase
     public PersistingItemAnomalyObservationUseCase(
             ItemAnomalyObservationStore anomalyStore,
             Clock clock) {
-        this(anomalyStore, unavailableTrackingStore(), clock, UUID::randomUUID);
+        this(anomalyStore, trackingStore(anomalyStore), clock, UUID::randomUUID);
     }
 
     public PersistingItemAnomalyObservationUseCase(
@@ -32,7 +32,7 @@ public final class PersistingItemAnomalyObservationUseCase
             ItemAnomalyObservationStore anomalyStore,
             Clock clock,
             Supplier<UUID> anomalyIdSupplier) {
-        this(anomalyStore, unavailableTrackingStore(), clock, anomalyIdSupplier);
+        this(anomalyStore, trackingStore(anomalyStore), clock, anomalyIdSupplier);
     }
 
     PersistingItemAnomalyObservationUseCase(
@@ -64,10 +64,15 @@ public final class PersistingItemAnomalyObservationUseCase
         return trackingStore.record(request, clock.instant());
     }
 
-    private static TrackingObservationStore unavailableTrackingStore() {
+    private static TrackingObservationStore trackingStore(
+            ItemAnomalyObservationStore anomalyStore) {
+        Objects.requireNonNull(anomalyStore, "anomalyStore");
+        if (anomalyStore instanceof TrackingObservationStore tracking) {
+            return tracking;
+        }
         return (request, observedAt) -> CompletableFuture.completedFuture(
                 TrackingObservationUseCase.Result.of(
                         TrackingObservationUseCase.Status.SERVICE_UNAVAILABLE,
-                        "Physical tracking storage was not configured."));
+                        "The configured anomaly store does not support physical tracking."));
     }
 }
