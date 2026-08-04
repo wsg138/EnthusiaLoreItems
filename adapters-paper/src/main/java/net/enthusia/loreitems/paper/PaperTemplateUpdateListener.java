@@ -45,8 +45,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             new PaperTemplateUpdateAccessRegistry();
     private final PaperTemplateUpdateCoordinator coordinator;
     private final PaperTemplateUpdateScanBacklog scanBacklog;
-    private final PaperTemplateUpdateRetryBacklog retryBacklog =
-            new PaperTemplateUpdateRetryBacklog();
+    private final PaperTemplateUpdateRetryBacklog retryBacklog;
 
     private BukkitTask scanTask;
     private boolean saturated;
@@ -65,7 +64,9 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
                 Objects.requireNonNull(useCase, "useCase"),
                 Objects.requireNonNull(operator, "operator"),
                 budget);
-        this.scanBacklog = new PaperTemplateUpdateScanBacklog(maxQueuedScans(budget));
+        int backlogCapacity = maxQueuedScans(budget);
+        this.scanBacklog = new PaperTemplateUpdateScanBacklog(backlogCapacity);
+        this.retryBacklog = new PaperTemplateUpdateRetryBacklog(backlogCapacity);
     }
 
     void start() {
@@ -451,12 +452,25 @@ final class PaperTemplateUpdateScanBacklog {
 
 /** Deduplicated references rejected only because the bounded scan backlog was full. */
 final class PaperTemplateUpdateRetryBacklog {
+    private static final int MIN_CAPACITY = 1;
+
+    private final int capacity;
     private final Queue<PaperInventoryReference> queued = new ArrayDeque<>();
     private final Set<PaperInventoryReference> references = new HashSet<>();
 
+    PaperTemplateUpdateRetryBacklog(int capacity) {
+        if (capacity < MIN_CAPACITY) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        this.capacity = capacity;
+    }
+
     boolean offer(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, "reference");
-        if (!references.add(reference)) {
+        if (references.contains(reference)) {
+            return false;
+        }
+        if (queued.size() >= capacity || !references.add(reference)) {
             return false;
         }
         queued.add(reference);
