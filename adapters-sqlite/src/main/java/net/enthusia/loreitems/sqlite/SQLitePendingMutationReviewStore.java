@@ -16,6 +16,16 @@ import net.enthusia.loreitems.domain.PendingMutationState;
 
 public final class SQLitePendingMutationReviewStore implements PendingMutationReviewStore {
     private static final String MUTATION_AGGREGATE_TYPE = "pending_mutation";
+    private static final String RETRY_MUTATION_SQL =
+            "UPDATE pending_mutations SET state = 'PENDING', claim_token = NULL, "
+                    + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
+                    + "WHERE mutation_id = ? AND mutation_type = ? "
+                    + "AND state = 'REVIEW_REQUIRED'";
+    private static final String CANCEL_MUTATION_SQL =
+            "UPDATE pending_mutations SET state = 'CANCELLED', claim_token = NULL, "
+                    + "claim_expires_at = NULL, next_attempt_at = NULL, updated_at = ? "
+                    + "WHERE mutation_id = ? AND mutation_type = ? "
+                    + "AND state = 'REVIEW_REQUIRED'";
     private static final int SINGLE_UPDATED_ROW = 1;
 
     private final SQLiteStorageRuntime storage;
@@ -101,24 +111,35 @@ public final class SQLitePendingMutationReviewStore implements PendingMutationRe
             String mutationType,
             PendingMutationState targetState,
             long now) throws SQLException {
-        boolean retry = targetState == PendingMutationState.PENDING;
-        String sql = retry
-                ? "UPDATE pending_mutations SET state = 'PENDING', claim_token = NULL, "
-                        + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = ? "
-                        + "AND state = 'REVIEW_REQUIRED'"
-                : "UPDATE pending_mutations SET state = 'CANCELLED', claim_token = NULL, "
-                        + "claim_expires_at = NULL, next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE mutation_id = ? AND mutation_type = ? "
-                        + "AND state = 'REVIEW_REQUIRED'";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            int index = 1;
-            if (retry) {
-                statement.setLong(index++, now);
-            }
-            statement.setLong(index++, now);
-            statement.setString(index++, mutationId.toString());
-            statement.setString(index, mutationType);
+        if (targetState == PendingMutationState.PENDING) {
+            return retryMutation(connection, mutationId, mutationType, now);
+        }
+        return cancelMutation(connection, mutationId, mutationType, now);
+    }
+
+    private static boolean retryMutation(
+            Connection connection,
+            UUID mutationId,
+            String mutationType,
+            long now) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(RETRY_MUTATION_SQL)) {
+            statement.setLong(1, now);
+            statement.setLong(2, now);
+            statement.setString(3, mutationId.toString());
+            statement.setString(4, mutationType);
+            return statement.executeUpdate() == SINGLE_UPDATED_ROW;
+        }
+    }
+
+    private static boolean cancelMutation(
+            Connection connection,
+            UUID mutationId,
+            String mutationType,
+            long now) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(CANCEL_MUTATION_SQL)) {
+            statement.setLong(1, now);
+            statement.setString(2, mutationId.toString());
+            statement.setString(3, mutationType);
             return statement.executeUpdate() == SINGLE_UPDATED_ROW;
         }
     }
