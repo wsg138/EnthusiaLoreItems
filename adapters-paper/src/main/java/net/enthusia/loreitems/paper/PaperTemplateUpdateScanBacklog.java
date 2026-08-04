@@ -10,6 +10,9 @@ import java.util.Set;
 final class PaperTemplateUpdateScanBacklog {
     private static final int MIN_TIER_CAPACITY = 1;
     private static final int TIER_COUNT = 2;
+    private static final int CAPACITY_MULTIPLIER = 32;
+    private static final int MIN_CAPACITY = 512;
+    private static final int MAX_CAPACITY = 4_096;
 
     private final int readyCapacity;
     private final int totalCapacity;
@@ -22,6 +25,14 @@ final class PaperTemplateUpdateScanBacklog {
         }
         this.readyCapacity = tierCapacity;
         this.totalCapacity = Math.multiplyExact(tierCapacity, TIER_COUNT);
+    }
+
+    static int capacityForBudget(int budget) {
+        if (budget < MIN_TIER_CAPACITY) {
+            throw new IllegalArgumentException("budget must be positive");
+        }
+        long scaled = (long) budget * CAPACITY_MULTIPLIER;
+        return (int) Math.min(MAX_CAPACITY, Math.max(MIN_CAPACITY, scaled));
     }
 
     PaperTemplateUpdateScanOfferResult offer(PaperInventoryReference reference) {
