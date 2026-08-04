@@ -15,6 +15,7 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -68,7 +69,7 @@ class PaperUniqueAccessTrackingListenerTest {
         player.getInventory().setItem(0, trackedItem());
 
         listener.onQuit(new PlayerQuitEvent(
-                player, (String) null, PlayerQuitEvent.QuitReason.DISCONNECTED));
+                player, (Component) null, PlayerQuitEvent.QuitReason.DISCONNECTED));
 
         TrackingObservationUseCase.Request request = observed.get();
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, request.presence());
