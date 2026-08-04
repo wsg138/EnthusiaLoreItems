@@ -159,22 +159,24 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
-        List<TrackingObservationUseCase.Request> pending;
+        List<TrackingObservationUseCase.Request> pending = List.of();
+        boolean firstClose;
         synchronized (lock) {
-            if (closed) {
-                awaitQuiescence();
-                return;
+            firstClose = !closed;
+            if (firstClose) {
+                closed = true;
+                pending = new ArrayList<>(queued);
+                queued.clear();
+                inFlight = Math.addExact(inFlight, pending.size());
+                if (inFlight == 0) {
+                    quiesced.complete(null);
+                }
+                updateGauges();
             }
-            closed = true;
-            pending = new ArrayList<>(queued);
-            queued.clear();
-            inFlight = Math.addExact(inFlight, pending.size());
-            if (inFlight == 0) {
-                quiesced.complete(null);
-            }
-            updateGauges();
         }
-        pending.forEach(this::startCounted);
+        if (firstClose) {
+            pending.forEach(this::startCounted);
+        }
         awaitQuiescence();
     }
 
