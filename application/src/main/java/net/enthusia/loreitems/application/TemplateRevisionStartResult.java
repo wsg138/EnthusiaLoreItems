@@ -16,6 +16,7 @@ public record TemplateRevisionStartResult(
             case STARTED -> {
                 Objects.requireNonNull(currentRevision, "currentRevision");
                 Objects.requireNonNull(initialBatch, "initialBatch");
+                requireSuccessfulInitialBatch(initialBatch);
             }
             case DEFINITION_NOT_FOUND -> {
                 if (currentRevision != null || initialBatch != null) {
@@ -79,5 +80,14 @@ public record TemplateRevisionStartResult(
                 definitionId,
                 currentRevision,
                 null);
+    }
+
+    private static void requireSuccessfulInitialBatch(
+            TemplateRevisionRolloutBatchResult initialBatch) {
+        if (initialBatch.status() != TemplateRevisionRolloutBatchStatus.SCHEDULED
+                && initialBatch.status() != TemplateRevisionRolloutBatchStatus.COMPLETE) {
+            throw new IllegalArgumentException(
+                    "A started revision requires a successful initial batch");
+        }
     }
 }
