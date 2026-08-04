@@ -1,18 +1,23 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,6 +101,39 @@ class PaperUniqueAccessTrackingListenerTest {
         assertEquals(
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 request.mode());
+        listener.close();
+    }
+
+    @Test
+    void playerAndContainerCopiesShareOneUniquenessDecision() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        TrackingObservationUseCase useCase = request -> {
+            observed.add(request);
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "ok"));
+        };
+        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
+                plugin,
+                () -> useCase,
+                () -> 4,
+                MetricsPort.noOp());
+        PlayerMock player = server.addPlayer("alice");
+        ItemStack tracked = trackedItem();
+        player.getInventory().setItem(0, tracked);
+        Inventory container = server.createInventory(null, 9);
+        container.setItem(0, tracked.clone());
+
+        listener.submitPlayerAndInventory(
+                player,
+                container,
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "minecraft:overworld:0:64:0",
+                "test-cross-inventory-duplicate");
+
+        assertEquals(2, observed.size());
+        assertTrue(observed.stream().allMatch(request -> request.mode()
+                == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
         listener.close();
     }
 
