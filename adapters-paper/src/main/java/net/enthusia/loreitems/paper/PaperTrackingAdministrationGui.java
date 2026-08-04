@@ -37,6 +37,9 @@ import org.bukkit.plugin.Plugin;
 
 /** Paginated staff browser and explicit duplicate-location confirmation flow. */
 public final class PaperTrackingAdministrationGui implements Listener {
+    private static final String ADMINISTRATION_UNAVAILABLE =
+            "Lore-item administration is unavailable.";
+    private static final int FIRST_PAGE = 1;
     private static final int SIZE = 54;
     private static final int CONTENT = 45;
     private static final int CONFIRM = 22;
@@ -98,6 +101,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             case INSTANCES -> clickInstances(player, view, slot);
             case EVIDENCE -> clickEvidence(player, view, slot);
             case CONFIRMATION -> clickConfirmation(player, view, slot);
+            default -> throw new IllegalStateException("Unknown tracking administration screen");
         }
     }
 
@@ -115,7 +119,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
     private void openDefinitionsMain(UUID playerId, int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            messagePlayer(playerId, "Lore-item administration is unavailable.");
+            messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
             return;
         }
         PageRequest request = pageRequest(pageNumber);
@@ -128,12 +132,12 @@ public final class PaperTrackingAdministrationGui implements Listener {
 
     private void clickDefinitions(
             Player player, PaperTrackingAdministrationView view, int slot) {
-        if (slot == PREVIOUS && view.pageNumber > 1) {
-            openDefinitionsMain(player.getUniqueId(), view.pageNumber - 1);
+        if (slot == PREVIOUS && view.pageNumber > FIRST_PAGE) {
+            openDefinitionsMain(player.getUniqueId(), view.pageNumber - FIRST_PAGE);
         } else if (slot == NEXT && view.hasMore) {
-            openDefinitionsMain(player.getUniqueId(), view.pageNumber + 1);
+            openDefinitionsMain(player.getUniqueId(), view.pageNumber + FIRST_PAGE);
         } else if (slot < view.definitionIds.size()) {
-            openInstances(player.getUniqueId(), view.definitionIds.get(slot), 1);
+            openInstances(player.getUniqueId(), view.definitionIds.get(slot), FIRST_PAGE);
         }
     }
 
@@ -141,7 +145,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             UUID playerId, LoreDefinitionId definitionId, int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            messagePlayer(playerId, "Lore-item administration is unavailable.");
+            messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
             return;
         }
         submit(
@@ -156,25 +160,25 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (slot == PREVIOUS) {
             navigateBackFromInstances(player, view);
         } else if (slot == NEXT && view.hasMore) {
-            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber + 1);
+            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber + FIRST_PAGE);
         } else if (slot < view.instanceIds.size()) {
-            openEvidence(player.getUniqueId(), view.instanceIds.get(slot), 1);
+            openEvidence(player.getUniqueId(), view.instanceIds.get(slot), FIRST_PAGE);
         }
     }
 
     private void navigateBackFromInstances(
             Player player, PaperTrackingAdministrationView view) {
-        if (view.pageNumber > 1) {
-            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber - 1);
+        if (view.pageNumber > FIRST_PAGE) {
+            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber - FIRST_PAGE);
         } else {
-            openDefinitionsMain(player.getUniqueId(), 1);
+            openDefinitionsMain(player.getUniqueId(), FIRST_PAGE);
         }
     }
 
     private void openEvidence(UUID playerId, LoreInstanceId instanceId, int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            messagePlayer(playerId, "Lore-item administration is unavailable.");
+            messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
             return;
         }
         if (!queryCapacity.tryAcquire()) {
@@ -234,7 +238,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         if (slot == NEXT && view.hasMore) {
-            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber + 1);
+            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber + FIRST_PAGE);
             return;
         }
         if (slot >= view.observations.size() || view.duplicate == null) {
@@ -249,10 +253,10 @@ public final class PaperTrackingAdministrationGui implements Listener {
 
     private void navigateBackFromEvidence(
             Player player, PaperTrackingAdministrationView view) {
-        if (view.pageNumber > 1) {
-            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber - 1);
+        if (view.pageNumber > FIRST_PAGE) {
+            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber - FIRST_PAGE);
         } else {
-            openDefinitionsMain(player.getUniqueId(), 1);
+            openDefinitionsMain(player.getUniqueId(), FIRST_PAGE);
         }
     }
 
@@ -279,7 +283,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            player.sendMessage("Lore-item administration is unavailable.");
+            player.sendMessage(ADMINISTRATION_UNAVAILABLE);
             return;
         }
         LoreItemsAdministrationUseCase.DuplicateResolutionRequest request =
@@ -453,16 +457,17 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     private PageRequest pageRequest(int pageNumber) {
-        if (pageNumber < 1) {
+        if (pageNumber < FIRST_PAGE) {
             throw new IllegalArgumentException("pageNumber must be positive");
         }
         int pageSize = currentPageSize();
-        return new PageRequest(Math.multiplyExact(pageNumber - 1, pageSize), pageSize);
+        return new PageRequest(
+                Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
     }
 
     private int currentPageSize() {
         int pageSize = Math.min(CONTENT, pageSizeSupplier.getAsInt());
-        if (pageSize < 1) {
+        if (pageSize < FIRST_PAGE) {
             throw new IllegalStateException("Configured GUI page size must be positive");
         }
         return pageSize;
