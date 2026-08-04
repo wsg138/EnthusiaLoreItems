@@ -96,7 +96,7 @@ class PaperTemplateUpdateAccessRegistryTest {
         PaperTemplateUpdateScanner.Candidate candidate = candidate(reference, 2);
         List<PaperInventoryReference> retried = new ArrayList<>();
 
-        PaperTemplateUpdateListener.dispatchCandidates(
+        PaperTemplateUpdateCandidateDispatcher.dispatch(
                 List.of(candidate),
                 ignored -> false,
                 retried::add);
