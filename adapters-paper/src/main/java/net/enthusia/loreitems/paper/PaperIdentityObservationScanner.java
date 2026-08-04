@@ -20,6 +20,8 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+// Scan maps are method-local and confined to the Paper thread; concurrent maps add no safety.
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 final class PaperIdentityObservationScanner implements AutoCloseable {
     private static final int MAX_CONFLICT_PATH_LENGTH =
             LocationDescriptor.MAX_CONTAINER_PATH_LENGTH;
