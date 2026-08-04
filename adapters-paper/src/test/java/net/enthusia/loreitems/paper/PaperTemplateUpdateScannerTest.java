@@ -15,6 +15,7 @@ import org.bukkit.Material;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,11 +32,13 @@ class PaperTemplateUpdateScannerTest {
             new TemplateRevision(1L));
 
     private PlayerMock player;
+    private Plugin plugin;
 
     @BeforeEach
     void setUp() {
         ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
+        plugin = MockBukkit.createMockPlugin();
     }
 
     @AfterEach
@@ -44,7 +47,45 @@ class PaperTemplateUpdateScannerTest {
     }
 
     @Test
-    void rotatingContinuationFindsALateNestedItemWithoutExceedingOnePassBudget() {
+    void continuationFindsALateNestedItemWithoutSubmittingAPartialScan() {
+        populateShulkers(false);
+        PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
+
+        PaperTemplateUpdateScanner.ScanResult first = scanner.scan(
+                plugin, player.getInventory(), candidates::add);
+        assertTrue(first.continuationRequired());
+        assertFalse(first.abandoned());
+        assertTrue(candidates.isEmpty());
+
+        PaperTemplateUpdateScanner.ScanResult second = scanner.scan(
+                plugin, player.getInventory(), candidates::add);
+        assertFalse(second.continuationRequired());
+        assertFalse(second.abandoned());
+        assertEquals(1, second.submitted());
+        assertEquals(List.of(TARGET_IDENTITY), candidates.stream()
+                .map(PaperTemplateUpdateScanner.Candidate::identity)
+                .toList());
+    }
+
+    @Test
+    void duplicateIdentitiesAcrossContinuationPassesAreNotSubmitted() {
+        populateShulkers(true);
+        PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
+
+        PaperTemplateUpdateScanner.ScanResult first = scanner.scan(
+                plugin, player.getInventory(), candidates::add);
+        PaperTemplateUpdateScanner.ScanResult second = scanner.scan(
+                plugin, player.getInventory(), candidates::add);
+
+        assertTrue(first.continuationRequired());
+        assertFalse(second.continuationRequired());
+        assertEquals(0, second.submitted());
+        assertTrue(candidates.isEmpty());
+    }
+
+    private void populateShulkers(boolean includeEarlyDuplicate) {
         PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
         for (int rootSlot = 0; rootSlot < 10; rootSlot++) {
             ItemStack shulkerItem = ItemStack.of(Material.SHULKER_BOX);
@@ -52,7 +93,11 @@ class PaperTemplateUpdateScannerTest {
             ShulkerBox shulker = (ShulkerBox) meta.getBlockState();
             for (int nestedSlot = 0; nestedSlot < shulker.getInventory().getSize(); nestedSlot++) {
                 ItemStack nested = ItemStack.of(Material.COBBLESTONE);
-                if (rootSlot == 9 && nestedSlot == 26) {
+                boolean lateTarget = rootSlot == 9 && nestedSlot == 26;
+                boolean earlyDuplicate = includeEarlyDuplicate
+                        && rootSlot == 0
+                        && nestedSlot == 0;
+                if (lateTarget || earlyDuplicate) {
                     nested = identityCodec.writeIdentity(nested, TARGET_IDENTITY);
                 }
                 shulker.getInventory().setItem(nestedSlot, nested);
@@ -61,23 +106,5 @@ class PaperTemplateUpdateScannerTest {
             assertTrue(shulkerItem.setItemMeta(meta));
             player.getInventory().setItem(rootSlot, shulkerItem);
         }
-
-        PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
-        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
-
-        PaperTemplateUpdateScanner.ScanResult first = scanner.scan(
-                player.getInventory(), candidates::add);
-        assertTrue(first.limitReached());
-        assertTrue(first.continuationRequired());
-        assertFalse(candidates.stream().anyMatch(candidate ->
-                TARGET_IDENTITY.equals(candidate.identity())));
-
-        PaperTemplateUpdateScanner.ScanResult second = scanner.scan(
-                player.getInventory(), candidates::add);
-        assertTrue(second.limitReached());
-        assertEquals(
-                1L,
-                candidates.stream().filter(candidate ->
-                        TARGET_IDENTITY.equals(candidate.identity())).count());
     }
 }

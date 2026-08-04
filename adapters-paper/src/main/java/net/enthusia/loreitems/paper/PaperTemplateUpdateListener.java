@@ -124,11 +124,16 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private void enqueue(PaperInventoryReference reference) {
-        if (closed || !queuedReferences.add(reference)) {
+        if (closed) {
+            return;
+        }
+        if (!queuedReferences.add(reference)) {
+            scanner.reset(reference);
             return;
         }
         if (scans.size() >= maxQueuedScans()) {
             queuedReferences.remove(reference);
+            scanner.reset(reference);
             reportSaturation();
             return;
         }
@@ -157,15 +162,28 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private void scan(PaperInventoryReference reference) {
         Optional<Inventory> inventory = reference.resolve(plugin);
         if (inventory.isEmpty()) {
+            scanner.reset(reference);
             return;
         }
-        PaperTemplateUpdateScanner.ScanResult result = scanner.scan(
-                inventory.orElseThrow(), coordinator::submit);
-        if (result.limitReached()) {
-            plugin.getLogger().fine(
-                    "A naturally accessible template-update scan reached its bounded item limit.");
+        PaperTemplateUpdateScanner.ScanResult result;
+        try {
+            result = scanner.scan(
+                    plugin,
+                    inventory.orElseThrow(),
+                    coordinator::submit);
+        } catch (RuntimeException exception) {
+            scanner.reset(reference);
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not scan a naturally accessible inventory for template updates.",
+                    exception);
+            return;
         }
-        if (result.continuationRequired()) {
+        if (result.abandoned()) {
+            plugin.getLogger().warning(
+                    "A naturally accessible template-update scan exceeded its bounded "
+                            + "continuation limits; durable mutations remain pending.");
+        } else if (result.continuationRequired()) {
             enqueue(reference);
         }
     }
@@ -211,6 +229,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
         scans.clear();
         queuedReferences.clear();
+        scanner.clear();
         coordinator.close();
     }
 }
