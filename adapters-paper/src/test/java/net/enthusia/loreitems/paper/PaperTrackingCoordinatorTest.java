@@ -97,6 +97,23 @@ class PaperTrackingCoordinatorTest {
     }
 
     @Test
+    void postCloseSubmissionDoesNotResolveBukkitService() {
+        AtomicInteger supplierCalls = new AtomicInteger();
+        coordinator = new PaperTrackingCoordinator(
+                plugin,
+                () -> {
+                    supplierCalls.incrementAndGet();
+                    return request -> CompletableFuture.completedFuture(recorded());
+                },
+                () -> 1,
+                MetricsPort.noOp());
+        coordinator.close();
+
+        assertFalse(coordinator.submit(request(1)));
+        assertEquals(0, supplierCalls.get());
+    }
+
+    @Test
     @Timeout(5)
     void closeDrainsBacklogWithoutExceedingConfiguredInFlightBound() {
         BlockingUseCase useCase = new BlockingUseCase();
