@@ -16,6 +16,7 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +24,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
-import org.mockbukkit.mockbukkit.WorldMock;
 import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 class PaperDisplayEntityScannerTest {
@@ -65,7 +65,7 @@ class PaperDisplayEntityScannerTest {
                 plugin, () -> useCase, () -> 4, MetricsPort.noOp());
         PaperDisplayEntityScanner scanner = new PaperDisplayEntityScanner(
                 new PaperPhysicalInventoryScanner(coordinator));
-        WorldMock world = server.addSimpleWorld("world");
+        World world = server.addSimpleWorld("world");
         ArmorStand stand = world.spawn(new Location(world, 4, 64, 7), ArmorStand.class);
         stand.getEquipment().setHelmet(trackedItem());
 
@@ -78,8 +78,8 @@ class PaperDisplayEntityScannerTest {
         assertEquals(1, observed.size());
         TrackingObservationUseCase.Request request = observed.getFirst();
         assertEquals(LocationDescriptor.Type.ARMOR_STAND, request.location().type());
-        assertEquals("slot:head", request.location().path());
-        assertTrue(request.location().key().endsWith(stand.getUniqueId().toString()));
+        assertEquals("slot:head", request.location().containerPath());
+        assertTrue(request.location().locationKey().endsWith(stand.getUniqueId().toString()));
         assertEquals(
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 request.mode());
