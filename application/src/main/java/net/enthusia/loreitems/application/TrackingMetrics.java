@@ -15,6 +15,28 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong conflicts = new AtomicLong();
     private final AtomicLong durationNanos = new AtomicLong();
+    private final MetricsPort additionalQueueView = new MetricsPort() {
+        @Override
+        public void setGauge(String name, long value) {
+            switch (name) {
+                case "tracking.queued" ->
+                        TrackingMetrics.this.setGauge("tracking.additional.queued", value);
+                case "tracking.in_flight" ->
+                        TrackingMetrics.this.setGauge("tracking.additional.in_flight", value);
+                default -> TrackingMetrics.this.setGauge(name, value);
+            }
+        }
+
+        @Override
+        public void increment(String name) {
+            TrackingMetrics.this.increment(name);
+        }
+
+        @Override
+        public void recordDurationNanos(String name, long persistenceNanos) {
+            TrackingMetrics.this.recordDurationNanos(name, persistenceNanos);
+        }
+    };
 
     @Override
     public void setGauge(String name, long value) {
@@ -52,28 +74,7 @@ public final class TrackingMetrics implements MetricsPort {
     }
 
     public MetricsPort additionalQueueView() {
-        return new MetricsPort() {
-            @Override
-            public void setGauge(String name, long value) {
-                switch (name) {
-                    case "tracking.queued" ->
-                            TrackingMetrics.this.setGauge("tracking.additional.queued", value);
-                    case "tracking.in_flight" ->
-                            TrackingMetrics.this.setGauge("tracking.additional.in_flight", value);
-                    default -> TrackingMetrics.this.setGauge(name, value);
-                }
-            }
-
-            @Override
-            public void increment(String name) {
-                TrackingMetrics.this.increment(name);
-            }
-
-            @Override
-            public void recordDurationNanos(String name, long durationNanos) {
-                TrackingMetrics.this.recordDurationNanos(name, durationNanos);
-            }
-        };
+        return additionalQueueView;
     }
 
     public Snapshot snapshot() {
