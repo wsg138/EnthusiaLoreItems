@@ -1,7 +1,9 @@
 package net.enthusia.loreitems.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +17,7 @@ class PendingMutationStateTest {
         state = state.transitionTo(PendingMutationState.COMPLETED);
 
         assertEquals(PendingMutationState.COMPLETED, state);
+        assertTrue(state.terminal());
         PendingMutationState completed = state;
         assertThrows(
                 IllegalStateException.class,
@@ -22,9 +25,17 @@ class PendingMutationStateTest {
     }
 
     @Test
-    void ambiguityCanEnterReviewBeforeCompletion() {
+    void ambiguityCanEnterReviewAndBeResolvedExplicitly() {
+        PendingMutationState reviewed =
+                PendingMutationState.APPLIED.transitionTo(PendingMutationState.REVIEW_REQUIRED);
+
         assertEquals(
-                PendingMutationState.REVIEW_REQUIRED,
-                PendingMutationState.APPLIED.transitionTo(PendingMutationState.REVIEW_REQUIRED));
+                PendingMutationState.PENDING,
+                reviewed.transitionTo(PendingMutationState.PENDING));
+        assertEquals(
+                PendingMutationState.CANCELLED,
+                reviewed.transitionTo(PendingMutationState.CANCELLED));
+        assertFalse(reviewed.terminal());
+        assertTrue(PendingMutationState.CANCELLED.terminal());
     }
 }
