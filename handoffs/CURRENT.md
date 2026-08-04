@@ -3,54 +3,56 @@
 ## Active work
 
 - Phase: Implementation PR 4 — Editing and destructive administration
-- Exact subphase: durable template revision rollout planning core
+- Exact subphase: PR 4b typed durable mutation queue and operator review controls
 - Repository: `wsg138/EnthusiaLoreItems`
-- Pull request: #6 — `PR 4a: Add durable template revision rollout core`
-- Branch: `agent/loreitems-pr4-revision-rollout-core`
-- Starting `main`: `ea6f9548c0a7aea1ec82ee88d5329a7da49c4c1f`
-- Review-remediation head: `966ec62d0781d90682fc6fe226dfadd9349ebe23`
-- Status: implementation, focused tests, independent harsh review, substantive CodeRabbit review, both actionable review fixes, and exact-head verification are complete; the documentation head containing report 0030 must pass permanent exact-head verification before merge
+- Pull request: #7 — `PR 4b: add typed mutation queue and review controls`
+- Branch: `agent/loreitems-pr4-mutation-queue-controls`
+- Starting `main`: `a375b07d2e2e32b49ba4a4dceab290d1bc2b832f`
+- Reviewed implementation head: `76c6bf5d66ebf9c57e163e8734b1f91b94c279f5`
+- Status: implementation, focused tests, independent harsh review, substantive CodeRabbit review, all confirmed findings, resolved review threads, and exact-head implementation verification are complete; the documentation-finalization head containing report 0031 must pass permanent exact-head verification before merge
 
-Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR #6 status/head/draft state, mergeability, exact-head GitHub Actions, Codacy, submitted reviews, unresolved threads, requested changes, active branches, and comments newer than the latest immutable report. Live GitHub and code take priority.
+Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR #7 status/head/draft state, mergeability, exact-head GitHub Actions, Codacy, submitted reviews, unresolved threads, requested changes, active branches, and comments newer than the latest immutable report. Live GitHub and code take priority.
 
-If PR #6 has already merged when this file is read from `main`, treat the merge-finalization instructions below as stale. Verify the resulting `main` and branch cleanup, then begin the exact next PR 4 subphase only in a later chat.
+If PR #7 has already merged when this file is read from `main`, treat the merge-finalization instructions below as stale. Verify the resulting `main` and branch cleanup, then begin the exact next PR 4 subphase only in a later chat.
 
 ## Latest report
 
-- [`0030-2026-08-04-pr6-review-fixes.md`](0030-2026-08-04-pr6-review-fixes.md)
+- [`0031-2026-08-04-pr7-mutation-queue-controls.md`](0031-2026-08-04-pr7-mutation-queue-controls.md)
 
-Report 0030 records the completed substantive automated review, deterministic V1 duplicate consolidation before the V2 uniqueness constraint, strengthened `STARTED` result validation, exact-head verification for the review-fix commit, resolved review threads, and the explicit PR 4b boundary for operator resolution of nonterminal work.
+Report 0031 records stale-handoff reconciliation, the complete PR 4b queue-control scope, V3 migration, regression coverage, harsh-review and CodeRabbit remediation, exact-head implementation verification, preserved boundaries, and the exact PR 4c boundary.
 
 ## Required prior reports
 
+- [`0030-2026-08-04-pr6-review-fixes.md`](0030-2026-08-04-pr6-review-fixes.md)
 - [`0029-2026-08-04-pr6-template-revision-rollout-core.md`](0029-2026-08-04-pr6-template-revision-rollout-core.md)
 
-Report 0029 contains the full PR 4a implementation scope, architectural invariants, initial harsh-review findings, focused tests, phase boundaries, and earlier verification. Report 0030 contains only the later substantive-review remediation and finalization state.
+Reports 0029 and 0030 contain the durable template-revision planning core, its architectural invariants, and the final PR #6 review remediation on which PR #7 builds.
 
 ## Exact next step
 
-When PR #6 remains open:
+When PR #7 remains open:
 
-1. verify the current documentation head with the permanent GitHub Actions workflow and exact-head Codacy check;
-2. update the PR body with the exact final head, delivered Implementation PR 4a subphase, remaining PR 4 requirements, independent merge safety, tests, all harsh-review and CodeRabbit fixes, and exact verification evidence;
-3. confirm both actionable CodeRabbit threads remain resolved, no requested-change review exists, and no new legitimate in-scope finding has appeared;
-4. confirm `main` has not advanced incompatibly and PR #6 remains mergeable;
-5. merge PR #6 with a normal merge commit under the user's authorization;
-6. verify the resulting `main` SHA and normal workflow state;
-7. delete `agent/loreitems-pr4-revision-rollout-core` when supported;
-8. stop without beginning another logical item or subphase in the same chat.
+1. verify the final documentation head with the permanent GitHub Actions workflow and exact-head Codacy check;
+2. update the PR body with the exact final head, delivered PR 4b subphase, remaining PR 4 requirements, independent merge safety, local and permanent verification evidence, harsh-review fixes, and CodeRabbit result;
+3. confirm the CodeRabbit finding remains resolved, no unresolved review thread or requested-changes review exists, and no new legitimate in-scope finding has appeared;
+4. confirm live `main` has not advanced incompatibly and PR #7 remains mergeable;
+5. mark PR #7 ready for review;
+6. merge PR #7 with a normal merge commit under the user's authorization;
+7. verify the resulting `main` SHA and normal workflow state;
+8. delete `agent/loreitems-pr4-mutation-queue-controls` when supported;
+9. stop without beginning another logical item or subphase in the same chat.
 
-When PR #6 is already merged:
+When PR #7 is already merged:
 
 1. verify the resulting `main` SHA and branch cleanup;
-2. in a later chat, begin Implementation PR 4b: the bounded Paper `TEMPLATE_UPDATE` mutation executor and natural-encounter update integration, including bounded monitoring and explicit operator resolution/cancellation controls for nonterminal work.
+2. in a later chat, begin PR 4c: the bounded Paper `TEMPLATE_UPDATE` executor and natural-encounter update path, preserving hidden instance UUIDs and failing ambiguous outcomes into `REVIEW_REQUIRED` without force-loading chunks.
 
 ## Preserved boundaries and limitations
 
-- This subphase is an inert application/SQLite core; it does not wire commands, listeners, GUI flows, or physical item mutation.
+- This subphase establishes durable queue and review controls only; it does not activate physical Paper item mutation.
 - No live Paper/Leaf server behavior has been tested.
 - No production system, deployment, or production database was accessed.
-- No physical item was edited, replaced, removed, purged, deleted, or repaired.
-- No GUI/chat editor, held-template replacement path, destructive administration, campaign execution, public API change, or EnthusiaTags integration was added.
-- No force-loaded chunk, global synchronous scan, unbounded rollout page/batch, or retained Bukkit object across asynchronous persistence was introduced.
-- The fail-closed revision blocker remains intentional until PR 4b adds a verified worker plus operator resolution and monitoring; automated verification does not prove live inventory event ordering, physical component replacement, reload behavior, or staff workflow on a live server.
+- No physical item, hidden instance UUID, visible template, or applied revision was changed.
+- No natural-encounter listener, chunk force-loading, global synchronous inventory scan, staff command/GUI wiring, destructive retirement/deletion workflow, campaign execution, public API expansion, or EnthusiaTags integration was added.
+- No released migration was edited; V3 is forward-only.
+- Retry and cancellation remain explicit, audited operator actions; ambiguous work remains fail-closed in `REVIEW_REQUIRED`.

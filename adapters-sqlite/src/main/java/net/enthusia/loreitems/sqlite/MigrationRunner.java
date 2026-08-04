@@ -18,7 +18,11 @@ public final class MigrationRunner {
             new Migration(
                     2,
                     "template revision rollout",
-                    "db/migration/V2__template_revision_rollout.sql"));
+                    "db/migration/V2__template_revision_rollout.sql"),
+            new Migration(
+                    3,
+                    "mutation queue controls",
+                    "db/migration/V3__mutation_queue_controls.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);

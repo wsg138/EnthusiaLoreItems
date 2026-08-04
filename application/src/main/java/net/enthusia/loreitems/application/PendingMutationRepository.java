@@ -10,7 +10,11 @@ public interface PendingMutationRepository {
     CompletionStage<Void> insert(PendingMutationRecord mutation);
 
     CompletionStage<Page<PendingMutationRecord>> claimPending(
-            String claimToken, Instant now, Duration lease, int limit);
+            String mutationType,
+            String claimToken,
+            Instant now,
+            Duration lease,
+            int limit);
 
     CompletionStage<Boolean> transitionClaimed(
             UUID mutationId,
@@ -22,4 +26,7 @@ public interface PendingMutationRepository {
     CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit);
 
     CompletionStage<Page<PendingMutationRecord>> listNonTerminal(PageRequest request);
+
+    CompletionStage<Page<PendingMutationRecord>> listNonTerminal(
+            String mutationType, PageRequest request);
 }

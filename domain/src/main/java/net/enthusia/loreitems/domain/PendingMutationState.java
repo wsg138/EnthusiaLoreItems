@@ -9,7 +9,8 @@ public enum PendingMutationState {
     APPLIED,
     VERIFIED,
     COMPLETED,
-    REVIEW_REQUIRED;
+    REVIEW_REQUIRED,
+    CANCELLED;
 
     public boolean canTransitionTo(PendingMutationState target) {
         return allowedTargets().contains(target);
@@ -22,13 +23,18 @@ public enum PendingMutationState {
         return target;
     }
 
+    public boolean terminal() {
+        return this == COMPLETED || this == CANCELLED;
+    }
+
     private Set<PendingMutationState> allowedTargets() {
         return switch (this) {
             case PENDING -> EnumSet.of(CLAIMED, REVIEW_REQUIRED);
             case CLAIMED -> EnumSet.of(APPLIED, REVIEW_REQUIRED);
             case APPLIED -> EnumSet.of(VERIFIED, REVIEW_REQUIRED);
             case VERIFIED -> EnumSet.of(COMPLETED, REVIEW_REQUIRED);
-            case COMPLETED, REVIEW_REQUIRED -> Set.of();
+            case REVIEW_REQUIRED -> EnumSet.of(PENDING, CANCELLED);
+            case COMPLETED, CANCELLED -> Set.of();
         };
     }
 }

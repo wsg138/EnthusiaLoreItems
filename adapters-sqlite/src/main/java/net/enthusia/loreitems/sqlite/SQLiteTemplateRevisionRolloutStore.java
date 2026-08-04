@@ -186,7 +186,8 @@ public final class SQLiteTemplateRevisionRolloutStore
                         + "AND lifecycle_state = 'ACTIVE' AND desired_revision < ?"
                         + ") OR EXISTS ("
                         + "SELECT 1 FROM pending_mutations WHERE definition_id = ? "
-                        + "AND mutation_type = ? AND state <> 'COMPLETED'"
+                        + "AND mutation_type = ? "
+                        + "AND state NOT IN ('COMPLETED', 'CANCELLED')"
                         + ")")) {
             statement.setString(1, definitionId.value().toString());
             statement.setLong(2, currentRevision.value());
