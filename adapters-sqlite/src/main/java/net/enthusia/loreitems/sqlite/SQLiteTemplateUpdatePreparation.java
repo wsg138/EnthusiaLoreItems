@@ -4,8 +4,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import net.enthusia.loreitems.application.EncodedItemTemplate;
@@ -26,12 +24,11 @@ final class SQLiteTemplateUpdatePreparation {
             String claimToken,
             long now,
             long leaseMillis) throws SQLException {
-        List<Candidate> candidates = findCandidates(connection, observedIdentity, now);
-        if (candidates.isEmpty()) {
+        Candidate candidate = findCandidate(connection, observedIdentity, now);
+        if (candidate == null) {
             return TemplateUpdatePrepareResult.noPendingWork();
         }
-        Candidate candidate = candidates.getFirst();
-        String mismatch = mismatchDetail(candidate, observedIdentity, candidates.size());
+        String mismatch = mismatchDetail(candidate, observedIdentity);
         if (mismatch != null) {
             boolean reviewed = movePendingToReview(
                     connection, candidate.mutationId(), mismatch, observedIdentity, now);
@@ -57,17 +54,21 @@ final class SQLiteTemplateUpdatePreparation {
                 expiresAt));
     }
 
-    private static List<Candidate> findCandidates(
+    private static Candidate findCandidate(
             Connection connection,
             LoreItemIdentity observedIdentity,
             long now) throws SQLException {
-        List<Candidate> candidates = new ArrayList<>(2);
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT pm.mutation_id, pm.desired_revision AS mutation_desired_revision, "
                         + "li.applied_revision AS instance_applied_revision, "
                         + "li.desired_revision AS instance_desired_revision, "
                         + "li.lifecycle_state, current.state AS current_state, "
-                        + "revision.codec_version, revision.template_blob "
+                        + "revision.codec_version, revision.template_blob, "
+                        + "(SELECT COUNT(*) FROM pending_mutations sibling "
+                        + "WHERE sibling.mutation_type = 'TEMPLATE_UPDATE' "
+                        + "AND sibling.instance_id = pm.instance_id "
+                        + "AND sibling.state NOT IN ('COMPLETED', 'CANCELLED')) "
+                        + "AS non_terminal_mutation_count "
                         + "FROM pending_mutations pm "
                         + "JOIN lore_instances li ON li.instance_id = pm.instance_id "
                         + "AND li.definition_id = pm.definition_id "
@@ -80,17 +81,14 @@ final class SQLiteTemplateUpdatePreparation {
                         + "AND pm.definition_id = ? AND pm.instance_id = ? "
                         + "AND pm.state = 'PENDING' "
                         + "AND (pm.next_attempt_at IS NULL OR pm.next_attempt_at <= ?) "
-                        + "ORDER BY pm.created_at, pm.mutation_id LIMIT 2")) {
+                        + "ORDER BY pm.created_at, pm.mutation_id LIMIT 1")) {
             statement.setString(1, observedIdentity.definitionId().value().toString());
             statement.setString(2, observedIdentity.instanceId().value().toString());
             statement.setLong(3, now);
             try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    candidates.add(readCandidate(resultSet));
-                }
+                return resultSet.next() ? readCandidate(resultSet) : null;
             }
         }
-        return candidates;
     }
 
     private static Candidate readCandidate(ResultSet resultSet) throws SQLException {
@@ -102,16 +100,16 @@ final class SQLiteTemplateUpdatePreparation {
                 resultSet.getString("lifecycle_state"),
                 resultSet.getString("current_state"),
                 resultSet.getInt("codec_version"),
-                resultSet.getBytes("template_blob"));
+                resultSet.getBytes("template_blob"),
+                resultSet.getLong("non_terminal_mutation_count"));
     }
 
     private static String mismatchDetail(
             Candidate candidate,
-            LoreItemIdentity observedIdentity,
-            int candidateCount) {
+            LoreItemIdentity observedIdentity) {
         long observedRevision = observedIdentity.appliedRevision().value();
-        if (candidateCount > 1) {
-            return "Multiple due template-update mutations exist for one encountered instance.";
+        if (candidate.nonTerminalMutationCount() > 1L) {
+            return "Multiple nonterminal template-update mutations exist for one instance.";
         }
         if (!"ACTIVE".equals(candidate.lifecycleState())) {
             return "Template-update work targeted a non-active lore instance.";
@@ -186,11 +184,16 @@ final class SQLiteTemplateUpdatePreparation {
             String lifecycleState,
             String currentState,
             int codecVersion,
-            byte[] templateBlob) {
+            byte[] templateBlob,
+            long nonTerminalMutationCount) {
         private Candidate {
             Objects.requireNonNull(mutationId, "mutationId");
             Objects.requireNonNull(lifecycleState, "lifecycleState");
             Objects.requireNonNull(templateBlob, "templateBlob");
+            if (nonTerminalMutationCount < 1L) {
+                throw new IllegalArgumentException(
+                        "A selected mutation must count as nonterminal");
+            }
             templateBlob = templateBlob.clone();
         }
 
