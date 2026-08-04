@@ -18,41 +18,41 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 /** Paper event adapter for naturally accessible inventory-backed template updates. */
 final class PaperTemplateUpdateEvents implements Listener {
-    private final PaperTemplateUpdateListener listener;
+    private final PaperTemplateUpdateAccessController controller;
 
-    PaperTemplateUpdateEvents(PaperTemplateUpdateListener listener) {
-        this.listener = Objects.requireNonNull(listener, "listener");
+    PaperTemplateUpdateEvents(PaperTemplateUpdateAccessController controller) {
+        this.controller = Objects.requireNonNull(controller, "controller");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        listener.enqueuePlayer(event.getPlayer());
+        controller.enqueuePlayer(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        listener.forget(new PaperInventoryReference.PlayerMain(player.getUniqueId()));
-        listener.forget(new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
+        controller.forget(new PaperInventoryReference.PlayerMain(player.getUniqueId()));
+        controller.forget(new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onSlotChange(PlayerInventorySlotChangeEvent event) {
-        listener.enqueue(new PaperInventoryReference.PlayerMain(
+        controller.enqueue(new PaperInventoryReference.PlayerMain(
                 event.getPlayer().getUniqueId()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player player) {
-            listener.scheduleViewRescan(player, event.getView().getTopInventory());
+            controller.scheduleViewRescan(player, event.getView().getTopInventory());
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDrag(InventoryDragEvent event) {
         if (event.getWhoClicked() instanceof Player player) {
-            listener.scheduleViewRescan(player, event.getView().getTopInventory());
+            controller.scheduleViewRescan(player, event.getView().getTopInventory());
         }
     }
 
@@ -61,9 +61,9 @@ final class PaperTemplateUpdateEvents implements Listener {
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
-        listener.enqueuePlayer(player);
+        controller.enqueuePlayer(player);
         PaperInventoryReference.capture(event.getView().getTopInventory())
-                .ifPresent(listener::enqueue);
+                .ifPresent(controller::enqueue);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -72,11 +72,11 @@ final class PaperTemplateUpdateEvents implements Listener {
                 PaperInventoryReference.capture(event.getSource());
         Optional<PaperInventoryReference> destination =
                 PaperInventoryReference.capture(event.getDestination());
-        source.ifPresent(listener::invalidate);
-        destination.ifPresent(listener::invalidate);
-        listener.scheduleNextTick(() -> {
-            source.ifPresent(listener::enqueue);
-            destination.ifPresent(listener::enqueue);
+        source.ifPresent(controller::invalidate);
+        destination.ifPresent(controller::invalidate);
+        controller.scheduleNextTick(() -> {
+            source.ifPresent(controller::enqueue);
+            destination.ifPresent(controller::enqueue);
         });
     }
 
@@ -84,8 +84,8 @@ final class PaperTemplateUpdateEvents implements Listener {
     public void onInventoryPickup(InventoryPickupItemEvent event) {
         Optional<PaperInventoryReference> inventory =
                 PaperInventoryReference.capture(event.getInventory());
-        inventory.ifPresent(listener::invalidate);
-        listener.scheduleNextTick(() -> inventory.ifPresent(listener::enqueue));
+        inventory.ifPresent(controller::invalidate);
+        controller.scheduleNextTick(() -> inventory.ifPresent(controller::enqueue));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -93,8 +93,8 @@ final class PaperTemplateUpdateEvents implements Listener {
         if (event.getEntity() instanceof Player player) {
             PaperInventoryReference.PlayerMain main =
                     new PaperInventoryReference.PlayerMain(player.getUniqueId());
-            listener.invalidate(main);
-            listener.scheduleNextTick(() -> listener.enqueue(main));
+            controller.invalidate(main);
+            controller.scheduleNextTick(() -> controller.enqueue(main));
         }
     }
 }
