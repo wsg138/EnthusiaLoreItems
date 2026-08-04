@@ -1,12 +1,15 @@
 package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.Page;
@@ -101,6 +104,45 @@ class SQLitePendingMutationReviewStoreTest {
             assertTrue(repository.listNonTerminal(TEMPLATE_UPDATE, PageRequest.first(10))
                     .toCompletableFuture().join().items().isEmpty());
             assertAudit(runtime, mutationId, "mutation_review_cancelled");
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void auditFailureRollsBackTheStateResolution() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("audit-rollback.db"));
+        try {
+            SQLitePendingMutationRepository repository =
+                    new SQLitePendingMutationRepository(runtime);
+            SQLitePendingMutationReviewStore reviewStore =
+                    new SQLitePendingMutationReviewStore(runtime);
+            UUID mutationId = seedReviewRequired(repository, 1_000L);
+            runtime.execute(connection -> {
+                        try (Statement statement = connection.createStatement()) {
+                            statement.executeUpdate(
+                                    "CREATE TRIGGER reject_mutation_review_audit "
+                                            + "BEFORE INSERT ON audit_events BEGIN "
+                                            + "SELECT RAISE(ABORT, 'audit rejected'); END");
+                        }
+                        return null;
+                    })
+                    .toCompletableFuture().join();
+            Instant now = Instant.ofEpochMilli(5_000L);
+
+            assertThrows(
+                    CompletionException.class,
+                    () -> reviewStore.resolve(
+                                    mutationId,
+                                    TEMPLATE_UPDATE,
+                                    PendingMutationReviewStore.Resolution.RETRY,
+                                    audit(mutationId, "mutation_review_retried", now),
+                                    now)
+                            .toCompletableFuture().join());
+
+            assertEquals(PendingMutationState.REVIEW_REQUIRED, repository
+                    .listNonTerminal(TEMPLATE_UPDATE, PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst().state());
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
