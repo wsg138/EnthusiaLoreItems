@@ -26,7 +26,7 @@ public enum DirectDeliveryState {
     private Set<DirectDeliveryState> allowedTargets() {
         return switch (this) {
             case PENDING -> EnumSet.of(RESERVED, CANCELLED, REVIEW_REQUIRED);
-            case RESERVED -> EnumSet.of(APPLIED, REVIEW_REQUIRED);
+            case RESERVED -> EnumSet.of(PENDING, APPLIED, REVIEW_REQUIRED);
             case APPLIED -> EnumSet.of(VERIFIED, REVIEW_REQUIRED);
             case VERIFIED -> EnumSet.of(COMPLETED, REVIEW_REQUIRED);
             case COMPLETED, CANCELLED, REVIEW_REQUIRED -> Set.of();

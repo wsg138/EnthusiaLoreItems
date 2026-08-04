@@ -1,0 +1,400 @@
+package net.enthusia.loreitems.paper;
+
+import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
+import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
+import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
+import io.papermc.paper.event.block.BlockPreDispenseEvent;
+import io.papermc.paper.event.entity.EntityCompostItemEvent;
+import io.papermc.paper.event.entity.EntityDamageItemEvent;
+import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
+import net.enthusia.loreitems.application.ItemIdentityReadResult;
+import net.enthusia.loreitems.application.VoidLossUseCase;
+import org.bukkit.Material;
+import org.bukkit.block.Crafter;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Item;
+import org.bukkit.entity.ItemFrame;
+import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockCookEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.CrafterCraftEvent;
+import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPlaceEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.entity.ItemDespawnEvent;
+import org.bukkit.event.entity.ItemMergeEvent;
+import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.inventory.BrewEvent;
+import org.bukkit.event.inventory.BrewingStandFuelEvent;
+import org.bukkit.event.inventory.FurnaceBurnEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
+import org.bukkit.event.player.PlayerBucketEntityEvent;
+import org.bukkit.event.player.PlayerBucketEvent;
+import org.bukkit.event.player.PlayerBucketFillEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
+
+public final class PaperTrackedItemProtectionListener implements Listener, AutoCloseable {
+    private static final Set<String> CONSUMPTIVE_INTERACTION_MATERIALS = Set.of(
+            "BONE_MEAL",
+            "BOWL",
+            "ENDER_EYE",
+            "FIRE_CHARGE",
+            "GLASS_BOTTLE",
+            "GLOW_INK_SAC",
+            "HONEYCOMB",
+            "INK_SAC",
+            "MAP",
+            "OMINOUS_TRIAL_KEY",
+            "RESIN_CLUMP",
+            "TRIAL_KEY");
+    private static final Set<String> CONSUMPTIVE_ENTITY_MATERIALS = Set.of(
+            "AMETHYST_SHARD",
+            "BAMBOO",
+            "BROWN_MUSHROOM",
+            "CHEST",
+            "DANDELION",
+            "HAY_BLOCK",
+            "LEAD",
+            "NAME_TAG",
+            "POPPY",
+            "RED_MUSHROOM",
+            "SADDLE",
+            "SEAGRASS",
+            "SLIME_BALL",
+            "WHEAT",
+            "WOLF_ARMOR");
+
+    private final Plugin plugin;
+    private final PaperItemIdentityCodec identityCodec;
+    private final PaperVoidLossCoordinator voidLossCoordinator;
+
+    private volatile boolean closed;
+
+    public PaperTrackedItemProtectionListener(
+            Plugin plugin,
+            Supplier<VoidLossUseCase> useCaseSupplier,
+            int maxInFlight) {
+        this(plugin, useCaseSupplier, () -> maxInFlight);
+    }
+
+    public PaperTrackedItemProtectionListener(
+            Plugin plugin,
+            Supplier<VoidLossUseCase> useCaseSupplier,
+            IntSupplier maxInFlightSupplier) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.identityCodec = new PaperItemIdentityCodec();
+        this.voidLossCoordinator = new PaperVoidLossCoordinator(
+                plugin,
+                Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
+                Objects.requireNonNull(maxInFlightSupplier, "maxInFlightSupplier"),
+                identityCodec);
+    }
+
+    public void start() {
+        if (closed) {
+            throw new IllegalStateException("Protection listener is closed");
+        }
+        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemDespawn(ItemDespawnEvent event) {
+        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemCombust(EntityCombustEvent event) {
+        if (event.getEntity() instanceof Item item
+                && hasLoreIdentityEvidence(item.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemMerge(ItemMergeEvent event) {
+        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())
+                || hasLoreIdentityEvidence(event.getTarget().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onItemDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Item item)) {
+            return;
+        }
+        ItemIdentityReadResult identity = identityCodec.readIdentity(item.getItemStack());
+        if (identity instanceof ItemIdentityReadResult.Untracked) {
+            return;
+        }
+        event.setCancelled(true);
+        if (event.getCause() == EntityDamageEvent.DamageCause.VOID
+                && identity instanceof ItemIdentityReadResult.Tracked tracked) {
+            voidLossCoordinator.begin(item, tracked.identity());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDurabilityDamage(PlayerItemDamageEvent event) {
+        if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityDurabilityDamage(EntityDamageItemEvent event) {
+        if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onConsume(PlayerItemConsumeEvent event) {
+        if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInventoryResultClick(InventoryClickEvent event) {
+        if (event.getSlotType() == InventoryType.SlotType.RESULT
+                && containsLoreIdentityEvidence(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCrafterCraft(CrafterCraftEvent event) {
+        if (hasLoreIdentityEvidence(event.getResult())) {
+            event.setCancelled(true);
+            return;
+        }
+        if (event.getBlock().getState() instanceof Crafter crafter
+                && containsLoreIdentityEvidence(crafter.getInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCook(BlockCookEvent event) {
+        if (hasLoreIdentityEvidence(event.getSource())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFurnaceFuel(FurnaceBurnEvent event) {
+        if (hasLoreIdentityEvidence(event.getFuel())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBrewingFuel(BrewingStandFuelEvent event) {
+        if (hasLoreIdentityEvidence(event.getFuel())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBrew(BrewEvent event) {
+        if (containsLoreIdentityEvidence(event.getContents())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInventoryMove(InventoryMoveItemEvent event) {
+        if (event.getDestination().getType() == InventoryType.COMPOSTER
+                && hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityCompost(EntityCompostItemEvent event) {
+        if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (hasLoreIdentityEvidence(event.getItemInHand())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onHangingPlace(HangingPlaceEvent event) {
+        ItemStack source = event.getItemStack();
+        if (source != null && hasLoreIdentityEvidence(source)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityPlace(EntityPlaceEvent event) {
+        Player player = event.getPlayer();
+        if (player != null
+                && hasLoreIdentityEvidence(itemInHand(player, event.getHand()))) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onFlowerPotManipulate(PlayerFlowerPotManipulateEvent event) {
+        if (event.isPlacing() && hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketEmpty(PlayerBucketEmptyEvent event) {
+        protectBucketUse(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketFill(PlayerBucketFillEvent event) {
+        protectBucketUse(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucketEntity(PlayerBucketEntityEvent event) {
+        if (hasLoreIdentityEvidence(event.getOriginalBucket())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onConsumptiveInteraction(PlayerInteractEvent event) {
+        ItemStack item = event.getItem();
+        if (item != null
+                && losesIdentityOnInteraction(item.getType())
+                && hasLoreIdentityEvidence(item)) {
+            event.setUseItemInHand(Event.Result.DENY);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityInteraction(PlayerInteractEntityEvent event) {
+        if (event.getRightClicked() instanceof ArmorStand
+                || event.getRightClicked() instanceof ItemFrame) {
+            return;
+        }
+        ItemStack item = itemInHand(event.getPlayer(), event.getHand());
+        if (losesIdentityOnEntityInteraction(item.getType())
+                && hasLoreIdentityEvidence(item)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onProjectileLaunch(PlayerLaunchProjectileEvent event) {
+        if (event.shouldConsume() && hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onElytraBoost(PlayerElytraBoostEvent event) {
+        if (event.shouldConsume() && hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onReadyArrow(PlayerReadyArrowEvent event) {
+        if (hasLoreIdentityEvidence(event.getArrow())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onShootBow(EntityShootBowEvent event) {
+        ItemStack consumable = event.getConsumable();
+        if (event.shouldConsumeItem()
+                && consumable != null
+                && hasLoreIdentityEvidence(consumable)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDispense(BlockPreDispenseEvent event) {
+        if (hasLoreIdentityEvidence(event.getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void protectBucketUse(PlayerBucketEvent event) {
+        if (hasLoreIdentityEvidence(itemInHand(event.getPlayer(), event.getHand()))) {
+            event.setCancelled(true);
+        }
+    }
+
+    private static ItemStack itemInHand(Player player, EquipmentSlot hand) {
+        return hand == EquipmentSlot.OFF_HAND
+                ? player.getInventory().getItemInOffHand()
+                : player.getInventory().getItemInMainHand();
+    }
+
+    private boolean containsLoreIdentityEvidence(Inventory inventory) {
+        for (ItemStack item : inventory.getContents()) {
+            if (hasLoreIdentityEvidence(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasLoreIdentityEvidence(ItemStack item) {
+        return identityCodec.hasIdentityEvidence(item);
+    }
+
+    private static boolean losesIdentityOnInteraction(Material material) {
+        String name = material.name();
+        return CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
+                || name.endsWith("_DYE")
+                || name.endsWith("_SPAWN_EGG");
+    }
+
+    private static boolean losesIdentityOnEntityInteraction(Material material) {
+        String name = material.name();
+        return losesIdentityOnInteraction(material)
+                || material.isEdible()
+                || CONSUMPTIVE_ENTITY_MATERIALS.contains(name)
+                || name.endsWith("_CARPET")
+                || name.endsWith("_HORSE_ARMOR")
+                || name.endsWith("_SEEDS");
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        voidLossCoordinator.close();
+        HandlerList.unregisterAll(this);
+    }
+}

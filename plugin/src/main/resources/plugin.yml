@@ -5,3 +5,20 @@ api-version: "1.21"
 authors:
   - wsg138
 description: Durable lore-item tracking and delivery for Enthusia SMP.
+commands:
+  loreitems:
+    description: Opens and administers Enthusia lore items.
+    usage: /loreitems create <lookup-key> <display name> | /loreitems adopt <lookup-key> | /loreitems give <lookup-key> [player] | /loreitems anomalies [page] | /loreitems audit <instance-uuid> [page] | /loreitems recovery [page]
+permissions:
+  enthusia.loreitems.admin.create:
+    description: Creates a lore definition from the held item.
+    default: op
+  enthusia.loreitems.admin.adopt:
+    description: Adopts the held item into an existing lore definition.
+    default: op
+  enthusia.loreitems.admin.give:
+    description: Queues a new lore-item instance for a player.
+    default: op
+  enthusia.loreitems.admin.audit:
+    description: Views active lore-item anomalies, audit evidence, and recovery work.
+    default: op

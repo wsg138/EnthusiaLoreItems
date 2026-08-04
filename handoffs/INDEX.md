@@ -22,5 +22,13 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0016 | 2026-08-02 | Implementation PR 1 / PR #2 | Superseded interim blocker | [Remaining Codacy evidence blocker](0016-2026-08-02-pr2-codacy-evidence-blocker.md) |
 | 0017 | 2026-08-02 | Implementation PR 1 / PR #2 | Superseded final verification | [Exact-head Codacy and Actions verification](0017-2026-08-02-pr2-final-verification.md) |
 | 0018 | 2026-08-03 | Implementation PR 1 / PR #2 | Final merge verification | [Final Codacy fixes and merge verification](0018-2026-08-03-pr2-final-codacy-fixes-and-merge-verification.md) |
+| 0019 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Held-item definition creation](0019-2026-08-03-pr3-held-item-definition-creation.md) |
+| 0020 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Held-item adoption](0020-2026-08-03-pr3-held-item-adoption.md) |
+| 0021 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Durable direct delivery and recovery](0021-2026-08-03-pr3-direct-delivery-recovery.md) |
+| 0022 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Direct-delivery Codacy remediation and cleanup](0022-2026-08-03-pr3-direct-delivery-codacy-cleanup.md) |
+| 0023 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Tracked-item protection and terminal void loss](0023-2026-08-03-pr3-tracked-item-void-protection.md) |
+| 0024 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Display entities and mob pickup prevention](0024-2026-08-03-pr3-display-entities-and-mob-pickup.md) |
+| 0025 | 2026-08-03 | Implementation PR 2 / PR #3 | Superseded merge verification | [Phase completion and merge readiness](0025-2026-08-03-pr3-phase-completion-and-merge-readiness.md) |
+| 0026 | 2026-08-03 | Implementation PR 2 / PR #3 | Final merge verification | [Final Codacy remediation and merge readiness](0026-2026-08-03-pr3-final-codacy-remediation-and-merge-readiness.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.

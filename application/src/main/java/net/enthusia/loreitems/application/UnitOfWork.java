@@ -3,7 +3,9 @@ package net.enthusia.loreitems.application;
 import java.time.Instant;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.DeletedDefinitionMarker;
+import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreDefinitionRevision;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
 public interface UnitOfWork {
@@ -22,8 +24,11 @@ public interface UnitOfWork {
         AuditAppender audit();
     }
 
-    @FunctionalInterface
     interface DefinitionMutations {
+        boolean create(
+                LoreDefinition definition,
+                LoreDefinitionRevision initialRevision) throws Exception;
+
         boolean markDeleted(
                 LoreDefinitionId definitionId,
                 TemplateRevision expectedCurrentRevision,

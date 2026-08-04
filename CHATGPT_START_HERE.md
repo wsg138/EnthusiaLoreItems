@@ -18,6 +18,12 @@ The authoritative product and engineering requirements remain in:
 
 Use `wsg138/EnthusiaStaff` only as a reference for strong hexagonal boundaries, lifecycle safety, durable workflows, architecture testing, and documentation. Do not copy its proxy, multi-server, MariaDB, website, or moderation complexity.
 
+Reference access for future repository agents:
+
+- Prefer `wsg138/EnthusiaStaff-Staging` as the durable GitHub source for inspectable EnthusiaStaff reference code and workflow patterns.
+- Historical verified-runtime evidence is available from EnthusiaStaff Actions run `30794945133`, artifact `8848768264`: `https://github.com/wsg138/EnthusiaStaff/actions/runs/30794945133/artifacts/8848768264`.
+- GitHub Actions artifacts may expire; the staging repository is the durable reference and the artifact is evidence for that specific run only.
+
 Do not modify `wsg138/EnthusiaTags` until all six LoreItems phases are merged and the implementation plan reaches the separate Tags integration phase.
 
 ## Handoff-first startup

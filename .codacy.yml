@@ -1,3 +1,4 @@
+---
 # SQL analyzers apply non-SQLite dialect and organization-specific RAC_* policies to this
 # immutable SQLite migration. Java code and tests remain fully analyzed.
 exclude_paths:

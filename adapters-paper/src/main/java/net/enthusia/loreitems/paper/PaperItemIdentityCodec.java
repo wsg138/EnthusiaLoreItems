@@ -75,6 +75,19 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         return result;
     }
 
+    public boolean hasIdentityEvidence(ItemStack item) {
+        threadGuard.requirePrimaryThread();
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        Set<NamespacedKey> presentKeys = meta.getPersistentDataContainer().getKeys();
+        return IDENTITY_KEYS.stream().anyMatch(presentKeys::contains);
+    }
+
     @Override
     public ItemIdentityReadResult readIdentity(ItemStack item) {
         threadGuard.requirePrimaryThread();
@@ -97,48 +110,75 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
             return new ItemIdentityReadResult.Untracked();
         }
         if (presentIdentityKeys != IDENTITY_KEYS.size()) {
-            return invalid(ItemIdentityFailure.PARTIAL_DATA, "Lore-item identity fields are incomplete");
+            return invalid(
+                    ItemIdentityFailure.PARTIAL_DATA,
+                    "Lore-item identity fields are incomplete",
+                    readIdentityEvidence(data));
         }
         return readCompleteIdentity(item, data);
     }
 
     private static ItemIdentityReadResult readCompleteIdentity(
             ItemStack item, PersistentDataContainer data) {
-        Integer version = data.get(VERSION_KEY, PersistentDataType.INTEGER);
         byte[] definitionBytes = data.get(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY);
         byte[] instanceBytes = data.get(INSTANCE_KEY, PersistentDataType.BYTE_ARRAY);
         Long revision = data.get(REVISION_KEY, PersistentDataType.LONG);
-        if (version == null || definitionBytes == null || instanceBytes == null || revision == null) {
+        if (definitionBytes == null || instanceBytes == null || revision == null) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity fields use invalid data types");
+        }
+
+        LoreItemIdentity identity;
+        try {
+            identity = decodeIdentity(definitionBytes, instanceBytes, revision);
+        } catch (IllegalArgumentException exception) {
+            return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity values are invalid");
+        }
+        Integer version = data.get(VERSION_KEY, PersistentDataType.INTEGER);
+        if (version == null) {
+            return invalid(
+                    ItemIdentityFailure.MALFORMED_DATA,
+                    "Lore-item identity version uses an invalid data type",
+                    identity);
         }
         if (version != CURRENT_VERSION) {
             return invalid(
                     ItemIdentityFailure.UNSUPPORTED_VERSION,
-                    "Unsupported lore-item identity version " + version);
+                    "Unsupported lore-item identity version " + version,
+                    identity);
         }
         if (!isUnstackableSingleItem(item)) {
             return invalid(
                     ItemIdentityFailure.STACKING_VIOLATION,
-                    "Tracked lore items must have amount and maximum stack size equal to one");
+                    "Tracked lore items must have amount and maximum stack size equal to one",
+                    identity);
         }
-        return decodeIdentity(definitionBytes, instanceBytes, revision);
+        return new ItemIdentityReadResult.Tracked(identity);
+    }
+
+    private static LoreItemIdentity readIdentityEvidence(PersistentDataContainer data) {
+        byte[] definitionBytes = data.get(DEFINITION_KEY, PersistentDataType.BYTE_ARRAY);
+        byte[] instanceBytes = data.get(INSTANCE_KEY, PersistentDataType.BYTE_ARRAY);
+        Long revision = data.get(REVISION_KEY, PersistentDataType.LONG);
+        if (definitionBytes == null || instanceBytes == null || revision == null) {
+            return null;
+        }
+        try {
+            return decodeIdentity(definitionBytes, instanceBytes, revision);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private static boolean isUnstackableSingleItem(ItemStack item) {
         return item.getAmount() == 1 && item.getMaxStackSize() == 1;
     }
 
-    private static ItemIdentityReadResult decodeIdentity(
+    private static LoreItemIdentity decodeIdentity(
             byte[] definitionBytes, byte[] instanceBytes, long revision) {
-        try {
-            LoreItemIdentity identity = new LoreItemIdentity(
-                    new LoreDefinitionId(uuidFromBytes(definitionBytes)),
-                    new LoreInstanceId(uuidFromBytes(instanceBytes)),
-                    new TemplateRevision(revision));
-            return new ItemIdentityReadResult.Tracked(identity);
-        } catch (IllegalArgumentException exception) {
-            return invalid(ItemIdentityFailure.MALFORMED_DATA, "Lore-item identity values are invalid");
-        }
+        return new LoreItemIdentity(
+                new LoreDefinitionId(uuidFromBytes(definitionBytes)),
+                new LoreInstanceId(uuidFromBytes(instanceBytes)),
+                new TemplateRevision(revision));
     }
 
     private static ItemStack requireUsableClone(ItemStack item) {
@@ -178,8 +218,16 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         return new UUID(buffer.getLong(), buffer.getLong());
     }
 
-    private static ItemIdentityReadResult.Invalid invalid(ItemIdentityFailure failure, String detail) {
+    private static ItemIdentityReadResult.Invalid invalid(
+            ItemIdentityFailure failure, String detail) {
         return new ItemIdentityReadResult.Invalid(failure, detail);
+    }
+
+    private static ItemIdentityReadResult.Invalid invalid(
+            ItemIdentityFailure failure,
+            String detail,
+            LoreItemIdentity identityEvidence) {
+        return new ItemIdentityReadResult.Invalid(failure, detail, identityEvidence);
     }
 
     private static NamespacedKey key(String value) {

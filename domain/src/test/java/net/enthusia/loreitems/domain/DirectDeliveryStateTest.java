@@ -25,6 +25,13 @@ class DirectDeliveryStateTest {
     }
 
     @Test
+    void permitsSafeDeferralBeforePhysicalApplication() {
+        assertEquals(
+                DirectDeliveryState.PENDING,
+                DirectDeliveryState.RESERVED.transitionTo(DirectDeliveryState.PENDING));
+    }
+
+    @Test
     void permitsSafeCancellationBeforeReservation() {
         assertEquals(
                 DirectDeliveryState.CANCELLED,

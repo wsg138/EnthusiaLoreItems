@@ -19,6 +19,7 @@ import net.enthusia.loreitems.application.ExternalDeliveryOutcome;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.PreparedDirectDelivery;
 import net.enthusia.loreitems.domain.DefinitionKey;
 import net.enthusia.loreitems.domain.DirectDeliveryState;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,9 @@ class SQLiteDirectDeliveryRepositoryTest {
             assertEquals(1, count(runtime, CountTable.LORE_INSTANCES));
             assertEquals(1, count(runtime, CountTable.DIRECT_DELIVERIES));
             assertEquals(1, count(runtime, CountTable.EXTERNAL_REQUESTS));
+            assertEquals(1, count(runtime, CountTable.OBSERVATIONS));
+            assertEquals(1, count(runtime, CountTable.CURRENT_STATES));
+            assertEquals(1, count(runtime, CountTable.AUDIT_EVENTS));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -86,6 +90,9 @@ class SQLiteDirectDeliveryRepositoryTest {
             assertEquals(0, count(runtime, CountTable.LORE_INSTANCES));
             assertEquals(0, count(runtime, CountTable.DIRECT_DELIVERIES));
             assertEquals(0, count(runtime, CountTable.EXTERNAL_REQUESTS));
+            assertEquals(0, count(runtime, CountTable.OBSERVATIONS));
+            assertEquals(0, count(runtime, CountTable.CURRENT_STATES));
+            assertEquals(0, count(runtime, CountTable.AUDIT_EVENTS));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -100,6 +107,98 @@ class SQLiteDirectDeliveryRepositoryTest {
             seedClaimableDelivery(runtime, repository);
             UUID deliveryId = claimOnce(repository);
             assertClaimFencing(repository, deliveryId);
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void preparedClaimCompletesQueuedLocationAsVerifiedInventoryObservation() throws Exception {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("complete.db"));
+        try {
+            seedDefinition(runtime, "deliverable");
+            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+            UUID playerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+            ExternalDeliveryAcceptance accepted = repository.acceptExternal(
+                            new ExternalDeliveryCommand(
+                                    new DefinitionKey("deliverable"), playerId, "complete-1"),
+                            Instant.ofEpochMilli(1_000L))
+                    .toCompletableFuture().join();
+
+            Page<PreparedDirectDelivery> page = repository.claimPreparedPending(
+                            "worker-complete",
+                            Instant.ofEpochMilli(2_000L),
+                            Duration.ofSeconds(30),
+                            10)
+                    .toCompletableFuture().join();
+
+            assertEquals(1, page.items().size());
+            PreparedDirectDelivery delivery = page.items().getFirst();
+            assertEquals(accepted.deliveryId().orElseThrow(), delivery.deliveryId());
+            assertEquals(playerId, delivery.playerId());
+            assertEquals(1, delivery.template().codecVersion());
+            assertEquals(1, delivery.template().payload()[0]);
+            assertTrue(repository.completeClaimed(
+                            delivery,
+                            7,
+                            "a".repeat(64),
+                            Instant.ofEpochMilli(3_000L))
+                    .toCompletableFuture().join());
+
+            assertEquals(0, repository.listNonTerminal(PageRequest.first(10))
+                    .toCompletableFuture().join().items().size());
+            assertEquals(2, count(runtime, CountTable.OBSERVATIONS));
+            assertEquals(1, count(runtime, CountTable.CURRENT_STATES));
+            assertEquals(2, count(runtime, CountTable.AUDIT_EVENTS));
+            assertEquals("PLAYER_INVENTORY", currentLocationType(runtime, delivery.instanceId().value()));
+            assertEquals("storage:7", currentContainerPath(runtime, delivery.instanceId().value()));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void offlineDeferralWaitsUntilDueOrExplicitPlayerWake() throws Exception {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("defer.db"));
+        try {
+            seedDefinition(runtime, "offline");
+            SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
+            UUID playerId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+            repository.acceptExternal(
+                            new ExternalDeliveryCommand(
+                                    new DefinitionKey("offline"), playerId, "offline-1"),
+                            Instant.ofEpochMilli(1_000L))
+                    .toCompletableFuture().join();
+            PreparedDirectDelivery delivery = repository.claimPreparedPending(
+                            "worker-offline",
+                            Instant.ofEpochMilli(2_000L),
+                            Duration.ofSeconds(30),
+                            10)
+                    .toCompletableFuture().join().items().getFirst();
+
+            assertTrue(repository.deferClaimed(
+                            delivery.deliveryId(),
+                            delivery.claimToken(),
+                            Instant.ofEpochMilli(2_100L),
+                            Instant.ofEpochMilli(30_000L))
+                    .toCompletableFuture().join());
+            assertTrue(repository.claimPreparedPending(
+                            "too-early",
+                            Instant.ofEpochMilli(3_000L),
+                            Duration.ofSeconds(30),
+                            10)
+                    .toCompletableFuture().join().items().isEmpty());
+            assertEquals(1, repository.wakePendingForPlayer(
+                            playerId,
+                            Instant.ofEpochMilli(3_100L),
+                            10)
+                    .toCompletableFuture().join());
+            assertEquals(1, repository.claimPreparedPending(
+                            "after-wake",
+                            Instant.ofEpochMilli(3_101L),
+                            Duration.ofSeconds(30),
+                            10)
+                    .toCompletableFuture().join().items().size());
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -184,9 +283,11 @@ class SQLiteDirectDeliveryRepositoryTest {
             assertEquals(2, remaining.items().size());
             assertEquals(1L, countState(remaining, DirectDeliveryState.REVIEW_REQUIRED));
             assertEquals(1L, countState(remaining, DirectDeliveryState.RESERVED));
+            assertEquals(1, countCurrentState(runtime, "MISSING_UNRESOLVED"));
             assertEquals(1, repository.moveExpiredClaimsToReview(
                             Instant.ofEpochMilli(2_011L), 1)
                     .toCompletableFuture().join());
+            assertEquals(2, countCurrentState(runtime, "MISSING_UNRESOLVED"));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -233,6 +334,57 @@ class SQLiteDirectDeliveryRepositoryTest {
                 .join();
     }
 
+    private static String currentLocationType(
+            SQLiteStorageRuntime runtime,
+            UUID instanceId) {
+        return currentStateValue(runtime, instanceId, "location_type");
+    }
+
+    private static String currentContainerPath(
+            SQLiteStorageRuntime runtime,
+            UUID instanceId) {
+        return currentStateValue(runtime, instanceId, "container_path");
+    }
+
+    private static String currentStateValue(
+            SQLiteStorageRuntime runtime,
+            UUID instanceId,
+            String column) {
+        return runtime.execute(connection -> {
+                    String sql = switch (column) {
+                        case "location_type" ->
+                                "SELECT location_type FROM instance_current_state WHERE instance_id = ?";
+                        case "container_path" ->
+                                "SELECT container_path FROM instance_current_state WHERE instance_id = ?";
+                        default -> throw new IllegalArgumentException("Unsupported current-state column");
+                    };
+                    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                        statement.setString(1, instanceId.toString());
+                        try (var resultSet = statement.executeQuery()) {
+                            return resultSet.next() ? resultSet.getString(1) : null;
+                        }
+                    }
+                })
+                .toCompletableFuture()
+                .join();
+    }
+
+    private static int countCurrentState(
+            SQLiteStorageRuntime runtime,
+            String state) {
+        return runtime.execute(connection -> {
+                    try (PreparedStatement statement = connection.prepareStatement(
+                            "SELECT COUNT(*) FROM instance_current_state WHERE state = ?")) {
+                        statement.setString(1, state);
+                        try (var resultSet = statement.executeQuery()) {
+                            return resultSet.next() ? resultSet.getInt(1) : 0;
+                        }
+                    }
+                })
+                .toCompletableFuture()
+                .join();
+    }
+
     private static int count(SQLiteStorageRuntime runtime, CountTable table) {
         return runtime.execute(connection -> count(connection, table)).toCompletableFuture().join();
     }
@@ -248,7 +400,10 @@ class SQLiteDirectDeliveryRepositoryTest {
     private enum CountTable {
         LORE_INSTANCES("SELECT COUNT(*) FROM lore_instances"),
         DIRECT_DELIVERIES("SELECT COUNT(*) FROM direct_deliveries"),
-        EXTERNAL_REQUESTS("SELECT COUNT(*) FROM external_delivery_requests");
+        EXTERNAL_REQUESTS("SELECT COUNT(*) FROM external_delivery_requests"),
+        OBSERVATIONS("SELECT COUNT(*) FROM instance_observations"),
+        CURRENT_STATES("SELECT COUNT(*) FROM instance_current_state"),
+        AUDIT_EVENTS("SELECT COUNT(*) FROM audit_events");
 
         private final String sqlText;
 
