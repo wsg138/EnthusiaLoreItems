@@ -202,28 +202,51 @@ class SQLiteItemAnomalyObservationStoreTest {
                 LoreInstanceLifecycle.ACTIVE,
                 10L,
                 null);
+        seedDefinition(runtime, definitionId);
+        new SQLiteInstanceRepository(runtime).create(instance).toCompletableFuture().join();
+        LocationDescriptor initialLocation = new LocationDescriptor(
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                PLAYER_PREFIX + UUID.randomUUID(),
+                "slot:0");
+        InstanceObservation initialObservation = seedObservation(
+                runtime, instance, definitionId, initialLocation);
+        seedCurrentState(runtime, instance, initialLocation, initialObservation);
+        return new TestIdentity(
+                instance,
+                new LoreItemIdentity(
+                        definitionId,
+                        instance.id(),
+                        instance.appliedRevision()));
+    }
+
+    private static void seedDefinition(
+            SQLiteStorageRuntime runtime,
+            LoreDefinitionId definitionId) {
+        TemplateRevision revision = new TemplateRevision(1);
         new SQLiteDefinitionRepository(runtime)
                 .create(
                         new LoreDefinition(
                                 definitionId,
                                 new DefinitionKey("anomaly-test"),
                                 "Anomaly Test",
-                                new TemplateRevision(1),
+                                revision,
                                 1L,
                                 null),
                         new LoreDefinitionRevision(
                                 definitionId,
-                                new TemplateRevision(1),
+                                revision,
                                 1,
                                 new byte[] {1},
                                 1L))
                 .toCompletableFuture().join();
-        new SQLiteInstanceRepository(runtime).create(instance).toCompletableFuture().join();
-        LocationDescriptor initialLocation = new LocationDescriptor(
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                PLAYER_PREFIX + UUID.randomUUID(),
-                "slot:0");
-        InstanceObservation initialObservation = new SQLiteObservationRepository(runtime)
+    }
+
+    private static InstanceObservation seedObservation(
+            SQLiteStorageRuntime runtime,
+            LoreInstance instance,
+            LoreDefinitionId definitionId,
+            LocationDescriptor initialLocation) {
+        return new SQLiteObservationRepository(runtime)
                 .append(new InstanceObservation(
                         0L,
                         instance.id(),
@@ -233,6 +256,13 @@ class SQLiteItemAnomalyObservationStoreTest {
                         "test-seed",
                         100L))
                 .toCompletableFuture().join();
+    }
+
+    private static void seedCurrentState(
+            SQLiteStorageRuntime runtime,
+            LoreInstance instance,
+            LocationDescriptor initialLocation,
+            InstanceObservation initialObservation) {
         new SQLiteCurrentStateRepository(runtime)
                 .create(new InstanceCurrentState(
                         instance.id(),
@@ -242,12 +272,6 @@ class SQLiteItemAnomalyObservationStoreTest {
                         0L,
                         100L))
                 .toCompletableFuture().join();
-        return new TestIdentity(
-                instance,
-                new LoreItemIdentity(
-                        definitionId,
-                        instance.id(),
-                        instance.appliedRevision()));
     }
 
     private static void assertFencedState(
