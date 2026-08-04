@@ -1,27 +1,32 @@
 package net.enthusia.loreitems.paper;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
+import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
+/** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
 public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private static final long INITIAL_DELAY_TICKS = 1L;
-    private static final long POLL_INTERVAL_TICKS = 100L;
-    private static final int MIN_RECOVERY_LIMIT = 1;
+    private static final long RECOVERY_PERIOD_TICKS = 100L;
+    private static final Duration TEMPLATE_UPDATE_CLAIM_LEASE = Duration.ofSeconds(30L);
 
     private final Plugin plugin;
     private final PendingMutationRepository repository;
     private final int recoveryLimit;
-    private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
+    private final PaperTemplateUpdateListener templateUpdateListener;
 
-    private volatile boolean closed;
     private BukkitTask task;
+    private boolean inFlight;
+    private boolean closed;
 
     public PaperMutationRecoveryWorker(
             Plugin plugin,
@@ -29,55 +34,75 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
-        if (recoveryLimit < MIN_RECOVERY_LIMIT) {
+        if (recoveryLimit < 1) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
+        if (!(repository instanceof TemplateUpdateExecutionStore templateStore)) {
+            throw new IllegalArgumentException(
+                    "repository must also provide template-update execution storage");
+        }
         this.recoveryLimit = recoveryLimit;
+        this.templateUpdateListener = new PaperTemplateUpdateListener(
+                plugin,
+                new PersistingTemplateUpdateExecutionUseCase(
+                        templateStore,
+                        Clock.systemUTC(),
+                        TEMPLATE_UPDATE_CLAIM_LEASE),
+                new PaperTemplateUpdateOperator(),
+                () -> recoveryLimit);
     }
 
     public void start() {
         if (closed || task != null) {
             throw new IllegalStateException("Mutation recovery worker cannot be started");
         }
-        task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin,
-                this::requestRun,
-                INITIAL_DELAY_TICKS,
-                POLL_INTERVAL_TICKS);
+        templateUpdateListener.start();
+        try {
+            task = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin,
+                    this::requestRun,
+                    INITIAL_DELAY_TICKS,
+                    RECOVERY_PERIOD_TICKS);
+        } catch (RuntimeException exception) {
+            templateUpdateListener.close();
+            throw exception;
+        }
     }
 
     void requestRun() {
-        if (closed || !recoveryInFlight.compareAndSet(false, true)) {
+        if (closed || inFlight) {
             return;
         }
-        CompletionStage<Integer> recovery;
+        inFlight = true;
+        CompletionStage<Integer> stage;
         try {
-            recovery = Objects.requireNonNull(
-                    repository.moveExpiredClaimsToReview(
-                            Instant.now(), recoveryLimit),
-                    "mutation recovery stage");
+            stage = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit);
         } catch (RuntimeException exception) {
-            recoveryInFlight.set(false);
+            inFlight = false;
             plugin.getLogger().log(
                     Level.SEVERE,
-                    "Could not submit expired mutation recovery.",
+                    "Could not start bounded expired mutation recovery.",
                     exception);
             return;
         }
-        recovery.whenComplete((recovered, failure) -> {
-            recoveryInFlight.set(false);
-            if (failure != null) {
+        stage.whenComplete((recovered, throwable) -> {
+            inFlight = false;
+            if (throwable != null) {
                 plugin.getLogger().log(
                         Level.SEVERE,
                         "Could not recover expired item-mutation claims.",
-                        unwrap(failure));
-            } else if (recovered == null) {
-                plugin.getLogger().severe(
-                        "Expired item-mutation recovery returned no result.");
-            } else if (recovered > 0) {
+                        unwrap(throwable));
+                return;
+            }
+            if (recovered != null && recovered > 0) {
                 plugin.getLogger().warning(
                         "Moved " + recovered
                                 + " expired item-mutation claims to REVIEW_REQUIRED.");
+            }
+            if (recovered != null && recovered == recoveryLimit) {
+                plugin.getLogger().warning(
+                        "The bounded mutation-recovery batch was full; more expired claims "
+                                + "may remain for the next pass.");
             }
         });
     }
@@ -92,6 +117,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
+        templateUpdateListener.close();
         BukkitTask current = task;
         if (current != null) {
             current.cancel();
