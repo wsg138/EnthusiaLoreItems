@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.mockbukkit.mockbukkit.MockBukkit;
 
+@SuppressWarnings("PMD.DoNotUseThreads")
 class PaperTrackingCoordinatorTest {
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString(
