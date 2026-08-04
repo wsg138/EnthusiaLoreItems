@@ -485,62 +485,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
             FoundationConfiguration loaded) {
         try {
-            getServer().getScheduler().runTask(this, () -> {
-                synchronized (lifecycleLock) {
-                    if (stopping || identityAnomalyListener != null) {
-                        return;
-                    }
-                    PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
-                            this,
+            getServer().getScheduler().runTask(
+                    this,
+                    () -> activateAdministrationServicesOnMainThread(
                             administrationUseCase,
-                            ANOMALY_WARNING_INTERVAL_SECONDS,
-                            loaded.defaultPageSize());
-                    PaperIdentityAnomalyListener anomalyListener =
-                            new PaperIdentityAnomalyListener(
-                                    this,
-                                    loaded.mutationBudgetPerTick());
-                    ServicesManager services = getServer().getServicesManager();
-                    try {
-                        services.register(
-                                LoreItemsAdministrationUseCase.class,
-                                administrationUseCase,
-                                this,
-                                ServicePriority.Normal);
-                        services.register(
-                                ItemAnomalyObservationUseCase.class,
-                                anomalyObservationUseCase,
-                                this,
-                                ServicePriority.Normal);
-                        warningWorker.start();
-                        services.register(
-                                AnomalyWarningSink.class,
-                                warningWorker,
-                                this,
-                                ServicePriority.Normal);
-                        anomalyListener.start();
-                        anomalyWarningWorker = warningWorker;
-                        identityAnomalyListener = anomalyListener;
-                        getLogger().info(
-                                "Lore-item anomaly detection, warnings, and administration are active.");
-                    } catch (RuntimeException exception) {
-                        closeQuietly(anomalyListener, "identity-anomaly listener");
-                        closeQuietly(warningWorker, "anomaly-warning worker");
-                        services.unregister(AnomalyWarningSink.class, warningWorker);
-                        services.unregister(
-                                ItemAnomalyObservationUseCase.class,
-                                anomalyObservationUseCase);
-                        services.unregister(
-                                LoreItemsAdministrationUseCase.class,
-                                administrationUseCase);
-                        getLogger().log(
-                                java.util.logging.Level.SEVERE,
-                                "Could not activate lore-item anomaly and administration services; "
-                                        + "disabling LoreItems.",
-                                exception);
-                        getServer().getPluginManager().disablePlugin(this);
-                    }
-                }
-            });
+                            anomalyObservationUseCase,
+                            loaded));
         } catch (RuntimeException exception) {
             publishUnavailableServices(
                     "Lore-item anomaly and administration activation could not be scheduled.");
@@ -550,6 +500,97 @@ public final class LoreItemsPlugin extends JavaPlugin {
                             + "writes remain unavailable.",
                     exception);
         }
+    }
+
+    private void activateAdministrationServicesOnMainThread(
+            LoreItemsAdministrationUseCase administrationUseCase,
+            ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            FoundationConfiguration loaded) {
+        synchronized (lifecycleLock) {
+            if (stopping || identityAnomalyListener != null) {
+                return;
+            }
+            startAdministrationComponents(
+                    administrationUseCase,
+                    anomalyObservationUseCase,
+                    loaded);
+        }
+    }
+
+    private void startAdministrationComponents(
+            LoreItemsAdministrationUseCase administrationUseCase,
+            ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            FoundationConfiguration loaded) {
+        PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
+                this,
+                administrationUseCase,
+                ANOMALY_WARNING_INTERVAL_SECONDS,
+                loaded.defaultPageSize());
+        PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
+                this,
+                loaded.mutationBudgetPerTick());
+        ServicesManager services = getServer().getServicesManager();
+        try {
+            registerAdministrationServices(
+                    services,
+                    administrationUseCase,
+                    anomalyObservationUseCase,
+                    warningWorker);
+            warningWorker.start();
+            anomalyListener.start();
+            anomalyWarningWorker = warningWorker;
+            identityAnomalyListener = anomalyListener;
+            getLogger().info(
+                    "Lore-item anomaly detection, warnings, and administration are active.");
+        } catch (RuntimeException exception) {
+            rollbackAdministrationServices(
+                    services,
+                    administrationUseCase,
+                    anomalyObservationUseCase,
+                    warningWorker,
+                    anomalyListener);
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not activate lore-item anomaly and administration services; "
+                            + "disabling LoreItems.",
+                    exception);
+            getServer().getPluginManager().disablePlugin(this);
+        }
+    }
+
+    private void registerAdministrationServices(
+            ServicesManager services,
+            LoreItemsAdministrationUseCase administrationUseCase,
+            ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            PaperAnomalyWarningWorker warningWorker) {
+        services.register(
+                LoreItemsAdministrationUseCase.class,
+                administrationUseCase,
+                this,
+                ServicePriority.Normal);
+        services.register(
+                ItemAnomalyObservationUseCase.class,
+                anomalyObservationUseCase,
+                this,
+                ServicePriority.Normal);
+        services.register(
+                AnomalyWarningSink.class,
+                warningWorker,
+                this,
+                ServicePriority.Normal);
+    }
+
+    private void rollbackAdministrationServices(
+            ServicesManager services,
+            LoreItemsAdministrationUseCase administrationUseCase,
+            ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            PaperAnomalyWarningWorker warningWorker,
+            PaperIdentityAnomalyListener anomalyListener) {
+        closeQuietly(anomalyListener, "identity-anomaly listener");
+        closeQuietly(warningWorker, "anomaly-warning worker");
+        services.unregister(AnomalyWarningSink.class, warningWorker);
+        services.unregister(ItemAnomalyObservationUseCase.class, anomalyObservationUseCase);
+        services.unregister(LoreItemsAdministrationUseCase.class, administrationUseCase);
     }
 
     private void wakeDirectDeliveries(UUID playerId) {
