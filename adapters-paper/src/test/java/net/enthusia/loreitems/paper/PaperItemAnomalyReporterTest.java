@@ -22,6 +22,11 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
 class PaperItemAnomalyReporterTest {
+    private static final String FIRST_SUFFIX = "first";
+    private static final String FIRST_A_SUFFIX = "first-a";
+    private static final String TEST_SOURCE = "test";
+    private static final String FIRST_DUPLICATE_DETAIL = "first duplicate";
+    private static final int FIRST_CALL_COUNT = 1;
     private static final LoreItemIdentity FIRST_IDENTITY = identity(
             "11111111-1111-1111-1111-111111111111");
     private static final LoreItemIdentity SECOND_IDENTITY = identity(
@@ -53,15 +58,15 @@ class PaperItemAnomalyReporterTest {
 
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
-                conflictLocation("first"),
-                List.of(playerLocation("first-a"), playerLocation("first-b")),
-                "test",
-                "first duplicate");
+                conflictLocation(FIRST_SUFFIX),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                TEST_SOURCE,
+                FIRST_DUPLICATE_DETAIL);
         reporter.recordDuplicate(
                 SECOND_IDENTITY,
                 conflictLocation("second"),
                 List.of(playerLocation("second-a"), playerLocation("second-b")),
-                "test",
+                TEST_SOURCE,
                 "second duplicate");
 
         assertEquals(1, useCase.callCount);
@@ -77,21 +82,21 @@ class PaperItemAnomalyReporterTest {
 
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
-                conflictLocation("first"),
-                List.of(playerLocation("first-a"), playerLocation("first-b")),
-                "test",
-                "first duplicate");
+                conflictLocation(FIRST_SUFFIX),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                TEST_SOURCE,
+                FIRST_DUPLICATE_DETAIL);
         reporter.recordDuplicate(
                 SECOND_IDENTITY,
                 conflictLocation("second"),
                 List.of(playerLocation("second-a"), playerLocation("second-b")),
-                "test",
+                TEST_SOURCE,
                 "older detail");
         reporter.recordDuplicate(
                 SECOND_IDENTITY,
                 conflictLocation("second"),
                 List.of(playerLocation("second-c"), playerLocation("second-d")),
-                "test",
+                TEST_SOURCE,
                 "newest detail");
 
         useCase.firstResult.complete(recorded());
@@ -113,7 +118,7 @@ class PaperItemAnomalyReporterTest {
                 FIRST_IDENTITY,
                 conflict,
                 evidence,
-                "test",
+                TEST_SOURCE,
                 "first observation");
         useCase.firstResult.complete(recorded());
 
@@ -121,7 +126,7 @@ class PaperItemAnomalyReporterTest {
                 FIRST_IDENTITY,
                 conflict,
                 evidence,
-                "test",
+                TEST_SOURCE,
                 "immediate repeat");
 
         assertEquals(1, useCase.callCount);
@@ -137,10 +142,10 @@ class PaperItemAnomalyReporterTest {
 
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
-                conflictLocation("first"),
-                List.of(playerLocation("first-a"), playerLocation("first-b")),
-                "test",
-                "first duplicate");
+                conflictLocation(FIRST_SUFFIX),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                TEST_SOURCE,
+                FIRST_DUPLICATE_DETAIL);
         useCase.firstResult.complete(ItemAnomalyObservationUseCase.Result.of(
                 ItemAnomalyObservationUseCase.Status.REFRESHED,
                 "refreshed"));
@@ -158,10 +163,10 @@ class PaperItemAnomalyReporterTest {
 
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
-                conflictLocation("first"),
-                List.of(playerLocation("first-a"), playerLocation("first-b")),
-                "test",
-                "first duplicate");
+                conflictLocation(FIRST_SUFFIX),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                TEST_SOURCE,
+                FIRST_DUPLICATE_DETAIL);
         useCase.firstResult.complete(recorded());
 
         assertEquals(1, warningSink.requestCount);
@@ -220,7 +225,7 @@ class PaperItemAnomalyReporterTest {
         public CompletionStage<Result> record(Request request) {
             callCount++;
             lastRequest = request;
-            return callCount == 1
+            return callCount == FIRST_CALL_COUNT
                     ? firstResult
                     : CompletableFuture.completedFuture(recorded());
         }
