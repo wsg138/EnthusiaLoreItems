@@ -190,7 +190,7 @@ class PaperTemplateUpdateOperatorTest {
         BundleMeta bundleMeta = assertInstanceOf(BundleMeta.class, bundle.getItemMeta());
         bundleMeta.setItems(List.of(
                 ItemStack.of(Material.GOLD_INGOT),
-                tracked(named(Material.COMPASS, "Old Compass"), REVISION_ONE)));
+                tracked(named(Material.IRON_SWORD, "Old Blade"), REVISION_ONE)));
         assertTrue(bundle.setItemMeta(bundleMeta));
         player.getInventory().setItem(0, bundle);
         PaperTemplateUpdateItemReference reference = PaperTemplateUpdateItemReference.root(
@@ -198,7 +198,7 @@ class PaperTemplateUpdateOperatorTest {
                 .nested(PaperTemplateUpdateItemReference.NestedStep.bundle(1));
 
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
-                plugin, reference, prepared(named(Material.COMPASS, "New Compass")));
+                plugin, reference, prepared(named(Material.IRON_SWORD, "New Blade")));
 
         assertEquals(
                 PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED,
@@ -209,7 +209,7 @@ class PaperTemplateUpdateOperatorTest {
                 Objects.requireNonNull(player.getInventory().getItem(0)).getItemMeta());
         assertEquals(Material.GOLD_INGOT, storedMeta.getItems().getFirst().getType());
         ItemStack storedLoreItem = storedMeta.getItems().get(1);
-        assertEquals(Component.text("New Compass"), storedLoreItem.getItemMeta().displayName());
+        assertEquals(Component.text("New Blade"), storedLoreItem.getItemMeta().displayName());
         assertEquals(targetIdentity(), trackedIdentity(storedLoreItem));
     }
 
