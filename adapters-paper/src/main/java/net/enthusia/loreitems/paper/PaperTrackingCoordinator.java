@@ -29,7 +29,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private final IntSupplier maxInFlightSupplier;
     private final MetricsPort metrics;
     private final Object lock = new Object();
-    private final Queue<TrackingObservationUseCase.Request> queued = new ArrayDeque<>();
+    private final Queue<PendingObservation> queued = new ArrayDeque<>();
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private int inFlight;
@@ -52,6 +52,21 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     public boolean submit(TrackingObservationUseCase.Request request) {
         Objects.requireNonNull(request, "request");
+        PendingObservation observation;
+        try {
+            observation = new PendingObservation(
+                    Objects.requireNonNull(
+                            useCaseSupplier.get(), "tracking use case supplier returned null"),
+                    request);
+        } catch (RuntimeException exception) {
+            metrics.increment("tracking.failed");
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not resolve lore-item tracking persistence.",
+                    exception);
+            return false;
+        }
+
         boolean dispatch;
         synchronized (lock) {
             if (closed) {
@@ -64,7 +79,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 inFlight++;
                 dispatch = true;
             } else if (queued.size() < maxQueued) {
-                queued.add(request);
+                queued.add(observation);
                 dispatch = false;
                 if (queued.size() == maxQueued) {
                     reportSaturation();
@@ -79,7 +94,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             updateGauges();
         }
         if (dispatch) {
-            startCounted(request);
+            startCounted(observation);
         }
         return true;
     }
@@ -93,14 +108,13 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     }
 
     /** Starts one request whose in-flight slot has already been counted exactly once. */
-    private void startCounted(TrackingObservationUseCase.Request request) {
+    private void startCounted(PendingObservation observation) {
         long startedAt = System.nanoTime();
         CompletionStage<TrackingObservationUseCase.Result> stage;
         try {
-            TrackingObservationUseCase useCase = Objects.requireNonNull(
-                    useCaseSupplier.get(), "tracking use case supplier returned null");
             stage = Objects.requireNonNull(
-                    useCase.record(request), "tracking use case returned null");
+                    observation.useCase().record(observation.request()),
+                    "tracking use case returned null");
         } catch (RuntimeException exception) {
             metrics.increment("tracking.failed");
             plugin.getLogger().log(Level.SEVERE, "Could not start lore-item tracking.", exception);
@@ -129,7 +143,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     }
 
     private void completeCountedRequest() {
-        Optional<TrackingObservationUseCase.Request> next = Optional.empty();
+        Optional<PendingObservation> next = Optional.empty();
         synchronized (lock) {
             if (inFlight <= 0) {
                 throw new IllegalStateException("Tracking in-flight accounting underflow");
@@ -208,7 +222,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
-        List<TrackingObservationUseCase.Request> starting = new ArrayList<>();
+        List<PendingObservation> starting = new ArrayList<>();
         boolean firstClose;
         synchronized (lock) {
             firstClose = !closed;
@@ -248,6 +262,15 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                     Level.WARNING,
                     "Lore-item tracking quiescence failed unexpectedly.",
                     exception.getCause());
+        }
+    }
+
+    private record PendingObservation(
+            TrackingObservationUseCase useCase,
+            TrackingObservationUseCase.Request request) {
+        private PendingObservation {
+            Objects.requireNonNull(useCase, "useCase");
+            Objects.requireNonNull(request, "request");
         }
     }
 }
