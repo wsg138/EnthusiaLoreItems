@@ -29,6 +29,8 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     private static final String AGGREGATE_TYPE = "lore_instance";
     private static final String ACTOR_TYPE = "system";
     private static final String ACTOR_ID = "paper-tracking";
+    private static final String ENTITY_MARKER = ":entity:";
+    private static final int UUID_TEXT_LENGTH = 36;
     private static final int SINGLE_ROW = 1;
 
     private final SQLiteStorageRuntime storage;
@@ -125,20 +127,23 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.BLOCKED_ANOMALY,
                     "Conflicting state was preserved while the location became inaccessible.");
         }
-        if (!request.location().equals(current.location())) {
+        if (!request.location().equals(current.location())
+                && !sameDroppedEntity(request.location(), current.location())) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
         }
-        if (LAST_CONFIRMED.equals(current.state())) {
+        if (LAST_CONFIRMED.equals(current.state())
+                && request.location().equals(current.location())) {
             return result(
                     TrackingObservationUseCase.Status.UNCHANGED,
                     "The location is already retained as last confirmed.");
         }
-        if (!CONFIRMED_NOW.equals(current.state())) {
+        if (!CONFIRMED_NOW.equals(current.state())
+                && !LAST_CONFIRMED.equals(current.state())) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
-                    "Only a confirmed-now location can become last confirmed.");
+                    "Only a confirmed location can become last confirmed.");
         }
         return advance(
                 connection,
@@ -156,7 +161,8 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         if (request.mode() == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                 || LAST_CONFIRMED.equals(current.state())
                 || MISSING_UNRESOLVED.equals(current.state())
-                || current.location() == null) {
+                || current.location() == null
+                || sameDroppedEntity(request.location(), current.location())) {
             return true;
         }
         LocationDescriptor previous = current.location();
@@ -235,6 +241,11 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             Connection connection,
             TrackingObservationUseCase.Request request,
             long observedAt) throws SQLException {
+        if (hasActiveConflictEvidence(connection, request)) {
+            return result(
+                    TrackingObservationUseCase.Status.UNCHANGED,
+                    "This conflicting physical location is already preserved.");
+        }
         insertObservation(
                 connection,
                 request,
@@ -329,6 +340,34 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                         + "AND status IN ('OPEN', 'ACKNOWLEDGED') "
                         + "AND anomaly_type <> 'DUPLICATE_INSTANCE' LIMIT 1")) {
             statement.setString(1, request.identity().instanceId().value().toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    private static boolean hasActiveConflictEvidence(
+            Connection connection,
+            TrackingObservationUseCase.Request request) throws SQLException {
+        LocationDescriptor location = request.location();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM instance_observations observation "
+                        + "JOIN instance_anomalies anomaly "
+                        + "ON anomaly.instance_id = observation.instance_id "
+                        + "WHERE observation.instance_id = ? "
+                        + "AND observation.location_type = ? "
+                        + "AND observation.location_key = ? "
+                        + "AND ((observation.container_path IS NULL AND ? IS NULL) "
+                        + "OR observation.container_path = ?) "
+                        + "AND observation.confidence = 'CONFLICTING' "
+                        + "AND anomaly.anomaly_type = 'DUPLICATE_INSTANCE' "
+                        + "AND anomaly.status IN ('OPEN', 'ACKNOWLEDGED') "
+                        + "AND observation.observed_at >= anomaly.first_seen_at LIMIT 1")) {
+            statement.setString(1, request.identity().instanceId().value().toString());
+            statement.setString(2, location.type().name());
+            statement.setString(3, location.locationKey());
+            setNullableString(statement, 4, location.containerPath());
+            setNullableString(statement, 5, location.containerPath());
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next();
             }
@@ -466,6 +505,28 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 "Same lore instance observed at " + describe(first) + " and " + describe(second)
                         + ". Copies were preserved and current state was fenced.",
                 InstanceAnomaly.MAX_DETAIL_LENGTH);
+    }
+
+    private static boolean sameDroppedEntity(
+            LocationDescriptor first,
+            LocationDescriptor second) {
+        if (first == null || second == null
+                || first.type() != LocationDescriptor.Type.DROPPED_ITEM
+                || second.type() != LocationDescriptor.Type.DROPPED_ITEM) {
+            return false;
+        }
+        String firstIdentity = droppedEntityIdentity(first.locationKey());
+        String secondIdentity = droppedEntityIdentity(second.locationKey());
+        return firstIdentity != null && firstIdentity.equals(secondIdentity);
+    }
+
+    private static String droppedEntityIdentity(String locationKey) {
+        int marker = locationKey.indexOf(ENTITY_MARKER);
+        if (marker < 0) {
+            return null;
+        }
+        int end = marker + ENTITY_MARKER.length() + UUID_TEXT_LENGTH;
+        return locationKey.length() < end ? null : locationKey.substring(0, end);
     }
 
     private static void appendAudit(
