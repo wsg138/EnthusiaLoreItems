@@ -19,7 +19,6 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
-@SuppressWarnings("auxiliaryclass")
 class PaperTemplateUpdateAccessRegistryTest {
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(
@@ -130,14 +129,14 @@ class PaperTemplateUpdateAccessRegistryTest {
         PaperInventoryReference fourth = blockReference(4);
         PaperInventoryReference rejected = blockReference(5);
 
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(second));
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED, backlog.offer(third));
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED, backlog.offer(fourth));
+        assertEquals(PaperTemplateUpdateScanOfferResult.READY, backlog.offer(first));
+        assertEquals(PaperTemplateUpdateScanOfferResult.READY, backlog.offer(second));
+        assertEquals(PaperTemplateUpdateScanOfferResult.DEFERRED, backlog.offer(third));
+        assertEquals(PaperTemplateUpdateScanOfferResult.DEFERRED, backlog.offer(fourth));
         assertEquals(
-                PaperTemplateUpdateScanBacklog.OfferResult.ALREADY_QUEUED,
+                PaperTemplateUpdateScanOfferResult.ALREADY_QUEUED,
                 backlog.offer(third));
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.REJECTED, backlog.offer(rejected));
+        assertEquals(PaperTemplateUpdateScanOfferResult.REJECTED, backlog.offer(rejected));
 
         assertEquals(first, backlog.poll());
         assertEquals(second, backlog.poll());
@@ -152,14 +151,12 @@ class PaperTemplateUpdateAccessRegistryTest {
         PaperInventoryReference first = blockReference(1);
         PaperInventoryReference deferred = blockReference(2);
 
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
-        assertEquals(
-                PaperTemplateUpdateScanBacklog.OfferResult.DEFERRED,
-                backlog.offer(deferred));
+        assertEquals(PaperTemplateUpdateScanOfferResult.READY, backlog.offer(first));
+        assertEquals(PaperTemplateUpdateScanOfferResult.DEFERRED, backlog.offer(deferred));
         backlog.remove(first);
 
         assertEquals(deferred, backlog.poll());
-        assertEquals(PaperTemplateUpdateScanBacklog.OfferResult.READY, backlog.offer(first));
+        assertEquals(PaperTemplateUpdateScanOfferResult.READY, backlog.offer(first));
         assertEquals(first, backlog.poll());
         assertTrue(backlog.isEmpty());
     }
