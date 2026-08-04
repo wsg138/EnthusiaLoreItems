@@ -1,16 +1,19 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
-import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,13 @@ import org.mockbukkit.mockbukkit.entity.PlayerMock;
 import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 class PaperUniqueAccessTrackingListenerTest {
+    private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
+            new LoreDefinitionId(UUID.fromString(
+                    "11111111-1111-1111-1111-111111111111")),
+            new LoreInstanceId(UUID.fromString(
+                    "22222222-2222-2222-2222-222222222222")),
+            new TemplateRevision(1));
+
     private ServerMock server;
     private PluginMock plugin;
 
@@ -47,22 +57,13 @@ class PaperUniqueAccessTrackingListenerTest {
                 plugin,
                 () -> useCase,
                 () -> 4,
-                new MetricsPort() {
-                    @Override
-                    public void setGauge(String name, long value) {}
-
-                    @Override
-                    public void increment(String name) {}
-
-                    @Override
-                    public void recordDurationNanos(String name, long value) {}
-                });
+                MetricsPort.noOp());
         listener.start();
         PlayerMock player = server.addPlayer("alice");
-        player.getInventory().setItem(0, trackedItem(player));
+        player.getInventory().setItem(0, trackedItem());
 
-        listener.onQuit(new org.bukkit.event.player.PlayerQuitEvent(
-                player, org.bukkit.event.player.PlayerQuitEvent.QuitReason.QUIT, null));
+        listener.onQuit(new PlayerQuitEvent(
+                player, PlayerQuitEvent.QuitReason.DISCONNECTED, null));
 
         TrackingObservationUseCase.Request request = observed.get();
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, request.presence());
@@ -83,18 +84,9 @@ class PaperUniqueAccessTrackingListenerTest {
                 plugin,
                 () -> useCase,
                 () -> 4,
-                new MetricsPort() {
-                    @Override
-                    public void setGauge(String name, long value) {}
-
-                    @Override
-                    public void increment(String name) {}
-
-                    @Override
-                    public void recordDurationNanos(String name, long value) {}
-                });
+                MetricsPort.noOp());
         PlayerMock player = server.addPlayer("alice");
-        ItemStack tracked = trackedItem(player);
+        ItemStack tracked = trackedItem();
         player.getInventory().setItem(0, tracked);
         player.getInventory().setItem(1, tracked.clone());
 
@@ -107,23 +99,8 @@ class PaperUniqueAccessTrackingListenerTest {
         listener.close();
     }
 
-    private ItemStack trackedItem(Player player) {
-        ItemStack item = new ItemStack(Material.NETHER_STAR);
-        var meta = item.getItemMeta();
-        meta.getPersistentDataContainer().set(
-                PaperItemIdentityCodec.DEFINITION_ID_KEY,
-                PersistentDataType.STRING,
-                java.util.UUID.randomUUID().toString());
-        meta.getPersistentDataContainer().set(
-                PaperItemIdentityCodec.INSTANCE_ID_KEY,
-                PersistentDataType.STRING,
-                java.util.UUID.randomUUID().toString());
-        meta.getPersistentDataContainer().set(
-                PaperItemIdentityCodec.APPLIED_REVISION_KEY,
-                PersistentDataType.LONG,
-                1L);
-        item.setItemMeta(meta);
-        assertInstanceOf(Player.class, player);
-        return item;
+    private static ItemStack trackedItem() {
+        return new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.NETHER_STAR), IDENTITY);
     }
 }
