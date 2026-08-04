@@ -2,7 +2,9 @@ package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
@@ -20,6 +22,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryPickupItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -28,10 +31,14 @@ import org.bukkit.scheduler.BukkitTask;
 final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private static final int MIN_BUDGET = 1;
     private static final int SCAN_QUEUE_MULTIPLIER = 32;
+    private static final int MIN_SCAN_QUEUE_CAPACITY = 512;
+    private static final int MAX_SCAN_QUEUE_CAPACITY = 4_096;
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
     private final PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+    private final PaperTemplateUpdateAccessRegistry accessRegistry =
+            new PaperTemplateUpdateAccessRegistry();
     private final PaperTemplateUpdateCoordinator coordinator;
     private final Queue<PaperInventoryReference> scans = new ArrayDeque<>();
     private final Set<PaperInventoryReference> queuedReferences = new HashSet<>();
@@ -73,6 +80,13 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         enqueuePlayer(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        UUIDPair references = playerReferences(event.getPlayer());
+        forget(references.main());
+        forget(references.ender());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -119,28 +133,58 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private void enqueuePlayer(Player player) {
-        enqueue(new PaperInventoryReference.PlayerMain(player.getUniqueId()));
-        enqueue(new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
+        UUIDPair references = playerReferences(player);
+        enqueue(references.main());
+        enqueue(references.ender());
+    }
+
+    private static UUIDPair playerReferences(Player player) {
+        return new UUIDPair(
+                new PaperInventoryReference.PlayerMain(player.getUniqueId()),
+                new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
     }
 
     private void enqueue(PaperInventoryReference reference) {
         if (closed) {
             return;
         }
+        scanner.reset(reference);
+        accessRegistry.invalidate(reference);
         if (!queuedReferences.add(reference)) {
-            scanner.reset(reference);
             return;
         }
+        queue(reference, true);
+    }
+
+    private void enqueueContinuation(PaperInventoryReference reference) {
+        if (closed || !queuedReferences.add(reference)) {
+            return;
+        }
+        queue(reference, false);
+    }
+
+    private void queue(PaperInventoryReference reference, boolean contentChanged) {
         if (scans.size() >= maxQueuedScans()) {
             queuedReferences.remove(reference);
             scanner.reset(reference);
+            accessRegistry.markIncomplete(reference);
             reportSaturation();
             return;
         }
         scans.add(reference);
+        if (contentChanged) {
+            accessRegistry.invalidate(reference);
+        }
         if (scans.size() == maxQueuedScans()) {
             reportSaturation();
         }
+    }
+
+    private void forget(PaperInventoryReference reference) {
+        queuedReferences.remove(reference);
+        scans.remove(reference);
+        scanner.reset(reference);
+        accessRegistry.remove(reference);
     }
 
     private void drain() {
@@ -153,9 +197,12 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             queuedReferences.remove(reference);
             scan(reference);
         }
-        if (scans.isEmpty() && saturated) {
-            saturated = false;
-            plugin.getLogger().fine("Template-update scan backlog has drained.");
+        if (scans.isEmpty()) {
+            dispatchUniqueAccessibleItems();
+            if (saturated) {
+                saturated = false;
+                plugin.getLogger().fine("Template-update scan backlog has drained.");
+            }
         }
     }
 
@@ -163,16 +210,19 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         Optional<Inventory> inventory = reference.resolve(plugin);
         if (inventory.isEmpty()) {
             scanner.reset(reference);
+            accessRegistry.remove(reference);
             return;
         }
+        List<PaperTemplateUpdateScanner.Candidate> observed = new ArrayList<>();
         PaperTemplateUpdateScanner.ScanResult result;
         try {
             result = scanner.scan(
                     plugin,
                     inventory.orElseThrow(),
-                    coordinator::submit);
+                    observed::add);
         } catch (RuntimeException exception) {
             scanner.reset(reference);
+            accessRegistry.markIncomplete(reference);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not scan a naturally accessible inventory for template updates.",
@@ -180,11 +230,21 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             return;
         }
         if (result.abandoned()) {
+            accessRegistry.markIncomplete(reference);
             plugin.getLogger().warning(
                     "A naturally accessible template-update scan exceeded its bounded "
                             + "continuation limits; durable mutations remain pending.");
         } else if (result.continuationRequired()) {
-            enqueue(reference);
+            enqueueContinuation(reference);
+        } else {
+            accessRegistry.replace(reference, observed);
+        }
+    }
+
+    private void dispatchUniqueAccessibleItems() {
+        for (PaperTemplateUpdateScanner.Candidate candidate : accessRegistry.drainUnique(
+                plugin.getServer().getOnlinePlayers())) {
+            coordinator.submit(candidate);
         }
     }
 
@@ -197,7 +257,10 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private int maxQueuedScans() {
-        return Math.multiplyExact(currentBudget(), SCAN_QUEUE_MULTIPLIER);
+        long scaled = (long) currentBudget() * SCAN_QUEUE_MULTIPLIER;
+        return (int) Math.min(
+                MAX_SCAN_QUEUE_CAPACITY,
+                Math.max(MIN_SCAN_QUEUE_CAPACITY, scaled));
     }
 
     private void reportSaturation() {
@@ -230,6 +293,16 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         scans.clear();
         queuedReferences.clear();
         scanner.clear();
+        accessRegistry.clear();
         coordinator.close();
+    }
+
+    private record UUIDPair(
+            PaperInventoryReference.PlayerMain main,
+            PaperInventoryReference.PlayerEnder ender) {
+        private UUIDPair {
+            Objects.requireNonNull(main, "main");
+            Objects.requireNonNull(ender, "ender");
+        }
     }
 }
