@@ -171,6 +171,8 @@ public final class CreateDefinitionCommandExecutor implements CommandExecutor {
                     "An active lore definition already uses key '" + key.value() + "'.");
             case SERVICE_UNAVAILABLE -> player.sendMessage(
                     "Lore item storage is not currently available for writes.");
+            default -> player.sendMessage(
+                    "Lore definition creation returned an unsupported durable state.");
         }
     }
 
