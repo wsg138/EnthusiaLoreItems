@@ -34,6 +34,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -64,27 +65,18 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     public void openDefinitions(UUID playerId, int pageNumber) {
-        if (!Bukkit.isPrimaryThread()) {
-            schedule(() -> openDefinitions(playerId, pageNumber));
-            return;
-        }
-        LoreItemsAdministrationUseCase useCase = resolveUseCase();
-        if (useCase == null) {
-            notifyPlayer(playerId, "Lore-item administration is unavailable.");
-            return;
-        }
-        PageRequest request = pageRequest(pageNumber);
-        submit(playerId, "definition browser", () -> useCase.listDefinitions(request),
-                page -> showDefinitions(playerId, pageNumber, page));
+        runMain(() -> openDefinitionsMain(playerId, pageNumber));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
-        InventoryHolder holder = event.getInventory().getHolder();
-        if (!(holder instanceof View view)) {
+        if (!(event.getInventory().getHolder() instanceof View view)) {
             return;
         }
         event.setCancelled(true);
+        if (event.getClickedInventory() != event.getView().getTopInventory()) {
+            return;
+        }
         if (!(event.getWhoClicked() instanceof Player player)
                 || !player.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)) {
             return;
@@ -93,44 +85,69 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (slot < 0 || slot >= SIZE) {
             return;
         }
-        if (view instanceof DefinitionsView definitions) {
-            clickDefinitions(player, definitions, slot);
-        } else if (view instanceof InstancesView instances) {
-            clickInstances(player, instances, slot);
-        } else if (view instanceof EvidenceView evidence) {
-            clickEvidence(player, evidence, slot);
-        } else if (view instanceof ConfirmationView confirmation) {
-            clickConfirmation(player, confirmation, slot);
+        switch (view.screen) {
+            case DEFINITIONS -> clickDefinitions(player, view, slot);
+            case INSTANCES -> clickInstances(player, view, slot);
+            case EVIDENCE -> clickEvidence(player, view, slot);
+            case CONFIRMATION -> clickConfirmation(player, view, slot);
         }
     }
 
-    private void clickDefinitions(Player player, DefinitionsView view, int slot) {
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onDrag(InventoryDragEvent event) {
+        if (!(event.getInventory().getHolder() instanceof View)) {
+            return;
+        }
+        int topSize = event.getView().getTopInventory().getSize();
+        if (event.getRawSlots().stream().anyMatch(slot -> slot < topSize)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void openDefinitionsMain(UUID playerId, int pageNumber) {
+        LoreItemsAdministrationUseCase useCase = resolveUseCase();
+        if (useCase == null) {
+            messagePlayer(playerId, "Lore-item administration is unavailable.");
+            return;
+        }
+        PageRequest request = pageRequest(pageNumber);
+        submit(
+                playerId,
+                "definition browser",
+                () -> useCase.listDefinitions(request),
+                page -> showDefinitions(playerId, pageNumber, page));
+    }
+
+    private void clickDefinitions(Player player, View view, int slot) {
         if (slot == PREVIOUS && view.pageNumber > 1) {
-            openDefinitions(player.getUniqueId(), view.pageNumber - 1);
+            openDefinitionsMain(player.getUniqueId(), view.pageNumber - 1);
         } else if (slot == NEXT && view.hasMore) {
-            openDefinitions(player.getUniqueId(), view.pageNumber + 1);
+            openDefinitionsMain(player.getUniqueId(), view.pageNumber + 1);
         } else if (slot < view.definitionIds.size()) {
             openInstances(player.getUniqueId(), view.definitionIds.get(slot), 1);
         }
     }
 
-    private void openInstances(UUID playerId, LoreDefinitionId definitionId, int pageNumber) {
+    private void openInstances(
+            UUID playerId, LoreDefinitionId definitionId, int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            notifyPlayer(playerId, "Lore-item administration is unavailable.");
+            messagePlayer(playerId, "Lore-item administration is unavailable.");
             return;
         }
-        submit(playerId, "instance browser",
+        submit(
+                playerId,
+                "instance browser",
                 () -> useCase.listInstances(definitionId, pageRequest(pageNumber)),
                 page -> showInstances(playerId, definitionId, pageNumber, page));
     }
 
-    private void clickInstances(Player player, InstancesView view, int slot) {
+    private void clickInstances(Player player, View view, int slot) {
         if (slot == PREVIOUS) {
             if (view.pageNumber > 1) {
                 openInstances(player.getUniqueId(), view.definitionId, view.pageNumber - 1);
             } else {
-                openDefinitions(player.getUniqueId(), 1);
+                openDefinitionsMain(player.getUniqueId(), 1);
             }
         } else if (slot == NEXT && view.hasMore) {
             openInstances(player.getUniqueId(), view.definitionId, view.pageNumber + 1);
@@ -140,17 +157,13 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     private void openEvidence(UUID playerId, LoreInstanceId instanceId, int pageNumber) {
-        if (!Bukkit.isPrimaryThread()) {
-            schedule(() -> openEvidence(playerId, instanceId, pageNumber));
-            return;
-        }
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            notifyPlayer(playerId, "Lore-item administration is unavailable.");
+            messagePlayer(playerId, "Lore-item administration is unavailable.");
             return;
         }
         if (!queryCapacity.tryAcquire()) {
-            notifyPlayer(playerId, "Too many lore-item administration queries are active.");
+            messagePlayer(playerId, "Too many lore-item administration queries are active.");
             return;
         }
         PageRequest request = pageRequest(pageNumber);
@@ -164,14 +177,16 @@ public final class PaperTrackingAdministrationGui implements Listener {
                     useCase.listInstanceAnomalies(instanceId, PageRequest.first(CONTENT)),
                     "anomaly query stage");
             current.thenCombine(observations, StateEvidence::new)
-                    .thenCombine(anomalies, (state, anomalyPage) -> new EvidenceData(
-                            state.current, state.observations, anomalyPage))
+                    .thenCombine(
+                            anomalies,
+                            (state, anomalyPage) -> new EvidenceData(
+                                    state.current, state.observations, anomalyPage))
                     .whenComplete((data, failure) -> {
                         queryCapacity.release();
                         if (failure != null) {
                             handleFailure(playerId, "instance evidence", failure);
                         } else {
-                            schedule(() -> showEvidence(
+                            runMain(() -> showEvidence(
                                     playerId, instanceId, pageNumber, data));
                         }
                     });
@@ -181,12 +196,12 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
     }
 
-    private void clickEvidence(Player player, EvidenceView view, int slot) {
+    private void clickEvidence(Player player, View view, int slot) {
         if (slot == PREVIOUS) {
             if (view.pageNumber > 1) {
                 openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber - 1);
             } else {
-                openDefinitions(player.getUniqueId(), 1);
+                openDefinitionsMain(player.getUniqueId(), 1);
             }
             return;
         }
@@ -198,10 +213,10 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         ObservationChoice selected = view.observations.get(slot);
-        if (!selectable(selected, view.duplicate)) {
-            return;
+        if (selectable(selected, view.duplicate)) {
+            showConfirmation(
+                    player, view.instanceId, view.duplicate, selected, view.pageNumber);
         }
-        showConfirmation(player, view.instanceId, view.duplicate, selected, view.pageNumber);
     }
 
     private void showConfirmation(
@@ -210,22 +225,30 @@ public final class PaperTrackingAdministrationGui implements Listener {
             DuplicateChoice duplicate,
             ObservationChoice observation,
             int returnPage) {
-        ConfirmationView view = new ConfirmationView(
-                instanceId, duplicate, observation, returnPage);
+        View view = View.confirmation(instanceId, duplicate, observation, returnPage);
         Inventory inventory = createInventory(view, "Confirm lore location");
-        inventory.setItem(CONFIRM, item(Material.LIME_CONCRETE,
-                "Confirm selected location",
-                List.of(describe(observation.location),
-                        "No physical copy will be deleted.",
-                        "A later scan can reopen the conflict.")));
-        inventory.setItem(CANCEL, item(Material.BARRIER, "Cancel",
-                List.of("Return without changing durable state.")));
+        inventory.setItem(
+                CONFIRM,
+                item(
+                        Material.LIME_CONCRETE,
+                        "Confirm selected location",
+                        List.of(
+                                describe(observation.location),
+                                "No physical copy will be deleted.",
+                                "A later scan can reopen the conflict.")));
+        inventory.setItem(
+                CANCEL,
+                item(
+                        Material.BARRIER,
+                        "Cancel",
+                        List.of("Return without changing durable state.")));
         player.openInventory(inventory);
     }
 
-    private void clickConfirmation(Player player, ConfirmationView view, int slot) {
+    private void clickConfirmation(Player player, View view, int slot) {
+        UUID playerId = player.getUniqueId();
         if (slot == CANCEL) {
-            openEvidence(player.getUniqueId(), view.instanceId, view.returnPage);
+            openEvidence(playerId, view.instanceId, view.pageNumber);
             return;
         }
         if (slot != CONFIRM) {
@@ -241,12 +264,15 @@ public final class PaperTrackingAdministrationGui implements Listener {
                 new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
                         view.duplicate.anomalyId,
                         view.duplicate.stateRevision,
-                        view.observation.observationId,
-                        "player:" + player.getUniqueId());
-        submit(player.getUniqueId(), "duplicate resolution",
-                () -> useCase.resolveDuplicate(request), result -> {
-                    player.sendMessage(result.detail());
-                    openEvidence(player.getUniqueId(), view.instanceId, view.returnPage);
+                        view.selectedObservation.observationId,
+                        "player:" + playerId);
+        submit(
+                playerId,
+                "duplicate resolution",
+                () -> useCase.resolveDuplicate(request),
+                result -> {
+                    messagePlayer(playerId, result.detail());
+                    openEvidence(playerId, view.instanceId, view.pageNumber);
                 });
     }
 
@@ -256,15 +282,22 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (player == null) {
             return;
         }
-        List<LoreDefinitionId> ids = page.items().stream().map(LoreDefinition::id).toList();
-        DefinitionsView view = new DefinitionsView(pageNumber, page.hasMore(), ids);
+        List<LoreDefinitionId> ids = page.items().stream()
+                .map(LoreDefinition::id)
+                .toList();
+        View view = View.definitions(pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore definitions");
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreDefinition definition = page.items().get(index);
-            inventory.setItem(index, item(Material.BOOK, definition.displayName(), List.of(
-                    "Key: " + definition.key().value(),
-                    "Revision: " + definition.currentRevision().value(),
-                    "Click to browse instances.")));
+            inventory.setItem(
+                    index,
+                    item(
+                            Material.BOOK,
+                            definition.displayName(),
+                            List.of(
+                                    "Key: " + definition.key().value(),
+                                    "Revision: " + definition.currentRevision().value(),
+                                    "Click to browse instances.")));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore());
         player.openInventory(inventory);
@@ -279,18 +312,23 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (player == null) {
             return;
         }
-        List<LoreInstanceId> ids = page.items().stream().map(LoreInstance::id).toList();
-        InstancesView view = new InstancesView(
-                definitionId, pageNumber, page.hasMore(), ids);
+        List<LoreInstanceId> ids = page.items().stream()
+                .map(LoreInstance::id)
+                .toList();
+        View view = View.instances(definitionId, pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore instances");
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreInstance instance = page.items().get(index);
-            inventory.setItem(index, item(Material.NETHER_STAR,
-                    shortId(instance.id().value()), List.of(
-                            "Lifecycle: " + instance.lifecycle().name(),
-                            "Applied revision: " + instance.appliedRevision().value(),
-                            "Desired revision: " + instance.desiredRevision().value(),
-                            "Click to inspect evidence.")));
+            inventory.setItem(
+                    index,
+                    item(
+                            Material.NETHER_STAR,
+                            shortId(instance.id().value()),
+                            List.of(
+                                    "Lifecycle: " + instance.lifecycle().name(),
+                                    "Applied revision: " + instance.appliedRevision().value(),
+                                    "Desired revision: " + instance.desiredRevision().value(),
+                                    "Click to inspect evidence.")));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore());
         player.openInventory(inventory);
@@ -323,8 +361,12 @@ public final class PaperTrackingAdministrationGui implements Listener {
                         observation.source(),
                         observation.observedAtEpochMillis()))
                 .toList();
-        EvidenceView view = new EvidenceView(
-                instanceId, pageNumber, data.observations.hasMore(), choices, duplicate);
+        View view = View.evidence(
+                instanceId,
+                pageNumber,
+                data.observations.hasMore(),
+                choices,
+                duplicate);
         Inventory inventory = createInventory(view, "Lore location evidence");
         for (int index = 0; index < choices.size() && index < CONTENT; index++) {
             ObservationChoice choice = choices.get(index);
@@ -338,11 +380,13 @@ public final class PaperTrackingAdministrationGui implements Listener {
             Material material = choice.confidence == InstanceObservation.Confidence.CONFLICTING
                     ? Material.REDSTONE
                     : Material.COMPASS;
-            inventory.setItem(index, item(
-                    material, "Observation " + choice.observationId, lore));
+            inventory.setItem(
+                    index,
+                    item(material, "Observation " + choice.observationId, lore));
         }
         List<String> status = new ArrayList<>();
-        status.add(data.current.map(current -> current.state().name() + " — "
+        status.add(data.current
+                .map(current -> current.state().name() + " — "
                         + (current.location() == null
                                 ? "no location"
                                 : describe(current.location())))
@@ -362,14 +406,25 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     private void decorate(
-            Inventory inventory, int pageNumber, boolean hasMore, List<String> statusLore) {
+            Inventory inventory,
+            int pageNumber,
+            boolean hasMore,
+            List<String> statusLore) {
         if (pageNumber > 1) {
-            inventory.setItem(PREVIOUS, item(Material.ARROW, "Previous page",
-                    List.of("Page " + (pageNumber - 1))));
+            inventory.setItem(
+                    PREVIOUS,
+                    item(
+                            Material.ARROW,
+                            "Previous page",
+                            List.of("Page " + (pageNumber - 1))));
         }
         if (hasMore) {
-            inventory.setItem(NEXT, item(Material.ARROW, "Next page",
-                    List.of("Page " + (pageNumber + 1))));
+            inventory.setItem(
+                    NEXT,
+                    item(
+                            Material.ARROW,
+                            "Next page",
+                            List.of("Page " + (pageNumber + 1))));
         }
         inventory.setItem(STATUS, item(Material.CLOCK, "Tracking status", statusLore));
     }
@@ -401,7 +456,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             Supplier<CompletionStage<T>> query,
             Consumer<T> success) {
         if (!queryCapacity.tryAcquire()) {
-            notifyPlayer(playerId, "Too many lore-item administration queries are active.");
+            messagePlayer(playerId, "Too many lore-item administration queries are active.");
             return;
         }
         CompletionStage<T> stage;
@@ -417,22 +472,26 @@ public final class PaperTrackingAdministrationGui implements Listener {
             if (failure != null) {
                 handleFailure(playerId, operation, failure);
             } else if (value == null) {
-                handleFailure(playerId, operation,
+                handleFailure(
+                        playerId,
+                        operation,
                         new IllegalStateException(operation + " returned no result"));
             } else {
-                schedule(() -> success.accept(value));
+                runMain(() -> success.accept(value));
             }
         });
     }
 
     private void handleFailure(UUID playerId, String operation, Throwable failure) {
-        plugin.getLogger().log(Level.SEVERE,
-                "Could not complete lore-item " + operation + '.', unwrap(failure));
-        notifyPlayer(playerId, "The lore-item " + operation + " failed.");
+        plugin.getLogger().log(
+                Level.SEVERE,
+                "Could not complete lore-item " + operation + '.',
+                unwrap(failure));
+        messagePlayer(playerId, "The lore-item " + operation + " failed.");
     }
 
-    private void notifyPlayer(UUID playerId, String message) {
-        schedule(() -> {
+    private void messagePlayer(UUID playerId, String message) {
+        runMain(() -> {
             Player player = plugin.getServer().getPlayer(playerId);
             if (player != null) {
                 player.sendMessage(message);
@@ -440,12 +499,18 @@ public final class PaperTrackingAdministrationGui implements Listener {
         });
     }
 
-    private void schedule(Runnable action) {
+    private void runMain(Runnable action) {
+        if (Bukkit.isPrimaryThread()) {
+            action.run();
+            return;
+        }
         try {
             plugin.getServer().getScheduler().runTask(plugin, action);
         } catch (IllegalPluginAccessException exception) {
-            plugin.getLogger().log(Level.FINE,
-                    "Could not schedule lore-item GUI work during shutdown.", exception);
+            plugin.getLogger().log(
+                    Level.FINE,
+                    "Could not schedule lore-item GUI work during shutdown.",
+                    exception);
         }
     }
 
@@ -516,8 +581,120 @@ public final class PaperTrackingAdministrationGui implements Listener {
         return throwable;
     }
 
-    private abstract static class View implements InventoryHolder {
+    private enum Screen {
+        DEFINITIONS,
+        INSTANCES,
+        EVIDENCE,
+        CONFIRMATION
+    }
+
+    private static final class View implements InventoryHolder {
+        private final Screen screen;
+        private final int pageNumber;
+        private final boolean hasMore;
+        private final LoreDefinitionId definitionId;
+        private final LoreInstanceId instanceId;
+        private final List<LoreDefinitionId> definitionIds;
+        private final List<LoreInstanceId> instanceIds;
+        private final List<ObservationChoice> observations;
+        private final DuplicateChoice duplicate;
+        private final ObservationChoice selectedObservation;
         private Inventory inventory;
+
+        private View(
+                Screen screen,
+                int pageNumber,
+                boolean hasMore,
+                LoreDefinitionId definitionId,
+                LoreInstanceId instanceId,
+                List<LoreDefinitionId> definitionIds,
+                List<LoreInstanceId> instanceIds,
+                List<ObservationChoice> observations,
+                DuplicateChoice duplicate,
+                ObservationChoice selectedObservation) {
+            this.screen = Objects.requireNonNull(screen, "screen");
+            this.pageNumber = pageNumber;
+            this.hasMore = hasMore;
+            this.definitionId = definitionId;
+            this.instanceId = instanceId;
+            this.definitionIds = List.copyOf(definitionIds);
+            this.instanceIds = List.copyOf(instanceIds);
+            this.observations = List.copyOf(observations);
+            this.duplicate = duplicate;
+            this.selectedObservation = selectedObservation;
+        }
+
+        private static View definitions(
+                int pageNumber,
+                boolean hasMore,
+                List<LoreDefinitionId> definitionIds) {
+            return new View(
+                    Screen.DEFINITIONS,
+                    pageNumber,
+                    hasMore,
+                    null,
+                    null,
+                    definitionIds,
+                    List.of(),
+                    List.of(),
+                    null,
+                    null);
+        }
+
+        private static View instances(
+                LoreDefinitionId definitionId,
+                int pageNumber,
+                boolean hasMore,
+                List<LoreInstanceId> instanceIds) {
+            return new View(
+                    Screen.INSTANCES,
+                    pageNumber,
+                    hasMore,
+                    Objects.requireNonNull(definitionId, "definitionId"),
+                    null,
+                    List.of(),
+                    instanceIds,
+                    List.of(),
+                    null,
+                    null);
+        }
+
+        private static View evidence(
+                LoreInstanceId instanceId,
+                int pageNumber,
+                boolean hasMore,
+                List<ObservationChoice> observations,
+                DuplicateChoice duplicate) {
+            return new View(
+                    Screen.EVIDENCE,
+                    pageNumber,
+                    hasMore,
+                    null,
+                    Objects.requireNonNull(instanceId, "instanceId"),
+                    List.of(),
+                    List.of(),
+                    observations,
+                    duplicate,
+                    null);
+        }
+
+        private static View confirmation(
+                LoreInstanceId instanceId,
+                DuplicateChoice duplicate,
+                ObservationChoice selectedObservation,
+                int returnPage) {
+            return new View(
+                    Screen.CONFIRMATION,
+                    returnPage,
+                    false,
+                    null,
+                    Objects.requireNonNull(instanceId, "instanceId"),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    Objects.requireNonNull(duplicate, "duplicate"),
+                    Objects.requireNonNull(selectedObservation, "selectedObservation"));
+        }
 
         private void attach(Inventory inventory) {
             if (this.inventory != null) {
@@ -527,78 +704,8 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
 
         @Override
-        public final Inventory getInventory() {
+        public Inventory getInventory() {
             return Objects.requireNonNull(inventory, "View inventory is not attached");
-        }
-    }
-
-    private static final class DefinitionsView extends View {
-        private final int pageNumber;
-        private final boolean hasMore;
-        private final List<LoreDefinitionId> definitionIds;
-
-        private DefinitionsView(
-                int pageNumber, boolean hasMore, List<LoreDefinitionId> definitionIds) {
-            this.pageNumber = pageNumber;
-            this.hasMore = hasMore;
-            this.definitionIds = List.copyOf(definitionIds);
-        }
-    }
-
-    private static final class InstancesView extends View {
-        private final LoreDefinitionId definitionId;
-        private final int pageNumber;
-        private final boolean hasMore;
-        private final List<LoreInstanceId> instanceIds;
-
-        private InstancesView(
-                LoreDefinitionId definitionId,
-                int pageNumber,
-                boolean hasMore,
-                List<LoreInstanceId> instanceIds) {
-            this.definitionId = Objects.requireNonNull(definitionId, "definitionId");
-            this.pageNumber = pageNumber;
-            this.hasMore = hasMore;
-            this.instanceIds = List.copyOf(instanceIds);
-        }
-    }
-
-    private static final class EvidenceView extends View {
-        private final LoreInstanceId instanceId;
-        private final int pageNumber;
-        private final boolean hasMore;
-        private final List<ObservationChoice> observations;
-        private final DuplicateChoice duplicate;
-
-        private EvidenceView(
-                LoreInstanceId instanceId,
-                int pageNumber,
-                boolean hasMore,
-                List<ObservationChoice> observations,
-                DuplicateChoice duplicate) {
-            this.instanceId = Objects.requireNonNull(instanceId, "instanceId");
-            this.pageNumber = pageNumber;
-            this.hasMore = hasMore;
-            this.observations = List.copyOf(observations);
-            this.duplicate = duplicate;
-        }
-    }
-
-    private static final class ConfirmationView extends View {
-        private final LoreInstanceId instanceId;
-        private final DuplicateChoice duplicate;
-        private final ObservationChoice observation;
-        private final int returnPage;
-
-        private ConfirmationView(
-                LoreInstanceId instanceId,
-                DuplicateChoice duplicate,
-                ObservationChoice observation,
-                int returnPage) {
-            this.instanceId = Objects.requireNonNull(instanceId, "instanceId");
-            this.duplicate = Objects.requireNonNull(duplicate, "duplicate");
-            this.observation = Objects.requireNonNull(observation, "observation");
-            this.returnPage = returnPage;
         }
     }
 
