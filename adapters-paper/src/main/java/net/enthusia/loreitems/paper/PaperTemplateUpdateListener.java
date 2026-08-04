@@ -45,6 +45,8 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             new PaperTemplateUpdateAccessRegistry();
     private final PaperTemplateUpdateCoordinator coordinator;
     private final PaperTemplateUpdateScanBacklog scanBacklog;
+    private final PaperTemplateUpdateRetryBacklog retryBacklog =
+            new PaperTemplateUpdateRetryBacklog();
 
     private BukkitTask scanTask;
     private boolean saturated;
@@ -188,6 +190,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         if (closed) {
             return;
         }
+        retryBacklog.remove(reference);
         invalidate(reference);
         offer(reference);
     }
@@ -208,6 +211,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             case REJECTED -> {
                 scanner.reset(reference);
                 accessRegistry.markIncomplete(reference);
+                retryBacklog.offer(reference);
                 reportSaturation();
             }
             default -> throw new IllegalStateException(
@@ -217,6 +221,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
 
     private void forget(PaperInventoryReference reference) {
         scanBacklog.remove(reference);
+        retryBacklog.remove(reference);
         scanner.reset(reference);
         accessRegistry.remove(reference);
     }
@@ -231,11 +236,24 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             scan(reference);
         }
         if (scanBacklog.isEmpty()) {
+            retryRejectedScans(budget);
+        }
+        if (scanBacklog.isEmpty()) {
             dispatchUniqueAccessibleItems();
             if (saturated) {
                 saturated = false;
                 plugin.getLogger().fine("Template-update scan backlog has drained.");
             }
+        }
+    }
+
+    private void retryRejectedScans(int budget) {
+        for (int count = 0; count < budget; count++) {
+            PaperInventoryReference reference = retryBacklog.poll();
+            if (reference == null) {
+                return;
+            }
+            enqueue(reference);
         }
     }
 
@@ -338,6 +356,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             task.cancel();
         }
         scanBacklog.clear();
+        retryBacklog.clear();
         scanner.clear();
         accessRegistry.clear();
         coordinator.close();
@@ -427,5 +446,40 @@ final class PaperTemplateUpdateScanBacklog {
         while (ready.size() < tierCapacity && !deferred.isEmpty()) {
             ready.add(deferred.remove());
         }
+    }
+}
+
+/** Deduplicated references rejected only because the bounded scan backlog was full. */
+final class PaperTemplateUpdateRetryBacklog {
+    private final Queue<PaperInventoryReference> queued = new ArrayDeque<>();
+    private final Set<PaperInventoryReference> references = new HashSet<>();
+
+    boolean offer(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        if (!references.add(reference)) {
+            return false;
+        }
+        queued.add(reference);
+        return true;
+    }
+
+    PaperInventoryReference poll() {
+        PaperInventoryReference reference = queued.poll();
+        if (reference != null) {
+            references.remove(reference);
+        }
+        return reference;
+    }
+
+    void remove(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        if (references.remove(reference)) {
+            queued.remove(reference);
+        }
+    }
+
+    void clear() {
+        queued.clear();
+        references.clear();
     }
 }
