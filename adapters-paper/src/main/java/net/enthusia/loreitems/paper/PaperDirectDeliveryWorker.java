@@ -149,6 +149,10 @@ public final class PaperDirectDeliveryWorker implements Listener, AutoCloseable 
             case APPLIED -> complete(delivery, result);
             case NO_SPACE -> defer(delivery);
             case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
+            default -> requireReview(
+                    delivery,
+                    "The direct-delivery operator returned an unsupported result state.",
+                    null);
         }
     }
 
