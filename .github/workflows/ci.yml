@@ -31,6 +31,8 @@ jobs:
           gradle-version: "8.14.3"
       - name: Verify
         run: gradle --no-daemon clean check
+      - name: Install repository tooling dependencies
+        run: python3 -m pip install --disable-pip-version-check -r tools/requirements.txt
       - name: Verify repository tooling
         run: python3 -m unittest discover -s tools -p 'test_*.py'
       - name: Verify new-code complexity

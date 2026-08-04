@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
 import time
 
+import requests
+
+API_ORIGIN = "https://api.github.com"
 API_VERSION = "2022-11-28"
 CHECK_NAME = "Codacy Static Code Analysis"
 POLL_SECONDS = 10
@@ -19,32 +20,22 @@ REQUEST_TIMEOUT_SECONDS = 30
 def request_json(path: str) -> object:
     if not path.startswith("/repos/"):
         raise ValueError("GitHub API path must target a repository")
-    environment = os.environ.copy()
-    environment["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
-    result = subprocess.run(
-        [
-            "gh",
-            "api",
-            "--method",
-            "GET",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            f"X-GitHub-Api-Version: {API_VERSION}",
-            path,
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
+    response = requests.get(
+        API_ORIGIN + path,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+            "X-GitHub-Api-Version": API_VERSION,
+            "User-Agent": "enthusia-loreitems-ci",
+        },
         timeout=REQUEST_TIMEOUT_SECONDS,
-        env=environment,
+        allow_redirects=False,
     )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
+    if response.status_code < 200 or response.status_code >= 300:
         raise RuntimeError(
-            f"GitHub API request failed with exit code {result.returncode}: {detail}"
+            f"GitHub API request failed with {response.status_code}: {response.text}"
         )
-    return json.loads(result.stdout)
+    return response.json()
 
 
 def find_codacy_check(repository: str, head_sha: str) -> dict[str, object] | None:

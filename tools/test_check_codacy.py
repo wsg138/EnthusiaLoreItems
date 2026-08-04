@@ -5,9 +5,8 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
-import subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 MODULE_PATH = Path(__file__).with_name("check_codacy.py")
 SPEC = importlib.util.spec_from_file_location("check_codacy", MODULE_PATH)
@@ -18,54 +17,48 @@ SPEC.loader.exec_module(check_codacy)
 
 
 class RequestJsonTest(unittest.TestCase):
-    def test_rejects_non_repository_paths_before_invoking_github_cli(self) -> None:
-        with patch.object(check_codacy.subprocess, "run") as runner:
+    def test_rejects_non_repository_paths_before_opening_connection(self) -> None:
+        with patch.object(check_codacy.requests, "get") as request:
             with self.assertRaisesRegex(ValueError, "must target a repository"):
                 check_codacy.request_json("https://example.invalid/file")
-        runner.assert_not_called()
+        request.assert_not_called()
 
-    def test_uses_github_cli_with_repository_relative_path(self) -> None:
+    def test_uses_fixed_https_origin_and_repository_relative_path(self) -> None:
         path = "/repos/wsg138/EnthusiaLoreItems/commits/head/check-runs"
         token = os.urandom(16).hex()
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout='{"check_runs": []}', stderr=""
-        )
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"check_runs": []}
 
         with patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False):
             with patch.object(
-                    check_codacy.subprocess,
-                    "run",
-                    return_value=completed) as runner:
+                    check_codacy.requests,
+                    "get",
+                    return_value=response) as request:
                 result = check_codacy.request_json(path)
 
-        command = runner.call_args.args[0]
-        self.assertEqual("gh", command[0])
-        self.assertEqual("api", command[1])
-        self.assertEqual("GET", command[3])
-        self.assertEqual(path, command[-1])
-        self.assertEqual(token, runner.call_args.kwargs["env"]["GH_TOKEN"])
-        self.assertFalse(runner.call_args.kwargs["check"])
-        self.assertTrue(runner.call_args.kwargs["capture_output"])
-        self.assertTrue(runner.call_args.kwargs["text"])
-        self.assertEqual(
-            check_codacy.REQUEST_TIMEOUT_SECONDS,
-            runner.call_args.kwargs["timeout"],
+        request.assert_called_once_with(
+            check_codacy.API_ORIGIN + path,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": check_codacy.API_VERSION,
+                "User-Agent": "enthusia-loreitems-ci",
+            },
+            timeout=check_codacy.REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
         self.assertEqual({"check_runs": []}, result)
 
-    def test_reports_non_success_exit_code(self) -> None:
+    def test_reports_non_success_status(self) -> None:
         token = os.urandom(16).hex()
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="forbidden"
-        )
+        response = MagicMock(status_code=403, text="forbidden")
 
         with patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False):
             with patch.object(
-                    check_codacy.subprocess,
-                    "run",
-                    return_value=completed):
-                with self.assertRaisesRegex(
-                        RuntimeError, "exit code 1: forbidden"):
+                    check_codacy.requests,
+                    "get",
+                    return_value=response):
+                with self.assertRaisesRegex(RuntimeError, "403: forbidden"):
                     check_codacy.request_json("/repos/wsg138/EnthusiaLoreItems")
 
 
