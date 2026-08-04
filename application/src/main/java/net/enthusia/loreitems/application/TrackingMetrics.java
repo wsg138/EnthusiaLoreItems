@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong queued = new AtomicLong();
     private final AtomicLong inFlight = new AtomicLong();
+    private final AtomicLong scanBacklog = new AtomicLong();
     private final AtomicLong accepted = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong completed = new AtomicLong();
@@ -18,6 +19,7 @@ public final class TrackingMetrics implements MetricsPort {
         switch (name) {
             case "tracking.queued" -> queued.set(value);
             case "tracking.in_flight" -> inFlight.set(value);
+            case "tracking.scan_backlog" -> scanBacklog.set(value);
             default -> {
                 // Metrics outside this phase are intentionally ignored by this focused port.
             }
@@ -49,6 +51,7 @@ public final class TrackingMetrics implements MetricsPort {
         return new Snapshot(
                 queued.get(),
                 inFlight.get(),
+                scanBacklog.get(),
                 accepted.get(),
                 rejected.get(),
                 completed.get(),
@@ -60,6 +63,7 @@ public final class TrackingMetrics implements MetricsPort {
     public record Snapshot(
             long queued,
             long inFlight,
+            long scanBacklog,
             long accepted,
             long rejected,
             long completed,
