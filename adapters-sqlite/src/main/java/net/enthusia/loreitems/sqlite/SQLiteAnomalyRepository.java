@@ -4,6 +4,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -11,19 +12,26 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AnomalyRepository;
+import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.TrackingAdministrationStore;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
+import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
-public final class SQLiteAnomalyRepository implements AnomalyRepository {
+public final class SQLiteAnomalyRepository
+        implements AnomalyRepository, TrackingAdministrationStore {
     private static final String ANOMALY_ID_ARGUMENT = "anomalyId";
 
     private final SQLiteStorageRuntime storage;
+    private final SQLiteTrackingAdministrationStore trackingAdministration;
 
     public SQLiteAnomalyRepository(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.trackingAdministration = new SQLiteTrackingAdministrationStore(storage);
     }
 
     @Override
@@ -195,6 +203,25 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
                 return statement.executeUpdate() == 1;
             }
         });
+    }
+
+    @Override
+    public CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request) {
+        return trackingAdministration.listDefinitions(request);
+    }
+
+    @Override
+    public CompletionStage<Page<LoreInstance>> listInstances(
+            LoreDefinitionId definitionId, PageRequest request) {
+        return trackingAdministration.listInstances(definitionId, request);
+    }
+
+    @Override
+    public CompletionStage<LoreItemsAdministrationUseCase.DuplicateResolutionResult>
+            resolveDuplicate(
+                    LoreItemsAdministrationUseCase.DuplicateResolutionRequest request,
+                    Instant resolvedAt) {
+        return trackingAdministration.resolveDuplicate(request, resolvedAt);
     }
 
     private static String selectColumns() {
