@@ -69,28 +69,44 @@ public final class PaperAnomalyWarningWorker
                 trackingMetrics);
         try {
             unique.start();
+            synchronized (queryLock) {
+                requireOpen();
+                uniqueAccessListener = unique;
+            }
             physical.start();
             synchronized (queryLock) {
-                if (closed) {
-                    throw new IllegalStateException("Anomaly warning worker is closed");
-                }
-                if (task != null) {
-                    throw new IllegalStateException("Anomaly warning worker is already started");
-                }
+                requireOpen();
+                trackingListener = physical;
                 task = plugin.getServer().getScheduler().runTaskTimer(
                         plugin,
                         this::requestWarning,
                         intervalTicks,
                         intervalTicks);
-                uniqueAccessListener = unique;
-                trackingListener = physical;
             }
         } catch (RuntimeException exception) {
+            synchronized (queryLock) {
+                if (uniqueAccessListener == unique) {
+                    uniqueAccessListener = null;
+                }
+                if (trackingListener == physical) {
+                    trackingListener = null;
+                }
+                task = null;
+            }
             physical.close();
             unique.close();
             throw exception;
         }
         requestWarning();
+    }
+
+    private void requireOpen() {
+        if (closed) {
+            throw new IllegalStateException("Anomaly warning worker is closed");
+        }
+        if (task != null || trackingListener != null) {
+            throw new IllegalStateException("Anomaly warning worker is already started");
+        }
     }
 
     private TrackingObservationUseCase resolveTrackingUseCase() {
@@ -223,6 +239,7 @@ public final class PaperAnomalyWarningWorker
             current = task;
             unique = uniqueAccessListener;
             physical = trackingListener;
+            task = null;
             uniqueAccessListener = null;
             trackingListener = null;
         }
