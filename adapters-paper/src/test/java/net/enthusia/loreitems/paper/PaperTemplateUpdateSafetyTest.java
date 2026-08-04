@@ -100,7 +100,9 @@ class PaperTemplateUpdateSafetyTest {
     @Test
     void comparatorRejectsAChangedNestedLoreIdentity() {
         ItemStack firstNested = tracked(named("Nested Blade"), INSTANCE_ID);
-        ItemStack secondNested = tracked(named("Nested Blade"), new LoreInstanceId(UUID.randomUUID()));
+        ItemStack secondNested = tracked(
+                named("Nested Blade"),
+                new LoreInstanceId(UUID.randomUUID()));
         PaperTemplateItemComparator comparator = new PaperTemplateItemComparator(identityCodec);
 
         assertFalse(comparator.matches(
