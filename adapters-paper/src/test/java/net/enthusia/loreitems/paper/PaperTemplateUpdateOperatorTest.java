@@ -200,7 +200,10 @@ class PaperTemplateUpdateOperatorTest {
         PaperTemplateUpdateOperator.ApplyResult result = operator.apply(
                 plugin, reference, prepared(named(Material.COMPASS, "New Compass")));
 
-        assertEquals(PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED, result.status());
+        assertEquals(
+                PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED,
+                result.status(),
+                result.detail());
         BundleMeta storedMeta = assertInstanceOf(
                 BundleMeta.class,
                 Objects.requireNonNull(player.getInventory().getItem(0)).getItemMeta());
