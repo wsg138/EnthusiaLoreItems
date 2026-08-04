@@ -50,6 +50,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
     private static final String SLOT_PREFIX = "slot:";
     private static final Chunk[] EMPTY_CHUNKS = new Chunk[0];
+    private static final UUID NO_WORLD = new UUID(0L, 0L);
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -64,7 +65,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private BukkitTask seedTask;
     private int worldCursor;
     private int chunkCursor;
-    private UUID seededWorldId;
+    private UUID seededWorldId = NO_WORLD;
     private Chunk[] seededChunks = EMPTY_CHUNKS;
     private boolean scanSaturated;
     private boolean closed;
@@ -305,7 +306,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private void advanceSeedWorld(int worldCount) {
         worldCursor = (worldCursor + 1) % worldCount;
         chunkCursor = 0;
-        seededWorldId = null;
+        seededWorldId = NO_WORLD;
         seededChunks = EMPTY_CHUNKS;
     }
 

@@ -28,8 +28,9 @@ class RequestJsonTest(unittest.TestCase):
         response.read.return_value = b'{"check_runs": []}'
         connection = MagicMock()
         connection.getresponse.return_value = response
+        token = os.urandom(16).hex()
 
-        with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False):
             with patch.object(
                     check_codacy.http.client,
                     "HTTPSConnection",
@@ -41,6 +42,7 @@ class RequestJsonTest(unittest.TestCase):
         constructor.assert_called_once_with(
             check_codacy.API_HOST,
             timeout=check_codacy.REQUEST_TIMEOUT_SECONDS,
+            context=check_codacy.TLS_CONTEXT,
         )
         request_args = connection.request.call_args
         self.assertEqual("GET", request_args.args[0])
@@ -49,7 +51,7 @@ class RequestJsonTest(unittest.TestCase):
             request_args.args[1],
         )
         self.assertEqual(
-            "Bearer test-token",
+            f"Bearer {token}",
             request_args.kwargs["headers"]["Authorization"],
         )
         connection.close.assert_called_once_with()
@@ -60,8 +62,9 @@ class RequestJsonTest(unittest.TestCase):
         response.read.return_value = b"forbidden"
         connection = MagicMock()
         connection.getresponse.return_value = response
+        token = os.urandom(16).hex()
 
-        with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False):
             with patch.object(
                     check_codacy.http.client,
                     "HTTPSConnection",

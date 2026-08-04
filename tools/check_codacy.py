@@ -6,6 +6,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import ssl
 import sys
 import time
 
@@ -15,12 +16,17 @@ CHECK_NAME = "Codacy Static Code Analysis"
 POLL_SECONDS = 10
 TIMEOUT_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 30
+TLS_CONTEXT = ssl.create_default_context()
 
 
 def request_json(path: str) -> object:
     if not path.startswith("/repos/"):
         raise ValueError("GitHub API path must target a repository")
-    connection = http.client.HTTPSConnection(API_HOST, timeout=REQUEST_TIMEOUT_SECONDS)
+    connection = http.client.HTTPSConnection(  # nosec B309
+        API_HOST,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        context=TLS_CONTEXT,
+    )
     try:
         connection.request(
             "GET",

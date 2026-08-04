@@ -54,7 +54,7 @@ class PaperPhysicalInventorySnapshotTest {
     @SuppressWarnings("unchecked")
     private static <T> T proxy(Class<?>[] types, Invocation invocation) {
         return (T) Proxy.newProxyInstance(
-                PaperPhysicalInventorySnapshotTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 types,
                 (proxy, method, arguments) -> invocation.invoke(
                         method.getName(), arguments == null ? new Object[0] : arguments));
