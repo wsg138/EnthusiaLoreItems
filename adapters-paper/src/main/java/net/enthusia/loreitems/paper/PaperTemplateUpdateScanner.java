@@ -206,20 +206,20 @@ final class PaperTemplateUpdateScanner {
     }
 
     private static final class ScanCursor {
-        private final Queue<ScanNode> pendingNodes = new ArrayDeque<>();
+        private final Queue<ScanNode> nodesPending = new ArrayDeque<>();
         private final Map<UUID, CandidateAccumulator> candidates = new ConcurrentHashMap<>();
-        private int continuationPasses;
+        private int passesCompleted;
 
         private Queue<ScanNode> pendingNodes() {
-            return pendingNodes;
+            return nodesPending;
         }
 
         private int continuationPasses() {
-            return continuationPasses;
+            return passesCompleted;
         }
 
         private void incrementContinuationPasses() {
-            continuationPasses++;
+            passesCompleted++;
         }
 
         private void observe(Candidate candidate) {
@@ -246,24 +246,25 @@ final class PaperTemplateUpdateScanner {
     }
 
     private static final class CandidateAccumulator {
-        private final Candidate firstCandidate;
-        private int observationCount = 1;
+        private final Candidate representativeCandidate;
+        private int observations = 1;
 
         private CandidateAccumulator(Candidate firstCandidate) {
-            this.firstCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
+            this.representativeCandidate =
+                    Objects.requireNonNull(firstCandidate, "firstCandidate");
         }
 
         private CandidateAccumulator increment() {
-            observationCount++;
+            observations++;
             return this;
         }
 
         private Candidate firstCandidate() {
-            return firstCandidate;
+            return representativeCandidate;
         }
 
         private int observationCount() {
-            return observationCount;
+            return observations;
         }
     }
 
