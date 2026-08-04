@@ -18,11 +18,24 @@ import org.bukkit.entity.Player;
 final class PaperTemplateUpdateAccessRegistry {
     private final Map<PaperInventoryReference, List<PaperTemplateUpdateScanner.Candidate>>
             snapshots = new HashMap<>();
+    private final Set<PaperInventoryReference> incompleteReferences = new HashSet<>();
     private final Set<UUID> dirtyInstances = new HashSet<>();
 
     void invalidate(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, "reference");
         addDirty(snapshots.remove(reference));
+    }
+
+    void markIncomplete(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        invalidate(reference);
+        incompleteReferences.add(reference);
+    }
+
+    void remove(PaperInventoryReference reference) {
+        Objects.requireNonNull(reference, "reference");
+        invalidate(reference);
+        incompleteReferences.remove(reference);
     }
 
     void replace(
@@ -32,12 +45,15 @@ final class PaperTemplateUpdateAccessRegistry {
         Objects.requireNonNull(candidates, "candidates");
         addDirty(snapshots.put(reference, List.copyOf(candidates)));
         addDirty(candidates);
+        incompleteReferences.remove(reference);
     }
 
     List<PaperTemplateUpdateScanner.Candidate> drainUnique(
             Collection<? extends Player> onlinePlayers) {
         Objects.requireNonNull(onlinePlayers, "onlinePlayers");
-        if (dirtyInstances.isEmpty() || !hasCompletePlayerCoverage(onlinePlayers)) {
+        if (dirtyInstances.isEmpty()
+                || !incompleteReferences.isEmpty()
+                || !hasCompletePlayerCoverage(onlinePlayers)) {
             return List.of();
         }
 
@@ -67,6 +83,7 @@ final class PaperTemplateUpdateAccessRegistry {
 
     void clear() {
         snapshots.clear();
+        incompleteReferences.clear();
         dirtyInstances.clear();
     }
 
