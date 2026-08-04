@@ -26,6 +26,8 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
     private static final String REVIEW_EVENT = "void_loss_review_required";
     private static final String OBSERVATION_SOURCE = "void-terminal-loss";
     private static final int SINGLE_ROW = 1;
+    private static final int JSON_ESCAPE_CAPACITY = 16;
+    private static final int CONTROL_CHARACTER_LIMIT = 0x20;
 
     private final SQLiteStorageRuntime storage;
 
@@ -441,7 +443,7 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
     }
 
     private static String jsonEscape(String value) {
-        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        StringBuilder escaped = new StringBuilder(value.length() + JSON_ESCAPE_CAPACITY);
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
             switch (character) {
@@ -451,7 +453,7 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < CONTROL_CHARACTER_LIMIT) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);
