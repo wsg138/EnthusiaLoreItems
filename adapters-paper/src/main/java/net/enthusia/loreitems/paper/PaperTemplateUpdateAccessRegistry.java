@@ -2,13 +2,12 @@ package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.entity.Player;
 
 /**
@@ -16,24 +15,27 @@ import org.bukkit.entity.Player;
  * before a physical template update is claimed.
  */
 final class PaperTemplateUpdateAccessRegistry {
+    private static final String REFERENCE_PARAMETER = "reference";
+
     private final Map<PaperInventoryReference, List<PaperTemplateUpdateScanner.Candidate>>
-            snapshots = new HashMap<>();
-    private final Set<PaperInventoryReference> incompleteReferences = new HashSet<>();
-    private final Set<UUID> dirtyInstances = new HashSet<>();
+            snapshots = new ConcurrentHashMap<>();
+    private final Set<PaperInventoryReference> incompleteReferences =
+            ConcurrentHashMap.newKeySet();
+    private final Set<UUID> dirtyInstances = ConcurrentHashMap.newKeySet();
 
     void invalidate(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
+        Objects.requireNonNull(reference, REFERENCE_PARAMETER);
         addDirty(snapshots.remove(reference));
     }
 
     void markIncomplete(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
+        Objects.requireNonNull(reference, REFERENCE_PARAMETER);
         invalidate(reference);
         incompleteReferences.add(reference);
     }
 
     void remove(PaperInventoryReference reference) {
-        Objects.requireNonNull(reference, "reference");
+        Objects.requireNonNull(reference, REFERENCE_PARAMETER);
         invalidate(reference);
         incompleteReferences.remove(reference);
     }
@@ -41,7 +43,7 @@ final class PaperTemplateUpdateAccessRegistry {
     void replace(
             PaperInventoryReference reference,
             List<PaperTemplateUpdateScanner.Candidate> candidates) {
-        Objects.requireNonNull(reference, "reference");
+        Objects.requireNonNull(reference, REFERENCE_PARAMETER);
         Objects.requireNonNull(candidates, "candidates");
         addDirty(snapshots.put(reference, List.copyOf(candidates)));
         addDirty(candidates);
@@ -51,31 +53,11 @@ final class PaperTemplateUpdateAccessRegistry {
     List<PaperTemplateUpdateScanner.Candidate> drainUnique(
             Collection<? extends Player> onlinePlayers) {
         Objects.requireNonNull(onlinePlayers, "onlinePlayers");
-        if (dirtyInstances.isEmpty()
-                || !incompleteReferences.isEmpty()
-                || !hasCompletePlayerCoverage(onlinePlayers)) {
+        if (!readyToDrain(onlinePlayers)) {
             return List.of();
         }
-
-        Map<UUID, CandidateCount> counts = new HashMap<>();
-        for (List<PaperTemplateUpdateScanner.Candidate> candidates : snapshots.values()) {
-            for (PaperTemplateUpdateScanner.Candidate candidate : candidates) {
-                UUID instanceId = candidate.identity().instanceId().value();
-                counts.compute(
-                        instanceId,
-                        (ignored, count) -> count == null
-                                ? new CandidateCount(candidate)
-                                : count.increment());
-            }
-        }
-
-        List<PaperTemplateUpdateScanner.Candidate> unique = new ArrayList<>();
-        for (UUID instanceId : dirtyInstances) {
-            CandidateCount count = counts.get(instanceId);
-            if (count != null && count.count() == 1) {
-                unique.add(count.first());
-            }
-        }
+        Map<UUID, CandidateCount> counts = countCandidates();
+        List<PaperTemplateUpdateScanner.Candidate> unique = collectUnique(counts);
         dirtyInstances.clear();
         snapshots.keySet().removeIf(reference -> !persistent(reference));
         return List.copyOf(unique);
@@ -87,6 +69,41 @@ final class PaperTemplateUpdateAccessRegistry {
         dirtyInstances.clear();
     }
 
+    private boolean readyToDrain(Collection<? extends Player> onlinePlayers) {
+        return !dirtyInstances.isEmpty()
+                && incompleteReferences.isEmpty()
+                && hasCompletePlayerCoverage(onlinePlayers);
+    }
+
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
+    private Map<UUID, CandidateCount> countCandidates() {
+        Map<UUID, CandidateCount> counts = new ConcurrentHashMap<>();
+        for (List<PaperTemplateUpdateScanner.Candidate> candidates : snapshots.values()) {
+            for (PaperTemplateUpdateScanner.Candidate candidate : candidates) {
+                UUID instanceId = candidate.identity().instanceId().value();
+                counts.compute(
+                        instanceId,
+                        (ignored, currentCount) -> currentCount == null
+                                ? new CandidateCount(candidate)
+                                : currentCount.increment());
+            }
+        }
+        return counts;
+    }
+
+    private List<PaperTemplateUpdateScanner.Candidate> collectUnique(
+            Map<UUID, CandidateCount> counts) {
+        List<PaperTemplateUpdateScanner.Candidate> unique = new ArrayList<>();
+        for (UUID instanceId : dirtyInstances) {
+            CandidateCount candidateCount = counts.get(instanceId);
+            if (candidateCount != null && candidateCount.referenceCount() == 1) {
+                unique.add(candidateCount.firstCandidate());
+            }
+        }
+        return unique;
+    }
+
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private boolean hasCompletePlayerCoverage(Collection<? extends Player> onlinePlayers) {
         for (Player player : onlinePlayers) {
             UUID playerId = player.getUniqueId();
@@ -113,24 +130,24 @@ final class PaperTemplateUpdateAccessRegistry {
     }
 
     private static final class CandidateCount {
-        private final PaperTemplateUpdateScanner.Candidate first;
-        private int count = 1;
+        private final PaperTemplateUpdateScanner.Candidate firstCandidate;
+        private int referenceCount = 1;
 
-        private CandidateCount(PaperTemplateUpdateScanner.Candidate first) {
-            this.first = Objects.requireNonNull(first, "first");
+        private CandidateCount(PaperTemplateUpdateScanner.Candidate firstCandidate) {
+            this.firstCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
         }
 
         private CandidateCount increment() {
-            count++;
+            referenceCount++;
             return this;
         }
 
-        private PaperTemplateUpdateScanner.Candidate first() {
-            return first;
+        private PaperTemplateUpdateScanner.Candidate firstCandidate() {
+            return firstCandidate;
         }
 
-        private int count() {
-            return count;
+        private int referenceCount() {
+            return referenceCount;
         }
     }
 }

@@ -1,13 +1,13 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
@@ -28,7 +28,7 @@ final class PaperTemplateUpdateScanner {
     private static final int MAX_PENDING_REFERENCES = 8_192;
 
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
-    private final Map<PaperInventoryReference, ScanCursor> cursors = new HashMap<>();
+    private final Map<PaperInventoryReference, ScanCursor> cursors = new ConcurrentHashMap<>();
 
     ScanResult scan(
             Plugin plugin,
@@ -47,14 +47,14 @@ final class PaperTemplateUpdateScanner {
                 inventoryReference,
                 ignored -> createCursor(inventoryReference, inventory));
         boolean overflowed = processPass(plugin, cursor);
-        cursor.incrementPasses();
+        cursor.incrementContinuationPasses();
         if (overflowed
-                || (!cursor.pending().isEmpty()
-                        && cursor.passes() >= MAX_CONTINUATION_PASSES)) {
+                || (!cursor.pendingNodes().isEmpty()
+                        && cursor.continuationPasses() >= MAX_CONTINUATION_PASSES)) {
             cursors.remove(inventoryReference);
             return ScanResult.abandonedScan();
         }
-        if (!cursor.pending().isEmpty()) {
+        if (!cursor.pendingNodes().isEmpty()) {
             return ScanResult.continuation();
         }
 
@@ -70,16 +70,19 @@ final class PaperTemplateUpdateScanner {
         cursors.clear();
     }
 
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private ScanCursor createCursor(
             PaperInventoryReference inventoryReference,
             Inventory inventory) {
+        Objects.requireNonNull(inventoryReference, "inventoryReference");
+        Objects.requireNonNull(inventory, "inventory");
         ScanCursor cursor = new ScanCursor();
         ItemStack[] contents = Objects.requireNonNull(
                 inventory.getContents(), "inventory contents");
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
             if (item != null && !item.getType().isAir()) {
-                cursor.pending().add(new ScanNode(
+                cursor.pendingNodes().add(new ScanNode(
                         PaperTemplateUpdateItemReference.root(inventoryReference, slot),
                         0));
             }
@@ -89,15 +92,15 @@ final class PaperTemplateUpdateScanner {
 
     private boolean processPass(Plugin plugin, ScanCursor cursor) {
         int processed = 0;
-        while (processed < MAX_ITEMS_PER_PASS && !cursor.pending().isEmpty()) {
-            ScanNode node = cursor.pending().remove();
+        while (processed < MAX_ITEMS_PER_PASS && !cursor.pendingNodes().isEmpty()) {
+            ScanNode node = cursor.pendingNodes().remove();
             Optional<PaperTemplateUpdateItemReference.Resolved> resolved =
                     node.reference().resolve(plugin);
             if (resolved.isPresent()) {
                 ItemStack item = resolved.orElseThrow().originalItem();
                 cursor.observe(readCandidate(item, node.reference()));
                 if (node.depth() < MAX_NESTING_DEPTH
-                        && enqueueChildren(cursor.pending(), node, item)) {
+                        && enqueueChildren(cursor.pendingNodes(), node, item)) {
                     return true;
                 }
             }
@@ -117,16 +120,17 @@ final class PaperTemplateUpdateScanner {
     }
 
     private static boolean enqueueChildren(
-            Queue<ScanNode> pending,
+            Queue<ScanNode> pendingNodes,
             ScanNode parent,
             ItemStack item) {
         ItemMeta meta = item.getItemMeta();
-        return enqueueShulker(pending, parent, meta)
-                || enqueueBundle(pending, parent, meta);
+        return enqueueShulker(pendingNodes, parent, meta)
+                || enqueueBundle(pendingNodes, parent, meta);
     }
 
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private static boolean enqueueShulker(
-            Queue<ScanNode> pending,
+            Queue<ScanNode> pendingNodes,
             ScanNode parent,
             ItemMeta meta) {
         if (!(meta instanceof BlockStateMeta blockMeta)) {
@@ -145,7 +149,7 @@ final class PaperTemplateUpdateScanner {
             ItemStack nested = contents[slot];
             if (nested != null && !nested.getType().isAir()
                     && !enqueue(
-                            pending,
+                            pendingNodes,
                             new ScanNode(
                                     parent.reference().nested(
                                             PaperTemplateUpdateItemReference.NestedStep
@@ -157,8 +161,9 @@ final class PaperTemplateUpdateScanner {
         return false;
     }
 
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private static boolean enqueueBundle(
-            Queue<ScanNode> pending,
+            Queue<ScanNode> pendingNodes,
             ScanNode parent,
             ItemMeta meta) {
         if (!(meta instanceof BundleMeta bundle)) {
@@ -169,7 +174,7 @@ final class PaperTemplateUpdateScanner {
             ItemStack nested = items.get(index);
             if (nested != null && !nested.getType().isAir()
                     && !enqueue(
-                            pending,
+                            pendingNodes,
                             new ScanNode(
                                     parent.reference().nested(
                                             PaperTemplateUpdateItemReference.NestedStep
@@ -181,11 +186,11 @@ final class PaperTemplateUpdateScanner {
         return false;
     }
 
-    private static boolean enqueue(Queue<ScanNode> pending, ScanNode node) {
-        if (pending.size() >= MAX_PENDING_REFERENCES) {
+    private static boolean enqueue(Queue<ScanNode> pendingNodes, ScanNode node) {
+        if (pendingNodes.size() >= MAX_PENDING_REFERENCES) {
             return false;
         }
-        pending.add(node);
+        pendingNodes.add(node);
         return true;
     }
 
@@ -201,20 +206,20 @@ final class PaperTemplateUpdateScanner {
     }
 
     private static final class ScanCursor {
-        private final Queue<ScanNode> pending = new ArrayDeque<>();
-        private final Map<UUID, CandidateAccumulator> candidates = new HashMap<>();
-        private int passes;
+        private final Queue<ScanNode> pendingNodes = new ArrayDeque<>();
+        private final Map<UUID, CandidateAccumulator> candidates = new ConcurrentHashMap<>();
+        private int continuationPasses;
 
-        private Queue<ScanNode> pending() {
-            return pending;
+        private Queue<ScanNode> pendingNodes() {
+            return pendingNodes;
         }
 
-        private int passes() {
-            return passes;
+        private int continuationPasses() {
+            return continuationPasses;
         }
 
-        private void incrementPasses() {
-            passes++;
+        private void incrementContinuationPasses() {
+            continuationPasses++;
         }
 
         private void observe(Candidate candidate) {
@@ -231,8 +236,8 @@ final class PaperTemplateUpdateScanner {
         private int emitObserved(Consumer<Candidate> consumer) {
             int observed = 0;
             for (CandidateAccumulator accumulator : candidates.values()) {
-                for (int copy = 0; copy < accumulator.count(); copy++) {
-                    consumer.accept(accumulator.first());
+                for (int copy = 0; copy < accumulator.observationCount(); copy++) {
+                    consumer.accept(accumulator.firstCandidate());
                     observed++;
                 }
             }
@@ -241,24 +246,24 @@ final class PaperTemplateUpdateScanner {
     }
 
     private static final class CandidateAccumulator {
-        private final Candidate first;
-        private int count = 1;
+        private final Candidate firstCandidate;
+        private int observationCount = 1;
 
-        private CandidateAccumulator(Candidate first) {
-            this.first = Objects.requireNonNull(first, "first");
+        private CandidateAccumulator(Candidate firstCandidate) {
+            this.firstCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
         }
 
         private CandidateAccumulator increment() {
-            count++;
+            observationCount++;
             return this;
         }
 
-        private Candidate first() {
-            return first;
+        private Candidate firstCandidate() {
+            return firstCandidate;
         }
 
-        private int count() {
-            return count;
+        private int observationCount() {
+            return observationCount;
         }
     }
 

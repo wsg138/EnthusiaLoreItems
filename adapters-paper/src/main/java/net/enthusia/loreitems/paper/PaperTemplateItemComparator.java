@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.paper;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,19 +33,21 @@ final class PaperTemplateItemComparator {
     }
 
     private boolean matches(ItemStack first, ItemStack second, int depth) {
-        if (first == null || second == null || depth > MAX_NESTING_DEPTH) {
-            return first == null && second == null;
+        if (first == null || second == null) {
+            return first == second;
         }
-        if (first.getType() != second.getType() || first.getAmount() != second.getAmount()) {
+        if (depth > MAX_NESTING_DEPTH || !sameBasicProperties(first, second)) {
             return false;
         }
         ItemStack firstShell = normalizedShell(first);
         ItemStack secondShell = normalizedShell(second);
-        if (!sameShell(firstShell, secondShell)) {
-            return false;
-        }
-        return sameShulkerContents(first, second, depth)
-                && sameBundleContents(first, second, depth);
+        return sameShell(firstShell, secondShell)
+                && sameContents(shulkerContents(first), shulkerContents(second), depth)
+                && sameContents(bundleContents(first), bundleContents(second), depth);
+    }
+
+    private static boolean sameBasicProperties(ItemStack first, ItemStack second) {
+        return first.getType() == second.getType() && first.getAmount() == second.getAmount();
     }
 
     private ItemStack normalizedShell(ItemStack item) {
@@ -63,29 +66,10 @@ final class PaperTemplateItemComparator {
         return firstSerialized.equals(secondSerialized);
     }
 
-    private boolean sameShulkerContents(ItemStack first, ItemStack second, int depth) {
-        ItemStack[] firstContents = shulkerContents(first);
-        ItemStack[] secondContents = shulkerContents(second);
-        if (firstContents == null || secondContents == null) {
-            return firstContents == null && secondContents == null;
-        }
-        if (firstContents.length != secondContents.length) {
-            return false;
-        }
-        for (int slot = 0; slot < firstContents.length; slot++) {
-            if (!sameNullableItem(firstContents[slot], secondContents[slot], depth + 1)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean sameBundleContents(ItemStack first, ItemStack second, int depth) {
-        List<ItemStack> firstContents = bundleContents(first);
-        List<ItemStack> secondContents = bundleContents(second);
-        if (firstContents == null || secondContents == null) {
-            return firstContents == null && secondContents == null;
-        }
+    private boolean sameContents(
+            List<ItemStack> firstContents,
+            List<ItemStack> secondContents,
+            int depth) {
         if (firstContents.size() != secondContents.size()) {
             return false;
         }
@@ -136,23 +120,25 @@ final class PaperTemplateItemComparator {
         }
     }
 
-    private static ItemStack[] shulkerContents(ItemStack item) {
+    private static List<ItemStack> shulkerContents(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
         if (!(meta instanceof BlockStateMeta blockMeta)) {
-            return null;
+            return List.of();
         }
         BlockState state = Objects.requireNonNull(
                 blockMeta.getBlockState(), "shulker block state");
         if (!(state instanceof ShulkerBox shulker)) {
-            return null;
+            return List.of();
         }
         Inventory inventory = Objects.requireNonNull(
                 shulker.getInventory(), "shulker inventory");
-        return Objects.requireNonNull(inventory.getContents(), "shulker contents");
+        ItemStack[] contents = Objects.requireNonNull(
+                inventory.getContents(), "shulker contents");
+        return Arrays.asList(contents);
     }
 
     private static List<ItemStack> bundleContents(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
-        return meta instanceof BundleMeta bundle ? bundle.getItems() : null;
+        return meta instanceof BundleMeta bundle ? bundle.getItems() : List.of();
     }
 }

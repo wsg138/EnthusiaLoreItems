@@ -17,6 +17,7 @@ import org.bukkit.plugin.Plugin;
 
 /** Bounded bridge from natural-access observations to durable template-update claims. */
 final class PaperTemplateUpdateCoordinator implements AutoCloseable {
+    private static final int MIN_MAX_IN_FLIGHT = 1;
     private static final int QUEUE_MULTIPLIER = 8;
 
     private final Plugin plugin;
@@ -40,7 +41,7 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
         this.operator = Objects.requireNonNull(operator, "operator");
-        if (maxInFlight < 1) {
+        if (maxInFlight < MIN_MAX_IN_FLIGHT) {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
         this.maxInFlight = maxInFlight;
@@ -154,6 +155,13 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
                     candidate,
                     update,
                     result.detail(),
+                    result.beforeFingerprint(),
+                    result.afterFingerprint(),
+                    null);
+            default -> requireReview(
+                    candidate,
+                    update,
+                    "Paper returned an unsupported physical template-update result.",
                     result.beforeFingerprint(),
                     result.afterFingerprint(),
                     null);

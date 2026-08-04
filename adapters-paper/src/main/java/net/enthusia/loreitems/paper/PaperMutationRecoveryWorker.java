@@ -16,6 +16,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
 public final class PaperMutationRecoveryWorker implements AutoCloseable {
+    private static final int MIN_RECOVERY_LIMIT = 1;
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long RECOVERY_PERIOD_TICKS = 100L;
     private static final Duration TEMPLATE_UPDATE_CLAIM_LEASE = Duration.ofSeconds(30L);
@@ -35,7 +36,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
-        if (recoveryLimit < 1) {
+        if (recoveryLimit < MIN_RECOVERY_LIMIT) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
         if (!(repository instanceof TemplateUpdateExecutionStore templateStore)) {

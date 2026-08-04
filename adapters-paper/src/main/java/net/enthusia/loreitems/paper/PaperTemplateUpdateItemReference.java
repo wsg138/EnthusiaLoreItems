@@ -203,7 +203,7 @@ record PaperTemplateUpdateItemReference(
         private final int rootSlot;
         private final List<NestedStep> nestedPath;
         private final ItemStack originalRoot;
-        private final ItemStack originalItem;
+        private final ItemStack capturedOriginalItem;
 
         private Resolved(
                 Inventory inventory,
@@ -215,11 +215,11 @@ record PaperTemplateUpdateItemReference(
             this.rootSlot = rootSlot;
             this.nestedPath = nestedPath;
             this.originalRoot = originalRoot;
-            this.originalItem = originalItem;
+            this.capturedOriginalItem = originalItem;
         }
 
         ItemStack originalItem() {
-            return originalItem.clone();
+            return capturedOriginalItem.clone();
         }
 
         boolean replace(ItemStack replacement) {
@@ -242,7 +242,7 @@ record PaperTemplateUpdateItemReference(
             ItemStack restored = readStored();
             return restored != null
                     && PaperItemFingerprint.of(restored)
-                            .equals(PaperItemFingerprint.of(originalItem));
+                            .equals(PaperItemFingerprint.of(capturedOriginalItem));
         }
     }
 }
