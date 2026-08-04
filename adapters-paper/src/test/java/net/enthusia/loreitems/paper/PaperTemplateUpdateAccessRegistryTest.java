@@ -107,13 +107,15 @@ class PaperTemplateUpdateAccessRegistryTest {
 
     @Test
     void rejectedScanReferencesAreRetriedOnceInFifoOrder() {
-        PaperTemplateUpdateRetryBacklog retries = new PaperTemplateUpdateRetryBacklog();
+        PaperTemplateUpdateRetryBacklog retries = new PaperTemplateUpdateRetryBacklog(2);
         PaperInventoryReference first = blockReference(8);
         PaperInventoryReference second = blockReference(9);
+        PaperInventoryReference overflow = blockReference(10);
 
         assertTrue(retries.offer(first));
         assertFalse(retries.offer(first));
         assertTrue(retries.offer(second));
+        assertFalse(retries.offer(overflow));
         assertEquals(first, retries.poll());
         assertEquals(second, retries.poll());
         assertNull(retries.poll());
