@@ -26,6 +26,9 @@ public final class SQLiteItemAnomalyObservationStore
     private static final String ACTOR_TYPE = "system";
     private static final String ACTOR_ID = "paper-event-protection";
     private static final int SINGLE_ROW = 1;
+    private static final long NO_OBSERVATION_ID = 0L;
+    private static final int JSON_ESCAPE_CAPACITY = 16;
+    private static final int CONTROL_CHARACTER_LIMIT = 0x20;
 
     private final SQLiteStorageRuntime storage;
 
@@ -55,15 +58,37 @@ public final class SQLiteItemAnomalyObservationStore
             Observation observation) throws SQLException, StaleCurrentStateException {
         ItemAnomalyObservationUseCase.Request request = observation.request();
         InstanceRow instance = findInstance(connection, request.identity());
+        ItemAnomalyObservationUseCase.Result validation = validateInstance(instance, request);
+        if (validation != null) {
+            return validation;
+        }
+
+        CurrentStateRow current = findCurrentState(connection, request.identity());
+        validation = validateCurrentState(current);
+        if (validation != null) {
+            return validation;
+        }
+
+        long observationId = insertEvidenceObservations(connection, observation);
+        if (!fenceCurrentState(connection, observation, current, observationId)) {
+            throw new StaleCurrentStateException();
+        }
+        return persistAnomaly(connection, observation, request);
+    }
+
+    private static ItemAnomalyObservationUseCase.Result validateInstance(
+            InstanceRow instance,
+            ItemAnomalyObservationUseCase.Request request) {
         if (instance == null) {
             return result(
                     ItemAnomalyObservationUseCase.Status.UNKNOWN_INSTANCE,
                     "No durable lore instance matches the observed identity.");
         }
-        if (!instance.definitionId().equals(
+        boolean identityMatches = instance.definitionId().equals(
                         request.identity().definitionId().value().toString())
-                || instance.appliedRevision()
-                        != request.identity().appliedRevision().value()) {
+                && instance.appliedRevision()
+                        == request.identity().appliedRevision().value();
+        if (!identityMatches) {
             return result(
                     ItemAnomalyObservationUseCase.Status.IDENTITY_MISMATCH,
                     "The observed definition or revision does not match durable identity.");
@@ -73,8 +98,11 @@ public final class SQLiteItemAnomalyObservationStore
                     ItemAnomalyObservationUseCase.Status.INACTIVE_INSTANCE,
                     "The observed lore instance is no longer active.");
         }
+        return null;
+    }
 
-        CurrentStateRow current = findCurrentState(connection, request.identity());
+    private static ItemAnomalyObservationUseCase.Result validateCurrentState(
+            CurrentStateRow current) {
         if (current == null) {
             return result(
                     ItemAnomalyObservationUseCase.Status.STALE,
@@ -85,12 +113,14 @@ public final class SQLiteItemAnomalyObservationStore
                     ItemAnomalyObservationUseCase.Status.TERMINAL_INSTANCE,
                     "Terminal void state cannot be replaced by anomaly evidence.");
         }
+        return null;
+    }
 
-        long observationId = insertEvidenceObservations(connection, observation);
-        if (!fenceCurrentState(connection, observation, current, observationId)) {
-            throw new StaleCurrentStateException();
-        }
-
+    private static ItemAnomalyObservationUseCase.Result persistAnomaly(
+            Connection connection,
+            Observation observation,
+            ItemAnomalyObservationUseCase.Request request)
+            throws SQLException, StaleCurrentStateException {
         String detail = anomalyDetail(request);
         ExistingAnomaly existing = findActiveAnomaly(connection, request);
         ItemAnomalyObservationUseCase.Status status;
@@ -146,14 +176,14 @@ public final class SQLiteItemAnomalyObservationStore
         ItemAnomalyObservationUseCase.Request request = observation.request();
         Set<LocationDescriptor> locations = new LinkedHashSet<>(request.evidenceLocations());
         locations.add(request.location());
-        long currentObservationId = 0L;
+        long currentObservationId = NO_OBSERVATION_ID;
         for (LocationDescriptor location : locations) {
             long observationId = insertObservation(connection, observation, location);
             if (location.equals(request.location())) {
                 currentObservationId = observationId;
             }
         }
-        if (currentObservationId == 0L) {
+        if (currentObservationId == NO_OBSERVATION_ID) {
             throw new SQLException("Anomaly current-state observation was not inserted");
         }
         return currentObservationId;
@@ -324,7 +354,7 @@ public final class SQLiteItemAnomalyObservationStore
     }
 
     private static String escapeJson(String value) {
-        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        StringBuilder escaped = new StringBuilder(value.length() + JSON_ESCAPE_CAPACITY);
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
             switch (character) {
@@ -334,7 +364,7 @@ public final class SQLiteItemAnomalyObservationStore
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < CONTROL_CHARACTER_LIMIT) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);
