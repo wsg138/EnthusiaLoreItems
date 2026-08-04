@@ -138,6 +138,40 @@ class PaperUniqueAccessTrackingListenerTest {
         listener.close();
     }
 
+    @Test
+    void playerAndDisplayCopiesShareOneUniquenessDecision() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        TrackingObservationUseCase useCase = request -> {
+            observed.add(request);
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "ok"));
+        };
+        PaperUniqueAccessTrackingListener listener = new PaperUniqueAccessTrackingListener(
+                plugin,
+                () -> useCase,
+                () -> 4,
+                MetricsPort.noOp());
+        PlayerMock player = server.addPlayer("alice");
+        ItemStack tracked = trackedItem();
+        player.getInventory().setItem(0, tracked);
+        LocationDescriptor display = new LocationDescriptor(
+                LocationDescriptor.Type.ITEM_FRAME,
+                "minecraft:overworld:4:64:7:33333333-3333-3333-3333-333333333333",
+                "item");
+
+        listener.submitPlayerAndDisplay(
+                player,
+                tracked.clone(),
+                display,
+                "test-display-duplicate");
+
+        assertEquals(2, observed.size());
+        assertTrue(observed.stream().allMatch(request -> request.mode()
+                == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        listener.close();
+    }
+
     private static ItemStack trackedItem() {
         return new PaperItemIdentityCodec().writeIdentity(
                 ItemStack.of(Material.NETHER_STAR), IDENTITY);
