@@ -1,6 +1,6 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -118,9 +118,9 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 .ifPresent(inventory -> submitInventory(inventory, source));
     }
 
-    private void submitPlayer(Player player, boolean lastConfirmed, String source) {
+    void submitPlayer(Player player, boolean lastConfirmed, String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
         collector.collectArray(
@@ -170,7 +170,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         }
         InventorySnapshot target = snapshot.orElseThrow();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
         collector.collectArray(
                 contentsOrEmpty(inventory.getContents()),
                 target.type(),

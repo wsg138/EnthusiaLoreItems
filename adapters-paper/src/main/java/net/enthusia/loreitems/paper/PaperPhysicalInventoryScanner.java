@@ -1,7 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,7 +34,7 @@ final class PaperPhysicalInventoryScanner {
 
     void scanPlayerUnique(Player player, String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
         collectPlayer(player, observations, limit);
         submitUnique(observations, source);
     }
@@ -242,13 +242,21 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             PaperScanLimit limit) {
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            scanItem(
-                    contents[slot],
-                    new LocationDescriptor(type, key, prefix + slot),
-                    context,
-                    0,
-                    limit);
+            scanSlot(contents[slot], type, key, prefix + slot, context, limit);
         }
+    }
+
+    private void scanSlot(
+            ItemStack item,
+            LocationDescriptor.Type type,
+            String key,
+            String path,
+            ScanContext context,
+            PaperScanLimit limit) {
+        if (!scannable(item, limit)) {
+            return;
+        }
+        scanItem(item, new LocationDescriptor(type, key, path), context, 0, limit);
     }
 
     private void scanItem(

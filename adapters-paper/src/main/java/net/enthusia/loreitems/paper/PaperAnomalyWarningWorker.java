@@ -30,11 +30,10 @@ public final class PaperAnomalyWarningWorker
     private final int pageSize;
     private final long intervalTicks;
     private final Object queryLock = new Object();
-    private final TrackingMetrics trackingMetrics = new TrackingMetrics();
+    private final TrackingMetrics trackingMetricsState = new TrackingMetrics();
 
-    private BukkitTask task;
-    private PaperUniqueAccessTrackingListener uniqueAccessListener;
-    private PaperPhysicalTrackingListener trackingListener;
+    private Optional<BukkitTask> task = Optional.empty();
+    private StartedTracking startedTracking = StartedTracking.empty();
     private boolean queryInFlight;
     private boolean rerunRequested;
     private volatile boolean closed;
@@ -75,7 +74,7 @@ public final class PaperAnomalyWarningWorker
             if (closed) {
                 throw new IllegalStateException("Anomaly warning worker is closed");
             }
-            if (task != null) {
+            if (task.isPresent()) {
                 throw new IllegalStateException("Anomaly warning worker is already started");
             }
             BukkitTask warningTask = plugin.getServer().getScheduler().runTaskTimer(
@@ -83,7 +82,7 @@ public final class PaperAnomalyWarningWorker
                     this::requestWarning,
                     intervalTicks,
                     intervalTicks);
-            task = warningTask;
+            task = Optional.of(warningTask);
             return warningTask;
         }
     }
@@ -98,13 +97,13 @@ public final class PaperAnomalyWarningWorker
                 plugin,
                 this::trackingUseCase,
                 () -> TRACKING_BUDGET_PER_TICK,
-                trackingMetrics.additionalQueueView());
+                trackingMetricsState.additionalQueueView());
         PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
                 plugin,
                 this::trackingUseCase,
                 () -> TRACKING_BUDGET_PER_TICK,
-                trackingMetrics);
-        StartedTracking started = new StartedTracking(unique, physical);
+                trackingMetricsState);
+        StartedTracking started = StartedTracking.of(unique, physical);
         try {
             unique.start();
             physical.start();
@@ -120,16 +119,15 @@ public final class PaperAnomalyWarningWorker
             if (closed) {
                 throw new IllegalStateException("Anomaly warning worker is closed");
             }
-            uniqueAccessListener = started.unique();
-            trackingListener = started.physical();
+            startedTracking = started;
         }
     }
 
     private void rollbackWarningTask(BukkitTask warningTask) {
         warningTask.cancel();
         synchronized (queryLock) {
-            if (task == warningTask) {
-                task = null;
+            if (task.isPresent() && task.orElseThrow() == warningTask) {
+                task = Optional.empty();
             }
         }
     }
@@ -150,7 +148,7 @@ public final class PaperAnomalyWarningWorker
 
     @Override
     public TrackingMetrics.Snapshot trackingMetrics() {
-        return trackingMetrics.snapshot();
+        return trackingMetricsState.snapshot();
     }
 
     @Override
@@ -258,43 +256,36 @@ public final class PaperAnomalyWarningWorker
 
     @Override
     public void close() {
-        BukkitTask current;
-        PaperUniqueAccessTrackingListener unique;
-        PaperPhysicalTrackingListener physical;
+        Optional<BukkitTask> currentTask;
+        StartedTracking currentTracking;
         synchronized (queryLock) {
             closed = true;
             rerunRequested = false;
-            current = task;
-            unique = uniqueAccessListener;
-            physical = trackingListener;
-            uniqueAccessListener = null;
-            trackingListener = null;
+            currentTask = task;
+            task = Optional.empty();
+            currentTracking = startedTracking;
+            startedTracking = StartedTracking.empty();
         }
-        if (current != null) {
-            current.cancel();
-        }
-        if (physical != null) {
-            physical.close();
-        }
-        if (unique != null) {
-            unique.close();
-        }
+        currentTask.ifPresent(BukkitTask::cancel);
+        currentTracking.close();
     }
 
     private record StartedTracking(
-            PaperUniqueAccessTrackingListener unique,
-            PaperPhysicalTrackingListener physical) {
+            Optional<PaperUniqueAccessTrackingListener> unique,
+            Optional<PaperPhysicalTrackingListener> physical) {
         private static StartedTracking empty() {
-            return new StartedTracking(null, null);
+            return new StartedTracking(Optional.empty(), Optional.empty());
+        }
+
+        private static StartedTracking of(
+                PaperUniqueAccessTrackingListener unique,
+                PaperPhysicalTrackingListener physical) {
+            return new StartedTracking(Optional.of(unique), Optional.of(physical));
         }
 
         private void close() {
-            if (physical != null) {
-                physical.close();
-            }
-            if (unique != null) {
-                unique.close();
-            }
+            physical.ifPresent(PaperPhysicalTrackingListener::close);
+            unique.ifPresent(PaperUniqueAccessTrackingListener::close);
         }
     }
 }

@@ -1,69 +1,103 @@
 package net.enthusia.loreitems.application;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.function.Supplier;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 
-/** Shared persistence facade for anomaly evidence and ordinary physical-location tracking. */
+/** Application-layer validation and clock ownership for anomaly evidence writes. */
 public final class PersistingItemAnomalyObservationUseCase
-        implements ItemAnomalyObservationUseCase, TrackingObservationUseCase {
-    private final ItemAnomalyObservationStore anomalyStore;
-    private final TrackingObservationStore trackingStore;
+        implements TrackingObservationUseCase {
+    private final ItemAnomalyObservationStore store;
+    private final TrackingObservationStore physicalTrackingStore;
+    private final AnomalyWarningSink warningSink;
     private final Clock clock;
-    private final Supplier<UUID> anomalyIdSupplier;
 
     public PersistingItemAnomalyObservationUseCase(
             ItemAnomalyObservationStore store,
+            AnomalyWarningSink warningSink,
             Clock clock) {
-        this(store, trackingStore(store), clock, UUID::randomUUID);
+        this(store, resolveTrackingStore(store), warningSink, clock);
     }
 
-    PersistingItemAnomalyObservationUseCase(
+    public PersistingItemAnomalyObservationUseCase(
             ItemAnomalyObservationStore store,
-            Clock clock,
-            Supplier<UUID> anomalyIdSupplier) {
-        this(store, trackingStore(store), clock, anomalyIdSupplier);
-    }
-
-    PersistingItemAnomalyObservationUseCase(
-            ItemAnomalyObservationStore anomalyStore,
             TrackingObservationStore trackingStore,
-            Clock clock,
-            Supplier<UUID> anomalyIdSupplier) {
-        this.anomalyStore = Objects.requireNonNull(anomalyStore, "anomalyStore");
-        this.trackingStore = Objects.requireNonNull(trackingStore, "trackingStore");
+            AnomalyWarningSink warningSink,
+            Clock clock) {
+        this.store = Objects.requireNonNull(store, "store");
+        this.physicalTrackingStore = Objects.requireNonNull(trackingStore, "trackingStore");
+        this.warningSink = Objects.requireNonNull(warningSink, "warningSink");
         this.clock = Objects.requireNonNull(clock, "clock");
-        this.anomalyIdSupplier = Objects.requireNonNull(anomalyIdSupplier, "anomalyIdSupplier");
-    }
-
-    @Override
-    public CompletionStage<ItemAnomalyObservationUseCase.Result> record(
-            ItemAnomalyObservationUseCase.Request request) {
-        Objects.requireNonNull(request, "request");
-        return anomalyStore.record(new ItemAnomalyObservationStore.Observation(
-                Objects.requireNonNull(
-                        anomalyIdSupplier.get(), "anomalyIdSupplier returned null"),
-                request,
-                clock.millis()));
     }
 
     @Override
     public CompletionStage<TrackingObservationUseCase.Result> record(
             TrackingObservationUseCase.Request request) {
         Objects.requireNonNull(request, "request");
-        return trackingStore.record(request, clock.instant());
+        return Objects.requireNonNull(
+                physicalTrackingStore.record(request, clock.instant()),
+                "tracking observation stage");
     }
 
-    private static TrackingObservationStore trackingStore(ItemAnomalyObservationStore store) {
+    @Override
+    public CompletionStage<ItemAnomalyObservationUseCase.Result> observe(
+            ItemAnomalyObservationUseCase.Request request) {
+        Objects.requireNonNull(request, "request");
+        Instant observedAt = clock.instant();
+        CompletionStage<ItemAnomalyObservationUseCase.Result> stage = switch (request) {
+            case ItemAnomalyObservationUseCase.Request.Duplicate duplicate -> store
+                    .recordDuplicate(
+                            new ItemAnomalyObservationStore.DuplicateEvidence(
+                                    duplicate.identity(),
+                                    duplicate.firstLocation(),
+                                    duplicate.secondLocation()),
+                            observedAt);
+            case ItemAnomalyObservationUseCase.Request.Malformed malformed -> store
+                    .recordMalformed(
+                            new ItemAnomalyObservationStore.MalformedEvidence(
+                                    malformed.definitionId(),
+                                    malformed.instanceId(),
+                                    malformed.location(),
+                                    malformed.detail()),
+                            observedAt);
+        };
+        return Objects.requireNonNull(stage, "anomaly observation stage")
+                .thenApply(result -> {
+                    ItemAnomalyObservationUseCase.Result normalized = Objects.requireNonNull(
+                            result, "anomaly observation result");
+                    if (normalized.status()
+                            == ItemAnomalyObservationUseCase.Status.RECORDED_NEW) {
+                        warningSink.requestWarning();
+                    }
+                    return normalized;
+                });
+    }
+
+    private static TrackingObservationStore resolveTrackingStore(
+            ItemAnomalyObservationStore store) {
+        Objects.requireNonNull(store, "store");
         if (store instanceof TrackingObservationStore tracking) {
             return tracking;
         }
-        return (request, observedAt) -> CompletableFuture.completedFuture(
+        return (request, observedAt) -> java.util.concurrent.CompletableFuture.completedFuture(
                 TrackingObservationUseCase.Result.of(
-                        TrackingObservationUseCase.Status.SERVICE_UNAVAILABLE,
-                        "The configured anomaly store does not support physical tracking."));
+                        TrackingObservationUseCase.Status.UNAVAILABLE,
+                        "Physical tracking is not available from this anomaly store."));
+    }
+
+    /** Convenience builder for locations discovered by bounded event scans. */
+    public static LocationDescriptor location(
+            LocationDescriptor.Type type,
+            String locationKey,
+            String containerPath) {
+        return new LocationDescriptor(type, locationKey, containerPath);
+    }
+
+    /** Convenience builder for optional recoverable instance evidence. */
+    public static UUID optionalInstanceId(String value) {
+        return value == null ? null : UUID.fromString(value);
     }
 }

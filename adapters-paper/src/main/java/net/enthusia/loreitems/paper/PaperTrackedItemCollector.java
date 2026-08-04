@@ -42,39 +42,13 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (item == null || item.getType().isAir() || !limit.hasRemaining()) {
+        if (!scannable(item, limit)) {
             return;
         }
         limit.consume();
-        LoreItemIdentity identity = trackedIdentity(item);
-        if (identity != null) {
-            observations.computeIfAbsent(identity, ignored -> new ArrayList<>())
-                    .add(new LocationDescriptor(type, key, path));
-        }
-        if (depth >= MAX_NESTING_DEPTH || !limit.hasRemaining()) {
-            return;
-        }
-        ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta) {
-            BlockState blockState = blockMeta.getBlockState();
-            if (blockState instanceof ShulkerBox shulker) {
-                collectNested(
-                        shulker.getInventory().getContents(),
-                        key,
-                        path + "/shulker:",
-                        observations,
-                        depth,
-                        limit);
-            }
-        }
-        if (meta instanceof BundleMeta bundle) {
-            collectNested(
-                    bundle.getItems().toArray(ItemStack[]::new),
-                    key,
-                    path + "/bundle:",
-                    observations,
-                    depth,
-                    limit);
+        collectIdentity(item, type, key, path, observations);
+        if (depth < MAX_NESTING_DEPTH && limit.hasRemaining()) {
+            collectNested(item.getItemMeta(), key, path, observations, depth, limit);
         }
     }
 
@@ -88,7 +62,59 @@ final class PaperTrackedItemCollector {
                 : null;
     }
 
+    private void collectIdentity(
+            ItemStack item,
+            LocationDescriptor.Type type,
+            String key,
+            String path,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations) {
+        LoreItemIdentity identity = trackedIdentity(item);
+        if (identity != null) {
+            observations.computeIfAbsent(identity, ignored -> new ArrayList<>())
+                    .add(new LocationDescriptor(type, key, path));
+        }
+    }
+
     private void collectNested(
+            ItemMeta meta,
+            String key,
+            String path,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
+            int depth,
+            PaperScanLimit limit) {
+        if (meta instanceof BlockStateMeta blockMeta) {
+            collectShulker(blockMeta.getBlockState(), key, path, observations, depth, limit);
+        }
+        if (meta instanceof BundleMeta bundle) {
+            collectNestedArray(
+                    bundle.getItems().toArray(ItemStack[]::new),
+                    key,
+                    path + "/bundle:",
+                    observations,
+                    depth,
+                    limit);
+        }
+    }
+
+    private void collectShulker(
+            BlockState blockState,
+            String key,
+            String path,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
+            int depth,
+            PaperScanLimit limit) {
+        if (blockState instanceof ShulkerBox shulker) {
+            collectNestedArray(
+                    shulker.getInventory().getContents(),
+                    key,
+                    path + "/shulker:",
+                    observations,
+                    depth,
+                    limit);
+        }
+    }
+
+    private void collectNestedArray(
             ItemStack[] contents,
             String key,
             String prefix,
@@ -108,5 +134,9 @@ final class PaperTrackedItemCollector {
                     depth + 1,
                     limit);
         }
+    }
+
+    private static boolean scannable(ItemStack item, PaperScanLimit limit) {
+        return item != null && !item.getType().isAir() && limit.hasRemaining();
     }
 }

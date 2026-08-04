@@ -1,22 +1,24 @@
 package net.enthusia.loreitems.paper;
 
-/** Mutable budget shared by one bounded inventory or chunk scan. */
+/** Mutable server-thread-only counter shared by one bounded scan. */
 final class PaperScanLimit {
+    private static final int EXHAUSTED = 0;
+
     private int remaining;
 
-    PaperScanLimit(int remaining) {
-        if (remaining < 1) {
-            throw new IllegalArgumentException("remaining must be positive");
+    PaperScanLimit(int maximum) {
+        if (maximum < 1) {
+            throw new IllegalArgumentException("maximum must be positive");
         }
-        this.remaining = remaining;
+        remaining = maximum;
     }
 
     boolean hasRemaining() {
-        return remaining > 0;
+        return remaining > EXHAUSTED;
     }
 
     void consume() {
-        if (remaining > 0) {
+        if (remaining > EXHAUSTED) {
             remaining--;
         }
     }
