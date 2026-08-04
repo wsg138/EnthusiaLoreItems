@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -59,6 +60,8 @@ final class PaperTemplateUpdateAccessRegistry {
         Map<UUID, CandidateCount> counts = countCandidates();
         List<PaperTemplateUpdateScanner.Candidate> unique = collectUnique(counts);
         dirtyInstances.clear();
+        // Transient inventories are rediscovered through natural access, whose replace call marks
+        // their observed instances dirty again.
         snapshots.keySet().removeIf(reference -> !persistent(reference));
         return List.copyOf(unique);
     }
@@ -77,7 +80,7 @@ final class PaperTemplateUpdateAccessRegistry {
 
     @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private Map<UUID, CandidateCount> countCandidates() {
-        Map<UUID, CandidateCount> counts = new ConcurrentHashMap<>();
+        Map<UUID, CandidateCount> counts = new HashMap<>();
         for (List<PaperTemplateUpdateScanner.Candidate> candidates : snapshots.values()) {
             for (PaperTemplateUpdateScanner.Candidate candidate : candidates) {
                 UUID instanceId = candidate.identity().instanceId().value();
