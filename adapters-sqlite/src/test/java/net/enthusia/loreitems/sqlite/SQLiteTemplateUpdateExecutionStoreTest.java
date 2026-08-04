@@ -54,12 +54,16 @@ class SQLiteTemplateUpdateExecutionStoreTest {
                     .toCompletableFuture().join());
             assertEquals(PendingMutationState.PENDING, mutationState(runtime, scenario));
 
-            PreparedTemplateUpdate retried = prepare(repository, scenario, "worker-b");
+            PreparedTemplateUpdate retried = prepare(
+                    repository,
+                    scenario,
+                    "worker-b",
+                    Instant.ofEpochMilli(5_200L));
             assertTrue(repository.completeTemplateUpdate(
                             retried,
                             "before",
                             "after",
-                            Instant.ofEpochMilli(5_200L))
+                            Instant.ofEpochMilli(5_300L))
                     .toCompletableFuture().join());
 
             assertEquals(REVISION_TWO, appliedRevision(runtime, scenario));
@@ -152,10 +156,18 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             SQLitePendingMutationRepository repository,
             Scenario scenario,
             String claimToken) {
+        return prepare(repository, scenario, claimToken, CLAIM_TIME);
+    }
+
+    private static PreparedTemplateUpdate prepare(
+            SQLitePendingMutationRepository repository,
+            Scenario scenario,
+            String claimToken,
+            Instant now) {
         TemplateUpdatePrepareResult result = repository.prepareTemplateUpdate(
                         scenario.identity(REVISION_ONE),
                         claimToken,
-                        CLAIM_TIME,
+                        now,
                         LEASE)
                 .toCompletableFuture().join();
         assertEquals(TemplateUpdatePrepareResult.Status.PREPARED, result.status());
