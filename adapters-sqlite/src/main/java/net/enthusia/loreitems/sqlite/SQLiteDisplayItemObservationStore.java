@@ -21,7 +21,14 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
     private static final String ACTOR_TYPE = "system";
     private static final String PRESENT_EVENT = "display_item_confirmed";
     private static final String ABSENT_EVENT = "display_item_last_confirmed";
+    private static final String ACTIVE_STATE = "ACTIVE";
+    private static final String CONFLICTING_STATE = "CONFLICTING";
+    private static final String TERMINAL_VOID_STATE = "TERMINAL_VOID";
+    private static final String CONFIRMED_NOW_STATE = "CONFIRMED_NOW";
+    private static final String LAST_CONFIRMED_STATE = "LAST_CONFIRMED";
     private static final int SINGLE_ROW = 1;
+    private static final int JSON_ESCAPE_CAPACITY = 16;
+    private static final int CONTROL_CHARACTER_LIMIT = 0x20;
 
     private final SQLiteStorageRuntime storage;
 
@@ -47,22 +54,9 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
             long observedAt) throws SQLException {
         InstanceRow instance = findInstance(
                 connection, request.identity().instanceId().value());
-        if (instance == null) {
-            return result(
-                    DisplayItemObservationUseCase.Status.UNKNOWN_INSTANCE,
-                    "The tracked display identity has no durable instance record.");
-        }
-        if (!instance.definitionId().equals(request.identity().definitionId().value())
-                || instance.appliedRevision()
-                        != request.identity().appliedRevision().value()) {
-            return result(
-                    DisplayItemObservationUseCase.Status.IDENTITY_MISMATCH,
-                    "The displayed identity does not match the durable instance record.");
-        }
-        if (!"ACTIVE".equals(instance.lifecycleState())) {
-            return result(
-                    DisplayItemObservationUseCase.Status.INACTIVE_INSTANCE,
-                    "The durable instance is not active.");
+        DisplayItemObservationUseCase.Result validation = validateInstance(instance, request);
+        if (validation != null) {
+            return validation;
         }
         if (hasBlockingAnomaly(connection, request.identity().instanceId().value())) {
             return result(
@@ -72,22 +66,53 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
 
         CurrentRow current = findCurrentState(
                 connection, request.identity().instanceId().value());
+        validation = validateCurrentState(current);
+        if (validation != null) {
+            return validation;
+        }
+        return request.presence() == DisplayItemObservationUseCase.Presence.PRESENT
+                ? recordPresent(connection, request, observedAt, current)
+                : recordAbsent(connection, request, observedAt, current);
+    }
+
+    private static DisplayItemObservationUseCase.Result validateInstance(
+            InstanceRow instance,
+            DisplayItemObservationUseCase.Request request) {
+        if (instance == null) {
+            return result(
+                    DisplayItemObservationUseCase.Status.UNKNOWN_INSTANCE,
+                    "The tracked display identity has no durable instance record.");
+        }
+        boolean identityMatches = instance.definitionId()
+                        .equals(request.identity().definitionId().value())
+                && instance.appliedRevision()
+                        == request.identity().appliedRevision().value();
+        if (!identityMatches) {
+            return result(
+                    DisplayItemObservationUseCase.Status.IDENTITY_MISMATCH,
+                    "The displayed identity does not match the durable instance record.");
+        }
+        if (!ACTIVE_STATE.equals(instance.lifecycleState())) {
+            return result(
+                    DisplayItemObservationUseCase.Status.INACTIVE_INSTANCE,
+                    "The durable instance is not active.");
+        }
+        return null;
+    }
+
+    private static DisplayItemObservationUseCase.Result validateCurrentState(CurrentRow current) {
         if (current == null) {
             return result(
                     DisplayItemObservationUseCase.Status.STALE,
                     "The instance has no current-state projection to advance.");
         }
-        if ("CONFLICTING".equals(current.state())
-                || "TERMINAL_VOID".equals(current.state())) {
+        if (CONFLICTING_STATE.equals(current.state())
+                || TERMINAL_VOID_STATE.equals(current.state())) {
             return result(
                     DisplayItemObservationUseCase.Status.BLOCKED_ANOMALY,
                     "Conflicting or terminal current state was preserved.");
         }
-
-        if (request.presence() == DisplayItemObservationUseCase.Presence.PRESENT) {
-            return recordPresent(connection, request, observedAt, current);
-        }
-        return recordAbsent(connection, request, observedAt, current);
+        return null;
     }
 
     private static DisplayItemObservationUseCase.Result recordPresent(
@@ -95,7 +120,7 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
             DisplayItemObservationUseCase.Request request,
             long observedAt,
             CurrentRow current) throws SQLException {
-        if ("CONFIRMED_NOW".equals(current.state())
+        if (CONFIRMED_NOW_STATE.equals(current.state())
                 && request.location().equals(current.location())) {
             return result(
                     DisplayItemObservationUseCase.Status.UNCHANGED,
@@ -130,12 +155,12 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
                     DisplayItemObservationUseCase.Status.STALE,
                     "The display-removal evidence no longer matches the current location.");
         }
-        if ("LAST_CONFIRMED".equals(current.state())) {
+        if (LAST_CONFIRMED_STATE.equals(current.state())) {
             return result(
                     DisplayItemObservationUseCase.Status.UNCHANGED,
                     "The display slot is already retained only as last-confirmed evidence.");
         }
-        if (!"CONFIRMED_NOW".equals(current.state())) {
+        if (!CONFIRMED_NOW_STATE.equals(current.state())) {
             return result(
                     DisplayItemObservationUseCase.Status.STALE,
                     "The display-removal evidence cannot replace the current state.");
@@ -307,7 +332,7 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
     }
 
     private static String jsonEscape(String value) {
-        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        StringBuilder escaped = new StringBuilder(value.length() + JSON_ESCAPE_CAPACITY);
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
             switch (character) {
@@ -317,7 +342,7 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < CONTROL_CHARACTER_LIMIT) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);
