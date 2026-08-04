@@ -197,7 +197,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         appendAudit(connection, request, eventType, observedAt, request.location());
         return result(
                 TrackingObservationUseCase.Status.RECORDED,
-                state == InstanceCurrentState.State.CONFIRMED_NOW
+                InstanceCurrentState.State.CONFIRMED_NOW.equals(state)
                         ? "The physical location is now confirmed."
                         : "The physical location is retained as last confirmed.");
     }
