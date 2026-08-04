@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -21,9 +22,13 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+// Compound queue, cooldown, and in-flight transitions are guarded by lock; independent concurrent
+// maps would not make those multi-collection invariants atomic.
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 final class PaperItemAnomalyReporter implements AutoCloseable {
     private static final Duration REPORT_COOLDOWN = Duration.ofSeconds(5);
     private static final int CAPACITY_MULTIPLIER = 4;
+    private static final int MIN_IN_FLIGHT = 1;
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
@@ -44,7 +49,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
 
     PaperItemAnomalyReporter(Plugin plugin, int maxInFlight) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        if (maxInFlight < 1) {
+        if (maxInFlight < MIN_IN_FLIGHT) {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
         this.maxInFlight = maxInFlight;
@@ -175,8 +180,11 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         }
         dispatching.set(Boolean.TRUE);
         try {
-            PendingReport next;
-            while ((next = queue.pollFirst()) != null) {
+            while (true) {
+                PendingReport next = queue.pollFirst();
+                if (next == null) {
+                    break;
+                }
                 startOne(next);
             }
         } finally {
@@ -217,7 +225,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
     }
 
     private void finishAndDrain(ReportKey completedKey) {
-        PendingReport next;
+        Optional<PendingReport> next;
         synchronized (lock) {
             inFlight.remove(completedKey);
             if (!closed && !pending.containsKey(completedKey)
@@ -226,28 +234,24 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                         completedKey,
                         System.nanoTime() + REPORT_COOLDOWN.toNanos());
             }
-            next = closed ? null : pollPending();
-            if (next != null) {
-                inFlight.add(next.key());
-            }
+            next = closed ? Optional.empty() : pollPending();
+            next.ifPresent(report -> inFlight.add(report.key()));
             if (pending.size() < maxPending) {
                 overflowLogged = false;
             }
         }
-        if (next != null) {
-            dispatch(next);
-        }
+        next.ifPresent(this::dispatch);
     }
 
-    private PendingReport pollPending() {
+    private Optional<PendingReport> pollPending() {
         Iterator<Map.Entry<ReportKey, PendingReport>> iterator =
                 pending.entrySet().iterator();
         if (!iterator.hasNext()) {
-            return null;
+            return Optional.empty();
         }
         PendingReport report = iterator.next().getValue();
         iterator.remove();
-        return report;
+        return Optional.of(report);
     }
 
     private static Throwable unwrap(Throwable throwable) {
