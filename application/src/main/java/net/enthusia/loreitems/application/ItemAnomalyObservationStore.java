@@ -5,6 +5,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public interface ItemAnomalyObservationStore {
+    long MIN_EPOCH_MILLIS = 0L;
+
     CompletionStage<ItemAnomalyObservationUseCase.Result> record(Observation observation);
 
     record Observation(
@@ -14,7 +16,7 @@ public interface ItemAnomalyObservationStore {
         public Observation {
             Objects.requireNonNull(anomalyId, "anomalyId");
             Objects.requireNonNull(request, "request");
-            if (observedAtEpochMillis < 0L) {
+            if (observedAtEpochMillis < MIN_EPOCH_MILLIS) {
                 throw new IllegalArgumentException("observedAtEpochMillis must not be negative");
             }
         }
