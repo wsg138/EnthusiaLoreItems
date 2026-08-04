@@ -186,7 +186,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
                         if (failure != null) {
                             handleFailure(playerId, "instance evidence", failure);
                         } else {
-                            runMain(() -> showEvidence(
+                            scheduleNextTick(() -> showEvidence(
                                     playerId, instanceId, pageNumber, data));
                         }
                     });
@@ -242,7 +242,13 @@ public final class PaperTrackingAdministrationGui implements Listener {
                         Material.BARRIER,
                         "Cancel",
                         List.of("Return without changing durable state.")));
-        player.openInventory(inventory);
+        UUID playerId = player.getUniqueId();
+        scheduleNextTick(() -> {
+            Player target = authorizedPlayer(playerId);
+            if (target != null) {
+                target.openInventory(inventory);
+            }
+        });
     }
 
     private void clickConfirmation(Player player, View view, int slot) {
@@ -259,13 +265,23 @@ public final class PaperTrackingAdministrationGui implements Listener {
             player.sendMessage("Lore-item administration is unavailable.");
             return;
         }
-        player.closeInventory();
-        LoreItemsAdministrationUseCase.DuplicateResolutionRequest request =
-                new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
-                        view.duplicate.anomalyId,
-                        view.duplicate.stateRevision,
-                        view.selectedObservation.observationId,
-                        "player:" + playerId);
+        LoreItemsAdministrationUseCase.DuplicateResolutionRequest request;
+        try {
+            request = new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
+                    view.duplicate.anomalyId,
+                    view.duplicate.stateRevision,
+                    view.selectedObservation.observationId,
+                    "player:" + playerId);
+        } catch (IllegalArgumentException exception) {
+            player.sendMessage("The selected duplicate evidence is no longer valid.");
+            return;
+        }
+        scheduleNextTick(() -> {
+            Player target = authorizedPlayer(playerId);
+            if (target != null) {
+                target.closeInventory();
+            }
+        });
         submit(
                 playerId,
                 "duplicate resolution",
@@ -440,6 +456,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
                 "Persistence queued: " + snapshot.queued(),
                 "Persistence in flight: " + snapshot.inFlight(),
                 "Scan backlog: " + snapshot.scanBacklog(),
+                "Truncated bounded scans: " + snapshot.scanTruncated(),
                 "Accepted/completed: " + snapshot.accepted() + '/' + snapshot.completed(),
                 "Rejected/failed/conflicts: " + snapshot.rejected() + '/'
                         + snapshot.failed() + '/' + snapshot.conflicts());
@@ -477,7 +494,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
                         operation,
                         new IllegalStateException(operation + " returned no result"));
             } else {
-                runMain(() -> success.accept(value));
+                scheduleNextTick(() -> success.accept(value));
             }
         });
     }
@@ -504,6 +521,10 @@ public final class PaperTrackingAdministrationGui implements Listener {
             action.run();
             return;
         }
+        scheduleNextTick(action);
+    }
+
+    private void scheduleNextTick(Runnable action) {
         try {
             plugin.getServer().getScheduler().runTask(plugin, action);
         } catch (IllegalPluginAccessException exception) {
