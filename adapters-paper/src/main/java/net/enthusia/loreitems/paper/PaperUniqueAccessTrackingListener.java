@@ -296,18 +296,18 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                                 : LocationDescriptor.Type.PLAYER_ENDER_CHEST,
                         "player:" + player.getUniqueId()));
             }
+            if (holder instanceof Entity entity) {
+                return Optional.of(new InventorySnapshot(
+                        reference.orElseThrow(),
+                        LocationDescriptor.Type.BLOCK_CONTAINER,
+                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
+            }
             Location location = inventory.getLocation();
             if (location != null && location.getWorld() != null) {
                 return Optional.of(new InventorySnapshot(
                         reference.orElseThrow(),
                         LocationDescriptor.Type.BLOCK_CONTAINER,
                         PaperInventoryReference.blockKey(location)));
-            }
-            if (holder instanceof Entity entity) {
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        LocationDescriptor.Type.BLOCK_CONTAINER,
-                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
             }
             return Optional.empty();
         }
