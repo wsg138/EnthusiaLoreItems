@@ -24,6 +24,7 @@ import org.mockbukkit.mockbukkit.ServerMock;
 class PaperItemAnomalyReporterTest {
     private static final String FIRST_SUFFIX = "first";
     private static final String FIRST_A_SUFFIX = "first-a";
+    private static final String FIRST_B_SUFFIX = "first-b";
     private static final String TEST_SOURCE = "test";
     private static final String FIRST_DUPLICATE_DETAIL = "first duplicate";
     private static final int FIRST_CALL_COUNT = 1;
@@ -59,7 +60,7 @@ class PaperItemAnomalyReporterTest {
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
                 conflictLocation(FIRST_SUFFIX),
-                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation(FIRST_B_SUFFIX)),
                 TEST_SOURCE,
                 FIRST_DUPLICATE_DETAIL);
         reporter.recordDuplicate(
@@ -83,7 +84,7 @@ class PaperItemAnomalyReporterTest {
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
                 conflictLocation(FIRST_SUFFIX),
-                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation(FIRST_B_SUFFIX)),
                 TEST_SOURCE,
                 FIRST_DUPLICATE_DETAIL);
         reporter.recordDuplicate(
@@ -143,7 +144,7 @@ class PaperItemAnomalyReporterTest {
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
                 conflictLocation(FIRST_SUFFIX),
-                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation(FIRST_B_SUFFIX)),
                 TEST_SOURCE,
                 FIRST_DUPLICATE_DETAIL);
         useCase.firstResult.complete(ItemAnomalyObservationUseCase.Result.of(
@@ -164,7 +165,7 @@ class PaperItemAnomalyReporterTest {
         reporter.recordDuplicate(
                 FIRST_IDENTITY,
                 conflictLocation(FIRST_SUFFIX),
-                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation("first-b")),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation(FIRST_B_SUFFIX)),
                 TEST_SOURCE,
                 FIRST_DUPLICATE_DETAIL);
         useCase.firstResult.complete(recorded());
