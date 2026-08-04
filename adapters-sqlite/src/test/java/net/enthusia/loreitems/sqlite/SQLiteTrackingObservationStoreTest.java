@@ -1,10 +1,12 @@
 package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -127,6 +129,28 @@ class SQLiteTrackingObservationStoreTest {
     }
 
     @Test
+    void outOfOrderObservationReturnsStaleWithoutPersistingEvidence() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("stale.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+
+            TrackingObservationUseCase.Result result =
+                    record(store, present(SLOT_ONE, reconciliation()), 400L);
+
+            assertEquals(TrackingObservationUseCase.Status.STALE, result.status());
+            assertEquals(
+                    InstanceCurrentState.State.MISSING_UNRESOLVED,
+                    currentState(runtime).state());
+            assertTrue(new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void failedAuditRollsBackObservationCurrentStateAndAnomaly() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("rollback.db"));
         try {
@@ -143,8 +167,9 @@ class SQLiteTrackingObservationStoreTest {
                     .toCompletableFuture().join();
             SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
 
-            assertThrows(CompletionException.class, () ->
+            CompletionException failure = assertThrows(CompletionException.class, () ->
                     record(store, present(SLOT_ONE, reconciliation()), 1_000L));
+            assertInstanceOf(SQLException.class, failure.getCause());
 
             assertEquals(
                     InstanceCurrentState.State.MISSING_UNRESOLVED,

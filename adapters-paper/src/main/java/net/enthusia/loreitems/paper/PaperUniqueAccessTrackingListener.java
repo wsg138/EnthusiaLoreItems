@@ -35,10 +35,12 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.BundleMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 /** Resolves natural-access moves only when one physical location is observed for an identity. */
 public final class PaperUniqueAccessTrackingListener implements Listener, AutoCloseable {
+    private static final int UNIQUE_LOCATION_COUNT = 1;
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final int MAX_NESTING_DEPTH = 8;
     private static final String SLOT_PREFIX = "slot:";
@@ -163,30 +165,19 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             boolean lastConfirmed,
             String source) {
         observations.forEach((identity, locations) -> {
-            if (locations.size() == 1) {
-                LocationDescriptor location = locations.getFirst();
-                coordinator.submit(new TrackingObservationUseCase.Request(
-                        identity,
-                        location,
-                        TrackingObservationUseCase.Presence.PRESENT,
-                        TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                        source));
-                if (lastConfirmed) {
-                    coordinator.submit(new TrackingObservationUseCase.Request(
-                            identity,
-                            location,
-                            TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                            TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                            source));
-                }
-                return;
-            }
+            TrackingObservationUseCase.Presence presence = lastConfirmed
+                    ? TrackingObservationUseCase.Presence.LAST_CONFIRMED
+                    : TrackingObservationUseCase.Presence.PRESENT;
+            TrackingObservationUseCase.EvidenceMode mode = !lastConfirmed
+                            && locations.size() == UNIQUE_LOCATION_COUNT
+                    ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
+                    : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
             locations.forEach(location -> coordinator.submit(
                     new TrackingObservationUseCase.Request(
                             identity,
                             location,
-                            TrackingObservationUseCase.Presence.PRESENT,
-                            TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                            presence,
+                            mode,
                             source)));
         });
     }
@@ -224,12 +215,13 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         if (depth >= MAX_NESTING_DEPTH || !limit.hasRemaining()) {
             return;
         }
-        if (item.getItemMeta() instanceof BlockStateMeta blockMeta
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta
                 && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
             collectNested(shulker.getInventory().getContents(), key,
                     path + "/shulker:", observations, depth, limit);
         }
-        if (item.getItemMeta() instanceof BundleMeta bundle) {
+        if (meta instanceof BundleMeta bundle) {
             collectNested(bundle.getItems().toArray(ItemStack[]::new), key,
                     path + "/bundle:", observations, depth, limit);
         }

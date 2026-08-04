@@ -4,6 +4,19 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Small process-local metrics snapshot for operator visibility and backpressure diagnostics. */
 public final class TrackingMetrics implements MetricsPort {
+    private static final String QUEUED = "tracking.queued";
+    private static final String IN_FLIGHT = "tracking.in_flight";
+    private static final String ADDITIONAL_QUEUED = "tracking.additional.queued";
+    private static final String ADDITIONAL_IN_FLIGHT = "tracking.additional.in_flight";
+    private static final String SCAN_BACKLOG = "tracking.scan_backlog";
+    private static final String ACCEPTED = "tracking.accepted";
+    private static final String REJECTED = "tracking.rejected";
+    private static final String COMPLETED = "tracking.completed";
+    private static final String FAILED = "tracking.failed";
+    private static final String CONFLICTS = "tracking.conflicts";
+    private static final String SCAN_TRUNCATED = "tracking.scan_truncated";
+    private static final String PERSISTENCE_NANOS = "tracking.persistence_nanos";
+
     private final AtomicLong queued = new AtomicLong();
     private final AtomicLong inFlight = new AtomicLong();
     private final AtomicLong additionalQueued = new AtomicLong();
@@ -14,15 +27,14 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong completed = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong conflicts = new AtomicLong();
+    private final AtomicLong scanTruncated = new AtomicLong();
     private final AtomicLong durationNanos = new AtomicLong();
     private final MetricsPort additionalQueueView = new MetricsPort() {
         @Override
         public void setGauge(String name, long value) {
             switch (name) {
-                case "tracking.queued" ->
-                        TrackingMetrics.this.setGauge("tracking.additional.queued", value);
-                case "tracking.in_flight" ->
-                        TrackingMetrics.this.setGauge("tracking.additional.in_flight", value);
+                case QUEUED -> TrackingMetrics.this.setGauge(ADDITIONAL_QUEUED, value);
+                case IN_FLIGHT -> TrackingMetrics.this.setGauge(ADDITIONAL_IN_FLIGHT, value);
                 default -> TrackingMetrics.this.setGauge(name, value);
             }
         }
@@ -41,11 +53,11 @@ public final class TrackingMetrics implements MetricsPort {
     @Override
     public void setGauge(String name, long value) {
         switch (name) {
-            case "tracking.queued" -> queued.set(value);
-            case "tracking.in_flight" -> inFlight.set(value);
-            case "tracking.additional.queued" -> additionalQueued.set(value);
-            case "tracking.additional.in_flight" -> additionalInFlight.set(value);
-            case "tracking.scan_backlog" -> scanBacklog.set(value);
+            case QUEUED -> queued.set(value);
+            case IN_FLIGHT -> inFlight.set(value);
+            case ADDITIONAL_QUEUED -> additionalQueued.set(value);
+            case ADDITIONAL_IN_FLIGHT -> additionalInFlight.set(value);
+            case SCAN_BACKLOG -> scanBacklog.set(value);
             default -> {
                 // Metrics outside this phase are intentionally ignored by this focused port.
             }
@@ -55,11 +67,12 @@ public final class TrackingMetrics implements MetricsPort {
     @Override
     public void increment(String name) {
         switch (name) {
-            case "tracking.accepted" -> accepted.incrementAndGet();
-            case "tracking.rejected" -> rejected.incrementAndGet();
-            case "tracking.completed" -> completed.incrementAndGet();
-            case "tracking.failed" -> failed.incrementAndGet();
-            case "tracking.conflicts" -> conflicts.incrementAndGet();
+            case ACCEPTED -> accepted.incrementAndGet();
+            case REJECTED -> rejected.incrementAndGet();
+            case COMPLETED -> completed.incrementAndGet();
+            case FAILED -> failed.incrementAndGet();
+            case CONFLICTS -> conflicts.incrementAndGet();
+            case SCAN_TRUNCATED -> scanTruncated.incrementAndGet();
             default -> {
                 // Metrics outside this phase are intentionally ignored by this focused port.
             }
@@ -68,7 +81,7 @@ public final class TrackingMetrics implements MetricsPort {
 
     @Override
     public void recordDurationNanos(String name, long value) {
-        if ("tracking.persistence_nanos".equals(name) && value >= 0L) {
+        if (PERSISTENCE_NANOS.equals(name) && value >= 0L) {
             durationNanos.addAndGet(value);
         }
     }
@@ -87,6 +100,7 @@ public final class TrackingMetrics implements MetricsPort {
                 completed.get(),
                 failed.get(),
                 conflicts.get(),
+                scanTruncated.get(),
                 durationNanos.get());
     }
 
@@ -99,5 +113,6 @@ public final class TrackingMetrics implements MetricsPort {
             long completed,
             long failed,
             long conflicts,
+            long scanTruncated,
             long persistenceNanos) {}
 }

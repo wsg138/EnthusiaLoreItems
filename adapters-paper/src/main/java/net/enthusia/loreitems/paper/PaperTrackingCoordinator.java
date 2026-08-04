@@ -33,6 +33,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private int inFlight;
+    private boolean saturated;
+    private boolean invalidBudgetReported;
     private boolean closed;
 
     public PaperTrackingCoordinator(
@@ -56,17 +58,21 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 metrics.increment("tracking.rejected");
                 return false;
             }
-            if (inFlight < currentMaxInFlight()) {
+            int maxInFlight = currentMaxInFlight();
+            int maxQueued = Math.multiplyExact(maxInFlight, QUEUE_MULTIPLIER);
+            if (inFlight < maxInFlight) {
                 inFlight++;
                 dispatch = true;
-            } else if (queued.size() < currentMaxQueued()) {
+            } else if (queued.size() < maxQueued) {
                 queued.add(request);
                 dispatch = false;
+                if (queued.size() == maxQueued) {
+                    reportSaturation();
+                }
             } else {
                 metrics.increment("tracking.rejected");
                 updateGauges();
-                plugin.getLogger().warning(
-                        "Lore-item tracking backlog is full; previous durable evidence was preserved.");
+                reportSaturation();
                 return false;
             }
             metrics.increment("tracking.accepted");
@@ -76,6 +82,14 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             startCounted(request);
         }
         return true;
+    }
+
+    private void reportSaturation() {
+        if (!saturated) {
+            saturated = true;
+            plugin.getLogger().warning(
+                    "Lore-item tracking backlog is full; previous durable evidence was preserved.");
+        }
     }
 
     /** Starts one request whose in-flight slot has already been counted exactly once. */
@@ -121,9 +135,13 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 throw new IllegalStateException("Tracking in-flight accounting underflow");
             }
             inFlight--;
-            if (!closed && !queued.isEmpty() && inFlight < currentMaxInFlight()) {
+            if (!closed && !queued.isEmpty() && inFlight < completionMaxInFlight()) {
                 next = Optional.of(queued.remove());
                 inFlight++;
+            }
+            if (queued.isEmpty() && saturated) {
+                saturated = false;
+                plugin.getLogger().fine("Lore-item tracking backlog has drained.");
             }
             if (closed && inFlight == 0) {
                 quiesced.complete(null);
@@ -133,16 +151,43 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         next.ifPresent(this::startCounted);
     }
 
+    private int completionMaxInFlight() {
+        try {
+            int value = maxInFlightSupplier.getAsInt();
+            if (value >= MIN_CAPACITY) {
+                invalidBudgetReported = false;
+                return value;
+            }
+        } catch (RuntimeException exception) {
+            reportInvalidBudget(exception);
+            return MIN_CAPACITY;
+        }
+        reportInvalidBudget(null);
+        return MIN_CAPACITY;
+    }
+
+    private void reportInvalidBudget(RuntimeException exception) {
+        if (invalidBudgetReported) {
+            return;
+        }
+        invalidBudgetReported = true;
+        if (exception == null) {
+            plugin.getLogger().warning(
+                    "Invalid tracking budget; completion processing is using minimum capacity.");
+        } else {
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Could not read the tracking budget; completion processing is using minimum capacity.",
+                    exception);
+        }
+    }
+
     private int currentMaxInFlight() {
         int value = maxInFlightSupplier.getAsInt();
         if (value < MIN_CAPACITY) {
             throw new IllegalStateException("Configured tracking budget must be positive");
         }
         return value;
-    }
-
-    private int currentMaxQueued() {
-        return Math.multiplyExact(currentMaxInFlight(), QUEUE_MULTIPLIER);
     }
 
     private void updateGauges() {
@@ -165,6 +210,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             firstClose = !closed;
             if (firstClose) {
                 closed = true;
+                saturated = false;
                 pending = new ArrayList<>(queued);
                 queued.clear();
                 inFlight = Math.addExact(inFlight, pending.size());

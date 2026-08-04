@@ -18,6 +18,7 @@ class TrackingMetricsTest {
         metrics.increment("tracking.accepted");
         additional.increment("tracking.accepted");
         additional.increment("tracking.failed");
+        metrics.increment("tracking.scan_truncated");
         additional.recordDurationNanos("tracking.persistence_nanos", 11L);
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
@@ -26,6 +27,7 @@ class TrackingMetricsTest {
         assertEquals(7L, snapshot.scanBacklog());
         assertEquals(2L, snapshot.accepted());
         assertEquals(1L, snapshot.failed());
+        assertEquals(1L, snapshot.scanTruncated());
         assertEquals(11L, snapshot.persistenceNanos());
     }
 }

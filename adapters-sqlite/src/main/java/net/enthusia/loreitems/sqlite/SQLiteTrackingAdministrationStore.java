@@ -72,6 +72,37 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
             LoreItemsAdministrationUseCase.DuplicateResolutionRequest request,
             long resolvedAt) throws SQLException, StaleResolutionException {
         AnomalyRow anomaly = findAnomaly(connection, request.anomalyId().toString());
+        LoreItemsAdministrationUseCase.DuplicateResolutionResult validation =
+                validateAnomaly(anomaly, request);
+        if (validation != null) {
+            return validation;
+        }
+        ObservationRow selected = findObservation(
+                connection, request.selectedObservationId(), anomaly.instanceId());
+        validation = validateSelection(selected, anomaly);
+        if (validation != null) {
+            return validation;
+        }
+        CurrentRow current = findCurrent(connection, anomaly.instanceId());
+        validation = validateCurrent(current);
+        if (validation != null) {
+            return validation;
+        }
+        long observationId = insertResolutionObservation(
+                connection, anomaly, selected, resolvedAt);
+        if (!updateCurrent(connection, anomaly, selected, current, observationId, resolvedAt)
+                || !resolveAnomaly(connection, request, resolvedAt, selected)) {
+            throw new StaleResolutionException();
+        }
+        appendAudit(connection, request, anomaly, selected, resolvedAt);
+        return result(
+                LoreItemsAdministrationUseCase.DuplicateResolutionStatus.RESOLVED,
+                "The selected location is confirmed; physical copies were not deleted.");
+    }
+
+    private static LoreItemsAdministrationUseCase.DuplicateResolutionResult validateAnomaly(
+            AnomalyRow anomaly,
+            LoreItemsAdministrationUseCase.DuplicateResolutionRequest request) {
         if (anomaly == null) {
             return result(
                     LoreItemsAdministrationUseCase.DuplicateResolutionStatus.NOT_FOUND,
@@ -88,8 +119,11 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                     LoreItemsAdministrationUseCase.DuplicateResolutionStatus.STALE,
                     "The selected duplicate anomaly changed before confirmation.");
         }
-        ObservationRow selected = findObservation(
-                connection, request.selectedObservationId(), anomaly.instanceId());
+        return null;
+    }
+
+    private static LoreItemsAdministrationUseCase.DuplicateResolutionResult validateSelection(
+            ObservationRow selected, AnomalyRow anomaly) {
         if (selected == null
                 || !selected.selectable()
                 || selected.observedAt() < anomaly.firstSeenAt()) {
@@ -97,22 +131,17 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                     LoreItemsAdministrationUseCase.DuplicateResolutionStatus.INVALID_SELECTION,
                     "The selected observation is not evidence for this active duplicate conflict.");
         }
-        CurrentRow current = findCurrent(connection, anomaly.instanceId());
+        return null;
+    }
+
+    private static LoreItemsAdministrationUseCase.DuplicateResolutionResult validateCurrent(
+            CurrentRow current) {
         if (current == null || !CONFLICTING.equals(current.state())) {
             return result(
                     LoreItemsAdministrationUseCase.DuplicateResolutionStatus.STALE,
                     "The instance is no longer in conflicting current state.");
         }
-        long observationId = insertResolutionObservation(
-                connection, anomaly, selected, resolvedAt);
-        if (!updateCurrent(connection, anomaly, selected, current, observationId, resolvedAt)
-                || !resolveAnomaly(connection, request, resolvedAt, selected)) {
-            throw new StaleResolutionException();
-        }
-        appendAudit(connection, request, anomaly, selected, resolvedAt);
-        return result(
-                LoreItemsAdministrationUseCase.DuplicateResolutionStatus.RESOLVED,
-                "The selected location is confirmed; physical copies were not deleted.");
+        return null;
     }
 
     private static AnomalyRow findAnomaly(Connection connection, String anomalyId)
@@ -256,7 +285,7 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
             long resolvedAt) throws SQLException {
         String detail = "{\"anomalyId\":\"" + request.anomalyId()
                 + "\",\"selectedObservationId\":" + request.selectedObservationId()
-                + ",\"location\":\"" + escapeJson(describe(selected)) + "\"}";
+                + ",\"location\":\"" + SQLiteJson.escape(describe(selected)) + "\"}";
         SQLiteAuditRepository.appendInTransaction(connection, AuditEventRecord.pending(
                 "lore_instance",
                 anomaly.instanceId(),
@@ -279,10 +308,6 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
     private static String describe(ObservationRow selected) {
         return selected.type().name() + ':' + selected.key()
                 + (selected.path() == null ? "" : ':' + selected.path());
-    }
-
-    private static String escapeJson(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static LoreItemsAdministrationUseCase.DuplicateResolutionResult result(

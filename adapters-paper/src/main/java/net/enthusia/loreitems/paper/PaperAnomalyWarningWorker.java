@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
@@ -56,68 +57,79 @@ public final class PaperAnomalyWarningWorker
     }
 
     public void start() {
-        TrackingObservationUseCase trackingUseCase = resolveTrackingUseCase();
-        PaperUniqueAccessTrackingListener unique = new PaperUniqueAccessTrackingListener(
-                plugin,
-                () -> trackingUseCase,
-                () -> TRACKING_BUDGET_PER_TICK,
-                trackingMetrics.additionalQueueView());
-        PaperPhysicalTrackingListener physical = new PaperPhysicalTrackingListener(
-                plugin,
-                () -> trackingUseCase,
-                () -> TRACKING_BUDGET_PER_TICK,
-                trackingMetrics);
-        try {
-            unique.start();
-            synchronized (queryLock) {
-                requireOpen();
-                uniqueAccessListener = unique;
+        BukkitTask warningTask;
+        synchronized (queryLock) {
+            if (closed) {
+                throw new IllegalStateException("Anomaly warning worker is closed");
             }
-            physical.start();
-            synchronized (queryLock) {
-                requireOpen();
-                trackingListener = physical;
-                task = plugin.getServer().getScheduler().runTaskTimer(
+            if (task != null) {
+                throw new IllegalStateException("Anomaly warning worker is already started");
+            }
+            warningTask = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin,
+                    this::requestWarning,
+                    intervalTicks,
+                    intervalTicks);
+            task = warningTask;
+        }
+
+        PaperUniqueAccessTrackingListener unique = null;
+        PaperPhysicalTrackingListener physical = null;
+        try {
+            if (findTrackingUseCase().isPresent()) {
+                unique = new PaperUniqueAccessTrackingListener(
                         plugin,
-                        this::requestWarning,
-                        intervalTicks,
-                        intervalTicks);
+                        this::trackingUseCase,
+                        () -> TRACKING_BUDGET_PER_TICK,
+                        trackingMetrics.additionalQueueView());
+                physical = new PaperPhysicalTrackingListener(
+                        plugin,
+                        this::trackingUseCase,
+                        () -> TRACKING_BUDGET_PER_TICK,
+                        trackingMetrics);
+                unique.start();
+                physical.start();
+                synchronized (queryLock) {
+                    if (closed) {
+                        throw new IllegalStateException("Anomaly warning worker is closed");
+                    }
+                    uniqueAccessListener = unique;
+                    trackingListener = physical;
+                }
+            } else {
+                plugin.getLogger().warning(
+                        "Physical lore-item tracking is unavailable; anomaly warnings remain active.");
             }
         } catch (RuntimeException exception) {
-            synchronized (queryLock) {
-                if (uniqueAccessListener == unique) {
-                    uniqueAccessListener = null;
-                }
-                if (trackingListener == physical) {
-                    trackingListener = null;
-                }
-                task = null;
+            if (physical != null) {
+                physical.close();
             }
-            physical.close();
-            unique.close();
+            if (unique != null) {
+                unique.close();
+            }
+            warningTask.cancel();
+            synchronized (queryLock) {
+                if (task == warningTask) {
+                    task = null;
+                }
+            }
             throw exception;
         }
         requestWarning();
     }
 
-    private void requireOpen() {
-        if (closed) {
-            throw new IllegalStateException("Anomaly warning worker is closed");
-        }
-        if (task != null || trackingListener != null) {
-            throw new IllegalStateException("Anomaly warning worker is already started");
-        }
-    }
-
-    private TrackingObservationUseCase resolveTrackingUseCase() {
+    private Optional<TrackingObservationUseCase> findTrackingUseCase() {
         ItemAnomalyObservationUseCase service = plugin.getServer()
                 .getServicesManager()
                 .load(ItemAnomalyObservationUseCase.class);
-        if (service instanceof TrackingObservationUseCase tracking) {
-            return tracking;
-        }
-        throw new IllegalStateException(
-                "Registered item-observation service does not support physical tracking");
+        return service instanceof TrackingObservationUseCase tracking
+                ? Optional.of(tracking)
+                : Optional.empty();
+    }
+
+    private TrackingObservationUseCase trackingUseCase() {
+        return findTrackingUseCase().orElseThrow(() -> new IllegalStateException(
+                "Registered item-observation service does not support physical tracking"));
     }
 
     @Override
@@ -239,7 +251,6 @@ public final class PaperAnomalyWarningWorker
             current = task;
             unique = uniqueAccessListener;
             physical = trackingListener;
-            task = null;
             uniqueAccessListener = null;
             trackingListener = null;
         }
