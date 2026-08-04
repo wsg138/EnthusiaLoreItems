@@ -82,7 +82,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
-    private static final int ANOMALY_WARNING_INTERVAL_SECONDS = 300;
 
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
@@ -524,7 +523,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
                 this,
                 administrationUseCase,
-                ANOMALY_WARNING_INTERVAL_SECONDS,
+                loaded.duplicateWarningIntervalSeconds(),
                 loaded.defaultPageSize(),
                 loaded.mutationBudgetPerTick());
         PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
