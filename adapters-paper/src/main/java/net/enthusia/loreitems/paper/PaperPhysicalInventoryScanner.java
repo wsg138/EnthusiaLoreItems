@@ -1,10 +1,10 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -34,7 +34,7 @@ final class PaperPhysicalInventoryScanner {
 
     void scanPlayerUnique(Player player, String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         submitUnique(observations, source);
     }
