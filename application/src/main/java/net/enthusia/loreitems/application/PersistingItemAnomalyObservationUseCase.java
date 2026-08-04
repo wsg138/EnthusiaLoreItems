@@ -18,7 +18,7 @@ public final class PersistingItemAnomalyObservationUseCase
     public PersistingItemAnomalyObservationUseCase(
             ItemAnomalyObservationStore anomalyStore,
             Clock clock) {
-        this(anomalyStore, trackingStore(anomalyStore), clock, UUID::randomUUID);
+        this(anomalyStore, resolveTrackingStore(anomalyStore), clock, UUID::randomUUID);
     }
 
     public PersistingItemAnomalyObservationUseCase(
@@ -32,7 +32,7 @@ public final class PersistingItemAnomalyObservationUseCase
             ItemAnomalyObservationStore anomalyStore,
             Clock clock,
             Supplier<UUID> anomalyIdSupplier) {
-        this(anomalyStore, trackingStore(anomalyStore), clock, anomalyIdSupplier);
+        this(anomalyStore, resolveTrackingStore(anomalyStore), clock, anomalyIdSupplier);
     }
 
     PersistingItemAnomalyObservationUseCase(
@@ -64,7 +64,7 @@ public final class PersistingItemAnomalyObservationUseCase
         return trackingStore.record(request, clock.instant());
     }
 
-    private static TrackingObservationStore trackingStore(
+    private static TrackingObservationStore resolveTrackingStore(
             ItemAnomalyObservationStore anomalyStore) {
         Objects.requireNonNull(anomalyStore, "anomalyStore");
         if (anomalyStore instanceof TrackingObservationStore tracking) {
