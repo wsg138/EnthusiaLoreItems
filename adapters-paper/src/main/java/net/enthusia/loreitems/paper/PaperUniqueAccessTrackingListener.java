@@ -1,13 +1,13 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -185,7 +185,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             return;
         }
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectItem(item, PaperDisplayEntityScanner.location(display, type, path), observations, limit);
         submitUnique(observations, false, source);
     }
@@ -231,7 +231,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
 
     void submitPlayer(Player player, boolean lastConfirmed, String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         submitUnique(observations, lastConfirmed, source);
     }
@@ -243,7 +243,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             String key,
             String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         if (!coveredByPlayer(player, type, key)) {
             collector.collectArray(
@@ -263,7 +263,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             LocationDescriptor location,
             String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         collectItem(item, location, observations, limit);
         submitUnique(observations, false, source);
@@ -336,7 +336,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         }
         InventorySnapshot target = snapshot.orElseThrow();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new LinkedHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collector.collectArray(
                 contentsOrEmpty(inventory.getContents()),
                 target.type(),
