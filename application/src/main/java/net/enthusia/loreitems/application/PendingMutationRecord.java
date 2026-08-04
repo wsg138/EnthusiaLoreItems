@@ -11,7 +11,7 @@ public record PendingMutationRecord(
         String mutationType,
         LoreDefinitionId definitionId,
         LoreInstanceId instanceId,
-        Integer desiredRevision,
+        Long desiredRevision,
         PendingMutationState state,
         String claimToken,
         Long claimExpiresAtEpochMillis,
@@ -29,7 +29,7 @@ public record PendingMutationRecord(
         if (mutationType.isEmpty() || mutationType.length() > MAX_MUTATION_TYPE_LENGTH) {
             throw new IllegalArgumentException("Invalid mutation type");
         }
-        if (desiredRevision != null && desiredRevision < 1) {
+        if (desiredRevision != null && desiredRevision < 1L) {
             throw new IllegalArgumentException("desiredRevision must be positive");
         }
         if ((claimToken == null) != (claimExpiresAtEpochMillis == null)) {

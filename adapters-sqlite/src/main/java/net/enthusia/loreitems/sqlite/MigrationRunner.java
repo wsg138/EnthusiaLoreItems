@@ -12,22 +12,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MigrationRunner {
-    private static final int FOUNDATION_VERSION = 1;
-    private static final String FOUNDATION_RESOURCE = "db/migration/V1__foundation.sql";
     private static final String CREATE_TRIGGER = "CREATE TRIGGER";
+    private static final List<Migration> MIGRATIONS = List.of(
+            new Migration(1, "foundation", "db/migration/V1__foundation.sql"),
+            new Migration(
+                    2,
+                    "template revision rollout",
+                    "db/migration/V2__template_revision_rollout.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
-        if (isApplied(connection, FOUNDATION_VERSION)) {
-            return;
-        }
-
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
         try {
-            executeScript(connection, readResource(FOUNDATION_RESOURCE));
-            insertHistory(connection);
-            connection.commit();
+            for (Migration migration : MIGRATIONS) {
+                applyIfMissing(connection, migration);
+            }
         } catch (SQLException | RuntimeException exception) {
             rollbackAfterFailure(connection, exception);
             restoreAutoCommitAfterFailure(connection, previousAutoCommit, exception);
@@ -36,11 +36,22 @@ public final class MigrationRunner {
         connection.setAutoCommit(previousAutoCommit);
     }
 
-    private static void insertHistory(Connection connection) throws SQLException {
+    private static void applyIfMissing(Connection connection, Migration migration)
+            throws SQLException {
+        if (isApplied(connection, migration.version())) {
+            return;
+        }
+        executeScript(connection, readResource(migration.resource()));
+        insertHistory(connection, migration);
+        connection.commit();
+    }
+
+    private static void insertHistory(Connection connection, Migration migration)
+            throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
                 "INSERT INTO schema_history(version, description, applied_at) VALUES (?, ?, ?)")) {
-            insert.setInt(1, FOUNDATION_VERSION);
-            insert.setString(2, "foundation");
+            insert.setInt(1, migration.version());
+            insert.setString(2, migration.description());
             insert.setLong(3, System.currentTimeMillis());
             insert.executeUpdate();
         }
@@ -97,7 +108,7 @@ public final class MigrationRunner {
     private static void executeScript(Connection connection, String script) throws SQLException {
         for (String statementText : splitStatements(script)) {
             try (Statement statement = connection.createStatement()) {
-                // SQL is loaded only from the versioned classpath migration resource.
+                // SQL is loaded only from a versioned classpath migration resource.
                 statement.execute(statementText); // nosemgrep
             }
         }
@@ -134,4 +145,9 @@ public final class MigrationRunner {
         }
         return List.copyOf(statements);
     }
+
+    private record Migration(
+            int version,
+            String description,
+            String resource) {}
 }
