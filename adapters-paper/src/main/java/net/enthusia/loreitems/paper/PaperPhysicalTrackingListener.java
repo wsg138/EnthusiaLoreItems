@@ -59,6 +59,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int MAX_NESTING_DEPTH = 8;
     private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
     private static final String SLOT_PREFIX = "slot:";
+    private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -352,14 +353,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
         collector.collectArray(
-                inventory.getStorageContents(),
+                contentsOrEmpty(inventory.getStorageContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 SLOT_PREFIX,
                 observations,
                 limit);
         collector.collectArray(
-                inventory.getArmorContents(),
+                contentsOrEmpty(inventory.getArmorContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 "armor:",
@@ -382,7 +383,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 0,
                 limit);
         collector.collectArray(
-                player.getEnderChest().getContents(),
+                contentsOrEmpty(player.getEnderChest().getContents()),
                 LocationDescriptor.Type.PLAYER_ENDER_CHEST,
                 key,
                 SLOT_PREFIX,
@@ -411,7 +412,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
         scanArray(
-                inventory.getStorageContents(),
+                contentsOrEmpty(inventory.getStorageContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 SLOT_PREFIX,
@@ -420,7 +421,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 source,
                 limit);
         scanArray(
-                inventory.getArmorContents(),
+                contentsOrEmpty(inventory.getArmorContents()),
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 key,
                 "armor:",
@@ -449,7 +450,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 0,
                 limit);
         scanArray(
-                player.getEnderChest().getContents(),
+                contentsOrEmpty(player.getEnderChest().getContents()),
                 LocationDescriptor.Type.PLAYER_ENDER_CHEST,
                 key,
                 SLOT_PREFIX,
@@ -529,7 +530,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             return;
         }
         scanArray(
-                inventory.getContents(),
+                contentsOrEmpty(inventory.getContents()),
                 type,
                 key,
                 SLOT_PREFIX,
@@ -581,20 +582,22 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             return;
         }
         ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta
-                && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
-            ItemStack[] nested = shulker.getInventory().getContents();
-            for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
-                scanItem(
-                        nested[slot],
-                        LocationDescriptor.Type.NESTED_CONTAINER,
-                        key,
-                        path + "/shulker:" + slot,
-                        presence,
-                        mode,
-                        source,
-                        depth + 1,
-                        limit);
+        if (meta instanceof BlockStateMeta blockMeta) {
+            BlockState blockState = blockMeta.getBlockState();
+            if (blockState instanceof ShulkerBox shulker) {
+                ItemStack[] nested = contentsOrEmpty(shulker.getInventory().getContents());
+                for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
+                    scanItem(
+                            nested[slot],
+                            LocationDescriptor.Type.NESTED_CONTAINER,
+                            key,
+                            path + "/shulker:" + slot,
+                            presence,
+                            mode,
+                            source,
+                            depth + 1,
+                            limit);
+                }
             }
         }
         if (meta instanceof BundleMeta bundle) {
@@ -625,7 +628,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         InventorySnapshot target = snapshot.orElseThrow();
         List<LocationDescriptor> matches = new java.util.ArrayList<>();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        ItemStack[] contents = inventory.getContents();
+        ItemStack[] contents = contentsOrEmpty(inventory.getContents());
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
             ItemStack item = contents[slot];
             limit.consume();
@@ -661,6 +664,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private LoreItemIdentity trackedIdentity(ItemStack item) {
         return collector.trackedIdentity(item);
+    }
+
+    private static ItemStack[] contentsOrEmpty(ItemStack[] contents) {
+        return contents == null ? EMPTY_CONTENTS : contents;
     }
 
     private void scheduleNextTick(Runnable action) {
