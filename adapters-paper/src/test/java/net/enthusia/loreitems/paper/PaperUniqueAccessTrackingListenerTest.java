@@ -63,7 +63,7 @@ class PaperUniqueAccessTrackingListenerTest {
         player.getInventory().setItem(0, trackedItem());
 
         listener.onQuit(new PlayerQuitEvent(
-                player, PlayerQuitEvent.QuitReason.DISCONNECTED, null));
+                player, (String) null, PlayerQuitEvent.QuitReason.DISCONNECTED));
 
         TrackingObservationUseCase.Request request = observed.get();
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, request.presence());
