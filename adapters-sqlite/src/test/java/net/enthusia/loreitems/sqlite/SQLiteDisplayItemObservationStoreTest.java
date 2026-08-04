@@ -82,55 +82,9 @@ class SQLiteDisplayItemObservationStoreTest {
         try {
             SQLiteDisplayItemObservationStore store =
                     new SQLiteDisplayItemObservationStore(runtime);
-            assertEquals(
-                    DisplayItemObservationUseCase.Status.UNKNOWN_INSTANCE,
-                    record(store, present(FRAME_LOCATION), 1_000L).status());
-
-            seedActiveInstance(runtime);
-            DisplayItemObservationUseCase.Request mismatch =
-                    new DisplayItemObservationUseCase.Request(
-                            new LoreItemIdentity(
-                                    new LoreDefinitionId(UUID.fromString(
-                                            "99999999-9999-9999-9999-999999999999")),
-                                    INSTANCE_ID,
-                                    REVISION),
-                            FRAME_LOCATION,
-                            DisplayItemObservationUseCase.Presence.PRESENT,
-                            "item-frame-change");
-            assertEquals(
-                    DisplayItemObservationUseCase.Status.IDENTITY_MISMATCH,
-                    record(store, mismatch, 1_010L).status());
-            assertEquals(
-                    DisplayItemObservationUseCase.Status.STALE,
-                    record(store, absent(FRAME_LOCATION), 1_020L).status());
-
-            assertEquals(
-                    DisplayItemObservationUseCase.Status.RECORDED,
-                    record(store, present(FRAME_LOCATION), 1_030L).status());
-            LocationDescriptor anotherFrame = new LocationDescriptor(
-                    LocationDescriptor.Type.ITEM_FRAME,
-                    "minecraft:overworld:9:70:9:44444444-4444-4444-4444-444444444444",
-                    "item");
-            assertEquals(
-                    DisplayItemObservationUseCase.Status.STALE,
-                    record(store, absent(anotherFrame), 1_040L).status());
-            assertEquals(FRAME_LOCATION, currentState(runtime).location());
-
-            new SQLiteAnomalyRepository(runtime).create(new InstanceAnomaly(
-                            UUID.fromString("55555555-5555-5555-5555-555555555555"),
-                            INSTANCE_ID,
-                            DEFINITION_ID,
-                            InstanceAnomaly.Type.DUPLICATE_INSTANCE,
-                            InstanceAnomaly.Status.OPEN,
-                            "Two display copies are credible.",
-                            1_050L,
-                            1_050L,
-                            null,
-                            null,
-                            null,
-                            null,
-                            0L))
-                    .toCompletableFuture().join();
+            assertUnknownAndMismatchedIdentity(runtime, store);
+            LocationDescriptor anotherFrame = assertStaleRemovalPreservesLocation(runtime, store);
+            createBlockingDuplicateAnomaly(runtime);
             assertEquals(
                     DisplayItemObservationUseCase.Status.BLOCKED_ANOMALY,
                     record(store, present(anotherFrame), 1_060L).status());
@@ -170,6 +124,66 @@ class SQLiteDisplayItemObservationStoreTest {
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static void assertUnknownAndMismatchedIdentity(
+            SQLiteStorageRuntime runtime,
+            SQLiteDisplayItemObservationStore store) {
+        assertEquals(
+                DisplayItemObservationUseCase.Status.UNKNOWN_INSTANCE,
+                record(store, present(FRAME_LOCATION), 1_000L).status());
+        seedActiveInstance(runtime);
+        DisplayItemObservationUseCase.Request mismatch =
+                new DisplayItemObservationUseCase.Request(
+                        new LoreItemIdentity(
+                                new LoreDefinitionId(UUID.fromString(
+                                        "99999999-9999-9999-9999-999999999999")),
+                                INSTANCE_ID,
+                                REVISION),
+                        FRAME_LOCATION,
+                        DisplayItemObservationUseCase.Presence.PRESENT,
+                        "item-frame-change");
+        assertEquals(
+                DisplayItemObservationUseCase.Status.IDENTITY_MISMATCH,
+                record(store, mismatch, 1_010L).status());
+        assertEquals(
+                DisplayItemObservationUseCase.Status.STALE,
+                record(store, absent(FRAME_LOCATION), 1_020L).status());
+    }
+
+    private static LocationDescriptor assertStaleRemovalPreservesLocation(
+            SQLiteStorageRuntime runtime,
+            SQLiteDisplayItemObservationStore store) {
+        assertEquals(
+                DisplayItemObservationUseCase.Status.RECORDED,
+                record(store, present(FRAME_LOCATION), 1_030L).status());
+        LocationDescriptor anotherFrame = new LocationDescriptor(
+                LocationDescriptor.Type.ITEM_FRAME,
+                "minecraft:overworld:9:70:9:44444444-4444-4444-4444-444444444444",
+                "item");
+        assertEquals(
+                DisplayItemObservationUseCase.Status.STALE,
+                record(store, absent(anotherFrame), 1_040L).status());
+        assertEquals(FRAME_LOCATION, currentState(runtime).location());
+        return anotherFrame;
+    }
+
+    private static void createBlockingDuplicateAnomaly(SQLiteStorageRuntime runtime) {
+        new SQLiteAnomalyRepository(runtime).create(new InstanceAnomaly(
+                        UUID.fromString("55555555-5555-5555-5555-555555555555"),
+                        INSTANCE_ID,
+                        DEFINITION_ID,
+                        InstanceAnomaly.Type.DUPLICATE_INSTANCE,
+                        InstanceAnomaly.Status.OPEN,
+                        "Two display copies are credible.",
+                        1_050L,
+                        1_050L,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0L))
+                .toCompletableFuture().join();
     }
 
     private static void assertDisplayState(SQLiteStorageRuntime runtime) {
