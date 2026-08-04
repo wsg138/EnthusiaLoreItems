@@ -1,11 +1,16 @@
 package net.enthusia.loreitems.application;
 
+import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
 import net.enthusia.loreitems.domain.InstanceObservation;
+import net.enthusia.loreitems.domain.LoreDefinition;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class PersistingLoreItemsAdministrationUseCase
@@ -20,6 +25,8 @@ public final class PersistingLoreItemsAdministrationUseCase
     private final ObservationRepository observationRepository;
     private final DirectDeliveryRepository deliveryRepository;
     private final PendingMutationRepository mutationRepository;
+    private final TrackingAdministrationStore trackingStore;
+    private final Clock clock;
 
     public PersistingLoreItemsAdministrationUseCase(
             AnomalyRepository anomalyRepository,
@@ -28,6 +35,24 @@ public final class PersistingLoreItemsAdministrationUseCase
             ObservationRepository observationRepository,
             DirectDeliveryRepository deliveryRepository,
             PendingMutationRepository mutationRepository) {
+        this(
+                anomalyRepository,
+                auditRepository,
+                currentStateRepository,
+                observationRepository,
+                deliveryRepository,
+                mutationRepository,
+                Clock.systemUTC());
+    }
+
+    PersistingLoreItemsAdministrationUseCase(
+            AnomalyRepository anomalyRepository,
+            AuditRepository auditRepository,
+            CurrentStateRepository currentStateRepository,
+            ObservationRepository observationRepository,
+            DirectDeliveryRepository deliveryRepository,
+            PendingMutationRepository mutationRepository,
+            Clock clock) {
         this.anomalyRepository = Objects.requireNonNull(
                 anomalyRepository, "anomalyRepository");
         this.auditRepository = Objects.requireNonNull(auditRepository, "auditRepository");
@@ -39,6 +64,10 @@ public final class PersistingLoreItemsAdministrationUseCase
                 deliveryRepository, "deliveryRepository");
         this.mutationRepository = Objects.requireNonNull(
                 mutationRepository, "mutationRepository");
+        this.trackingStore = anomalyRepository instanceof TrackingAdministrationStore tracking
+                ? tracking
+                : null;
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     @Override
@@ -94,5 +123,37 @@ public final class PersistingLoreItemsAdministrationUseCase
         CompletionStage<Page<PendingMutationRecord>> mutations =
                 mutationRepository.listNonTerminal(request);
         return deliveries.thenCombine(mutations, RecoveryPage::new);
+    }
+
+    @Override
+    public CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request) {
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        if (trackingStore == null) {
+            return CompletableFuture.completedFuture(Page.empty(request));
+        }
+        return trackingStore.listDefinitions(request);
+    }
+
+    @Override
+    public CompletionStage<Page<LoreInstance>> listInstances(
+            LoreDefinitionId definitionId, PageRequest request) {
+        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        if (trackingStore == null) {
+            return CompletableFuture.completedFuture(Page.empty(request));
+        }
+        return trackingStore.listInstances(definitionId, request);
+    }
+
+    @Override
+    public CompletionStage<DuplicateResolutionResult> resolveDuplicate(
+            DuplicateResolutionRequest request) {
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        if (trackingStore == null) {
+            return CompletableFuture.completedFuture(DuplicateResolutionResult.of(
+                    DuplicateResolutionStatus.SERVICE_UNAVAILABLE,
+                    "Tracking administration storage is unavailable."));
+        }
+        return trackingStore.resolveDuplicate(request, clock.instant());
     }
 }
