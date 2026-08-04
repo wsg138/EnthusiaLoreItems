@@ -32,6 +32,9 @@ sealed interface PaperInventoryReference
                     ? new PlayerMain(player.getUniqueId())
                     : new PlayerEnder(player.getUniqueId()));
         }
+        if (holder instanceof Entity entity) {
+            return Optional.of(new EntityInventory(entity.getUniqueId()));
+        }
         Location location = inventory.getLocation();
         if (location != null && location.getWorld() != null) {
             return Optional.of(new Block(
@@ -39,9 +42,6 @@ sealed interface PaperInventoryReference
                     location.getBlockX(),
                     location.getBlockY(),
                     location.getBlockZ()));
-        }
-        if (holder instanceof Entity entity) {
-            return Optional.of(new EntityInventory(entity.getUniqueId()));
         }
         return Optional.empty();
     }
