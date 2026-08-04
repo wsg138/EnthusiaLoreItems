@@ -18,7 +18,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryPickupItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -84,7 +86,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        UUIDPair references = playerReferences(event.getPlayer());
+        PlayerReferences references = playerReferences(event.getPlayer());
         forget(references.main());
         forget(references.ender());
     }
@@ -93,6 +95,20 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     public void onSlotChange(PlayerInventorySlotChangeEvent event) {
         enqueue(new PaperInventoryReference.PlayerMain(
                 event.getPlayer().getUniqueId()));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onClick(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player player) {
+            scheduleViewRescan(player, event.getView().getTopInventory());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDrag(InventoryDragEvent event) {
+        if (event.getWhoClicked() instanceof Player player) {
+            scheduleViewRescan(player, event.getView().getTopInventory());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -132,14 +148,24 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
     }
 
+    private void scheduleViewRescan(Player player, Inventory topInventory) {
+        PaperInventoryReference.PlayerMain main =
+                new PaperInventoryReference.PlayerMain(player.getUniqueId());
+        Optional<PaperInventoryReference> top = PaperInventoryReference.capture(topInventory);
+        scheduleNextTick(() -> {
+            enqueue(main);
+            top.ifPresent(this::enqueue);
+        });
+    }
+
     private void enqueuePlayer(Player player) {
-        UUIDPair references = playerReferences(player);
+        PlayerReferences references = playerReferences(player);
         enqueue(references.main());
         enqueue(references.ender());
     }
 
-    private static UUIDPair playerReferences(Player player) {
-        return new UUIDPair(
+    private static PlayerReferences playerReferences(Player player) {
+        return new PlayerReferences(
                 new PaperInventoryReference.PlayerMain(player.getUniqueId()),
                 new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
     }
@@ -153,17 +179,17 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         if (!queuedReferences.add(reference)) {
             return;
         }
-        queue(reference, true);
+        queue(reference);
     }
 
     private void enqueueContinuation(PaperInventoryReference reference) {
         if (closed || !queuedReferences.add(reference)) {
             return;
         }
-        queue(reference, false);
+        queue(reference);
     }
 
-    private void queue(PaperInventoryReference reference, boolean contentChanged) {
+    private void queue(PaperInventoryReference reference) {
         if (scans.size() >= maxQueuedScans()) {
             queuedReferences.remove(reference);
             scanner.reset(reference);
@@ -172,9 +198,6 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             return;
         }
         scans.add(reference);
-        if (contentChanged) {
-            accessRegistry.invalidate(reference);
-        }
         if (scans.size() == maxQueuedScans()) {
             reportSaturation();
         }
@@ -297,10 +320,10 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         coordinator.close();
     }
 
-    private record UUIDPair(
+    private record PlayerReferences(
             PaperInventoryReference.PlayerMain main,
             PaperInventoryReference.PlayerEnder ender) {
-        private UUIDPair {
+        private PlayerReferences {
             Objects.requireNonNull(main, "main");
             Objects.requireNonNull(ender, "ender");
         }
