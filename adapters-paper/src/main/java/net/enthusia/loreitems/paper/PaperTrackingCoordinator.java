@@ -52,58 +52,78 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     public boolean submit(TrackingObservationUseCase.Request request) {
         Objects.requireNonNull(request, "request");
+        if (rejectIfClosed()) {
+            return false;
+        }
+        Optional<PendingObservation> resolved = resolve(request);
+        if (resolved.isEmpty()) {
+            return false;
+        }
+        Submission submission = reserve(resolved.orElseThrow());
+        if (submission == Submission.DISPATCH) {
+            startCounted(resolved.orElseThrow());
+        }
+        return submission != Submission.REJECTED;
+    }
+
+    private boolean rejectIfClosed() {
         synchronized (lock) {
-            if (closed) {
-                metrics.increment("tracking.rejected");
+            if (!closed) {
                 return false;
             }
+            metrics.increment("tracking.rejected");
+            return true;
         }
+    }
 
-        PendingObservation observation;
+    private Optional<PendingObservation> resolve(
+            TrackingObservationUseCase.Request request) {
         try {
-            observation = new PendingObservation(
+            return Optional.of(new PendingObservation(
                     Objects.requireNonNull(
                             useCaseSupplier.get(), "tracking use case supplier returned null"),
-                    request);
+                    request));
         } catch (RuntimeException exception) {
             metrics.increment("tracking.failed");
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not resolve lore-item tracking persistence.",
                     exception);
-            return false;
+            return Optional.empty();
         }
+    }
 
-        boolean dispatch;
+    private Submission reserve(PendingObservation observation) {
         synchronized (lock) {
             if (closed) {
                 metrics.increment("tracking.rejected");
-                return false;
+                return Submission.REJECTED;
             }
             int maxInFlight = currentMaxInFlight();
             int maxQueued = Math.multiplyExact(maxInFlight, QUEUE_MULTIPLIER);
             if (inFlight < maxInFlight) {
                 inFlight++;
-                dispatch = true;
-            } else if (queued.size() < maxQueued) {
+                accept();
+                return Submission.DISPATCH;
+            }
+            if (queued.size() < maxQueued) {
                 queued.add(observation);
-                dispatch = false;
                 if (queued.size() == maxQueued) {
                     reportSaturation();
                 }
-            } else {
-                metrics.increment("tracking.rejected");
-                updateGauges();
-                reportSaturation();
-                return false;
+                accept();
+                return Submission.QUEUED;
             }
-            metrics.increment("tracking.accepted");
+            metrics.increment("tracking.rejected");
             updateGauges();
+            reportSaturation();
+            return Submission.REJECTED;
         }
-        if (dispatch) {
-            startCounted(observation);
-        }
-        return true;
+    }
+
+    private void accept() {
+        metrics.increment("tracking.accepted");
+        updateGauges();
     }
 
     private void reportSaturation() {
@@ -270,6 +290,12 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                     "Lore-item tracking quiescence failed unexpectedly.",
                     exception.getCause());
         }
+    }
+
+    private enum Submission {
+        DISPATCH,
+        QUEUED,
+        REJECTED
     }
 
     private record PendingObservation(
