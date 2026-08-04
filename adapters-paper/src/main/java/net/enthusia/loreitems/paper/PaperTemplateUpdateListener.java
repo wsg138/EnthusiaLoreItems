@@ -161,9 +161,12 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
         PaperTemplateUpdateScanner.ScanResult result = scanner.scan(
                 inventory.orElseThrow(), coordinator::submit);
-        if (result.truncated()) {
+        if (result.limitReached()) {
             plugin.getLogger().fine(
                     "A naturally accessible template-update scan reached its bounded item limit.");
+        }
+        if (result.continuationRequired()) {
+            enqueue(reference);
         }
     }
 
