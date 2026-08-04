@@ -31,10 +31,12 @@ import org.bukkit.plugin.Plugin;
 public final class LoreItemsAdministrationCommandExecutor implements CommandExecutor {
     public static final String AUDIT_PERMISSION = "enthusia.loreitems.admin.audit";
 
+    private static final String BROWSE_SUBCOMMAND = "browse";
     private static final String ANOMALIES_SUBCOMMAND = "anomalies";
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
-    private static final String USAGE = "Usage: /loreitems anomalies [page] | "
+    private static final String USAGE = "Usage: /loreitems browse | "
+            + "/loreitems anomalies [page] | "
             + "/loreitems audit <instance-uuid> [page] | /loreitems recovery [page]";
     private static final int MAX_CONCURRENT_QUERIES = 32;
     private static final int MIN_PAGE_NUMBER = 1;
@@ -44,6 +46,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
 
     private final Plugin plugin;
     private final IntSupplier pageSizeSupplier;
+    private final PaperTrackingAdministrationGui trackingGui;
     private final Set<CommandActor> activeActors = ConcurrentHashMap.newKeySet();
     private final Semaphore queryCapacity = new Semaphore(MAX_CONCURRENT_QUERIES);
 
@@ -57,6 +60,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
         validatePageSize(currentPageSize());
+        this.trackingGui = new PaperTrackingAdministrationGui(plugin, pageSizeSupplier);
     }
 
     @Override
@@ -77,6 +81,10 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         if (subcommand == null) {
             return true;
         }
+        if (BROWSE_SUBCOMMAND.equals(subcommand)) {
+            executeBrowse(sender, arguments);
+            return true;
+        }
         CommandActor actor = CommandActor.capture(sender);
         if (!beginQuery(actor)) {
             sender.sendMessage("A previous lore-item evidence query is still active; try again shortly.");
@@ -84,6 +92,18 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         }
         dispatchQuery(subcommand, actor, useCase, arguments);
         return true;
+    }
+
+    private void executeBrowse(CommandSender sender, String[] arguments) {
+        if (arguments.length != MIN_PAGE_NUMBER) {
+            sender.sendMessage(USAGE);
+            return;
+        }
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("The lore-item browser requires an in-game player.");
+            return;
+        }
+        trackingGui.openDefinitions(player.getUniqueId(), MIN_PAGE_NUMBER);
     }
 
     private LoreItemsAdministrationUseCase resolveUseCase(CommandSender sender) {
@@ -115,7 +135,8 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
 
     private static boolean isSupportedSubcommand(String subcommand) {
         return switch (subcommand) {
-            case ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND, RECOVERY_SUBCOMMAND -> true;
+            case BROWSE_SUBCOMMAND, ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND,
+                    RECOVERY_SUBCOMMAND -> true;
             default -> false;
         };
     }
@@ -140,7 +161,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             CommandActor actor,
             LoreItemsAdministrationUseCase useCase,
             String[] arguments) {
-        PageRequest request = parsePage(actor, arguments, 1);
+        PageRequest request = parsePage(actor, arguments, MIN_PAGE_NUMBER);
         if (request == null) {
             finishQuery(actor);
             return;
@@ -270,7 +291,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             CommandActor actor,
             LoreItemsAdministrationUseCase useCase,
             String[] arguments) {
-        PageRequest request = parsePage(actor, arguments, 1);
+        PageRequest request = parsePage(actor, arguments, MIN_PAGE_NUMBER);
         if (request == null) {
             finishQuery(actor);
             return;

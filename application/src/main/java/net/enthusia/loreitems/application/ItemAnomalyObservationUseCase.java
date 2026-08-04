@@ -95,7 +95,7 @@ public interface ItemAnomalyObservationUseCase {
         }
     }
 
-    private static String requireText(String value, String name, int maxLength) {
+    static String requireText(String value, String name, int maxLength) {
         Objects.requireNonNull(value, name);
         String normalized = value.strip();
         if (normalized.isEmpty() || normalized.length() > maxLength) {

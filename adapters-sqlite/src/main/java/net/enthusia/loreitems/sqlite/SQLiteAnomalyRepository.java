@@ -4,6 +4,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -11,19 +12,41 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AnomalyRepository;
+import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.TrackingAdministrationStore;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
+import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
-public final class SQLiteAnomalyRepository implements AnomalyRepository {
+public final class SQLiteAnomalyRepository
+        implements AnomalyRepository, TrackingAdministrationStore {
     private static final String ANOMALY_ID_ARGUMENT = "anomalyId";
+    private static final String SELECT_COLUMNS =
+            "SELECT anomaly_id, instance_id, definition_id, anomaly_type, status, "
+                    + "detail, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, "
+                    + "resolved_at, resolution_detail, state_revision FROM instance_anomalies";
+    private static final String FIND_BY_ID_SQL = SELECT_COLUMNS + " WHERE anomaly_id = ?";
+    private static final String LIST_ACTIVE_SQL = SELECT_COLUMNS
+            + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
+    private static final String LIST_ACTIVE_WARNINGS_SQL = SELECT_COLUMNS
+            + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+            + "AND anomaly_type IN ('DUPLICATE_INSTANCE', 'MALFORMED_STACK') "
+            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
+    private static final String LIST_BY_INSTANCE_SQL = SELECT_COLUMNS
+            + " WHERE instance_id = ? "
+            + "ORDER BY first_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
 
     private final SQLiteStorageRuntime storage;
+    private final SQLiteTrackingAdministrationStore trackingAdministration;
 
     public SQLiteAnomalyRepository(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
+        this.trackingAdministration = new SQLiteTrackingAdministrationStore(storage);
     }
 
     @Override
@@ -52,8 +75,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
     public CompletionStage<Optional<InstanceAnomaly>> findById(UUID anomalyId) {
         Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE anomaly_id = ?")) {
+            try (PreparedStatement statement = connection.prepareStatement(FIND_BY_ID_SQL)) {
                 statement.setString(1, anomalyId.toString());
                 try (ResultSet resultSet = statement.executeQuery()) {
                     return resultSet.next()
@@ -68,9 +90,7 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
     public CompletionStage<Page<InstanceAnomaly>> listActive(PageRequest request) {
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
-                            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement = connection.prepareStatement(LIST_ACTIVE_SQL)) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
                 return readPage(statement, request);
@@ -82,10 +102,8 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
     public CompletionStage<Page<InstanceAnomaly>> listActiveWarnings(PageRequest request) {
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
-                            + "AND anomaly_type IN ('DUPLICATE_INSTANCE', 'MALFORMED_STACK') "
-                            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement =
+                    connection.prepareStatement(LIST_ACTIVE_WARNINGS_SQL)) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
                 return readPage(statement, request);
@@ -99,9 +117,8 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
         Objects.requireNonNull(instanceId, "instanceId");
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE instance_id = ? "
-                            + "ORDER BY first_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement =
+                    connection.prepareStatement(LIST_BY_INSTANCE_SQL)) {
                 statement.setString(1, instanceId.value().toString());
                 statement.setInt(2, request.limit() + 1);
                 statement.setInt(3, request.offset());
@@ -197,10 +214,23 @@ public final class SQLiteAnomalyRepository implements AnomalyRepository {
         });
     }
 
-    private static String selectColumns() {
-        return "SELECT anomaly_id, instance_id, definition_id, anomaly_type, status, "
-                + "detail, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, "
-                + "resolved_at, resolution_detail, state_revision FROM instance_anomalies";
+    @Override
+    public CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request) {
+        return trackingAdministration.listDefinitions(request);
+    }
+
+    @Override
+    public CompletionStage<Page<LoreInstance>> listInstances(
+            LoreDefinitionId definitionId, PageRequest request) {
+        return trackingAdministration.listInstances(definitionId, request);
+    }
+
+    @Override
+    public CompletionStage<LoreItemsAdministrationUseCase.DuplicateResolutionResult>
+            resolveDuplicate(
+                    LoreItemsAdministrationUseCase.DuplicateResolutionRequest request,
+                    Instant resolvedAt) {
+        return trackingAdministration.resolveDuplicate(request, resolvedAt);
     }
 
     private static Page<InstanceAnomaly> readPage(

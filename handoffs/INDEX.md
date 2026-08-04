@@ -31,5 +31,6 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0025 | 2026-08-03 | Implementation PR 2 / PR #3 | Superseded merge verification | [Phase completion and merge readiness](0025-2026-08-03-pr3-phase-completion-and-merge-readiness.md) |
 | 0026 | 2026-08-03 | Implementation PR 2 / PR #3 | Superseded pre-merge verification | [Final Codacy remediation and merge readiness](0026-2026-08-03-pr3-final-codacy-remediation-and-merge-readiness.md) |
 | 0027 | 2026-08-03 | Implementation PR 2 / PR #3 and cleanup PR #4 | Post-merge cleanup verification | [PR #3 merge and post-merge cleanup](0027-2026-08-03-pr3-merge-and-post-merge-cleanup.md) |
+| 0028 | 2026-08-04 | Implementation PR 3 / PR #5 | Merge finalization | [Tracking and reconciliation completion](0028-2026-08-04-pr5-tracking-reconciliation.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.

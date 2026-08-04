@@ -2,50 +2,54 @@
 
 ## Active work
 
-- Phase: Implementation PR 2 — Creation, adoption, direct delivery, and protection
+- Phase: Implementation PR 3 — Tracking and reconciliation
 - Repository: `wsg138/EnthusiaLoreItems`
-- Implementation pull request: #3 — merged as `e64abfe75251f90c671452c4b50df2837074b1f7`
-- Post-merge cleanup pull request: #4 — Clean up PR 3 merge artifacts
-- Cleanup branch: `agent/pr3-post-merge-cleanup`
-- Status: phase complete; PR #4 removes one merged temporary workflow, resolves the final Codacy analyzer finding, records the merge, and must be merged before beginning the next phase
+- Pull request: #5 — `PR 3: tracking and reconciliation`
+- Branch: `agent/loreitems-pr3-tracking-reconciliation`
+- Starting `main`: `32621e580993e494c415bfb0e50f457885722fe7`
+- Verified implementation head: `b7e34afa8312e822e80101f9e32c16b6a4466101`
+- Status: phase implementation and harsh-review remediation complete; the documentation head containing this handoff must pass exact-head Actions and Codacy before final review and merge
 
-Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR #4 status/head/draft state, mergeability, exact-head GitHub Actions, Codacy, submitted reviews, unresolved threads, requested changes, active branches, and comments newer than the latest immutable report. Live GitHub and code take priority.
+Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR #5 status/head/draft state, mergeability, exact-head GitHub Actions, Codacy, submitted reviews, unresolved threads, requested changes, active branches, and comments newer than the latest immutable report. Live GitHub and code take priority.
 
-If PR #4 is already merged when this file is read from `main`, treat Implementation PR 2 and its cleanup as complete. Begin the next legitimate unfinished phase only in a later chat.
+If PR #5 has already merged when this file is read from `main`, treat the merge-finalization instructions below as stale. Verify the resulting `main` and branch cleanup, then begin Implementation PR 4 — Editing and controlled global adoption only in a later chat.
 
 ## Latest report
 
-- [`0027-2026-08-03-pr3-merge-and-post-merge-cleanup.md`](0027-2026-08-03-pr3-merge-and-post-merge-cleanup.md)
+- [`0028-2026-08-04-pr5-tracking-reconciliation.md`](0028-2026-08-04-pr5-tracking-reconciliation.md)
 
-Report 0027 supersedes report 0026's pre-merge state and metric-exclusion conclusion. It records the actual PR #3 merge, final source decomposition, the temporary workflow accidentally left on `main`, the missed compound-lock PMD suppression, PR #4 cleanup, exact cleanup implementation-head Actions and zero-issue Codacy evidence, preserved invariants, and phase boundary.
+Report 0028 records stale-handoff reconciliation, the completed Implementation PR 3 scope, final harsh-review defects and fixes, the exact verified implementation head, exact-head Actions and Codacy evidence, remaining merge-finalization steps, preserved phase boundaries, and the next phase.
 
 ## Required prior reports
 
-None. Report 0027 repeats the still-relevant completed scope, final defects, fixes, invariants, verification evidence, limitations, and next step. Read earlier reports only when investigating a specific subsystem's history.
+None. Report 0028 repeats the still-relevant scope, defects, fixes, invariants, verification evidence, limitations, and next step. Read earlier reports only when investigating a specific subsystem's history.
 
 ## Exact next step
 
-When PR #4 remains open:
+When PR #5 remains open:
 
-1. verify exact-head normal GitHub Actions success;
-2. verify exact-head Codacy success with no unresolved valid finding;
-3. verify no requested-change review or unresolved thread remains;
-4. confirm `.github/workflows/finalize-pr3-documentation.yml` is absent from the PR head and no other temporary diagnostic artifact remains;
-5. confirm `main` has not advanced incompatibly and PR #4 remains mergeable;
-6. update the PR body with the final exact head and evidence;
-7. mark PR #4 ready when appropriate;
-8. merge with a normal merge commit under the user's authorization;
-9. verify the resulting `main` SHA and repository workflow state;
-10. delete `agent/pr3-post-merge-cleanup` when supported;
-11. stop without beginning the next implementation phase in the same chat.
+1. verify the current documentation head with the permanent GitHub Actions workflow and exact-head Codacy check;
+2. update the PR body with the exact final head, delivered Implementation PR 3 subphase, remaining phase requirements, independent merge safety, tests, harsh-review fixes, and verification evidence;
+3. mark PR #5 ready;
+4. obtain one substantive automated review of the stable final diff without repeatedly retriggering it;
+5. resolve every legitimate in-scope finding and reverify the resulting exact head when changes are required;
+6. confirm no requested-change review or unresolved thread remains;
+7. confirm `main` has not advanced incompatibly and PR #5 remains mergeable;
+8. merge PR #5 with a normal merge commit under the user's authorization;
+9. verify the resulting `main` SHA and normal workflow state;
+10. delete `agent/loreitems-pr3-tracking-reconciliation` when supported;
+11. stop without beginning another logical item or phase in the same chat.
 
-When PR #4 is already merged:
+When PR #5 is already merged:
 
-1. verify the resulting `main` SHA, normal workflow set, and branch cleanup;
-2. in a later chat, begin PR 3 — Tracking and reconciliation from `docs/implementation-plan.md` only after live reconciliation.
+1. verify the resulting `main` SHA and branch cleanup;
+2. in a later chat, begin Implementation PR 4 — Editing and controlled global adoption from `docs/implementation-plan.md` only after live reconciliation.
 
-## Known limitations
+## Preserved boundaries and limitations
 
 - No live Paper/Leaf server behavior has been tested.
-- Automated verification does not prove production event ordering, PDC/component serialization, reload/shutdown behavior, command registration, or staff workflow.
-- Broad tracking/reconciliation, Ender Chest and nested-container paths, paginated GUIs, explicit recovery/anomaly resolution, metrics/backpressure reporting, editing, campaigns, deletion execution, and EnthusiaTags integration remain intentionally assigned to later phases.
+- No production system, deployment, or production database was accessed.
+- No physical duplicate deletion or automatic repair was added; duplicate resolution changes durable evidence only.
+- No editing, campaign execution, definition deletion, restore execution, or EnthusiaTags integration was added.
+- No force-loaded chunks, global synchronous world scan, unbounded tracking queue, or retained Bukkit object across asynchronous persistence was introduced.
+- Automated verification does not prove production event ordering, component serialization, server reload behavior, or staff workflow on a live server.

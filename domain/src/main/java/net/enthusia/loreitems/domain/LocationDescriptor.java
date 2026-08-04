@@ -1,8 +1,14 @@
 package net.enthusia.loreitems.domain;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.Objects;
 
-public record LocationDescriptor(Type type, String locationKey, String containerPath) {
+public record LocationDescriptor(Type type, String locationKey, String containerPath)
+        implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L;
+
     public static final int MAX_LOCATION_KEY_LENGTH = 512;
     public static final int MAX_CONTAINER_PATH_LENGTH = 2_048;
 

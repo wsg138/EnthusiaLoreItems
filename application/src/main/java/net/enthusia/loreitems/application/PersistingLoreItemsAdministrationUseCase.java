@@ -1,11 +1,17 @@
 package net.enthusia.loreitems.application;
 
+import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
 import net.enthusia.loreitems.domain.InstanceObservation;
+import net.enthusia.loreitems.domain.LoreDefinition;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 
 public final class PersistingLoreItemsAdministrationUseCase
@@ -20,6 +26,8 @@ public final class PersistingLoreItemsAdministrationUseCase
     private final ObservationRepository observationRepository;
     private final DirectDeliveryRepository deliveryRepository;
     private final PendingMutationRepository mutationRepository;
+    private final Optional<TrackingAdministrationStore> trackingStore;
+    private final Clock clock;
 
     public PersistingLoreItemsAdministrationUseCase(
             AnomalyRepository anomalyRepository,
@@ -28,23 +36,41 @@ public final class PersistingLoreItemsAdministrationUseCase
             ObservationRepository observationRepository,
             DirectDeliveryRepository deliveryRepository,
             PendingMutationRepository mutationRepository) {
-        this.anomalyRepository = Objects.requireNonNull(
-                anomalyRepository, "anomalyRepository");
+        this(
+                anomalyRepository,
+                auditRepository,
+                currentStateRepository,
+                observationRepository,
+                deliveryRepository,
+                mutationRepository,
+                Clock.systemUTC());
+    }
+
+    PersistingLoreItemsAdministrationUseCase(
+            AnomalyRepository anomalyRepository,
+            AuditRepository auditRepository,
+            CurrentStateRepository currentStateRepository,
+            ObservationRepository observationRepository,
+            DirectDeliveryRepository deliveryRepository,
+            PendingMutationRepository mutationRepository,
+            Clock clock) {
+        this.anomalyRepository = Objects.requireNonNull(anomalyRepository, "anomalyRepository");
         this.auditRepository = Objects.requireNonNull(auditRepository, "auditRepository");
         this.currentStateRepository = Objects.requireNonNull(
                 currentStateRepository, "currentStateRepository");
         this.observationRepository = Objects.requireNonNull(
                 observationRepository, "observationRepository");
-        this.deliveryRepository = Objects.requireNonNull(
-                deliveryRepository, "deliveryRepository");
-        this.mutationRepository = Objects.requireNonNull(
-                mutationRepository, "mutationRepository");
+        this.deliveryRepository = Objects.requireNonNull(deliveryRepository, "deliveryRepository");
+        this.mutationRepository = Objects.requireNonNull(mutationRepository, "mutationRepository");
+        this.trackingStore = anomalyRepository instanceof TrackingAdministrationStore tracking
+                ? Optional.of(tracking)
+                : Optional.empty();
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     @Override
     public CompletionStage<Page<InstanceAnomaly>> listActiveAnomalies(PageRequest request) {
-        return anomalyRepository.listActive(
-                Objects.requireNonNull(request, REQUEST_ARGUMENT));
+        return anomalyRepository.listActive(Objects.requireNonNull(request, REQUEST_ARGUMENT));
     }
 
     @Override
@@ -94,5 +120,39 @@ public final class PersistingLoreItemsAdministrationUseCase
         CompletionStage<Page<PendingMutationRecord>> mutations =
                 mutationRepository.listNonTerminal(request);
         return deliveries.thenCombine(mutations, RecoveryPage::new);
+    }
+
+    @Override
+    public CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request) {
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        return trackingStore
+                .map(store -> store.listDefinitions(request))
+                .orElseGet(() -> CompletableFuture.completedFuture(emptyPage(request)));
+    }
+
+    @Override
+    public CompletionStage<Page<LoreInstance>> listInstances(
+            LoreDefinitionId definitionId, PageRequest request) {
+        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        return trackingStore
+                .map(store -> store.listInstances(definitionId, request))
+                .orElseGet(() -> CompletableFuture.completedFuture(emptyPage(request)));
+    }
+
+    @Override
+    public CompletionStage<DuplicateResolutionResult> resolveDuplicate(
+            DuplicateResolutionRequest request) {
+        Objects.requireNonNull(request, REQUEST_ARGUMENT);
+        return trackingStore
+                .map(store -> store.resolveDuplicate(request, clock.instant()))
+                .orElseGet(() -> CompletableFuture.completedFuture(
+                        DuplicateResolutionResult.of(
+                                DuplicateResolutionStatus.SERVICE_UNAVAILABLE,
+                                "Tracking administration storage is unavailable.")));
+    }
+
+    private static <T> Page<T> emptyPage(PageRequest request) {
+        return new Page<>(List.of(), request.offset(), request.limit(), false);
     }
 }
