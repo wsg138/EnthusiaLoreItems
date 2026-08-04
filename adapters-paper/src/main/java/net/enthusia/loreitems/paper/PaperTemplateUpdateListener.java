@@ -1,6 +1,5 @@
 package net.enthusia.loreitems.paper;
 
-import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -10,24 +9,13 @@ import java.util.function.Predicate;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
-import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityPickupItemEvent;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryMoveItemEvent;
-import org.bukkit.event.inventory.InventoryPickupItemEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Natural-access discovery for player and inventory-backed template updates. */
-final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
+final class PaperTemplateUpdateListener implements AutoCloseable {
     private static final int MIN_BUDGET = 1;
     private static final int SCAN_QUEUE_MULTIPLIER = 32;
     private static final int MIN_SCAN_QUEUE_CAPACITY = 512;
@@ -41,6 +29,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     private final PaperTemplateUpdateCoordinator coordinator;
     private final PaperTemplateUpdateScanBacklog scanBacklog;
     private final PaperTemplateUpdateRetryBacklog retryBacklog;
+    private final PaperTemplateUpdateEvents events;
 
     private BukkitTask scanTask;
     private boolean saturated;
@@ -64,98 +53,31 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         int backlogCapacity = maxQueuedScans(budget);
         this.scanBacklog = new PaperTemplateUpdateScanBacklog(backlogCapacity);
         this.retryBacklog = new PaperTemplateUpdateRetryBacklog(backlogCapacity);
+        this.events = new PaperTemplateUpdateEvents(this);
     }
 
     void start() {
         if (closed || scanTask != null) {
             throw new IllegalStateException("Template-update listener cannot be started");
         }
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        plugin.getServer().getPluginManager().registerEvents(events, plugin);
         plugin.getServer().getOnlinePlayers().forEach(this::enqueuePlayer);
         try {
             scanTask = plugin.getServer().getScheduler().runTaskTimer(
                     plugin, this::drain, 1L, 1L);
         } catch (RuntimeException exception) {
-            HandlerList.unregisterAll(this);
+            HandlerList.unregisterAll(events);
             throw exception;
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onJoin(PlayerJoinEvent event) {
-        enqueuePlayer(event.getPlayer());
+    void enqueuePlayer(Player player) {
+        PlayerReferences references = playerReferences(player);
+        enqueue(references.main());
+        enqueue(references.ender());
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onQuit(PlayerQuitEvent event) {
-        PlayerReferences references = playerReferences(event.getPlayer());
-        forget(references.main());
-        forget(references.ender());
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onSlotChange(PlayerInventorySlotChangeEvent event) {
-        enqueue(new PaperInventoryReference.PlayerMain(
-                event.getPlayer().getUniqueId()));
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onClick(InventoryClickEvent event) {
-        if (event.getWhoClicked() instanceof Player player) {
-            scheduleViewRescan(player, event.getView().getTopInventory());
-        }
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onDrag(InventoryDragEvent event) {
-        if (event.getWhoClicked() instanceof Player player) {
-            scheduleViewRescan(player, event.getView().getTopInventory());
-        }
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player player)) {
-            return;
-        }
-        enqueuePlayer(player);
-        PaperInventoryReference.capture(event.getView().getTopInventory())
-                .ifPresent(this::enqueue);
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onInventoryMove(InventoryMoveItemEvent event) {
-        Optional<PaperInventoryReference> source =
-                PaperInventoryReference.capture(event.getSource());
-        Optional<PaperInventoryReference> destination =
-                PaperInventoryReference.capture(event.getDestination());
-        source.ifPresent(this::invalidate);
-        destination.ifPresent(this::invalidate);
-        scheduleNextTick(() -> {
-            source.ifPresent(this::enqueue);
-            destination.ifPresent(this::enqueue);
-        });
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onInventoryPickup(InventoryPickupItemEvent event) {
-        Optional<PaperInventoryReference> inventory =
-                PaperInventoryReference.capture(event.getInventory());
-        inventory.ifPresent(this::invalidate);
-        scheduleNextTick(() -> inventory.ifPresent(this::enqueue));
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerPickup(EntityPickupItemEvent event) {
-        if (event.getEntity() instanceof Player player) {
-            PaperInventoryReference.PlayerMain main =
-                    new PaperInventoryReference.PlayerMain(player.getUniqueId());
-            invalidate(main);
-            scheduleNextTick(() -> enqueue(main));
-        }
-    }
-
-    private void scheduleViewRescan(Player player, Inventory topInventory) {
+    void scheduleViewRescan(Player player, Inventory topInventory) {
         PaperInventoryReference.PlayerMain main =
                 new PaperInventoryReference.PlayerMain(player.getUniqueId());
         Optional<PaperInventoryReference> top = PaperInventoryReference.capture(topInventory);
@@ -167,30 +89,42 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         });
     }
 
-    private void enqueuePlayer(Player player) {
-        PlayerReferences references = playerReferences(player);
-        enqueue(references.main());
-        enqueue(references.ender());
-    }
-
-    private static PlayerReferences playerReferences(Player player) {
-        return new PlayerReferences(
-                new PaperInventoryReference.PlayerMain(player.getUniqueId()),
-                new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
-    }
-
-    private void invalidate(PaperInventoryReference reference) {
+    void invalidate(PaperInventoryReference reference) {
         scanner.reset(reference);
         accessRegistry.invalidate(reference);
     }
 
-    private void enqueue(PaperInventoryReference reference) {
+    void enqueue(PaperInventoryReference reference) {
         if (closed) {
             return;
         }
         retryBacklog.remove(reference);
         invalidate(reference);
         offer(reference);
+    }
+
+    void forget(PaperInventoryReference reference) {
+        scanBacklog.remove(reference);
+        retryBacklog.remove(reference);
+        scanner.reset(reference);
+        accessRegistry.remove(reference);
+    }
+
+    void scheduleNextTick(Runnable action) {
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, action);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.FINE,
+                    "Could not schedule natural template-update discovery during shutdown.",
+                    exception);
+        }
+    }
+
+    private static PlayerReferences playerReferences(Player player) {
+        return new PlayerReferences(
+                new PaperInventoryReference.PlayerMain(player.getUniqueId()),
+                new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
     }
 
     private void enqueueContinuation(PaperInventoryReference reference) {
@@ -200,7 +134,7 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
     }
 
     private void offer(PaperInventoryReference reference) {
-        PaperTemplateUpdateScanBacklog.OfferResult result = scanBacklog.offer(reference);
+        PaperTemplateUpdateScanOfferResult result = scanBacklog.offer(reference);
         switch (result) {
             case READY, ALREADY_QUEUED -> {
                 // The reference is retained by the bounded backlog.
@@ -215,13 +149,6 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
             default -> throw new IllegalStateException(
                     "Unsupported template-update backlog result: " + result);
         }
-    }
-
-    private void forget(PaperInventoryReference reference) {
-        scanBacklog.remove(reference);
-        retryBacklog.remove(reference);
-        scanner.reset(reference);
-        accessRegistry.remove(reference);
     }
 
     private void drain() {
@@ -325,21 +252,10 @@ final class PaperTemplateUpdateListener implements Listener, AutoCloseable {
         }
     }
 
-    private void scheduleNextTick(Runnable action) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(
-                    Level.FINE,
-                    "Could not schedule natural template-update discovery during shutdown.",
-                    exception);
-        }
-    }
-
     @Override
     public void close() {
         closed = true;
-        HandlerList.unregisterAll(this);
+        HandlerList.unregisterAll(events);
         BukkitTask task = scanTask;
         if (task != null) {
             task.cancel();
