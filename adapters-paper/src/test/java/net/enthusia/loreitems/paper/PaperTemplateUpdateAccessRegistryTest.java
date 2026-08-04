@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -101,6 +103,20 @@ class PaperTemplateUpdateAccessRegistryTest {
                 retried::add);
 
         assertEquals(List.of(reference), retried);
+    }
+
+    @Test
+    void rejectedScanReferencesAreRetriedOnceInFifoOrder() {
+        PaperTemplateUpdateRetryBacklog retries = new PaperTemplateUpdateRetryBacklog();
+        PaperInventoryReference first = blockReference(8);
+        PaperInventoryReference second = blockReference(9);
+
+        assertTrue(retries.offer(first));
+        assertFalse(retries.offer(first));
+        assertTrue(retries.offer(second));
+        assertEquals(first, retries.poll());
+        assertEquals(second, retries.poll());
+        assertNull(retries.poll());
     }
 
     @Test
