@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import net.enthusia.loreitems.application.LoreItemIdentity;
@@ -89,6 +90,20 @@ class PaperTemplateUpdateAccessRegistryTest {
     }
 
     @Test
+    void coordinatorRejectionRequeuesTheInventoryReferenceForNaturalRetry() {
+        PaperInventoryReference reference = blockReference(7);
+        PaperTemplateUpdateScanner.Candidate candidate = candidate(reference, 2);
+        List<PaperInventoryReference> retried = new ArrayList<>();
+
+        PaperTemplateUpdateListener.dispatchCandidates(
+                List.of(candidate),
+                ignored -> false,
+                retried::add);
+
+        assertEquals(List.of(reference), retried);
+    }
+
+    @Test
     void scanBacklogRetainsOneBoundedOverflowTierInFifoOrder() {
         PaperTemplateUpdateScanBacklog backlog = new PaperTemplateUpdateScanBacklog(2);
         PaperInventoryReference first = blockReference(1);
@@ -153,7 +168,7 @@ class PaperTemplateUpdateAccessRegistryTest {
                 PaperTemplateUpdateItemReference.root(reference, slot));
     }
 
-    private static PaperInventoryReference blockReference(int coordinate) {
+    private static PaperInventoryReference.Block blockReference(int coordinate) {
         return new PaperInventoryReference.Block(
                 UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
                 coordinate,
