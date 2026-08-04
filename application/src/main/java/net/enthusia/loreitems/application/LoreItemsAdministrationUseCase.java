@@ -1,8 +1,10 @@
 package net.enthusia.loreitems.application;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
@@ -31,13 +33,27 @@ public interface LoreItemsAdministrationUseCase {
 
     CompletionStage<RecoveryPage> listRecovery(PageRequest request);
 
-    CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request);
+    default CompletionStage<Page<LoreDefinition>> listDefinitions(PageRequest request) {
+        Objects.requireNonNull(request, "request");
+        return CompletableFuture.completedFuture(
+                new Page<>(List.of(), request.offset(), request.limit(), false));
+    }
 
-    CompletionStage<Page<LoreInstance>> listInstances(
-            LoreDefinitionId definitionId, PageRequest request);
+    default CompletionStage<Page<LoreInstance>> listInstances(
+            LoreDefinitionId definitionId, PageRequest request) {
+        Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(request, "request");
+        return CompletableFuture.completedFuture(
+                new Page<>(List.of(), request.offset(), request.limit(), false));
+    }
 
-    CompletionStage<DuplicateResolutionResult> resolveDuplicate(
-            DuplicateResolutionRequest request);
+    default CompletionStage<DuplicateResolutionResult> resolveDuplicate(
+            DuplicateResolutionRequest request) {
+        Objects.requireNonNull(request, "request");
+        return CompletableFuture.completedFuture(DuplicateResolutionResult.of(
+                DuplicateResolutionStatus.SERVICE_UNAVAILABLE,
+                "Tracking administration is unavailable."));
+    }
 
     record DuplicateResolutionRequest(
             UUID anomalyId,
