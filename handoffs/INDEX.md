@@ -28,6 +28,7 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0022 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Direct-delivery Codacy remediation and cleanup](0022-2026-08-03-pr3-direct-delivery-codacy-cleanup.md) |
 | 0023 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Tracked-item protection and terminal void loss](0023-2026-08-03-pr3-tracked-item-void-protection.md) |
 | 0024 | 2026-08-03 | Implementation PR 2 / PR #3 | In progress | [Display entities and mob pickup prevention](0024-2026-08-03-pr3-display-entities-and-mob-pickup.md) |
-| 0025 | 2026-08-03 | Implementation PR 2 / PR #3 | Merge verification | [Phase completion and merge readiness](0025-2026-08-03-pr3-phase-completion-and-merge-readiness.md) |
+| 0025 | 2026-08-03 | Implementation PR 2 / PR #3 | Superseded merge verification | [Phase completion and merge readiness](0025-2026-08-03-pr3-phase-completion-and-merge-readiness.md) |
+| 0026 | 2026-08-03 | Implementation PR 2 / PR #3 | Final merge verification | [Final Codacy remediation and merge readiness](0026-2026-08-03-pr3-final-codacy-remediation-and-merge-readiness.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
