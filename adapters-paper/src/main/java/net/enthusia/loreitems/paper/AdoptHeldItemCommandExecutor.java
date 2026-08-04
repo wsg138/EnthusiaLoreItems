@@ -146,6 +146,14 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             case PREPARED -> scheduleApplication(
                     useCase,
                     Objects.requireNonNull(result.preparedAdoption(), "preparedAdoption"));
+            default -> {
+                release(request.playerId());
+                plugin.getLogger().severe(
+                        "Held-item adoption returned unsupported preparation status: "
+                                + result.status());
+                notifyPlayer(request.playerId(),
+                        "Held-item adoption returned an unsupported durable state.");
+            }
         }
     }
 
