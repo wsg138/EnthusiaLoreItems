@@ -34,6 +34,7 @@ subprojects {
         effort = Effort.MAX
         reportLevel = Confidence.LOW
         toolVersion = "4.8.4"
+        excludeFilter = rootProject.file("spotbugs-excludes.xml")
     }
 
     tasks.withType<SpotBugsTask>().configureEach {

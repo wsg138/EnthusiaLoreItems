@@ -29,26 +29,6 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong conflicts = new AtomicLong();
     private final AtomicLong scanTruncated = new AtomicLong();
     private final AtomicLong durationNanos = new AtomicLong();
-    private final MetricsPort additionalQueueView = new MetricsPort() {
-        @Override
-        public void setGauge(String name, long value) {
-            switch (name) {
-                case QUEUED -> TrackingMetrics.this.setGauge(ADDITIONAL_QUEUED, value);
-                case IN_FLIGHT -> TrackingMetrics.this.setGauge(ADDITIONAL_IN_FLIGHT, value);
-                default -> TrackingMetrics.this.setGauge(name, value);
-            }
-        }
-
-        @Override
-        public void increment(String name) {
-            TrackingMetrics.this.increment(name);
-        }
-
-        @Override
-        public void recordDurationNanos(String name, long persistenceNanos) {
-            TrackingMetrics.this.recordDurationNanos(name, persistenceNanos);
-        }
-    };
 
     @Override
     public void setGauge(String name, long value) {
@@ -87,7 +67,7 @@ public final class TrackingMetrics implements MetricsPort {
     }
 
     public MetricsPort additionalQueueView() {
-        return additionalQueueView;
+        return new AdditionalQueueMetrics(this);
     }
 
     public Snapshot snapshot() {
@@ -115,4 +95,25 @@ public final class TrackingMetrics implements MetricsPort {
             long conflicts,
             long scanTruncated,
             long persistenceNanos) {}
+
+    private record AdditionalQueueMetrics(TrackingMetrics metrics) implements MetricsPort {
+        @Override
+        public void setGauge(String name, long value) {
+            switch (name) {
+                case QUEUED -> metrics.setGauge(ADDITIONAL_QUEUED, value);
+                case IN_FLIGHT -> metrics.setGauge(ADDITIONAL_IN_FLIGHT, value);
+                default -> metrics.setGauge(name, value);
+            }
+        }
+
+        @Override
+        public void increment(String name) {
+            metrics.increment(name);
+        }
+
+        @Override
+        public void recordDurationNanos(String name, long persistenceNanos) {
+            metrics.recordDurationNanos(name, persistenceNanos);
+        }
+    }
 }

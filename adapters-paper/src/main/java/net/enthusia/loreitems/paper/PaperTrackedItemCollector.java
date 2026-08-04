@@ -6,6 +6,7 @@ import java.util.Map;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
@@ -25,6 +26,9 @@ final class PaperTrackedItemCollector {
             String prefix,
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             PaperScanLimit limit) {
+        if (contents == null) {
+            return;
+        }
         for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
             collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
         }
@@ -51,15 +55,17 @@ final class PaperTrackedItemCollector {
             return;
         }
         ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta
-                && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
-            collectNested(
-                    shulker.getInventory().getContents(),
-                    key,
-                    path + "/shulker:",
-                    observations,
-                    depth,
-                    limit);
+        if (meta instanceof BlockStateMeta blockMeta) {
+            BlockState blockState = blockMeta.getBlockState();
+            if (blockState instanceof ShulkerBox shulker) {
+                collectNested(
+                        shulker.getInventory().getContents(),
+                        key,
+                        path + "/shulker:",
+                        observations,
+                        depth,
+                        limit);
+            }
         }
         if (meta instanceof BundleMeta bundle) {
             collectNested(
@@ -89,6 +95,9 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
+        if (contents == null) {
+            return;
+        }
         for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
             collectItem(
                     contents[index],

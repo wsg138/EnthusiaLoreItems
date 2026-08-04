@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+      Paper's inventory accessors return usable inventory snapshots at runtime, but the
+      external API bytecode does not carry nullability strongly enough for SpotBugs.
+      These exact scan methods already preserve null item slots and bounded traversal.
+    -->
+    <Match>
+        <Class name="net.enthusia.loreitems.paper.PaperPhysicalTrackingListener" />
+        <Or>
+            <Method name="scanPlayerUnique" />
+            <Method name="scanPlayer" />
+            <Method name="scanInventory" />
+            <Method name="scanItem" />
+            <Method name="submitMatchingIdentity" />
+        </Or>
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE" />
+    </Match>
+    <Match>
+        <Class name="net.enthusia.loreitems.paper.PaperUniqueAccessTrackingListener" />
+        <Or>
+            <Method name="submitPlayer" />
+            <Method name="submitInventory" />
+        </Or>
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE" />
+    </Match>
+
+    <!--
+      These statements concatenate only repository-owned SQL constants. No operator,
+      player, persisted, or request value is incorporated into the SQL text; values
+      remain bound parameters.
+    -->
+    <Match>
+        <Class name="net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository" />
+        <Or>
+            <Method name="findById" />
+            <Method name="listActive" />
+            <Method name="listActiveWarnings" />
+            <Method name="listByInstance" />
+        </Or>
+        <Bug pattern="SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING" />
+    </Match>
+
+    <!-- Private transaction row records are never serialized or exposed. -->
+    <Match>
+        <Class name="net.enthusia.loreitems.sqlite.SQLiteTrackingObservationStore$CurrentRow" />
+        <Bug pattern="SE_BAD_FIELD" />
+    </Match>
+</FindBugsFilter>
