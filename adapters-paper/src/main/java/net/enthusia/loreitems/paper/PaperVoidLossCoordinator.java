@@ -19,6 +19,9 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.plugin.Plugin;
 
+// The in-flight set and retry map form one compound state machine guarded by workflowLock.
+// Replacing only the map with ConcurrentHashMap would not make those transitions atomic.
+@SuppressWarnings("PMD.UseConcurrentHashMap")
 final class PaperVoidLossCoordinator implements AutoCloseable {
     private static final int MAX_COMPLETION_ATTEMPTS = 3;
     private static final int MIN_IN_FLIGHT = 1;
