@@ -37,7 +37,8 @@ final class PaperTemplateUpdateScanner {
 
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         List<Candidate> candidates = new ArrayList<>();
-        ItemStack[] contents = inventory.getContents();
+        ItemStack[] contents = Objects.requireNonNull(
+                inventory.getContents(), "inventory contents");
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
             scanItem(
                     contents[slot],
@@ -92,11 +93,15 @@ final class PaperTemplateUpdateScanner {
         if (!(meta instanceof BlockStateMeta blockMeta)) {
             return;
         }
-        BlockState state = blockMeta.getBlockState();
+        BlockState state = Objects.requireNonNull(
+                blockMeta.getBlockState(), "shulker block state");
         if (!(state instanceof ShulkerBox shulker)) {
             return;
         }
-        ItemStack[] contents = shulker.getInventory().getContents();
+        Inventory nestedInventory = Objects.requireNonNull(
+                shulker.getInventory(), "shulker inventory");
+        ItemStack[] contents = Objects.requireNonNull(
+                nestedInventory.getContents(), "shulker inventory contents");
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
             scanItem(
                     contents[slot],

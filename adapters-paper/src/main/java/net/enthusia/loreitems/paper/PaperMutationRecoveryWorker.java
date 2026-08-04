@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.PendingMutationRepository;
 import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
@@ -23,10 +24,10 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final PendingMutationRepository repository;
     private final int recoveryLimit;
     private final PaperTemplateUpdateListener templateUpdateListener;
+    private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
-    private boolean inFlight;
-    private boolean closed;
+    private volatile boolean closed;
 
     public PaperMutationRecoveryWorker(
             Plugin plugin,
@@ -70,15 +71,16 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     }
 
     void requestRun() {
-        if (closed || inFlight) {
+        if (closed || !recoveryInFlight.compareAndSet(false, true)) {
             return;
         }
-        inFlight = true;
         CompletionStage<Integer> stage;
         try {
-            stage = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit);
+            stage = Objects.requireNonNull(
+                    repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit),
+                    "mutation recovery stage");
         } catch (RuntimeException exception) {
-            inFlight = false;
+            recoveryInFlight.set(false);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not start bounded expired mutation recovery.",
@@ -86,7 +88,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             return;
         }
         stage.whenComplete((recovered, throwable) -> {
-            inFlight = false;
+            recoveryInFlight.set(false);
             if (throwable != null) {
                 plugin.getLogger().log(
                         Level.SEVERE,
@@ -94,12 +96,17 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                         unwrap(throwable));
                 return;
             }
-            if (recovered != null && recovered > 0) {
+            if (recovered == null) {
+                plugin.getLogger().severe(
+                        "Expired mutation recovery completed without a result.");
+                return;
+            }
+            if (recovered > 0) {
                 plugin.getLogger().warning(
                         "Moved " + recovered
                                 + " expired item-mutation claims to REVIEW_REQUIRED.");
             }
-            if (recovered != null && recovered == recoveryLimit) {
+            if (recovered == recoveryLimit) {
                 plugin.getLogger().warning(
                         "The bounded mutation-recovery batch was full; more expired claims "
                                 + "may remain for the next pass.");

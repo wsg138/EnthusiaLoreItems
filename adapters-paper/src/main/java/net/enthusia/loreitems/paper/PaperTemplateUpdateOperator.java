@@ -9,6 +9,7 @@ import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.ShulkerBox;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.BundleMeta;
@@ -110,6 +111,7 @@ public final class PaperTemplateUpdateOperator {
         }
         return verifyOrReplace(
                 resolved,
+                current,
                 expected,
                 beforeFingerprint,
                 currentIdentity,
@@ -118,22 +120,13 @@ public final class PaperTemplateUpdateOperator {
 
     private ApplyResult verifyOrReplace(
             PaperTemplateUpdateItemReference.Resolved resolved,
+            ItemStack current,
             ItemStack expected,
             String beforeFingerprint,
             LoreItemIdentity currentIdentity,
             PreparedTemplateUpdate update) {
-        String expectedFingerprint;
-        try {
-            expectedFingerprint = PaperItemFingerprint.of(expected);
-        } catch (RuntimeException exception) {
-            return ApplyResult.reviewRequired(
-                    beforeFingerprint,
-                    null,
-                    "Paper could not fingerprint the target lore item: "
-                            + exception.getClass().getSimpleName());
-        }
         if (currentIdentity.equals(update.targetIdentity())) {
-            return expectedFingerprint.equals(beforeFingerprint)
+            return samePhysicalItem(current, expected)
                     ? ApplyResult.alreadyApplied(beforeFingerprint)
                     : ApplyResult.reviewRequired(
                             beforeFingerprint,
@@ -144,7 +137,6 @@ public final class PaperTemplateUpdateOperator {
         return replaceAndVerify(
                 resolved,
                 expected,
-                expectedFingerprint,
                 beforeFingerprint,
                 update.targetIdentity());
     }
@@ -152,7 +144,6 @@ public final class PaperTemplateUpdateOperator {
     private ApplyResult replaceAndVerify(
             PaperTemplateUpdateItemReference.Resolved resolved,
             ItemStack expected,
-            String expectedFingerprint,
             String beforeFingerprint,
             LoreItemIdentity targetIdentity) {
         if (!resolved.replace(expected)) {
@@ -164,7 +155,7 @@ public final class PaperTemplateUpdateOperator {
         ItemStack stored = resolved.readStored();
         String afterFingerprint = fingerprintOrNull(stored);
         if (stored != null
-                && expectedFingerprint.equals(afterFingerprint)
+                && samePhysicalItem(stored, expected)
                 && hasIdentity(stored, targetIdentity)) {
             return ApplyResult.applied(beforeFingerprint, afterFingerprint);
         }
@@ -210,21 +201,35 @@ public final class PaperTemplateUpdateOperator {
         if (!(currentMeta instanceof BlockStateMeta currentBlockMeta)) {
             return;
         }
-        BlockState currentState = currentBlockMeta.getBlockState();
+        BlockState currentState = Objects.requireNonNull(
+                currentBlockMeta.getBlockState(), "current shulker block state");
         if (!(currentState instanceof ShulkerBox currentShulker)) {
             return;
         }
-        ItemStack[] contents = currentShulker.getInventory().getContents();
+        Inventory currentInventory = Objects.requireNonNull(
+                currentShulker.getInventory(), "current shulker inventory");
+        ItemStack[] contents = Objects.requireNonNull(
+                currentInventory.getContents(), "current shulker contents");
         ItemMeta desiredMeta = desired.getItemMeta();
-        if (!(desiredMeta instanceof BlockStateMeta desiredBlockMeta)
-                || !(desiredBlockMeta.getBlockState() instanceof ShulkerBox desiredShulker)) {
+        if (!(desiredMeta instanceof BlockStateMeta desiredBlockMeta)) {
             if (containsItem(contents)) {
                 throw new IllegalArgumentException(
                         "A non-empty shulker lore item cannot change to an incompatible template");
             }
             return;
         }
-        desiredShulker.getInventory().setContents(cloneContents(contents));
+        BlockState desiredState = Objects.requireNonNull(
+                desiredBlockMeta.getBlockState(), "desired shulker block state");
+        if (!(desiredState instanceof ShulkerBox desiredShulker)) {
+            if (containsItem(contents)) {
+                throw new IllegalArgumentException(
+                        "A non-empty shulker lore item cannot change to an incompatible template");
+            }
+            return;
+        }
+        Inventory desiredInventory = Objects.requireNonNull(
+                desiredShulker.getInventory(), "desired shulker inventory");
+        desiredInventory.setContents(cloneContents(contents));
         desiredBlockMeta.setBlockState(desiredShulker);
         if (!desired.setItemMeta(desiredBlockMeta)) {
             throw new IllegalArgumentException("Paper rejected preserved shulker contents");
@@ -259,6 +264,10 @@ public final class PaperTemplateUpdateOperator {
         ItemIdentityReadResult result = identityCodec.readIdentity(item);
         return result instanceof ItemIdentityReadResult.Tracked tracked
                 && expected.equals(tracked.identity());
+    }
+
+    private static boolean samePhysicalItem(ItemStack first, ItemStack second) {
+        return first.getAmount() == second.getAmount() && first.isSimilar(second);
     }
 
     private static boolean containsItem(ItemStack[] contents) {
