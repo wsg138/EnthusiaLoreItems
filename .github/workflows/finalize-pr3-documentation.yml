@@ -1,0 +1,269 @@
+name: Finalize PR 3 documentation
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Write exact final handoff and PR evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          headers=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          code_head="$(git rev-parse HEAD^)"
+          main_sha="$(curl -fsSL "${headers[@]}" "${api}/commits/main" | jq -r .sha)"
+
+          runs="$(curl -fsSL "${headers[@]}" "${api}/actions/runs?head_sha=${code_head}&per_page=100")"
+          ci_run="$(echo "$runs" | jq -c '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and .status == "completed" and .conclusion == "success")] | first')"
+          [ "$ci_run" != null ] || { echo "No successful normal CI run found for ${code_head}"; exit 1; }
+          ci_run_id="$(echo "$ci_run" | jq -r .id)"
+          jobs="$(curl -fsSL "${headers[@]}" "${api}/actions/runs/${ci_run_id}/jobs?per_page=100")"
+          verify_job="$(echo "$jobs" | jq -c '[.jobs[] | select(.name == "verify" and .status == "completed" and .conclusion == "success")] | first')"
+          [ "$verify_job" != null ] || { echo "No successful verify job found"; exit 1; }
+          ci_job_id="$(echo "$verify_job" | jq -r .id)"
+
+          checks="$(curl -fsSL "${headers[@]}" "${api}/commits/${code_head}/check-runs?per_page=100")"
+          codacy="$(echo "$checks" | jq -c '[.check_runs[] | select(.name | ascii_downcase | contains("codacy"))] | first')"
+          [ "$codacy" != null ] || { echo "No Codacy check found"; exit 1; }
+          [ "$(echo "$codacy" | jq -r .status)" = completed ]
+          [ "$(echo "$codacy" | jq -r .conclusion)" = success ]
+          codacy_id="$(echo "$codacy" | jq -r .id)"
+          annotations="$(curl -fsSL "${headers[@]}" "${api}/check-runs/${codacy_id}/annotations?per_page=100")"
+          [ "$(echo "$annotations" | jq 'length')" -eq 0 ] || { echo "Codacy annotations remain"; exit 1; }
+          codacy_title="$(echo "$codacy" | jq -r '.output.title // "success"')"
+          codacy_summary="$(echo "$codacy" | jq -r '.output.summary // "Codacy found no issues in your code"' | tr '\n' ' ')"
+
+          reviews="$(curl -fsSL "${headers[@]}" "${api}/pulls/${PR_NUMBER}/reviews?per_page=100")"
+          [ "$(echo "$reviews" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')" -eq 0 ] || { echo "Requested-change review remains"; exit 1; }
+          graph_query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}'
+          graph_payload="$(jq -n --arg query "$graph_query" --arg owner "wsg138" --arg name "EnthusiaLoreItems" --argjson number "$PR_NUMBER" '{query:$query,variables:{owner:$owner,name:$name,number:$number}}')"
+          graph="$(curl -fsSL -X POST "${headers[@]}" https://api.github.com/graphql --data-binary "$graph_payload")"
+          [ "$(echo "$graph" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length')" -eq 0 ] || { echo "Unresolved review thread remains"; exit 1; }
+
+          cat > handoffs/0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md <<EOF
+          # PR #3 source decomposition and final merge readiness
+
+          Date: 2026-08-03 (America/Indiana/Indianapolis)
+
+          ## Phase
+
+          Implementation PR 2 — Creation, adoption, direct delivery, and protection.
+
+          Repository: \`wsg138/EnthusiaLoreItems\`
+
+          Pull request: #3 — Creation, adoption, direct delivery, and protection
+
+          Branch: \`agent/loreitems-pr2-creation-delivery-protection\`
+
+          Base \`main\` SHA during final source verification: \`${main_sha}\`
+
+          Final verified implementation head before this documentation-only commit: \`${code_head}\`
+
+          ## Reconciliation and completed scope
+
+          Live GitHub and the branch were reconciled after report 0026. The phase remains complete: held-item definition creation and adoption, durable idempotent direct delivery and recovery, hidden identity and forced unstackability, environmental/durability/conversion/terminal-void protection, item-frame and armor-stand display evidence, non-player pickup prevention, duplicate and malformed-stack evidence, immediate and periodic warnings, and read-only paginated anomaly/audit/recovery administration.
+
+          Report 0026's metric-exclusion conclusion was not sufficient for the final PR head because Codacy continued to report five size findings. Those findings were resolved through source decomposition rather than broadening analyzer exclusions.
+
+          ## Final source decomposition
+
+          - \`LoreItemsAdministrationFormatter\` now owns pure anomaly, audit, and recovery formatting while \`LoreItemsAdministrationCommandExecutor\` retains permission, pagination, bounded-query, asynchronous orchestration, and sender-reacquisition behavior.
+          - \`PaperIdentityObservationScanner\` now owns event-bounded inventory/storage scanning, exact location construction, duplicate comparison, and evidence submission while \`PaperIdentityAnomalyListener\` retains the complete Bukkit/Paper event surface.
+          - \`PaperVoidLossCoordinator\` now owns the claimed terminal-void state machine, exact entity/identity/min-height verification, bounded retries, cooldowns, aborts, and review fencing while \`PaperTrackedItemProtectionListener\` retains the full protection policy surface.
+          - \`LoreItemsPlugin\` administration activation is split into scheduling, main-thread activation, component startup, service registration, and rollback helpers without changing lifecycle locking, registration order, or disable-on-failure behavior.
+          - The anomaly-store test fixture now separates definition, observation, and current-state seeding.
+          - Ineffective Java metric exclusions were removed. Codacy Java analysis remains enabled; only the immutable released SQLite migration remains excluded from inapplicable non-SQLite SQL policies.
+          - All temporary diagnostics, source-repair workflows, diagnostic files, and the temporary PR comment were removed before this report.
+
+          ## Important invariants preserved
+
+          - Durable intent precedes physical creation, replacement, or destruction.
+          - Exact-slot identity and fingerprint verification precede durable completion.
+          - Ambiguous post-insertion, post-mutation, and lifecycle outcomes enter \`REVIEW_REQUIRED\`; they are not retried blindly.
+          - Duplicate and malformed physical evidence is preserved rather than repaired, split, deleted, or overwritten.
+          - Terminal void loss still requires durable preparation, exact entity and identity reacquisition, below-min-height verification, and one atomic completion transaction.
+          - Bukkit/Paper access remains on the server thread; mutable Bukkit objects do not cross asynchronous storage boundaries.
+          - Database work, mutation work, queues, claims, retries, cooldowns, scans, pages, event candidate sets, and recovery batches remain bounded.
+          - No chunk is force-loaded, no broad world scan is introduced, and migration \`V1__foundation.sql\` was not edited.
+          - Existing configuration, commands, permissions, service APIs, and durable formats remain compatible.
+
+          ## Harsh review
+
+          A fresh review of the complete PR and the final decomposition checked event parity, item loss and duplication, transaction safety, claim ownership, server-thread ownership, compound locking, queue and retry bounds, startup, degraded mode, reload publication, shutdown callbacks, service registration rollback, migration compatibility, and phase boundaries.
+
+          Every original identity-observation and protection handler remains represented. The extracted duplicate scanner is Paper-thread confined; the extracted terminal-void coordinator keeps compound claim/cooldown state under one lock. Administration service registration and worker/listener startup still roll back and disable the plugin on partial activation failure. No confirmed merge blocker, item-loss path, duplicate-creation path, unbounded-work path, or later-phase functionality remains.
+
+          ## Verification evidence
+
+          Exact implementation head: \`${code_head}\`
+
+          GitHub Actions run: \`${ci_run_id}\`
+
+          Job: \`${ci_job_id}\` (\`verify\`)
+
+          Command: \`gradle --no-daemon clean check\`
+
+          Result: successful complete repository verification on Java 21 and the repository Gradle wrapper/equivalent configuration.
+
+          Exact Codacy check: \`${codacy_id}\`
+
+          Codacy result: \`${codacy_title}\`; ${codacy_summary}; annotation count \`0\`.
+
+          No dependency-capable local checkout was available, so no local test result is claimed. No live Paper/Leaf server behavior is claimed.
+
+          ## Review state
+
+          - No submitted requested-change review remains.
+          - No unresolved pull-request review thread remains.
+          - Historical automated findings were fixed, resolved, or superseded by the source decomposition above.
+
+          ## Phase boundary
+
+          This branch does not implement the next phase. Broad player, Ender Chest, physical-container, dropped-item, nested-shulker/bundle tracking and reconciliation; general nested location paths; paginated GUIs; explicit anomaly/recovery actions; editing; deletion; campaigns; production hardening; and EnthusiaTags integration remain intentionally outside PR #3.
+
+          ## Final merge procedure
+
+          The documentation-only head created with this report must receive exact normal GitHub Actions and Codacy success. Then recheck \`main\`, mergeability, reviews, and threads; merge PR #3 with a normal merge commit; verify the resulting \`main\` SHA; delete the feature branch when supported; and stop without starting the next implementation phase in the same chat.
+          EOF
+          sed -i 's/^          //' handoffs/0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md
+
+          cat > handoffs/CURRENT.md <<'EOF'
+          # Current development handoff
+
+          ## Active work
+
+          - Phase: Implementation PR 2 — Creation, adoption, direct delivery, and protection
+          - Repository: `wsg138/EnthusiaLoreItems`
+          - Pull request: #3 — Creation, adoption, direct delivery, and protection
+          - Branch: `agent/loreitems-pr2-creation-delivery-protection`
+          - Status: phase complete; exact documentation-head verification and the authorized normal merge are the only remaining PR #3 actions
+
+          Always reconcile this handoff with live GitHub. Obtain the current `main` SHA, PR head/status/draft state, mergeability, exact-head GitHub Actions, Codacy, submitted reviews, unresolved threads, requested changes, and comments newer than the latest immutable report. Live GitHub and code take priority.
+
+          If PR #3 is already merged when this file is read from `main`, treat the merge step as complete and advance only to the next legitimate unfinished phase from `docs/implementation-plan.md` in a later chat.
+
+          ## Latest report
+
+          - [`0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md`](0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md)
+
+          Report 0027 supersedes report 0026's metric-exclusion conclusion. It records the final source decomposition, removal of all temporary tooling, fresh harsh review, exact implementation-head Actions and zero-annotation Codacy evidence, preserved invariants, phase boundary, and merge procedure.
+
+          ## Required prior reports
+
+          None. Report 0027 repeats the still-relevant phase decisions, completed scope, defects, invariants, evidence, limitations, and next step. Read earlier reports only when investigating a specific subsystem's history.
+
+          ## Exact next step
+
+          When PR #3 remains open:
+
+          1. verify exact-head normal GitHub Actions success;
+          2. verify exact-head Codacy success with no unresolved valid annotation;
+          3. verify no requested-change review or unresolved thread remains;
+          4. confirm no temporary diagnostic workflow, file, or comment remains;
+          5. confirm `main` has not advanced incompatibly and the PR remains mergeable;
+          6. update the PR body with final exact-head evidence;
+          7. merge with a normal merge commit under the user's authorization;
+          8. verify the resulting `main` SHA and delete the feature branch when supported;
+          9. stop without beginning the next phase in the same chat.
+
+          When PR #3 is already merged, verify `main` and cleanup. A later chat may begin PR 3 — Tracking and reconciliation only after live reconciliation.
+
+          ## Known limitations
+
+          - No live Paper/Leaf server behavior has been tested.
+          - Automated verification does not prove production event ordering, PDC/component serialization, reload/shutdown behavior, command registration, or staff workflow.
+          - Broad tracking/reconciliation, Ender Chest and nested-container paths, paginated GUIs, explicit recovery/anomaly resolution, metrics/backpressure reporting, editing, campaigns, deletion execution, and EnthusiaTags integration remain later-phase work.
+          EOF
+          sed -i 's/^          //' handoffs/CURRENT.md
+
+          python - <<'PY'
+          from pathlib import Path
+
+          index = Path('handoffs/INDEX.md')
+          text = index.read_text()
+          row = '| 0027 | 2026-08-03 | Implementation PR 2 / PR #3 | Final source-level merge verification | [Source decomposition and final merge readiness](0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md) |\n'
+          marker = '\nAppend one row for every new immutable report.'
+          if row not in text:
+              if marker not in text:
+                  raise SystemExit('INDEX append marker missing')
+              text = text.replace(marker, '\n' + row + marker, 1)
+              index.write_text(text)
+
+          development = Path('docs/development.md')
+          text = development.read_text()
+          start = text.index('## Static analysis policy\n')
+          end = text.index('\n## Degraded startup and recovery\n', start)
+          replacement = '''## Static analysis policy
+
+Codacy continues to analyze Java source and tests with its configured Java analyzers. The final size findings were resolved through source decomposition: administration formatting, identity scanning, terminal-void coordination, plugin activation helpers, and test fixture seeding now have focused boundaries. No Java metric exclusion remains. The immutable released SQLite migration remains excluded from non-SQLite dialect and organization-specific SQL policies because released migrations must not be rewritten.
+'''
+          development.write_text(text[:start] + replacement + text[end:])
+          PY
+
+          pr_body=$(cat <<EOF
+          ## Phase
+
+          Implementation PR 2 — Creation, adoption, direct delivery, and protection. The complete documented phase is implemented, source-decomposed, harsh-reviewed, and verified. Tracking/reconciliation and all later-phase work remain outside this branch.
+
+          ## Completed scope
+
+          - Held-item definition creation and exact-slot adoption with durable intent before mutation.
+          - Idempotent direct delivery to self, online/cached players, and UUID targets with offline/full-inventory waiting, join wakeup, restart recovery, claim expiry, and review fencing.
+          - Hidden definition/instance/revision identity, forced unstackability, environmental/durability/conversion protection, and verified terminal void loss.
+          - Ordinary/glow item-frame and armor-stand evidence, non-player pickup prevention, duplicate/malformed evidence preservation, immediate/periodic warnings, and paginated anomaly/audit/recovery commands.
+          - Bounded database, mutation, queue, claim, retry, cooldown, scan, page, and event-candidate work.
+
+          ## Final decomposition and review
+
+          Codacy's five remaining size findings were fixed in source, not hidden: formatting moved to \`LoreItemsAdministrationFormatter\`, identity scanning to \`PaperIdentityObservationScanner\`, terminal-void coordination to \`PaperVoidLossCoordinator\`, plugin activation was split into focused lifecycle helpers, and test fixture seeding was split. Java metric exclusions were removed. All temporary diagnostic/source-repair workflows, files, and comments were removed.
+
+          The fresh harsh review found no lost event handler, item-loss or duplicate-creation path, weakened transaction/claim fence, server-thread violation, unbounded state, lifecycle rollback defect, migration incompatibility, or later-phase implementation.
+
+          ## Verified implementation evidence
+
+          - Head: \`${code_head}\`
+          - GitHub Actions run \`${ci_run_id}\`, verify job \`${ci_job_id}\`
+          - Command: \`gradle --no-daemon clean check\`
+          - Result: success
+          - Codacy check \`${codacy_id}\`: \`${codacy_title}\`; zero annotations
+          - Reviews: no requested changes and no unresolved thread
+          - Base \`main\`: \`${main_sha}\`
+
+          A dependency-capable local checkout was unavailable, so no local test result is claimed. No live Paper/Leaf server behavior is claimed.
+
+          ## Documentation
+
+          - \`handoffs/0027-2026-08-03-pr3-source-decomposition-and-final-merge-readiness.md\`
+          - \`handoffs/CURRENT.md\`
+          - \`handoffs/INDEX.md\`
+          - \`docs/development.md\`
+
+          The resulting documentation-only head must receive exact normal CI and Codacy success before the authorized normal merge commit.
+          EOF
+          )
+          jq -n --arg body "$pr_body" '{body:$body}' > /tmp/pr-body.json
+          curl -fsSL -X PATCH "${headers[@]}" "${api}/pulls/${PR_NUMBER}" --data-binary @/tmp/pr-body.json >/dev/null
+
+          rm -f .github/workflows/finalize-pr3-documentation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "finalize PR 3 source decomposition handoff"
+          git push origin "HEAD:${HEAD_REF}"
