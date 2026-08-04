@@ -32,7 +32,6 @@ class PaperIdentityAnomalyListenerTest {
                     "22222222-2222-2222-2222-222222222222")),
             new TemplateRevision(1));
 
-    private ServerMock server;
     private PlayerMock player;
     private RecordingUseCase useCase;
     private PaperIdentityAnomalyListener listener;
@@ -40,7 +39,7 @@ class PaperIdentityAnomalyListenerTest {
 
     @BeforeEach
     void setUp() {
-        server = MockBukkit.mock();
+        ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
         Plugin plugin = MockBukkit.createMockPlugin();
         useCase = new RecordingUseCase();
