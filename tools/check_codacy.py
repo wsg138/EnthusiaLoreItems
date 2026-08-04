@@ -3,50 +3,48 @@
 
 from __future__ import annotations
 
-import http.client
 import json
 import os
-import ssl
+import subprocess
 import sys
 import time
 
-API_HOST = "api.github.com"
 API_VERSION = "2022-11-28"
 CHECK_NAME = "Codacy Static Code Analysis"
 POLL_SECONDS = 10
 TIMEOUT_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 30
-TLS_CONTEXT = ssl.create_default_context()
 
 
 def request_json(path: str) -> object:
     if not path.startswith("/repos/"):
         raise ValueError("GitHub API path must target a repository")
-    connection = http.client.HTTPSConnection(  # nosec B309
-        API_HOST,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        context=TLS_CONTEXT,
-    )
-    try:
-        connection.request(
+    environment = os.environ.copy()
+    environment["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "--method",
             "GET",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            f"X-GitHub-Api-Version: {API_VERSION}",
             path,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                "X-GitHub-Api-Version": API_VERSION,
-                "User-Agent": "enthusia-loreitems-ci",
-            },
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        env=environment,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(
+            f"GitHub API request failed with exit code {result.returncode}: {detail}"
         )
-        response = connection.getresponse()
-        body = response.read().decode("utf-8", errors="replace")
-        if response.status < 200 or response.status >= 300:
-            raise RuntimeError(
-                f"GitHub API request failed with {response.status}: {body}"
-            )
-        return json.loads(body)
-    finally:
-        connection.close()
+    return json.loads(result.stdout)
 
 
 def find_codacy_check(repository: str, head_sha: str) -> dict[str, object] | None:
