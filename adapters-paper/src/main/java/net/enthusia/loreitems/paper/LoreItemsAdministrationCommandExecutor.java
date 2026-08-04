@@ -95,7 +95,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     }
 
     private void executeBrowse(CommandSender sender, String[] arguments) {
-        if (arguments.length != 1) {
+        if (arguments.length != MIN_PAGE_NUMBER) {
             sender.sendMessage(USAGE);
             return;
         }
@@ -103,7 +103,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             sender.sendMessage("The lore-item browser requires an in-game player.");
             return;
         }
-        trackingGui.openDefinitions(player.getUniqueId(), 1);
+        trackingGui.openDefinitions(player.getUniqueId(), MIN_PAGE_NUMBER);
     }
 
     private LoreItemsAdministrationUseCase resolveUseCase(CommandSender sender) {
@@ -161,7 +161,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             CommandActor actor,
             LoreItemsAdministrationUseCase useCase,
             String[] arguments) {
-        PageRequest request = parsePage(actor, arguments, 1);
+        PageRequest request = parsePage(actor, arguments, MIN_PAGE_NUMBER);
         if (request == null) {
             finishQuery(actor);
             return;
@@ -291,7 +291,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             CommandActor actor,
             LoreItemsAdministrationUseCase useCase,
             String[] arguments) {
-        PageRequest request = parsePage(actor, arguments, 1);
+        PageRequest request = parsePage(actor, arguments, MIN_PAGE_NUMBER);
         if (request == null) {
             finishQuery(actor);
             return;
