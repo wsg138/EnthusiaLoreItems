@@ -52,6 +52,13 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     public boolean submit(TrackingObservationUseCase.Request request) {
         Objects.requireNonNull(request, "request");
+        synchronized (lock) {
+            if (closed) {
+                metrics.increment("tracking.rejected");
+                return false;
+            }
+        }
+
         PendingObservation observation;
         try {
             observation = new PendingObservation(
