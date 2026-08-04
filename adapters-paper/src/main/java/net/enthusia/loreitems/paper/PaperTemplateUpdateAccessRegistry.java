@@ -26,18 +26,18 @@ final class PaperTemplateUpdateAccessRegistry {
 
     void invalidate(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, REFERENCE_PARAMETER);
-        addDirty(snapshots.remove(reference));
+        invalidateSnapshot(reference);
     }
 
     void markIncomplete(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, REFERENCE_PARAMETER);
-        invalidate(reference);
+        invalidateSnapshot(reference);
         incompleteReferences.add(reference);
     }
 
     void remove(PaperInventoryReference reference) {
         Objects.requireNonNull(reference, REFERENCE_PARAMETER);
-        invalidate(reference);
+        invalidateSnapshot(reference);
         incompleteReferences.remove(reference);
     }
 
@@ -70,6 +70,10 @@ final class PaperTemplateUpdateAccessRegistry {
         snapshots.clear();
         incompleteReferences.clear();
         dirtyInstances.clear();
+    }
+
+    private void invalidateSnapshot(PaperInventoryReference reference) {
+        addDirty(snapshots.remove(reference));
     }
 
     private boolean readyToDrain(Collection<? extends Player> onlinePlayers) {
@@ -133,11 +137,11 @@ final class PaperTemplateUpdateAccessRegistry {
     }
 
     private static final class CandidateCount {
-        private final PaperTemplateUpdateScanner.Candidate representativeCandidate;
+        private final PaperTemplateUpdateScanner.Candidate firstCandidate;
         private int occurrences = 1;
 
         private CandidateCount(PaperTemplateUpdateScanner.Candidate firstCandidate) {
-            this.representativeCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
+            this.firstCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
         }
 
         private CandidateCount increment() {
@@ -146,7 +150,7 @@ final class PaperTemplateUpdateAccessRegistry {
         }
 
         private PaperTemplateUpdateScanner.Candidate firstCandidate() {
-            return representativeCandidate;
+            return firstCandidate;
         }
 
         private int referenceCount() {
