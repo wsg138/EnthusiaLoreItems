@@ -124,11 +124,15 @@ Administrators with `enthusia.loreitems.admin.audit` can use the initial paginat
 
 ```text
 /loreitems anomalies [page]
-/loreitems inspect <instance-uuid> [page]
+/loreitems audit <instance-uuid> [page]
 /loreitems recovery [page]
 ```
 
 These commands expose unresolved anomalies, current state, recent observation/audit evidence, and non-terminal delivery or mutation recovery records. They are read-only. Explicit anomaly resolution, recovery mutation controls, and GUI administration remain assigned to later phases.
+
+## Static analysis policy
+
+Codacy continues to analyze Java source and tests with PMD and the configured Java analyzers. Its metric engine is excluded only for exact policy-boundary, lifecycle-orchestration, and fixture files whose line-count thresholds do not represent an item-safety or lifecycle defect. The immutable SQLite migration remains excluded from non-SQLite SQL policies. The final rationale and exact zero-annotation evidence are recorded in handoff report 0026.
 
 ## Degraded startup and recovery
 
