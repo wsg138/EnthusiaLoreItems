@@ -25,6 +25,21 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 public final class SQLiteAnomalyRepository
         implements AnomalyRepository, TrackingAdministrationStore {
     private static final String ANOMALY_ID_ARGUMENT = "anomalyId";
+    private static final String SELECT_COLUMNS =
+            "SELECT anomaly_id, instance_id, definition_id, anomaly_type, status, "
+                    + "detail, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, "
+                    + "resolved_at, resolution_detail, state_revision FROM instance_anomalies";
+    private static final String FIND_BY_ID_SQL = SELECT_COLUMNS + " WHERE anomaly_id = ?";
+    private static final String LIST_ACTIVE_SQL = SELECT_COLUMNS
+            + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
+    private static final String LIST_ACTIVE_WARNINGS_SQL = SELECT_COLUMNS
+            + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
+            + "AND anomaly_type IN ('DUPLICATE_INSTANCE', 'MALFORMED_STACK') "
+            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
+    private static final String LIST_BY_INSTANCE_SQL = SELECT_COLUMNS
+            + " WHERE instance_id = ? "
+            + "ORDER BY first_seen_at DESC, anomaly_id LIMIT ? OFFSET ?";
 
     private final SQLiteStorageRuntime storage;
     private final SQLiteTrackingAdministrationStore trackingAdministration;
@@ -60,8 +75,7 @@ public final class SQLiteAnomalyRepository
     public CompletionStage<Optional<InstanceAnomaly>> findById(UUID anomalyId) {
         Objects.requireNonNull(anomalyId, ANOMALY_ID_ARGUMENT);
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE anomaly_id = ?")) {
+            try (PreparedStatement statement = connection.prepareStatement(FIND_BY_ID_SQL)) {
                 statement.setString(1, anomalyId.toString());
                 try (ResultSet resultSet = statement.executeQuery()) {
                     return resultSet.next()
@@ -76,9 +90,7 @@ public final class SQLiteAnomalyRepository
     public CompletionStage<Page<InstanceAnomaly>> listActive(PageRequest request) {
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
-                            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement = connection.prepareStatement(LIST_ACTIVE_SQL)) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
                 return readPage(statement, request);
@@ -90,10 +102,8 @@ public final class SQLiteAnomalyRepository
     public CompletionStage<Page<InstanceAnomaly>> listActiveWarnings(PageRequest request) {
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE status IN ('OPEN', 'ACKNOWLEDGED') "
-                            + "AND anomaly_type IN ('DUPLICATE_INSTANCE', 'MALFORMED_STACK') "
-                            + "ORDER BY last_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement =
+                    connection.prepareStatement(LIST_ACTIVE_WARNINGS_SQL)) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
                 return readPage(statement, request);
@@ -107,9 +117,8 @@ public final class SQLiteAnomalyRepository
         Objects.requireNonNull(instanceId, "instanceId");
         Objects.requireNonNull(request, "request");
         return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE instance_id = ? "
-                            + "ORDER BY first_seen_at DESC, anomaly_id LIMIT ? OFFSET ?")) {
+            try (PreparedStatement statement =
+                    connection.prepareStatement(LIST_BY_INSTANCE_SQL)) {
                 statement.setString(1, instanceId.value().toString());
                 statement.setInt(2, request.limit() + 1);
                 statement.setInt(3, request.offset());
@@ -222,12 +231,6 @@ public final class SQLiteAnomalyRepository
                     LoreItemsAdministrationUseCase.DuplicateResolutionRequest request,
                     Instant resolvedAt) {
         return trackingAdministration.resolveDuplicate(request, resolvedAt);
-    }
-
-    private static String selectColumns() {
-        return "SELECT anomaly_id, instance_id, definition_id, anomaly_type, status, "
-                + "detail, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, "
-                + "resolved_at, resolution_detail, state_revision FROM instance_anomalies";
     }
 
     private static Page<InstanceAnomaly> readPage(
