@@ -53,7 +53,7 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
                 setNullableString(statement, 4, mutation.instanceId() == null
                         ? null
                         : mutation.instanceId().value().toString());
-                setNullableInteger(statement, 5, mutation.desiredRevision());
+                setNullableLong(statement, 5, mutation.desiredRevision());
                 statement.setString(6, PendingMutationState.PENDING.name());
                 setNullableLong(statement, 7, mutation.nextAttemptAtEpochMillis());
                 statement.setLong(8, mutation.createdAtEpochMillis());
@@ -269,8 +269,8 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
     private static PendingMutationRecord readRecord(ResultSet resultSet) throws SQLException {
         String definitionValue = resultSet.getString("definition_id");
         String instanceValue = resultSet.getString("instance_id");
-        int desiredRevisionValue = resultSet.getInt("desired_revision");
-        Integer desiredRevision = resultSet.wasNull() ? null : desiredRevisionValue;
+        long desiredRevisionValue = resultSet.getLong("desired_revision");
+        Long desiredRevision = resultSet.wasNull() ? null : desiredRevisionValue;
         long expiresValue = resultSet.getLong("claim_expires_at");
         Long claimExpiresAt = resultSet.wasNull() ? null : expiresValue;
         long nextAttemptValue = resultSet.getLong("next_attempt_at");
@@ -300,15 +300,6 @@ public final class SQLitePendingMutationRepository implements PendingMutationRep
             statement.setNull(index, Types.VARCHAR);
         } else {
             statement.setString(index, value);
-        }
-    }
-
-    private static void setNullableInteger(PreparedStatement statement, int index, Integer value)
-            throws SQLException {
-        if (value == null) {
-            statement.setNull(index, Types.INTEGER);
-        } else {
-            statement.setInt(index, value);
         }
     }
 

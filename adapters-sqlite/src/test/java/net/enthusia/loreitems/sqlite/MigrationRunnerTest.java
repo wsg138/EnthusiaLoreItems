@@ -12,11 +12,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerTest {
+    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 2;
+
     @TempDir
     Path temporaryDirectory;
 
     @Test
-    void createsTheFoundationSchemaAndCanRunAgain() throws SQLException {
+    void createsTheCurrentSchemaAndCanRunAgain() throws SQLException {
         SQLiteConnectionFactory factory =
                 new SQLiteConnectionFactory(temporaryDirectory.resolve("loreitems.db"), 5_000);
         MigrationRunner runner = new MigrationRunner();
@@ -25,10 +27,9 @@ class MigrationRunnerTest {
             runner.migrate(connection);
             runner.migrate(connection);
 
-            assertEquals(1, countSchemaHistory(connection));
-            assertEquals(
-                    1,
-                    countDirectDeliveryTables(connection));
+            assertEquals(EXPECTED_SCHEMA_VERSION_COUNT, countSchemaHistory(connection));
+            assertEquals(1, countTable(connection, "direct_deliveries"));
+            assertEquals(1, countIndex(connection, "uq_template_update_instance_revision"));
         }
     }
 
@@ -56,13 +57,24 @@ class MigrationRunnerTest {
         }
     }
 
-    private static int countDirectDeliveryTables(Connection connection) throws SQLException {
+    private static int countTable(Connection connection, String tableName) throws SQLException {
+        return countSchemaObject(connection, "table", tableName);
+    }
+
+    private static int countIndex(Connection connection, String indexName) throws SQLException {
+        return countSchemaObject(connection, "index", indexName);
+    }
+
+    private static int countSchemaObject(
+            Connection connection, String type, String name) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM sqlite_master "
-                             + "WHERE type = 'table' AND name = 'direct_deliveries'");
-             ResultSet resultSet = query.executeQuery()) {
-            resultSet.next();
-            return resultSet.getInt(1);
+                     "SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?")) {
+            query.setString(1, type);
+            query.setString(2, name);
+            try (ResultSet resultSet = query.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
         }
     }
 
