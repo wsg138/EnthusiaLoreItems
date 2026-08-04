@@ -323,10 +323,7 @@ public final class SQLiteTemplateRevisionRolloutStore
             statement.setInt(2, request.offset());
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    candidates.add(new TemplateRevisionRolloutCandidate(
-                            new LoreDefinitionId(UUID.fromString(
-                                    resultSet.getString("definition_id"))),
-                            new TemplateRevision(resultSet.getLong("current_revision"))));
+                    candidates.add(readRolloutCandidate(resultSet));
                 }
             }
         }
@@ -335,6 +332,13 @@ public final class SQLiteTemplateRevisionRolloutStore
             candidates.remove(candidates.size() - 1);
         }
         return new Page<>(candidates, request.offset(), request.limit(), hasMore);
+    }
+
+    private static TemplateRevisionRolloutCandidate readRolloutCandidate(ResultSet resultSet)
+            throws SQLException {
+        return new TemplateRevisionRolloutCandidate(
+                new LoreDefinitionId(UUID.fromString(resultSet.getString("definition_id"))),
+                new TemplateRevision(resultSet.getLong("current_revision")));
     }
 
     private static Optional<DefinitionState> findDefinitionState(

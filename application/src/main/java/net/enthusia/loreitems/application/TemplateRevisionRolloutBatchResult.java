@@ -11,27 +11,7 @@ public record TemplateRevisionRolloutBatchResult(
         if (scheduledCount < 0) {
             throw new IllegalArgumentException("scheduledCount must not be negative");
         }
-        switch (status) {
-            case SCHEDULED -> {
-                if (scheduledCount < 1 || !hasMore) {
-                    throw new IllegalArgumentException(
-                            "A scheduled batch must contain work and leave more work");
-                }
-            }
-            case COMPLETE -> {
-                if (hasMore) {
-                    throw new IllegalArgumentException(
-                            "A completed rollout must not report more work");
-                }
-            }
-            case DEFINITION_NOT_FOUND, DEFINITION_DELETED, STALE_REVISION -> {
-                if (scheduledCount != 0 || hasMore) {
-                    throw new IllegalArgumentException(
-                            "A rejected batch must not report scheduled work");
-                }
-            }
-            default -> throw new IllegalStateException("Unhandled rollout batch status: " + status);
-        }
+        validateState(status, scheduledCount, hasMore);
     }
 
     public static TemplateRevisionRolloutBatchResult scheduled(
@@ -58,5 +38,40 @@ public record TemplateRevisionRolloutBatchResult(
             throw new IllegalArgumentException("A successful batch status cannot be rejected");
         }
         return new TemplateRevisionRolloutBatchResult(status, 0, false);
+    }
+
+    private static void validateState(
+            TemplateRevisionRolloutBatchStatus status,
+            int scheduledCount,
+            boolean hasMore) {
+        switch (status) {
+            case SCHEDULED -> validateScheduled(scheduledCount, hasMore);
+            case COMPLETE -> validateComplete(hasMore);
+            case DEFINITION_NOT_FOUND, DEFINITION_DELETED, STALE_REVISION ->
+                    validateRejected(scheduledCount, hasMore);
+            default -> throw new IllegalStateException(
+                    "Unhandled rollout batch status: " + status);
+        }
+    }
+
+    private static void validateScheduled(int scheduledCount, boolean hasMore) {
+        if (scheduledCount < 1 || !hasMore) {
+            throw new IllegalArgumentException(
+                    "A scheduled batch must contain work and leave more work");
+        }
+    }
+
+    private static void validateComplete(boolean hasMore) {
+        if (hasMore) {
+            throw new IllegalArgumentException(
+                    "A completed rollout must not report more work");
+        }
+    }
+
+    private static void validateRejected(int scheduledCount, boolean hasMore) {
+        if (scheduledCount != 0 || hasMore) {
+            throw new IllegalArgumentException(
+                    "A rejected batch must not report scheduled work");
+        }
     }
 }

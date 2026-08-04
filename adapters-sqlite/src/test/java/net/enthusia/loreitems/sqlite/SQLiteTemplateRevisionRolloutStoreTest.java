@@ -49,6 +49,8 @@ class SQLiteTemplateRevisionRolloutStoreTest {
         Scenario scenario = seed(database, 3);
         startFirstBatch(database, scenario);
         finishAfterRestart(database, scenario);
+
+        assertTrue(rolloutPlanningIsComplete(database, scenario));
     }
 
     @Test
@@ -230,19 +232,44 @@ class SQLiteTemplateRevisionRolloutStoreTest {
             SQLiteInstanceRepository instances = new SQLiteInstanceRepository(runtime);
             List<LoreInstanceId> instanceIds = new ArrayList<>();
             for (int index = 0; index < instanceCount; index++) {
-                LoreInstanceId instanceId = new LoreInstanceId(UUID.randomUUID());
-                instanceIds.add(instanceId);
-                instances.create(new LoreInstance(
-                                instanceId,
-                                definitionId,
-                                REVISION_ONE,
-                                REVISION_ONE,
-                                LoreInstanceLifecycle.ACTIVE,
-                                10L + index,
-                                null))
-                        .toCompletableFuture().join();
+                instanceIds.add(createActiveInstance(instances, definitionId, 10L + index));
             }
             return new Scenario(definitionId, List.copyOf(instanceIds));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    private static LoreInstanceId createActiveInstance(
+            SQLiteInstanceRepository instances,
+            LoreDefinitionId definitionId,
+            long createdAtEpochMillis) {
+        LoreInstanceId instanceId = new LoreInstanceId(UUID.randomUUID());
+        instances.create(new LoreInstance(
+                        instanceId,
+                        definitionId,
+                        REVISION_ONE,
+                        REVISION_ONE,
+                        LoreInstanceLifecycle.ACTIVE,
+                        createdAtEpochMillis,
+                        null))
+                .toCompletableFuture().join();
+        return instanceId;
+    }
+
+    private static boolean rolloutPlanningIsComplete(Path database, Scenario scenario) {
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            SQLiteTemplateRevisionRolloutStore store =
+                    new SQLiteTemplateRevisionRolloutStore(runtime);
+            boolean noIncompleteRollouts = store.listIncomplete(PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty();
+            boolean allInstancesTargetRevision = instances(runtime, scenario.definitionId())
+                    .items().stream()
+                    .allMatch(instance -> instance.desiredRevision().equals(REVISION_TWO));
+            return noIncompleteRollouts
+                    && allInstancesTargetRevision
+                    && mutations(runtime).items().size() == scenario.instanceIds().size();
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
