@@ -2,19 +2,18 @@ package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
-import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -64,7 +63,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
     private final MetricsPort metrics;
-    private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
+    private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
     private final PaperTrackingCoordinator coordinator;
     private final Queue<ScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
@@ -120,15 +119,17 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
-        InventoryReference source = InventoryReference.capture(event.getSource());
-        InventoryReference destination = InventoryReference.capture(event.getDestination());
+        Optional<InventorySnapshot> source = InventorySnapshot.capture(event.getSource());
+        Optional<InventorySnapshot> destination =
+                InventorySnapshot.capture(event.getDestination());
         LoreItemIdentity identity = trackedIdentity(event.getItem());
         scheduleNextTick(() -> {
             scanReference(source, "inventory-move-source");
-            Inventory inventory = destination == null ? null : destination.resolve(plugin);
-            if (inventory != null && identity != null) {
-                submitMatchingIdentity(inventory, identity, "inventory-move-destination");
-            }
+            destination.flatMap(reference -> reference.resolve(plugin)).ifPresent(inventory -> {
+                if (identity != null) {
+                    submitMatchingIdentity(inventory, identity, "inventory-move-destination");
+                }
+            });
             scanReference(destination, "inventory-move-destination");
         });
     }
@@ -142,13 +143,15 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "hopper-pickup-source");
-        InventoryReference destination = InventoryReference.capture(event.getInventory());
+        Optional<InventorySnapshot> destination =
+                InventorySnapshot.capture(event.getInventory());
         LoreItemIdentity identity = trackedIdentity(item.getItemStack());
         scheduleNextTick(() -> {
-            Inventory inventory = destination == null ? null : destination.resolve(plugin);
-            if (inventory != null && identity != null) {
-                submitMatchingIdentity(inventory, identity, "hopper-pickup-destination");
-            }
+            destination.flatMap(reference -> reference.resolve(plugin)).ifPresent(inventory -> {
+                if (identity != null) {
+                    submitMatchingIdentity(inventory, identity, "hopper-pickup-destination");
+                }
+            });
             scanReference(destination, "hopper-pickup-destination");
         });
     }
@@ -222,7 +225,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             scanInventory(
                     container.getInventory(),
                     LocationDescriptor.Type.BLOCK_CONTAINER,
-                    blockKey(event.getBlock().getLocation()),
+                    PaperInventoryReference.blockKey(event.getBlock().getLocation()),
                     TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                     "container-break");
@@ -332,38 +335,59 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
     }
 
-    private void scanReference(InventoryReference reference, String source) {
-        if (reference == null) {
-            return;
-        }
-        Inventory inventory = reference.resolve(plugin);
-        if (inventory != null) {
-            scanInventory(
-                    inventory,
-                    reference.type(),
-                    reference.key(),
-                    TrackingObservationUseCase.Presence.PRESENT,
-                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                    source);
-        }
+    private void scanReference(Optional<InventorySnapshot> snapshot, String source) {
+        snapshot.ifPresent(reference -> reference.resolve(plugin).ifPresent(inventory ->
+                scanInventory(
+                        inventory,
+                        reference.type(),
+                        reference.key(),
+                        TrackingObservationUseCase.Presence.PRESENT,
+                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                        source)));
     }
 
     private void scanPlayerUnique(Player player, String source) {
-        ScanLimit limit = new ScanLimit(MAX_ITEMS_PER_SCAN);
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
-        collectArray(inventory.getStorageContents(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, SLOT_PREFIX, observations, limit);
-        collectArray(inventory.getArmorContents(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "armor:", observations, limit);
-        collectItem(inventory.getItemInOffHand(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "offhand", observations, 0, limit);
-        collectItem(player.getItemOnCursor(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "cursor", observations, 0, limit);
-        collectArray(player.getEnderChest().getContents(),
+        collector.collectArray(
+                inventory.getStorageContents(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                SLOT_PREFIX,
+                observations,
+                limit);
+        collector.collectArray(
+                inventory.getArmorContents(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "armor:",
+                observations,
+                limit);
+        collector.collectItem(
+                inventory.getItemInOffHand(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "offhand",
+                observations,
+                0,
+                limit);
+        collector.collectItem(
+                player.getItemOnCursor(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "cursor",
+                observations,
+                0,
+                limit);
+        collector.collectArray(
+                player.getEnderChest().getContents(),
                 LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                key, SLOT_PREFIX, observations, limit);
+                key,
+                SLOT_PREFIX,
+                observations,
+                limit);
         observations.forEach((identity, locations) -> {
             TrackingObservationUseCase.EvidenceMode mode = locations.size() == 1
                     ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
@@ -378,89 +402,68 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         });
     }
 
-    private void collectArray(
-            ItemStack[] contents,
-            LocationDescriptor.Type type,
-            String key,
-            String prefix,
-            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
-            ScanLimit limit) {
-        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            collectItem(contents[slot], type, key, prefix + slot, observations, 0, limit);
-        }
-    }
-
-    private void collectItem(
-            ItemStack item,
-            LocationDescriptor.Type type,
-            String key,
-            String path,
-            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
-            int depth,
-            ScanLimit limit) {
-        if (item == null || item.getType().isAir() || !limit.hasRemaining()) {
-            return;
-        }
-        limit.consume();
-        LoreItemIdentity identity = trackedIdentity(item);
-        if (identity != null) {
-            observations.computeIfAbsent(identity, ignored -> new ArrayList<>())
-                    .add(new LocationDescriptor(type, key, path));
-        }
-        if (depth >= MAX_NESTING_DEPTH || !limit.hasRemaining()) {
-            return;
-        }
-        ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta
-                && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
-            collectNested(shulker.getInventory().getContents(), key, path + "/shulker:",
-                    observations, depth, limit);
-        }
-        if (meta instanceof BundleMeta bundle) {
-            collectNested(bundle.getItems().toArray(ItemStack[]::new), key,
-                    path + "/bundle:", observations, depth, limit);
-        }
-    }
-
-    private void collectNested(
-            ItemStack[] contents,
-            String key,
-            String prefix,
-            Map<LoreItemIdentity, List<LocationDescriptor>> observations,
-            int depth,
-            ScanLimit limit) {
-        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
-            collectItem(contents[index], LocationDescriptor.Type.NESTED_CONTAINER,
-                    key, prefix + index, observations, depth + 1, limit);
-        }
-    }
-
     private void scanPlayer(
             Player player,
             TrackingObservationUseCase.Presence presence,
             TrackingObservationUseCase.EvidenceMode mode,
             String source) {
-        ScanLimit limit = new ScanLimit(MAX_ITEMS_PER_SCAN);
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         String key = "player:" + player.getUniqueId();
         PlayerInventory inventory = player.getInventory();
-        scanArray(inventory.getStorageContents(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, SLOT_PREFIX, presence, mode, source, limit);
-        scanArray(inventory.getArmorContents(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "armor:", presence, mode, source, limit);
-        scanItem(inventory.getItemInOffHand(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "offhand", presence, mode, source, 0, limit);
-        scanItem(player.getItemOnCursor(), LocationDescriptor.Type.PLAYER_INVENTORY,
-                key, "cursor", presence, mode, source, 0, limit);
-        scanArray(player.getEnderChest().getContents(),
+        scanArray(
+                inventory.getStorageContents(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                SLOT_PREFIX,
+                presence,
+                mode,
+                source,
+                limit);
+        scanArray(
+                inventory.getArmorContents(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "armor:",
+                presence,
+                mode,
+                source,
+                limit);
+        scanItem(
+                inventory.getItemInOffHand(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "offhand",
+                presence,
+                mode,
+                source,
+                0,
+                limit);
+        scanItem(
+                player.getItemOnCursor(),
+                LocationDescriptor.Type.PLAYER_INVENTORY,
+                key,
+                "cursor",
+                presence,
+                mode,
+                source,
+                0,
+                limit);
+        scanArray(
+                player.getEnderChest().getContents(),
                 LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                key, SLOT_PREFIX, presence, mode, source + "-ender", limit);
+                key,
+                SLOT_PREFIX,
+                presence,
+                mode,
+                source + "-ender",
+                limit);
     }
 
     private void scanChunk(
             Chunk chunk,
             TrackingObservationUseCase.Presence presence,
             String source) {
-        ScanLimit limit = new ScanLimit(MAX_ITEMS_PER_SCAN);
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         for (Entity entity : chunk.getEntities()) {
             if (!limit.hasRemaining()) {
                 break;
@@ -483,7 +486,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 scanInventory(
                         container.getInventory(),
                         LocationDescriptor.Type.BLOCK_CONTAINER,
-                        blockKey(state.getLocation()),
+                        PaperInventoryReference.blockKey(state.getLocation()),
                         presence,
                         TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                         source + "-container",
@@ -504,8 +507,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             TrackingObservationUseCase.EvidenceMode mode,
             String source) {
-        scanInventory(inventory, type, key, presence, mode, source,
-                new ScanLimit(MAX_ITEMS_PER_SCAN));
+        scanInventory(
+                inventory,
+                type,
+                key,
+                presence,
+                mode,
+                source,
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
     }
 
     private void scanInventory(
@@ -515,12 +524,19 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             TrackingObservationUseCase.EvidenceMode mode,
             String source,
-            ScanLimit limit) {
+            PaperScanLimit limit) {
         if (type == null || key == null) {
             return;
         }
-        scanArray(inventory.getContents(), type, key, SLOT_PREFIX,
-                presence, mode, source, limit);
+        scanArray(
+                inventory.getContents(),
+                type,
+                key,
+                SLOT_PREFIX,
+                presence,
+                mode,
+                source,
+                limit);
     }
 
     private void scanArray(
@@ -531,10 +547,18 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             TrackingObservationUseCase.EvidenceMode mode,
             String source,
-            ScanLimit limit) {
+            PaperScanLimit limit) {
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            scanItem(contents[slot], type, key, prefix + slot,
-                    presence, mode, source, 0, limit);
+            scanItem(
+                    contents[slot],
+                    type,
+                    key,
+                    prefix + slot,
+                    presence,
+                    mode,
+                    source,
+                    0,
+                    limit);
         }
     }
 
@@ -547,7 +571,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.EvidenceMode mode,
             String source,
             int depth,
-            ScanLimit limit) {
+            PaperScanLimit limit) {
         if (item == null || item.getType().isAir() || !limit.hasRemaining()) {
             return;
         }
@@ -561,17 +585,31 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
             ItemStack[] nested = shulker.getInventory().getContents();
             for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
-                scanItem(nested[slot], LocationDescriptor.Type.NESTED_CONTAINER,
-                        key, path + "/shulker:" + slot,
-                        presence, mode, source, depth + 1, limit);
+                scanItem(
+                        nested[slot],
+                        LocationDescriptor.Type.NESTED_CONTAINER,
+                        key,
+                        path + "/shulker:" + slot,
+                        presence,
+                        mode,
+                        source,
+                        depth + 1,
+                        limit);
             }
         }
         if (meta instanceof BundleMeta bundle) {
             List<ItemStack> nested = bundle.getItems();
             for (int index = 0; index < nested.size() && limit.hasRemaining(); index++) {
-                scanItem(nested.get(index), LocationDescriptor.Type.NESTED_CONTAINER,
-                        key, path + "/bundle:" + index,
-                        presence, mode, source, depth + 1, limit);
+                scanItem(
+                        nested.get(index),
+                        LocationDescriptor.Type.NESTED_CONTAINER,
+                        key,
+                        path + "/bundle:" + index,
+                        presence,
+                        mode,
+                        source,
+                        depth + 1,
+                        limit);
             }
         }
     }
@@ -580,19 +618,20 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             Inventory inventory,
             LoreItemIdentity identity,
             String source) {
-        InventoryReference reference = InventoryReference.capture(inventory);
-        if (reference == null) {
+        Optional<InventorySnapshot> snapshot = InventorySnapshot.capture(inventory);
+        if (snapshot.isEmpty()) {
             return;
         }
-        List<LocationDescriptor> matches = new ArrayList<>();
-        ScanLimit limit = new ScanLimit(MAX_ITEMS_PER_SCAN);
+        InventorySnapshot target = snapshot.orElseThrow();
+        List<LocationDescriptor> matches = new java.util.ArrayList<>();
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
             ItemStack item = contents[slot];
             limit.consume();
             if (identity.equals(trackedIdentity(item))) {
                 matches.add(new LocationDescriptor(
-                        reference.type(), reference.key(), SLOT_PREFIX + slot));
+                        target.type(), target.key(), SLOT_PREFIX + slot));
             }
         }
         TrackingObservationUseCase.EvidenceMode mode = matches.size() == 1
@@ -621,13 +660,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private LoreItemIdentity trackedIdentity(ItemStack item) {
-        if (item == null || item.getType().isAir()) {
-            return null;
-        }
-        ItemIdentityReadResult result = identityCodec.readIdentity(item);
-        return result instanceof ItemIdentityReadResult.Tracked tracked
-                ? tracked.identity()
-                : null;
+        return collector.trackedIdentity(item);
     }
 
     private void scheduleNextTick(Runnable action) {
@@ -670,14 +703,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 "item-entity");
     }
 
-    private static String blockKey(Location location) {
-        return Objects.requireNonNull(location.getWorld(), "location world")
-                        .getKey().toString()
-                + ':' + location.getBlockX()
-                + ':' + location.getBlockY()
-                + ':' + location.getBlockZ();
-    }
-
     @Override
     public void close() {
         closed = true;
@@ -694,93 +719,42 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         HandlerList.unregisterAll(this);
     }
 
-    private enum InventoryKind {
-        PLAYER_MAIN,
-        PLAYER_ENDER,
-        BLOCK,
-        ENTITY
-    }
-
-    private record InventoryReference(
-            InventoryKind kind,
-            UUID holderId,
-            UUID worldId,
-            int x,
-            int y,
-            int z,
+    private record InventorySnapshot(
+            PaperInventoryReference reference,
             LocationDescriptor.Type type,
             String key) {
-        private static InventoryReference capture(Inventory inventory) {
-            if (inventory == null) {
-                return null;
+        private static Optional<InventorySnapshot> capture(Inventory inventory) {
+            Optional<PaperInventoryReference> reference = PaperInventoryReference.capture(inventory);
+            if (reference.isEmpty()) {
+                return Optional.empty();
             }
             InventoryHolder holder = inventory.getHolder();
             if (holder instanceof Player player) {
                 boolean main = inventory instanceof PlayerInventory;
-                return new InventoryReference(
-                        main ? InventoryKind.PLAYER_MAIN : InventoryKind.PLAYER_ENDER,
-                        player.getUniqueId(),
-                        null,
-                        0,
-                        0,
-                        0,
+                return Optional.of(new InventorySnapshot(
+                        reference.orElseThrow(),
                         main ? LocationDescriptor.Type.PLAYER_INVENTORY
                                 : LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                        "player:" + player.getUniqueId());
+                        "player:" + player.getUniqueId()));
             }
             Location location = inventory.getLocation();
             if (location != null && location.getWorld() != null) {
-                return new InventoryReference(
-                        InventoryKind.BLOCK,
-                        null,
-                        location.getWorld().getUID(),
-                        location.getBlockX(),
-                        location.getBlockY(),
-                        location.getBlockZ(),
+                return Optional.of(new InventorySnapshot(
+                        reference.orElseThrow(),
                         LocationDescriptor.Type.BLOCK_CONTAINER,
-                        blockKey(location));
+                        PaperInventoryReference.blockKey(location)));
             }
             if (holder instanceof Entity entity) {
-                return new InventoryReference(
-                        InventoryKind.ENTITY,
-                        entity.getUniqueId(),
-                        null,
-                        0,
-                        0,
-                        0,
+                return Optional.of(new InventorySnapshot(
+                        reference.orElseThrow(),
                         LocationDescriptor.Type.BLOCK_CONTAINER,
-                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId());
+                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
             }
-            return null;
+            return Optional.empty();
         }
 
-        private Inventory resolve(Plugin plugin) {
-            return switch (kind) {
-                case PLAYER_MAIN -> {
-                    Player player = plugin.getServer().getPlayer(holderId);
-                    yield player == null ? null : player.getInventory();
-                }
-                case PLAYER_ENDER -> {
-                    Player player = plugin.getServer().getPlayer(holderId);
-                    yield player == null ? null : player.getEnderChest();
-                }
-                case BLOCK -> {
-                    World world = plugin.getServer().getWorld(worldId);
-                    if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
-                        yield null;
-                    }
-                    BlockState state = world.getBlockAt(x, y, z).getState();
-                    yield state instanceof Container container
-                            ? container.getInventory()
-                            : null;
-                }
-                case ENTITY -> {
-                    Entity entity = plugin.getServer().getEntity(holderId);
-                    yield entity instanceof InventoryHolder inventoryHolder
-                            ? inventoryHolder.getInventory()
-                            : null;
-                }
-            };
+        private Optional<Inventory> resolve(Plugin plugin) {
+            return reference.resolve(plugin);
         }
     }
 
@@ -835,24 +809,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         world.getChunkAt(chunk.x(), chunk.z()),
                         presence,
                         source);
-            }
-        }
-    }
-
-    private static final class ScanLimit {
-        private int remaining;
-
-        private ScanLimit(int remaining) {
-            this.remaining = remaining;
-        }
-
-        private boolean hasRemaining() {
-            return remaining > 0;
-        }
-
-        private void consume() {
-            if (remaining > 0) {
-                remaining--;
             }
         }
     }
