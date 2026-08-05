@@ -1,0 +1,25 @@
+name: WP-01 source export
+
+on:
+  push:
+    branches:
+      - agent/wp-01-editor-template-management
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package source
+        run: |
+          tar --exclude=.git -czf "$RUNNER_TEMP/enthusia-lore-items-source.tgz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wp01-source
+          path: ${{ runner.temp }}/enthusia-lore-items-source.tgz
+          if-no-files-found: error
+          retention-days: 1
