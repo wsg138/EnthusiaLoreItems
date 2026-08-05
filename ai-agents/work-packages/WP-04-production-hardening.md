@@ -27,7 +27,7 @@ Close automated reliability, upgrade, performance, operational-documentation, st
 8. Run and remediate static analysis and complexity without broad suppressions. Every suppression must be narrow, justified beside the code, and documented. Keep Codacy at the repository's required quality level.
 9. Complete operator documentation: installation/upgrade, configuration, permissions, commands/GUI, metrics, backups, online/offline backup constraints, restore, integrity check, degraded/read-only recovery, queue/review recovery, deleted-marker handling, campaign marker repair, staged deployment, rollback, and incident collection.
 10. Commit a complete manual acceptance checklist for WP-05, with unique case IDs, prerequisites, exact steps, expected durable/database/physical result, evidence required, cleanup, and rollback for the full matrix in WP-05.
-11. Set the release-candidate version to `1.0.0-rc.1`, generate the shaded jar, SBOM or dependency manifest, SHA-256 checksum, test reports, and release notes from an exact commit. Configure or use GitHub Actions so the exact verified merge commit can publish a GitHub prerelease `v1.0.0-rc.1` with those artifacts.
+11. Set the release-candidate version to `1.0.0-rc.1`, generate the shaded jar, CycloneDX JSON SBOM, Gradle dependency manifest, SHA-256 checksum, test reports, and release notes from an exact commit. Configure or use GitHub Actions so the exact verified merge commit can publish a GitHub prerelease `v1.0.0-rc.1` with those artifacts.
 12. After the normal WP-04 merge and exact `main` verification, publish/verify the `v1.0.0-rc.1` prerelease from that merge commit. This is WP-04 finalization, not permission to begin WP-05.
 
 ## Exact acceptance criteria
@@ -39,7 +39,7 @@ Close automated reliability, upgrade, performance, operational-documentation, st
 - All fixed profile scenarios meet every stated pass threshold and committed results identify the exact code/config/environment.
 - Full CI and exact-head Codacy are clean without broad suppression or unsupported claims.
 - Operator/recovery/rollback docs and the WP-05 case matrix are complete enough to execute without inventing steps.
-- GitHub prerelease `v1.0.0-rc.1` points to the verified WP-04 merge commit and contains the shaded jar, checksum, dependency manifest/SBOM, and release notes.
+- GitHub prerelease `v1.0.0-rc.1` points to the verified WP-04 merge commit and contains the shaded jar, checksum, CycloneDX JSON SBOM, Gradle dependency manifest, and release notes.
 - No document calls the RC production-approved or claims live Paper/Leaf behavior was tested.
 
 ## Required automated tests
