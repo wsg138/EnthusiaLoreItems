@@ -15,7 +15,7 @@ The package file is the complete work assignment. Complete the entire package. D
 Before changing anything:
 
 1. Query live GitHub for the current `main` SHA, open and draft pull requests, active branches, recent merges, requested changes, unresolved review threads, commit checks, workflow runs, and commit statuses.
-2. Read `REQUIREMENTS.md`, `docs/architecture.md`, `docs/implementation-plan.md`, `ai-agents/AGENTS.md`, `ai-agents/WORKSPACE-STATE.md`, `ai-agents/WORK-QUEUE.md`, the assigned package file, and `ai-agents/reports/agent-handoffs/latest.md` from live `main`.
+2. Read `REQUIREMENTS.md`, `docs/architecture.md`, `docs/implementation-plan.md`, `ai-agents/AGENTS.md`, `ai-agents/WORKSPACE-STATE.md`, `ai-agents/WORK-QUEUE.md`, the assigned package file, and `ai-agents/reports/agent-handoffs/latest.md` from live LoreItems `main`. For WP-06, also read the corresponding live EnthusiaTags requirements, architecture, build, reward, persistence, and handoff files.
 3. Reconcile those files with live GitHub. Live commits, pull requests, reviews, and checks outrank snapshots and handoffs.
 4. Search for an existing branch or pull request for the assigned package. Resume it when it exists. Do not create a replacement PR merely because the previous worker stopped or failed.
 5. If the assigned package is already merged, verify `main`, update no code, report the verified state, and stop. Do not advance to the next package.
@@ -56,7 +56,7 @@ Before merge:
 
 1. Every applicable GitHub Actions job for the exact head is `completed/success`.
 2. The repository's `Verify exact-head Codacy` step passed for the exact head, and any external Codacy status/check required by the repository is successful.
-3. The full Gradle verification, repository-tool tests, architecture checks, static analysis, and new-code complexity checks required by CI passed.
+3. The complete repository-native verification passed: LoreItems requires its Gradle, repository-tool, architecture, static-analysis, and complexity checks; EnthusiaTags requires its Maven build/tests plus the exact-head Codacy gate added by WP-06.
 4. No review is in `CHANGES_REQUESTED` state.
 5. Every actionable review comment is resolved and the unresolved review-thread count is zero.
 6. An independent review covers the package's required risk list and records either approval or no remaining blockers on GitHub.
@@ -66,11 +66,13 @@ Never report a check as passed from memory, a branch name, a screenshot without 
 
 ## Durable state and handoff
 
-GitHub is the only durable source of truth. Before merge, update in the same PR:
+GitHub is the only durable source of truth. Before merge, update these files in the same LoreItems PR for WP-01 through WP-05:
 
 - `ai-agents/WORKSPACE-STATE.md` with the package's exact status and evidence snapshot;
 - `ai-agents/WORK-QUEUE.md` only for the package status/count/progress fields allowed by its fixed contract, never to change package scope or weights;
 - `ai-agents/reports/agent-handoffs/latest.md` with exact branch, PR, head SHA, checks, reviews, blockers, and next action.
+
+For WP-06, record the live Tags PR evidence in GitHub during implementation, then use the exact documentation-only LoreItems final-state branch and PR mandated by WP-06 to set 6/6 complete after the Tags merge.
 
 A local file, downloadable report, chat response, or uncommitted note is not a handoff and cannot substitute for committed GitHub state.
 
