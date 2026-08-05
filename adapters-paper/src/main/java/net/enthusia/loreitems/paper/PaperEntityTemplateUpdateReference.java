@@ -33,7 +33,7 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
             return Optional.empty();
         }
         ItemStack item = kind.read(entity);
-        if (item == null || item.getType().isAir()) {
+        if (item.getType().isAir()) {
             return Optional.empty();
         }
         return Optional.of(new Resolved(entity, kind, item.clone()));
@@ -118,8 +118,7 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
             if (!usable(entity) || !kind.matches(entity)) {
                 return null;
             }
-            ItemStack stored = kind.read(entity);
-            return stored == null ? null : stored.clone();
+            return kind.read(entity).clone();
         }
 
         @Override
