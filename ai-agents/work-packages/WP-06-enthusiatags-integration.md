@@ -26,7 +26,8 @@ After the production LoreItems release, complete the separate `wsg138/EnthusiaTa
 8. Add operator-visible audit/status information identifying Tags claim, reward action, definition key, external operation key in privileged diagnostics, current handoff state, LoreItems outcome, attempts, and last error. Do not expose LoreItems internal instance UUIDs to players.
 9. Add configuration examples, a permission for every new privileged status/retry action, a configured message for every operator-visible result, a `softdepend: [EnthusiaLoreItems]` plugin declaration while still using runtime service discovery, installation/version compatibility, recovery instructions, and cross-plugin staged deployment/rollback documentation.
 10. Upgrade the EnthusiaTags pull-request workflow so `mvn --batch-mode --no-transfer-progress clean test package` and an exact-head Codacy verification step both run against the current PR head, with the same stale-head rejection rule used by LoreItems.
-11. If the released LoreItems API contract itself is reproducibly defective, do not invent a command/database workaround. Keep WP-06 `BLOCKED`, record the exact blocker in GitHub, repair it under the same WP-06 assignment using branch `agent/wp-06-loreitems-api-blocker` and PR title `WP-06: repair released LoreItems API blocker`, publish the required compatible LoreItems patch release, then resume the original Tags branch. This is one fixed package with an explicitly defined blocker path, not an ad hoc subpackage.
+11. After the Tags integration PR is normally merged and its live `main` verified, create the documentation-only LoreItems branch `docs/wp-06-complete` and PR `WP-06: record final remaining-work completion`. Change only `WORKSPACE-STATE.md`, `WORK-QUEUE.md`, and `reports/agent-handoffs/latest.md` to record exact Tags merge/evidence, 6/6 complete, 0 remaining, and 100% weighted progress. Run LoreItems exact-head checks, merge normally, verify LoreItems `main`, and stop.
+12. If the released LoreItems API contract itself is reproducibly defective, do not invent a command/database workaround. Keep WP-06 `BLOCKED`, record the exact blocker in GitHub, repair it under the same WP-06 assignment using branch `agent/wp-06-loreitems-api-blocker` and PR title `WP-06: repair released LoreItems API blocker`, publish the required compatible LoreItems patch release, then resume the original Tags branch. This is one fixed package with an explicitly defined blocker path, not an ad hoc subpackage.
 
 ## Exact acceptance criteria
 
@@ -63,7 +64,7 @@ After the production LoreItems release, complete the separate `wsg138/EnthusiaTa
 
 ## Definition of complete
 
-WP-06 is complete only when the full Tags integration, persistence/recovery, tests, documentation, cross-plugin evidence, and reviews pass; any explicit API blocker is repaired and released under the same package; the Tags PR is normally merged and `main` verified; final workflow state shows 6/6 complete and 100%; and the worker stops.
+WP-06 is complete only when the full Tags integration, persistence/recovery, tests, documentation, cross-plugin evidence, and reviews pass; any explicit API blocker is repaired and released under the same package; the Tags PR is normally merged and `main` verified; the exact documentation-only LoreItems final-state PR is normally merged and verified with 6/6 complete and 100%; and the worker stops.
 
 ## Expected status transitions
 
@@ -77,6 +78,11 @@ Primary integration in `wsg138/EnthusiaTags`:
 
 - Branch: `agent/wp-06-loreitems-integration`
 - PR title: `WP-06: integrate EnthusiaTags with LoreItems service API`
+
+Final state recording in `wsg138/EnthusiaLoreItems` after the Tags merge:
+
+- Branch: `docs/wp-06-complete`
+- PR title: `WP-06: record final remaining-work completion`
 
 Only for the explicit released-API blocker in `wsg138/EnthusiaLoreItems`:
 
