@@ -138,11 +138,11 @@ final class PaperTemplateUpdateAccessRegistry {
     }
 
     private static final class CandidateCount {
-        private final PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate;
+        private final PaperTemplateUpdateScanner.Candidate representativeCandidate;
         private int occurrences = 1;
 
         private CandidateCount(PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate) {
-            this.firstEncounteredCandidate = Objects.requireNonNull(
+            this.representativeCandidate = Objects.requireNonNull(
                     firstEncounteredCandidate, "firstEncounteredCandidate");
         }
 
@@ -152,7 +152,7 @@ final class PaperTemplateUpdateAccessRegistry {
         }
 
         private PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate() {
-            return firstEncounteredCandidate;
+            return representativeCandidate;
         }
 
         private int referenceCount() {
