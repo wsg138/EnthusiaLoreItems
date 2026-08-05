@@ -16,7 +16,7 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
 
     private final Plugin plugin;
     private final int budget;
-    private final PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+    private final PaperTemplateUpdateScanner scanner;
     private final PaperTemplateUpdateAccessRegistry accessRegistry =
             new PaperTemplateUpdateAccessRegistry();
     private final PaperTemplateUpdateCoordinator coordinator;
@@ -31,7 +31,17 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             TemplateUpdateExecutionUseCase useCase,
             PaperTemplateUpdateOperator operator,
             int budget) {
+        this(plugin, useCase, operator, budget, new PaperTemplateUpdateScanner());
+    }
+
+    PaperTemplateUpdateAccessController(
+            Plugin plugin,
+            TemplateUpdateExecutionUseCase useCase,
+            PaperTemplateUpdateOperator operator,
+            int budget,
+            PaperTemplateUpdateScanner scanner) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.scanner = Objects.requireNonNull(scanner, "scanner");
         if (budget < MIN_BUDGET) {
             throw new IllegalArgumentException("budget must be positive");
         }
@@ -176,7 +186,9 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             return;
         }
         if (result.abandoned()) {
+            scanner.reset(reference);
             accessRegistry.markIncomplete(reference);
+            retryBacklog.offer(reference);
             plugin.getLogger().warning(
                     "A naturally accessible template-update scan exceeded its bounded "
                             + "continuation limits; durable mutations remain pending.");

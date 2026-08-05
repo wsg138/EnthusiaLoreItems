@@ -21,7 +21,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 /** Bounded main-thread discovery of tracked items in one inventory tree. */
-final class PaperTemplateUpdateScanner {
+class PaperTemplateUpdateScanner {
     private static final int MAX_ITEMS_PER_PASS = 256;
     private static final int MAX_NESTING_DEPTH = 8;
     private static final int MAX_CONTINUATION_PASSES = 64;
