@@ -37,5 +37,6 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0031 | 2026-08-04 | Implementation PR 4 / PR #7 | Merge finalization | [Typed mutation queue and operator review controls](0031-2026-08-04-pr7-mutation-queue-controls.md) |
 | 0032 | 2026-08-04 | Implementation PR 4 / PR #8 | Merge finalization | [Naturally accessible template update execution](0032-2026-08-04-pr8-accessible-template-updates.md) |
 | 0033 | 2026-08-04 | Implementation PR 4 / PR #8 | Merge finalization | [Final Codacy remediation and merge verification](0033-2026-08-04-pr8-final-codacy-remediation.md) |
+| 0034 | 2026-08-05 | Implementation PR 4 / PR #8 | Merge finalization | [Exact-head finalization and crash-recovery remediation](0034-2026-08-05-pr8-exact-head-finalization.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.
