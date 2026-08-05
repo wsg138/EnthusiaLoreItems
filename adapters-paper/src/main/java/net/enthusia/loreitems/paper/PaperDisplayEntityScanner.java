@@ -7,13 +7,14 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
-/** Bounded reconciliation scanner for item frames and armor-stand equipment. */
+/** Bounded reconciliation scanner for item frames, item displays, and armor-stand equipment. */
 final class PaperDisplayEntityScanner {
-    private static final String ITEM_FRAME_PATH = "item";
+    private static final String ITEM_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
     private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
         EquipmentSlot.HAND,
@@ -38,9 +39,16 @@ final class PaperDisplayEntityScanner {
         if (entity instanceof ItemFrame frame) {
             submit(
                     frame.getItem(),
-                    location(frame, LocationDescriptor.Type.ITEM_FRAME, ITEM_FRAME_PATH),
+                    location(frame, LocationDescriptor.Type.ITEM_FRAME, ITEM_PATH),
                     presence,
                     source + "-item-frame",
+                    limit);
+        } else if (entity instanceof ItemDisplay display) {
+            submit(
+                    display.getItemStack(),
+                    location(display, LocationDescriptor.Type.ITEM_DISPLAY, ITEM_PATH),
+                    presence,
+                    source + "-item-display",
                     limit);
         } else if (entity instanceof ArmorStand stand) {
             scanArmorStand(stand, presence, source, limit);

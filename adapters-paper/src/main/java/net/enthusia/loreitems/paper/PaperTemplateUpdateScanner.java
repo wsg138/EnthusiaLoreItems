@@ -270,7 +270,7 @@ class PaperTemplateUpdateScanner {
 
     record Candidate(
             LoreItemIdentity identity,
-            PaperTemplateUpdateItemReference reference) {
+            PaperTemplateUpdateReference reference) {
         Candidate {
             Objects.requireNonNull(identity, "identity");
             Objects.requireNonNull(reference, "reference");

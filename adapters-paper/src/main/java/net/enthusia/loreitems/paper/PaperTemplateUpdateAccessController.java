@@ -1,9 +1,12 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.entity.Player;
@@ -17,11 +20,11 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
     private final Plugin plugin;
     private final int budget;
     private final PaperTemplateUpdateScanner scanner;
-    private final PaperTemplateUpdateAccessRegistry accessRegistry =
-            new PaperTemplateUpdateAccessRegistry();
+    private final PaperTemplateUpdateAccessRegistry accessRegistry;
     private final PaperTemplateUpdateCoordinator coordinator;
     private final PaperTemplateUpdateScanBacklog scanBacklog;
     private final PaperTemplateUpdateRetryBacklog retryBacklog;
+    private final boolean ownsCoordinator;
 
     private boolean saturated;
     private boolean closed;
@@ -40,17 +43,49 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             PaperTemplateUpdateOperator operator,
             int budget,
             PaperTemplateUpdateScanner scanner) {
+        this(
+                plugin,
+                new PaperTemplateUpdateCoordinator(
+                        plugin,
+                        Objects.requireNonNull(useCase, "useCase"),
+                        Objects.requireNonNull(operator, "operator"),
+                        budget),
+                new PaperTemplateUpdateAccessRegistry(),
+                budget,
+                scanner,
+                true);
+    }
+
+    PaperTemplateUpdateAccessController(
+            Plugin plugin,
+            PaperTemplateUpdateCoordinator coordinator,
+            PaperTemplateUpdateAccessRegistry accessRegistry,
+            int budget) {
+        this(
+                plugin,
+                coordinator,
+                accessRegistry,
+                budget,
+                new PaperTemplateUpdateScanner(),
+                false);
+    }
+
+    private PaperTemplateUpdateAccessController(
+            Plugin plugin,
+            PaperTemplateUpdateCoordinator coordinator,
+            PaperTemplateUpdateAccessRegistry accessRegistry,
+            int budget,
+            PaperTemplateUpdateScanner scanner,
+            boolean ownsCoordinator) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.accessRegistry = Objects.requireNonNull(accessRegistry, "accessRegistry");
         this.scanner = Objects.requireNonNull(scanner, "scanner");
         if (budget < MIN_BUDGET) {
             throw new IllegalArgumentException("budget must be positive");
         }
         this.budget = budget;
-        this.coordinator = new PaperTemplateUpdateCoordinator(
-                plugin,
-                Objects.requireNonNull(useCase, "useCase"),
-                Objects.requireNonNull(operator, "operator"),
-                budget);
+        this.ownsCoordinator = ownsCoordinator;
         int backlogCapacity = PaperTemplateUpdateScanBacklog.capacityForBudget(budget);
         this.scanBacklog = new PaperTemplateUpdateScanBacklog(backlogCapacity);
         this.retryBacklog = new PaperTemplateUpdateRetryBacklog(backlogCapacity);
@@ -200,17 +235,31 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
         scanner.reset(reference);
         accessRegistry.markIncomplete(reference);
         if (!retryBacklog.offer(reference)) {
-            // A scan slot was just consumed, so the normal backlog can retain this reference when
-            // the dedicated retry tier is saturated.
             offer(reference);
         }
     }
 
     private void dispatchUniqueAccessibleItems() {
-        PaperTemplateUpdateCandidateDispatcher.dispatch(
-                accessRegistry.drainUnique(plugin.getServer().getOnlinePlayers()),
-                coordinator::submit,
-                this::enqueue);
+        PaperTemplateUpdateAccessRegistry.DispatchBatch batch =
+                accessRegistry.prepareDispatch(plugin.getServer().getOnlinePlayers());
+        if (batch.candidates().isEmpty()) {
+            accessRegistry.finishDispatch(batch, Set.of());
+            return;
+        }
+        Set<UUID> rejectedInstances = new HashSet<>();
+        Set<PaperInventoryReference> inventoryRetries = new HashSet<>();
+        for (PaperTemplateUpdateScanner.Candidate candidate : batch.candidates()) {
+            if (!coordinator.submit(candidate)) {
+                UUID instanceId = candidate.identity().instanceId().value();
+                rejectedInstances.add(instanceId);
+                if (candidate.reference()
+                        instanceof PaperTemplateUpdateItemReference itemReference) {
+                    inventoryRetries.add(itemReference.inventoryReference());
+                }
+            }
+        }
+        accessRegistry.finishDispatch(batch, rejectedInstances);
+        inventoryRetries.forEach(this::enqueue);
     }
 
     private void reportSaturation() {
@@ -228,6 +277,8 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
         retryBacklog.clear();
         scanner.clear();
         accessRegistry.clear();
-        coordinator.close();
+        if (ownsCoordinator) {
+            coordinator.close();
+        }
     }
 }

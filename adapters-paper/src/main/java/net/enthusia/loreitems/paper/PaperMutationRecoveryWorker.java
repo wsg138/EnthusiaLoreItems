@@ -11,6 +11,7 @@ import java.util.logging.Level;
 import net.enthusia.loreitems.application.PendingMutationRepository;
 import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
+import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -24,7 +25,10 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final Plugin plugin;
     private final PendingMutationRepository repository;
     private final int recoveryLimit;
+    private final PaperTemplateUpdateCoordinator templateUpdateCoordinator;
+    private final PaperTemplateUpdateAccessRegistry templateUpdateAccessRegistry;
     private final PaperTemplateUpdateListener templateUpdateListener;
+    private final PaperEntityTemplateUpdateListener entityTemplateUpdateListener;
     private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
@@ -44,13 +48,24 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                     "repository must also provide template-update execution storage");
         }
         this.recoveryLimit = recoveryLimit;
+        TemplateUpdateExecutionUseCase useCase = new PersistingTemplateUpdateExecutionUseCase(
+                templateStore,
+                Clock.systemUTC(),
+                TEMPLATE_UPDATE_CLAIM_LEASE);
+        this.templateUpdateCoordinator = new PaperTemplateUpdateCoordinator(
+                plugin,
+                useCase,
+                new PaperTemplateUpdateOperator(),
+                recoveryLimit);
+        this.templateUpdateAccessRegistry = new PaperTemplateUpdateAccessRegistry();
         this.templateUpdateListener = new PaperTemplateUpdateListener(
                 plugin,
-                new PersistingTemplateUpdateExecutionUseCase(
-                        templateStore,
-                        Clock.systemUTC(),
-                        TEMPLATE_UPDATE_CLAIM_LEASE),
-                new PaperTemplateUpdateOperator(),
+                templateUpdateCoordinator,
+                templateUpdateAccessRegistry,
+                recoveryLimit);
+        this.entityTemplateUpdateListener = new PaperEntityTemplateUpdateListener(
+                plugin,
+                templateUpdateAccessRegistry,
                 recoveryLimit);
     }
 
@@ -60,13 +75,16 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         }
         templateUpdateListener.start();
         try {
+            entityTemplateUpdateListener.start();
             task = plugin.getServer().getScheduler().runTaskTimer(
                     plugin,
                     this::requestRun,
                     INITIAL_DELAY_TICKS,
                     RECOVERY_PERIOD_TICKS);
         } catch (RuntimeException exception) {
+            entityTemplateUpdateListener.close();
             templateUpdateListener.close();
+            templateUpdateCoordinator.close();
             throw exception;
         }
     }
@@ -125,7 +143,9 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
+        entityTemplateUpdateListener.close();
         templateUpdateListener.close();
+        templateUpdateCoordinator.close();
         BukkitTask current = task;
         if (current != null) {
             current.cancel();

@@ -35,12 +35,12 @@ public final class PaperTemplateUpdateOperator {
 
     ApplyResult apply(
             Plugin plugin,
-            PaperTemplateUpdateItemReference reference,
+            PaperTemplateUpdateReference reference,
             PreparedTemplateUpdate update) {
         Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(reference, "reference");
         Objects.requireNonNull(update, "update");
-        PaperTemplateUpdateItemReference.Resolved resolved =
+        PaperTemplateUpdateReference.Resolved resolved =
                 reference.resolve(plugin).orElse(null);
         return resolved == null
                 ? ApplyResult.notAccessible()
@@ -48,7 +48,7 @@ public final class PaperTemplateUpdateOperator {
     }
 
     private ApplyResult applyResolved(
-            PaperTemplateUpdateItemReference.Resolved resolved,
+            PaperTemplateUpdateReference.Resolved resolved,
             PreparedTemplateUpdate update) {
         ItemStack current = resolved.originalItem();
         String beforeFingerprint;
@@ -86,7 +86,7 @@ public final class PaperTemplateUpdateOperator {
     }
 
     private ApplyResult applyTracked(
-            PaperTemplateUpdateItemReference.Resolved resolved,
+            PaperTemplateUpdateReference.Resolved resolved,
             ItemStack current,
             String beforeFingerprint,
             LoreItemIdentity currentIdentity,
@@ -121,7 +121,7 @@ public final class PaperTemplateUpdateOperator {
     }
 
     private ApplyResult verifyOrReplace(
-            PaperTemplateUpdateItemReference.Resolved resolved,
+            PaperTemplateUpdateReference.Resolved resolved,
             ItemStack current,
             ItemStack expected,
             String beforeFingerprint,
@@ -144,7 +144,7 @@ public final class PaperTemplateUpdateOperator {
     }
 
     private ApplyResult replaceAndVerify(
-            PaperTemplateUpdateItemReference.Resolved resolved,
+            PaperTemplateUpdateReference.Resolved resolved,
             ItemStack expected,
             String beforeFingerprint,
             LoreItemIdentity targetIdentity) {
@@ -152,7 +152,7 @@ public final class PaperTemplateUpdateOperator {
             return ApplyResult.reviewRequired(
                     beforeFingerprint,
                     null,
-                    "The nested inventory path changed before the template could be replaced.");
+                    "The encountered item changed before the template could be replaced.");
         }
         ItemStack stored = resolved.readStored();
         String afterFingerprint = fingerprintOrNull(stored);
@@ -165,7 +165,7 @@ public final class PaperTemplateUpdateOperator {
     }
 
     private static ApplyResult restoreAfterFailedVerification(
-            PaperTemplateUpdateItemReference.Resolved resolved,
+            PaperTemplateUpdateReference.Resolved resolved,
             String beforeFingerprint,
             String afterFingerprint) {
         boolean restored;
@@ -342,7 +342,7 @@ public final class PaperTemplateUpdateOperator {
                     Status.APPLIED,
                     beforeFingerprint,
                     afterFingerprint,
-                    "The target revision was written and verified at the same inventory path.");
+                    "The target revision was written and verified at the same physical reference.");
         }
 
         static ApplyResult alreadyApplied(String fingerprint) {
@@ -358,7 +358,7 @@ public final class PaperTemplateUpdateOperator {
                     Status.NOT_ACCESSIBLE,
                     null,
                     null,
-                    "The item moved before the claimed natural-access operation ran.");
+                    "The item moved or unloaded before the claimed natural encounter ran.");
         }
 
         static ApplyResult reviewRequired(
