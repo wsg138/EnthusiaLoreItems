@@ -30,8 +30,8 @@ Process complete manual Paper/Leaf acceptance evidence for the WP-04 release can
 6. After each fix, rerun the exact failed case, every case sharing the affected state machine/adapter, and the full safety regression subset for delivery, update, delete, campaign, reload, shutdown, and data integrity. Evidence must identify the fixed head/jar SHA.
 7. Repeat the complete matrix on the final release-candidate build after the last code change. All cases must be PASS; `BLOCKED`, waived, not-run, and unsupported claims are not release approval.
 8. Re-run full automated CI, exact-head Codacy, packaging, migrations, failure matrix, and profile thresholds on the final WP-05 head.
-9. Finalize version `1.0.0`, release notes, upgrade/backup/rollback checklist, checksums, dependency manifest/SBOM, and operator sign-off. Verify a clean upgrade from the RC database and a rollback rehearsal using the documented backup.
-10. Merge WP-05 with a normal merge commit. After live `main` verification and successful main checks, create tag/release `v1.0.0` from that merge commit with shaded jar, SHA-256 checksum, dependency manifest/SBOM, release notes, acceptance index, and rollback instructions. Verify all assets and tag target.
+9. Finalize version `1.0.0`, release notes, upgrade/backup/rollback checklist, checksums, CycloneDX JSON SBOM, Gradle dependency manifest, and operator sign-off. Verify a clean upgrade from the RC database and a rollback rehearsal using the documented backup.
+10. Merge WP-05 with a normal merge commit. After live `main` verification and successful main checks, create tag/release `v1.0.0` from that merge commit with shaded jar, SHA-256 checksum, CycloneDX JSON SBOM, Gradle dependency manifest, release notes, acceptance index, and rollback instructions. Verify all assets and tag target.
 
 ## Exact acceptance criteria
 
