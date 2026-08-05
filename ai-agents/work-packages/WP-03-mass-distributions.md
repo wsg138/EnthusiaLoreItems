@@ -24,7 +24,7 @@ Complete the operator-facing, one-use mass-distribution campaign system from gro
 8. On player join, match unresolved names case-insensitively while preserving original display form, including `*BedrockPlayer`; bind the UUID atomically once, and use UUID as authoritative thereafter.
 9. Deliver through a bounded persistent campaign queue. Reserve a fresh instance and recipient outcome durably before insertion, verify exact insertion, and mark each recipient delivered exactly once. Offline and full-inventory recipients remain pending; no item is dropped.
 10. Automatically resume active campaigns after restart and wake appropriate recipients on join/inventory-space opportunities while retaining bounded periodic retries and backpressure.
-11. Provide status counts with exact categories: total, delivered, unresolved, offline-queued, inventory-full, failed/review-required, and remaining. Counts must come from indexed database queries and remain internally consistent.
+11. Provide indexed status counts for these mutually exclusive recipient states: `UNRESOLVED`, `QUEUED_OFFLINE`, `QUEUED_INVENTORY_FULL`, `RESERVED_IN_FLIGHT`, `REVIEW_REQUIRED`, `DELIVERED`, and `CANCELLED`, plus `total` and `remaining`. Define `total` as the sum of all seven states. Define `remaining` as `UNRESOLVED + QUEUED_OFFLINE + QUEUED_INVENTORY_FULL + RESERVED_IN_FLIGHT + REVIEW_REQUIRED`; a terminal completed or fully cancelled campaign has `remaining = 0`.
 12. Provide campaign pause, resume, and cancel:
     - pause blocks new reservations and survives restart;
     - resume is idempotent;
@@ -41,7 +41,7 @@ Complete the operator-facing, one-use mass-distribution campaign system from gro
 - Offline/full recipients remain pending and no overflow item entity is created.
 - Pause/resume/cancel survive restart; cancel never removes already delivered items.
 - Completion and cancellation directory moves happen only after their corresponding durable terminal state, and recover correctly after failures on either side of the database/filesystem boundary.
-- Status totals satisfy `total = delivered + unresolved + offline-queued + inventory-full + failed/review-required + other actively reserved states` and `remaining = total - delivered - cancelled recipients` as defined in operator documentation, without double counting.
+- Status totals satisfy the exact mutually exclusive equations in required scope without double counting; completed campaigns contain only `DELIVERED`, and fully processed cancelled campaigns contain only `DELIVERED` plus `CANCELLED`.
 - All parsing, filesystem, and SQLite I/O is off-thread; all queues, retries, pages, and per-tick mutations are bounded.
 
 ## Required automated tests
