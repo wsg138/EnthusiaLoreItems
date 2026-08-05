@@ -177,8 +177,7 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
         try {
             result = scanner.scan(plugin, inventory.orElseThrow(), observed::add);
         } catch (RuntimeException exception) {
-            scanner.reset(reference);
-            accessRegistry.markIncomplete(reference);
+            retryIncomplete(reference);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not scan a naturally accessible inventory for template updates.",
@@ -186,9 +185,7 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             return;
         }
         if (result.abandoned()) {
-            scanner.reset(reference);
-            accessRegistry.markIncomplete(reference);
-            retryBacklog.offer(reference);
+            retryIncomplete(reference);
             plugin.getLogger().warning(
                     "A naturally accessible template-update scan exceeded its bounded "
                             + "continuation limits; durable mutations remain pending.");
@@ -196,6 +193,16 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             enqueueContinuation(reference);
         } else {
             accessRegistry.replace(reference, observed);
+        }
+    }
+
+    private void retryIncomplete(PaperInventoryReference reference) {
+        scanner.reset(reference);
+        accessRegistry.markIncomplete(reference);
+        if (!retryBacklog.offer(reference)) {
+            // A scan slot was just consumed, so the normal backlog can retain this reference when
+            // the dedicated retry tier is saturated.
+            offer(reference);
         }
     }
 

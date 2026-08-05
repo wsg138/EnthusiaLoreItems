@@ -42,7 +42,15 @@ class PaperTemplateUpdateAccessControllerTest {
 
     @Test
     void abandonedScanResetsAndRetriesWithoutAnotherAccessEvent() {
-        AbandonOnceScanner scanner = new AbandonOnceScanner();
+        assertRetriesWithoutAnotherAccessEvent(new AbandonOnceScanner());
+    }
+
+    @Test
+    void failedScanResetsAndRetriesWithoutAnotherAccessEvent() {
+        assertRetriesWithoutAnotherAccessEvent(new FailOnceScanner());
+    }
+
+    private void assertRetriesWithoutAnotherAccessEvent(RetryOnceScanner scanner) {
         controller = new PaperTemplateUpdateAccessController(
                 plugin,
                 new UnexpectedExecutionUseCase(),
@@ -58,37 +66,56 @@ class PaperTemplateUpdateAccessControllerTest {
 
         controller.drain();
         assertEquals(2, scanner.scanCalls);
-        assertTrue(scanner.resetAfterAbandon);
+        assertTrue(scanner.resetAfterFirstAttempt);
     }
 
-    private static final class AbandonOnceScanner extends PaperTemplateUpdateScanner {
+    private abstract static class RetryOnceScanner extends PaperTemplateUpdateScanner {
         private int scanCalls;
-        private boolean abandoned;
-        private boolean resetAfterAbandon;
+        private boolean firstAttemptFinished;
+        private boolean resetAfterFirstAttempt;
 
         @Override
-        ScanResult scan(
+        final ScanResult scan(
                 Plugin plugin,
                 Inventory inventory,
                 Consumer<Candidate> consumer) {
             scanCalls++;
-            if (!abandoned) {
-                abandoned = true;
-                return ScanResult.abandonedScan();
+            if (scanCalls == 1) {
+                try {
+                    return firstAttempt();
+                } finally {
+                    firstAttemptFinished = true;
+                }
             }
             return ScanResult.complete(0);
         }
 
+        abstract ScanResult firstAttempt();
+
         @Override
-        void reset(PaperInventoryReference reference) {
-            if (abandoned) {
-                resetAfterAbandon = true;
+        final void reset(PaperInventoryReference reference) {
+            if (firstAttemptFinished) {
+                resetAfterFirstAttempt = true;
             }
         }
 
         @Override
-        void clear() {
-            // No retained cursor state in this controlled scanner.
+        final void clear() {
+            // No retained cursor state in these controlled scanners.
+        }
+    }
+
+    private static final class AbandonOnceScanner extends RetryOnceScanner {
+        @Override
+        ScanResult firstAttempt() {
+            return ScanResult.abandonedScan();
+        }
+    }
+
+    private static final class FailOnceScanner extends RetryOnceScanner {
+        @Override
+        ScanResult firstAttempt() {
+            throw new IllegalStateException("controlled scan failure");
         }
     }
 
