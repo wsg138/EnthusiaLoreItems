@@ -20,7 +20,7 @@ class PaperEntityTemplateUpdateScanner {
             return null;
         }
         ItemStack item = read(reference, entity);
-        if (item == null || item.getType().isAir()) {
+        if (item.getType().isAir()) {
             return null;
         }
         ItemIdentityReadResult result = identityCodec.readIdentity(item);
