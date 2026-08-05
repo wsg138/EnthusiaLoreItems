@@ -35,5 +35,9 @@ Read [`CURRENT.md`](CURRENT.md) first. This index is for history and targeted re
 | 0029 | 2026-08-04 | Implementation PR 4 / PR #6 | Merge finalization | [Durable template revision rollout core](0029-2026-08-04-pr6-template-revision-rollout-core.md) |
 | 0030 | 2026-08-04 | Implementation PR 4 / PR #6 | Merge finalization | [Substantive review remediation](0030-2026-08-04-pr6-review-fixes.md) |
 | 0031 | 2026-08-04 | Implementation PR 4 / PR #7 | Merge finalization | [Typed mutation queue and operator review controls](0031-2026-08-04-pr7-mutation-queue-controls.md) |
+| 0032 | 2026-08-04 | Implementation PR 4 / PR #8 | Merge finalization | [Naturally accessible template update execution](0032-2026-08-04-pr8-accessible-template-updates.md) |
+| 0033 | 2026-08-04 | Implementation PR 4 / PR #8 | Merge finalization | [Final Codacy remediation and merge verification](0033-2026-08-04-pr8-final-codacy-remediation.md) |
+| 0034 | 2026-08-05 | Implementation PR 4 / PR #8 | Merge finalization | [Exact-head finalization and crash-recovery remediation](0034-2026-08-05-pr8-exact-head-finalization.md) |
+| 0035 | 2026-08-05 | Implementation PR 4 / PR #8 | Merge finalization | [Late review and scanner-liveness remediation](0035-2026-08-05-pr8-late-review-remediation.md) |
 
 Append one row for every new immutable report. Do not remove historical entries when a phase or PR is completed.

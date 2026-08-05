@@ -7,10 +7,14 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.PendingMutationRecord;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PreparedTemplateUpdate;
+import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
+import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
 import net.enthusia.loreitems.domain.PendingMutationState;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
@@ -68,7 +72,8 @@ class PaperMutationRecoveryWorkerTest {
         assertEquals(2, repository.recoveryCalls);
     }
 
-    private static final class RecordingRepository implements PendingMutationRepository {
+    private static final class RecordingRepository
+            implements PendingMutationRepository, TemplateUpdateExecutionStore {
         private final CompletableFuture<Integer> firstRecovery = new CompletableFuture<>();
         private boolean blockFirst;
         private int recoveryCalls;
@@ -84,6 +89,43 @@ class PaperMutationRecoveryWorkerTest {
                 return firstRecovery;
             }
             return CompletableFuture.completedFuture(0);
+        }
+
+        @Override
+        public CompletionStage<TemplateUpdatePrepareResult> prepareTemplateUpdate(
+                LoreItemIdentity observedIdentity,
+                String claimToken,
+                Instant now,
+                Duration lease) {
+            return CompletableFuture.completedFuture(
+                    TemplateUpdatePrepareResult.noPendingWork());
+        }
+
+        @Override
+        public CompletionStage<Boolean> releaseTemplateUpdate(
+                PreparedTemplateUpdate update,
+                String reason,
+                Instant now) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        @Override
+        public CompletionStage<Boolean> completeTemplateUpdate(
+                PreparedTemplateUpdate update,
+                String beforeFingerprint,
+                String afterFingerprint,
+                Instant now) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        @Override
+        public CompletionStage<Boolean> requireTemplateUpdateReview(
+                PreparedTemplateUpdate update,
+                String reason,
+                String beforeFingerprint,
+                String afterFingerprint,
+                Instant now) {
+            return CompletableFuture.completedFuture(false);
         }
 
         @Override
