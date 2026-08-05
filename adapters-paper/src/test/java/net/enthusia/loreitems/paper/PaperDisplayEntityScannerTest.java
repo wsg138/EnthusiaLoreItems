@@ -18,6 +18,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,16 +56,7 @@ class PaperDisplayEntityScannerTest {
     @Test
     void armorStandEquipmentIsReconciledAsDisplayEvidence() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        TrackingObservationUseCase useCase = request -> {
-            observed.add(request);
-            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
-                    TrackingObservationUseCase.Status.RECORDED,
-                    "ok"));
-        };
-        coordinator = new PaperTrackingCoordinator(
-                plugin, () -> useCase, () -> 4, MetricsPort.noOp());
-        PaperDisplayEntityScanner scanner = new PaperDisplayEntityScanner(
-                new PaperPhysicalInventoryScanner(coordinator));
+        PaperDisplayEntityScanner scanner = scanner(observed);
         World world = server.addSimpleWorld("world");
         ArmorStand stand = world.spawn(new Location(world, 4, 64, 7), ArmorStand.class);
         stand.getEquipment().setHelmet(trackedItem());
@@ -84,6 +76,42 @@ class PaperDisplayEntityScannerTest {
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 request.mode());
         assertEquals("chunk-load-armor-stand", request.source());
+    }
+
+    @Test
+    void itemDisplayIsReconciledWithItsOwnLocationType() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperDisplayEntityScanner scanner = scanner(observed);
+        World world = server.addSimpleWorld("world");
+        ItemDisplay display = world.spawn(
+                new Location(world, 8, 65, 9), ItemDisplay.class);
+        display.setItemStack(trackedItem());
+
+        scanner.scan(
+                display,
+                TrackingObservationUseCase.Presence.PRESENT,
+                "periodic-loaded-chunk",
+                new PaperScanLimit(1));
+
+        assertEquals(1, observed.size());
+        TrackingObservationUseCase.Request request = observed.getFirst();
+        assertEquals(LocationDescriptor.Type.ITEM_DISPLAY, request.location().type());
+        assertEquals("item", request.location().containerPath());
+        assertTrue(request.location().locationKey().endsWith(display.getUniqueId().toString()));
+        assertEquals("periodic-loaded-chunk-item-display", request.source());
+    }
+
+    private PaperDisplayEntityScanner scanner(
+            List<TrackingObservationUseCase.Request> observed) {
+        TrackingObservationUseCase useCase = request -> {
+            observed.add(request);
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "ok"));
+        };
+        coordinator = new PaperTrackingCoordinator(
+                plugin, () -> useCase, () -> 4, MetricsPort.noOp());
+        return new PaperDisplayEntityScanner(new PaperPhysicalInventoryScanner(coordinator));
     }
 
     private static ItemStack trackedItem() {

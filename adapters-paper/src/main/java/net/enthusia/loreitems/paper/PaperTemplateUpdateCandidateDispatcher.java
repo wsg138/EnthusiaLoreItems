@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-/** Dispatches unique candidates while preserving natural-access retry on saturation. */
+/** Dispatches unique inventory candidates while preserving natural-access retry on saturation. */
 final class PaperTemplateUpdateCandidateDispatcher {
     private PaperTemplateUpdateCandidateDispatcher() {
     }
@@ -19,7 +19,12 @@ final class PaperTemplateUpdateCandidateDispatcher {
         Objects.requireNonNull(retrySink, "retrySink");
         for (PaperTemplateUpdateScanner.Candidate candidate : candidates) {
             if (!submitter.test(candidate)) {
-                retrySink.accept(candidate.reference().inventoryReference());
+                PaperTemplateUpdateReference reference = candidate.reference();
+                if (!(reference instanceof PaperTemplateUpdateItemReference itemReference)) {
+                    throw new IllegalArgumentException(
+                            "Inventory candidate dispatcher received a non-inventory reference");
+                }
+                retrySink.accept(itemReference.inventoryReference());
             }
         }
     }

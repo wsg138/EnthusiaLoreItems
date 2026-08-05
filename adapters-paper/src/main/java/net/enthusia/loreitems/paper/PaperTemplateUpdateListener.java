@@ -29,6 +29,20 @@ final class PaperTemplateUpdateListener implements AutoCloseable {
         this.events = new PaperTemplateUpdateEvents(controller);
     }
 
+    PaperTemplateUpdateListener(
+            Plugin plugin,
+            PaperTemplateUpdateCoordinator coordinator,
+            PaperTemplateUpdateAccessRegistry accessRegistry,
+            int budget) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.controller = new PaperTemplateUpdateAccessController(
+                plugin,
+                Objects.requireNonNull(coordinator, "coordinator"),
+                Objects.requireNonNull(accessRegistry, "accessRegistry"),
+                budget);
+        this.events = new PaperTemplateUpdateEvents(controller);
+    }
+
     void start() {
         if (closed || scanTask != null) {
             throw new IllegalStateException("Template-update listener cannot be started");

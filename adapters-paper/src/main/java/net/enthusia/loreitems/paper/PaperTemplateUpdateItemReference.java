@@ -17,7 +17,7 @@ import org.bukkit.plugin.Plugin;
 record PaperTemplateUpdateItemReference(
         PaperInventoryReference inventoryReference,
         int rootSlot,
-        List<NestedStep> nestedPath) {
+        List<NestedStep> nestedPath) implements PaperTemplateUpdateReference {
     private static final int MAX_NESTING_DEPTH = 8;
 
     PaperTemplateUpdateItemReference {
@@ -46,7 +46,8 @@ record PaperTemplateUpdateItemReference(
         return new PaperTemplateUpdateItemReference(inventoryReference, rootSlot, path);
     }
 
-    Optional<Resolved> resolve(Plugin plugin) {
+    @Override
+    public Optional<Resolved> resolve(Plugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
         Optional<Inventory> resolvedInventory = inventoryReference.resolve(plugin);
         if (resolvedInventory.isEmpty()) {
@@ -198,7 +199,7 @@ record PaperTemplateUpdateItemReference(
         }
     }
 
-    static final class Resolved {
+    static final class Resolved implements PaperTemplateUpdateReference.Resolved {
         private final Inventory inventory;
         private final int rootSlot;
         private final List<NestedStep> nestedPath;
@@ -218,11 +219,13 @@ record PaperTemplateUpdateItemReference(
             this.capturedOriginalItem = originalItem;
         }
 
-        ItemStack originalItem() {
+        @Override
+        public ItemStack originalItem() {
             return capturedOriginalItem.clone();
         }
 
-        boolean replace(ItemStack replacement) {
+        @Override
+        public boolean replace(ItemStack replacement) {
             ItemStack updatedRoot = replaceAt(originalRoot, nestedPath, 0, replacement);
             if (updatedRoot == null) {
                 return false;
@@ -231,13 +234,15 @@ record PaperTemplateUpdateItemReference(
             return true;
         }
 
-        ItemStack readStored() {
+        @Override
+        public ItemStack readStored() {
             ItemStack storedRoot = inventory.getItem(rootSlot);
             ItemStack stored = readAt(storedRoot, nestedPath, 0);
             return stored == null ? null : stored.clone();
         }
 
-        boolean restore() {
+        @Override
+        public boolean restore() {
             inventory.setItem(rootSlot, originalRoot.clone());
             ItemStack restored = readStored();
             return restored != null

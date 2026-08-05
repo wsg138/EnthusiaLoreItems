@@ -34,6 +34,7 @@ public record LocationDescriptor(Type type, String locationKey, String container
         NESTED_CONTAINER,
         DROPPED_ITEM,
         ITEM_FRAME,
+        ITEM_DISPLAY,
         ARMOR_STAND,
         QUEUED_DELIVERY,
         PENDING_MUTATION,
