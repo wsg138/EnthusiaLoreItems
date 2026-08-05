@@ -252,8 +252,17 @@ public final class SQLiteTemplateUpdateExecutionStore implements TemplateUpdateE
                 && claimed.mutationDesiredRevision() == targetRevision
                 && claimed.instanceDesiredRevision() == targetRevision
                 && "ACTIVE".equals(claimed.lifecycleState())
-                && (claimed.instanceAppliedRevision() == observedRevision
-                        || claimed.instanceAppliedRevision() == targetRevision);
+                && databaseRevisionCompatible(claimed, observedRevision, targetRevision);
+    }
+
+    private static boolean databaseRevisionCompatible(
+            ClaimedTemplateUpdate claimed,
+            long observedRevision,
+            long targetRevision) {
+        long appliedRevision = claimed.instanceAppliedRevision();
+        return appliedRevision == observedRevision
+                || appliedRevision == targetRevision
+                || (observedRevision == targetRevision && appliedRevision < targetRevision);
     }
 
     private static void advanceInstance(

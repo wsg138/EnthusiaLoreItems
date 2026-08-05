@@ -88,8 +88,15 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             Scenario scenario = seedRollout(runtime);
             SQLitePendingMutationRepository repository =
                     new SQLitePendingMutationRepository(runtime);
-            PreparedTemplateUpdate update = prepare(repository, scenario, WORKER_A);
-            setAppliedRevision(runtime, scenario, REVISION_TWO);
+            TemplateUpdatePrepareResult preparation = repository.prepareTemplateUpdate(
+                            scenario.identity(REVISION_TWO),
+                            WORKER_A,
+                            CLAIM_TIME,
+                            LEASE)
+                    .toCompletableFuture().join();
+            assertEquals(TemplateUpdatePrepareResult.Status.PREPARED, preparation.status());
+            PreparedTemplateUpdate update = preparation.preparedUpdate();
+            assertEquals(REVISION_ONE, appliedRevision(runtime, scenario));
 
             assertTrue(repository.completeTemplateUpdate(
                             update,
@@ -263,22 +270,6 @@ class SQLiteTemplateUpdateExecutionStoreTest {
             Scenario scenario) {
         return new SQLiteInstanceRepository(runtime).findById(scenario.instanceId())
                 .toCompletableFuture().join().orElseThrow().appliedRevision();
-    }
-
-    private static void setAppliedRevision(
-            SQLiteStorageRuntime runtime,
-            Scenario scenario,
-            TemplateRevision revision) {
-        runtime.execute(connection -> {
-                    try (PreparedStatement statement = connection.prepareStatement(
-                            "UPDATE lore_instances SET applied_revision = ? WHERE instance_id = ?")) {
-                        statement.setLong(1, revision.value());
-                        statement.setString(2, scenario.instanceId().value().toString());
-                        statement.executeUpdate();
-                    }
-                    return null;
-                })
-                .toCompletableFuture().join();
     }
 
     private static void installAuditFailureTrigger(SQLiteStorageRuntime runtime) {
