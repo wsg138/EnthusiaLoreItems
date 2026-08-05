@@ -119,6 +119,7 @@ class PaperEntityTemplateUpdateControllerTest {
     }
 
     private Item dropTracked(int index) {
+        world.getChunkAt(index >> 4, index >> 4);
         LoreItemIdentity identity = new LoreItemIdentity(
                 DEFINITION_ID,
                 new LoreInstanceId(new UUID(0L, index)),
