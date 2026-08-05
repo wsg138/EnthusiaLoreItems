@@ -20,14 +20,16 @@ import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperTemplateUpdateAccessControllerTest {
-    private ServerMock server;
+    private static final int FIRST_SCAN_COUNT = 1;
+    private static final int RETRIED_SCAN_COUNT = 2;
+
     private PlayerMock player;
     private Plugin plugin;
     private PaperTemplateUpdateAccessController controller;
 
     @BeforeEach
     void setUp() {
-        server = MockBukkit.mock();
+        ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
         plugin = MockBukkit.createMockPlugin();
     }
@@ -62,10 +64,10 @@ class PaperTemplateUpdateAccessControllerTest {
 
         controller.enqueue(reference);
         controller.drain();
-        assertEquals(1, scanner.scanCalls);
+        assertEquals(FIRST_SCAN_COUNT, scanner.scanCalls);
 
         controller.drain();
-        assertEquals(2, scanner.scanCalls);
+        assertEquals(RETRIED_SCAN_COUNT, scanner.scanCalls);
         assertTrue(scanner.resetAfterFirstAttempt);
     }
 
@@ -80,7 +82,7 @@ class PaperTemplateUpdateAccessControllerTest {
                 Inventory inventory,
                 Consumer<Candidate> consumer) {
             scanCalls++;
-            if (scanCalls == 1) {
+            if (scanCalls == FIRST_SCAN_COUNT) {
                 try {
                     return firstAttempt();
                 } finally {
