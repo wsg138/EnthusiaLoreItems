@@ -23,3 +23,32 @@ jobs:
           path: ${{ runner.temp }}/enthusia-lore-items-source.tgz
           if-no-files-found: error
           retention-days: 1
+
+  toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Resolve build dependencies
+        run: gradle --no-daemon testClasses
+      - name: Package Gradle and caches
+        shell: bash
+        run: |
+          GRADLE_BIN="$(readlink -f "$(command -v gradle)")"
+          GRADLE_HOME="$(cd "$(dirname "$GRADLE_BIN")/.." && pwd)"
+          mkdir -p "$RUNNER_TEMP/wp01-toolchain/gradle" "$RUNNER_TEMP/wp01-toolchain/user-home"
+          cp -a "$GRADLE_HOME/." "$RUNNER_TEMP/wp01-toolchain/gradle/"
+          cp -a "$HOME/.gradle/caches" "$RUNNER_TEMP/wp01-toolchain/user-home/"
+          tar -C "$RUNNER_TEMP/wp01-toolchain" -czf "$RUNNER_TEMP/wp01-toolchain.tgz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wp01-toolchain
+          path: ${{ runner.temp }}/wp01-toolchain.tgz
+          if-no-files-found: error
+          retention-days: 1
