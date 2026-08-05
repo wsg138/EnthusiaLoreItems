@@ -82,7 +82,8 @@ final class PaperTemplateUpdateAccessRegistry {
                 && hasCompletePlayerCoverage(onlinePlayers);
     }
 
-    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
+    // This method-local aggregation never escapes the main-thread snapshot drain.
+    @SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops", "PMD.UseConcurrentHashMap"})
     private Map<UUID, CandidateCount> countCandidates() {
         Map<UUID, CandidateCount> counts = new HashMap<>();
         for (List<PaperTemplateUpdateScanner.Candidate> candidates : snapshots.values()) {
@@ -104,7 +105,7 @@ final class PaperTemplateUpdateAccessRegistry {
         for (UUID instanceId : dirtyInstances) {
             CandidateCount candidateCount = counts.get(instanceId);
             if (candidateCount != null && candidateCount.referenceCount() == 1) {
-                unique.add(candidateCount.firstCandidate());
+                unique.add(candidateCount.firstEncounteredCandidate());
             }
         }
         return unique;
@@ -137,11 +138,12 @@ final class PaperTemplateUpdateAccessRegistry {
     }
 
     private static final class CandidateCount {
-        private final PaperTemplateUpdateScanner.Candidate firstCandidate;
+        private final PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate;
         private int occurrences = 1;
 
-        private CandidateCount(PaperTemplateUpdateScanner.Candidate firstCandidate) {
-            this.firstCandidate = Objects.requireNonNull(firstCandidate, "firstCandidate");
+        private CandidateCount(PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate) {
+            this.firstEncounteredCandidate = Objects.requireNonNull(
+                    firstEncounteredCandidate, "firstEncounteredCandidate");
         }
 
         private CandidateCount increment() {
@@ -149,8 +151,8 @@ final class PaperTemplateUpdateAccessRegistry {
             return this;
         }
 
-        private PaperTemplateUpdateScanner.Candidate firstCandidate() {
-            return firstCandidate;
+        private PaperTemplateUpdateScanner.Candidate firstEncounteredCandidate() {
+            return firstEncounteredCandidate;
         }
 
         private int referenceCount() {

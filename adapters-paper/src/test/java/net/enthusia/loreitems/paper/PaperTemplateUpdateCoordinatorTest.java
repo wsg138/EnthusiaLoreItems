@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -43,7 +45,7 @@ class PaperTemplateUpdateCoordinatorTest {
     private PlayerMock player;
     private Plugin plugin;
     private PaperItemIdentityCodec identityCodec;
-    private PaperTemplateUpdateCoordinator coordinator;
+    private PaperTemplateUpdateCoordinator coordinatorUnderTest;
 
     @BeforeEach
     void setUp() {
@@ -55,8 +57,8 @@ class PaperTemplateUpdateCoordinatorTest {
 
     @AfterEach
     void tearDown() {
-        if (coordinator != null) {
-            coordinator.close();
+        if (coordinatorUnderTest != null) {
+            coordinatorUnderTest.close();
         }
         MockBukkit.unmock();
     }
@@ -69,11 +71,11 @@ class PaperTemplateUpdateCoordinatorTest {
         player.getInventory().setItem(0, original);
         PreparedTemplateUpdate update = preparedUpdate();
         RecordingUseCase useCase = new RecordingUseCase(update);
-        coordinator = coordinator(useCase);
+        coordinatorUnderTest = coordinator(useCase);
         PaperTemplateUpdateScanner.Candidate candidate = candidate();
 
-        assertTrue(coordinator.submit(candidate));
-        assertTrue(coordinator.submit(candidate));
+        assertTrue(coordinatorUnderTest.submit(candidate));
+        assertTrue(coordinatorUnderTest.submit(candidate));
 
         ItemStack stored = Objects.requireNonNull(player.getInventory().getItem(0));
         assertEquals(Component.text("Old Blade"), stored.getItemMeta().displayName());
@@ -88,16 +90,16 @@ class PaperTemplateUpdateCoordinatorTest {
     void deduplicatesAnInstanceWhilePreparationRemainsInFlight() {
         RecordingUseCase useCase = new RecordingUseCase(preparedUpdate());
         CompletableFuture<TemplateUpdatePrepareResult> pending = new CompletableFuture<>();
-        useCase.pendingPreparation = pending;
-        coordinator = coordinator(useCase);
+        useCase.pendingPreparations.addLast(pending);
+        coordinatorUnderTest = coordinator(useCase);
         PaperTemplateUpdateScanner.Candidate candidate = candidate();
 
-        assertTrue(coordinator.submit(candidate));
-        assertTrue(coordinator.submit(candidate));
+        assertTrue(coordinatorUnderTest.submit(candidate));
+        assertTrue(coordinatorUnderTest.submit(candidate));
         assertEquals(1, useCase.prepareCalls);
 
         pending.complete(TemplateUpdatePrepareResult.prepared(preparedUpdate()));
-        assertTrue(coordinator.submit(candidate));
+        assertTrue(coordinatorUnderTest.submit(candidate));
         assertEquals(2, useCase.prepareCalls);
     }
 
@@ -154,7 +156,8 @@ class PaperTemplateUpdateCoordinatorTest {
     private static final class RecordingUseCase
             implements TemplateUpdateExecutionUseCase {
         private final PreparedTemplateUpdate update;
-        private CompletableFuture<TemplateUpdatePrepareResult> pendingPreparation;
+        private final Deque<CompletableFuture<TemplateUpdatePrepareResult>>
+                pendingPreparations = new ArrayDeque<>();
         private int prepareCalls;
         private int releaseCalls;
         private int completeCalls;
@@ -168,9 +171,9 @@ class PaperTemplateUpdateCoordinatorTest {
         public CompletionStage<TemplateUpdatePrepareResult> prepare(
                 LoreItemIdentity observedIdentity) {
             prepareCalls++;
-            if (pendingPreparation != null) {
-                CompletableFuture<TemplateUpdatePrepareResult> pending = pendingPreparation;
-                pendingPreparation = null;
+            CompletableFuture<TemplateUpdatePrepareResult> pending =
+                    pendingPreparations.pollFirst();
+            if (pending != null) {
                 return pending;
             }
             return CompletableFuture.completedFuture(
