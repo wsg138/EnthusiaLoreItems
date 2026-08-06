@@ -62,11 +62,19 @@ public final class PersistingDestructiveRemovalExecutionUseCase
             String detail) {
         return store.requireRemovalReview(
                 Objects.requireNonNull(removal, "removal"),
-                Objects.requireNonNull(effectState, "effectState"),
+                persistedEffectState(effectState),
                 normalizeNullable(beforeFingerprint),
                 normalizeNullable(afterFingerprint),
                 requireDetail(detail, "detail"),
                 clock.instant());
+    }
+
+    private static DestructiveEffectState persistedEffectState(
+            DestructiveEffectState effectState) {
+        DestructiveEffectState observed = Objects.requireNonNull(effectState, "effectState");
+        return observed == DestructiveEffectState.UNKNOWN
+                ? DestructiveEffectState.AMBIGUOUS
+                : observed;
     }
 
     private static String requireDetail(String value, String name) {

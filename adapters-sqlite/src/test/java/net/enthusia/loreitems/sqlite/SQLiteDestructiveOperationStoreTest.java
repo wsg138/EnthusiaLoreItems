@@ -2,6 +2,7 @@ package net.enthusia.loreitems.sqlite;
 
 import static net.enthusia.loreitems.sqlite.SQLiteDestructiveTestFixture.FINGERPRINT;
 import static net.enthusia.loreitems.sqlite.SQLiteDestructiveTestFixture.LOCATION_KEY;
+import static net.enthusia.loreitems.sqlite.SQLiteDestructiveTestFixture.LOCATION_TYPE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,12 +18,16 @@ import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.Revie
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.ReviewStatus;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.StartRequest;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.StartStatus;
+import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Observation;
 import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Status;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DestructiveEffectState;
 import net.enthusia.loreitems.domain.DestructiveOperationState;
 import net.enthusia.loreitems.domain.DestructiveOperationType;
 import net.enthusia.loreitems.domain.DestructiveTargetState;
+import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -90,6 +95,75 @@ class SQLiteDestructiveOperationStoreTest {
             assertEquals(DestructiveOperationState.COMPLETED, operation.state());
             assertEquals(1L, operation.completedCount());
             assertEquals("REMOVED", fixture.instanceLifecycle(seed.instanceId()));
+        }
+    }
+
+    @Test
+    void lateDeleteTargetPreservesParentPauseFence() {
+        try (SQLiteDestructiveTestFixture fixture = fixture("paused-late-delete.db")) {
+            var seed = fixture.seed(true);
+            var administration = fixture.administration();
+            var preview = fixture.preview(
+                    DestructiveOperationType.DELETE_DEFINITION, seed, null);
+            var started = administration.start(new StartRequest(
+                            preview, ADMIN_ACTOR, "paused-late-delete"))
+                    .toCompletableFuture().join();
+            UUID operationId = started.operation().operationId();
+            administration.pause(new ControlRequest(operationId, ADMIN_ACTOR))
+                    .toCompletableFuture().join();
+
+            LoreInstanceId lateInstanceId = new LoreInstanceId(UUID.randomUUID());
+            Observation lateCopy = new Observation(
+                    new LoreItemIdentity(
+                            seed.definitionId(), lateInstanceId, new TemplateRevision(1L)),
+                    LOCATION_TYPE,
+                    "player:late-copy",
+                    null,
+                    FINGERPRINT);
+            var execution = fixture.execution(30L);
+
+            assertEquals(Status.NO_PENDING_WORK, execution.prepare(lateCopy)
+                    .toCompletableFuture().join().status());
+            var paused = administration.listOperations(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals(DestructiveOperationState.PAUSED, paused.state());
+            assertEquals(2L, paused.targetCount());
+
+            administration.resume(new ControlRequest(operationId, ADMIN_ACTOR))
+                    .toCompletableFuture().join();
+            assertEquals(Status.PREPARED, execution.prepare(lateCopy)
+                    .toCompletableFuture().join().status());
+        }
+    }
+
+    @Test
+    void unknownPhysicalOutcomePersistsAsAmbiguousReviewEvidence() {
+        try (SQLiteDestructiveTestFixture fixture = fixture("unknown-review.db")) {
+            var seed = fixture.seed(true);
+            var administration = fixture.administration();
+            var preview = fixture.preview(
+                    DestructiveOperationType.PURGE_DEFINITION, seed, null);
+            var started = administration.start(new StartRequest(
+                            preview, ADMIN_ACTOR, "unknown-review"))
+                    .toCompletableFuture().join();
+            var execution = fixture.execution(30L);
+            var prepared = execution.prepare(fixture.observation(seed, LOCATION_KEY))
+                    .toCompletableFuture().join();
+            assertEquals(Status.PREPARED, prepared.status());
+
+            assertTrue(execution.requireReview(
+                            prepared.preparedRemoval(),
+                            DestructiveEffectState.UNKNOWN,
+                            FINGERPRINT,
+                            null,
+                            "The Paper mutation outcome could not be classified.")
+                    .toCompletableFuture().join());
+
+            var target = administration.listTargets(
+                            started.operation().operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals(DestructiveTargetState.REVIEW_REQUIRED, target.state());
+            assertEquals(DestructiveEffectState.AMBIGUOUS, target.effectState());
         }
     }
 

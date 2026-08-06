@@ -281,7 +281,8 @@ final class SQLiteDestructiveClaimStore {
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE destructive_operations SET target_count = target_count + 1, "
-                        + "state = 'ACTIVE', updated_at = ?, terminal_at = NULL "
+                        + "state = CASE WHEN state = 'PAUSED' THEN 'PAUSED' ELSE 'ACTIVE' END, "
+                        + "updated_at = ?, terminal_at = NULL "
                         + "WHERE operation_id = ? AND state IN ('ACTIVE', 'PAUSED', 'COMPLETED')")) {
             statement.setLong(1, now);
             statement.setString(2, operationId.toString());
