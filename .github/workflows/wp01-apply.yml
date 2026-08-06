@@ -1,0 +1,42 @@
+name: Apply WP-01 implementation
+
+on:
+  push:
+    branches:
+      - agent/wp-01-editor-template-management
+    paths:
+      - .github/workflows/wp01-apply.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/wp-01-editor-template-management
+          fetch-depth: 0
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .wp01-patch/part-* > "$RUNNER_TEMP/wp01.patch.gz.b64"
+          echo 'b9f451dbf07b55d210d64dde1ebde5c458886bc62f76ea84ea50cb933097243d  '"$RUNNER_TEMP/wp01.patch.gz.b64" | sha256sum -c -
+          base64 --decode "$RUNNER_TEMP/wp01.patch.gz.b64" | gzip --decompress > "$RUNNER_TEMP/wp01.patch"
+          echo 'fcbfa5d6bffb911ae88cf839052afd51c0aeabe088155686553e782f432a7f00  '"$RUNNER_TEMP/wp01.patch" | sha256sum -c -
+          git apply --check "$RUNNER_TEMP/wp01.patch"
+      - name: Apply and publish implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index "$RUNNER_TEMP/wp01.patch"
+          rm -rf .wp01-patch
+          rm -f .github/workflows/wp01-source-export.yml .github/workflows/wp01-apply.yml
+          git add -A
+          git config user.name 'WP-01 repository agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: complete WP-01 editor and template management'
+          git push origin HEAD:agent/wp-01-editor-template-management
