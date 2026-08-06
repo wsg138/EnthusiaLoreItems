@@ -40,11 +40,9 @@ final class PaperTrackingAdministrationRenderer {
     }
 
     void showDefinitions(Player player, int pageNumber, Page<LoreDefinition> page) {
-        List<LoreDefinitionId> ids = page.items().stream()
-                .map(LoreDefinition::id)
-                .toList();
-        PaperTrackingAdministrationView view = PaperTrackingAdministrationView.definitions(
-                pageNumber, page.hasMore(), ids);
+        List<LoreDefinitionId> ids = page.items().stream().map(LoreDefinition::id).toList();
+        PaperTrackingAdministrationView view =
+                PaperTrackingAdministrationView.definitions(pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore definitions");
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreDefinition definition = page.items().get(index);
@@ -67,9 +65,7 @@ final class PaperTrackingAdministrationRenderer {
             LoreDefinitionId definitionId,
             int pageNumber,
             Page<LoreInstance> page) {
-        List<LoreInstanceId> ids = page.items().stream()
-                .map(LoreInstance::id)
-                .toList();
+        List<LoreInstanceId> ids = page.items().stream().map(LoreInstance::id).toList();
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.instances(
                 definitionId, pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore instances");
@@ -77,17 +73,12 @@ final class PaperTrackingAdministrationRenderer {
                 player.hasPermission(LoreItemsDestructiveCommandExecutor.REMOVE_PERMISSION);
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreInstance instance = page.items().get(index);
-            List<String> lore = new ArrayList<>(List.of(
-                    "Lifecycle: " + instance.lifecycle().name(),
-                    "Applied revision: " + instance.appliedRevision().value(),
-                    "Desired revision: " + instance.desiredRevision().value(),
-                    "Left-click to inspect evidence."));
-            if (canRemove) {
-                lore.add("Right-click to preview exact physical removal.");
-            }
             inventory.setItem(
                     index,
-                    item(Material.NETHER_STAR, shortId(instance.id().value()), lore));
+                    item(
+                            Material.NETHER_STAR,
+                            shortId(instance.id().value()),
+                            instanceLore(instance, canRemove)));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore(plugin));
         player.openInventory(inventory);
@@ -142,6 +133,18 @@ final class PaperTrackingAdministrationRenderer {
         return inventory;
     }
 
+    private static List<String> instanceLore(LoreInstance instance, boolean canRemove) {
+        List<String> lore = new ArrayList<>(List.of(
+                "Lifecycle: " + instance.lifecycle().name(),
+                "Applied revision: " + instance.appliedRevision().value(),
+                "Desired revision: " + instance.desiredRevision().value(),
+                "Left-click to inspect evidence."));
+        if (canRemove) {
+            lore.add("Right-click to preview exact physical removal.");
+        }
+        return lore;
+    }
+
     private DuplicateChoice activeDuplicate(Page<InstanceAnomaly> anomalies) {
         return anomalies.items().stream()
                 .filter(anomaly -> anomaly.type() == InstanceAnomaly.Type.DUPLICATE_INSTANCE)
@@ -155,8 +158,7 @@ final class PaperTrackingAdministrationRenderer {
                 .orElse(null);
     }
 
-    private List<ObservationChoice> observationChoices(
-            Page<InstanceObservation> observations) {
+    private List<ObservationChoice> observationChoices(Page<InstanceObservation> observations) {
         return observations.items().stream()
                 .map(observation -> new ObservationChoice(
                         observation.observationId(),
