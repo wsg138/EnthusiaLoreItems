@@ -38,6 +38,15 @@ final class PaperTemplateEditorRenderer {
             int returnPage) {
         PaperTemplateEditorView view = PaperTemplateEditorView.management(snapshot, returnPage);
         Inventory inventory = create(view, "Template management");
+        populateManagementSummary(inventory, snapshot, preview);
+        populateManagementActions(player, inventory);
+        player.openInventory(inventory);
+    }
+
+    private static void populateManagementSummary(
+            Inventory inventory,
+            TemplateManagementSnapshot snapshot,
+            ItemStack preview) {
         inventory.setItem(13, preview.clone());
         inventory.setItem(22, item(
                 Material.CLOCK,
@@ -49,6 +58,15 @@ final class PaperTemplateEditorRenderer {
                         "Open anomalies: " + snapshot.anomalyCount(),
                         "Pending updates: " + snapshot.pendingUpdateCount(),
                         snapshot.rolloutActive() ? "Rollout: active" : "Rollout: idle")));
+    }
+
+    private static void populateManagementActions(Player player, Inventory inventory) {
+        populateStandardManagementActions(inventory);
+        populateDestructiveManagementActions(player, inventory);
+        populateManagementNavigation(inventory);
+    }
+
+    private static void populateStandardManagementActions(Inventory inventory) {
         inventory.setItem(MANAGEMENT_EDIT, item(
                 Material.WRITABLE_BOOK,
                 "Edit template",
@@ -64,6 +82,10 @@ final class PaperTemplateEditorRenderer {
                 Material.PLAYER_HEAD,
                 "Browse instances",
                 List.of("Open paginated holders and location evidence.")));
+    }
+
+    private static void populateDestructiveManagementActions(
+            Player player, Inventory inventory) {
         if (player.hasPermission(LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION)) {
             inventory.setItem(MANAGEMENT_PURGE, item(
                     Material.LAVA_BUCKET,
@@ -82,6 +104,9 @@ final class PaperTemplateEditorRenderer {
                             "Returning copies remain scheduled for removal.",
                             "A separate fixed confirmation is required.")));
         }
+    }
+
+    private static void populateManagementNavigation(Inventory inventory) {
         inventory.setItem(MANAGEMENT_BACK, item(
                 Material.ARROW,
                 "Back to definitions",
@@ -90,7 +115,6 @@ final class PaperTemplateEditorRenderer {
                 Material.COMPASS,
                 "Refresh status",
                 List.of("Reload current revision and rollout counts.")));
-        player.openInventory(inventory);
     }
 
     void showEditor(Player player, PaperTemplateEditorSession session) {
