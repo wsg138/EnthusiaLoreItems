@@ -582,14 +582,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     anomalyObservationUseCase,
                     templateManagementUseCase,
                     warningWorker);
-            warningWorker.start();
-            anomalyListener.start();
-            planner.start();
-            anomalyWarningWorker = warningWorker;
-            identityAnomalyListener = anomalyListener;
-            templateRevisionPlannerWorker = planner;
-            getLogger().info(
-                    "Lore-item anomaly detection, warnings, and administration are active.");
+            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
         } catch (RuntimeException exception) {
             rollbackAdministrationServices(
                     services,
@@ -606,6 +599,20 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     exception);
             getServer().getPluginManager().disablePlugin(this);
         }
+    }
+
+    private void activateAdministrationWorkers(
+            PaperAnomalyWarningWorker warningWorker,
+            PaperIdentityAnomalyListener anomalyListener,
+            PaperTemplateRevisionPlannerWorker planner) {
+        warningWorker.start();
+        anomalyListener.start();
+        planner.start();
+        anomalyWarningWorker = warningWorker;
+        identityAnomalyListener = anomalyListener;
+        templateRevisionPlannerWorker = planner;
+        getLogger().info(
+                "Lore-item anomaly detection, warnings, and administration are active.");
     }
 
     private void registerAdministrationServices(

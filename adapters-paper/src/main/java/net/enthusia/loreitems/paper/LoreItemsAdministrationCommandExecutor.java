@@ -89,16 +89,20 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(arguments, "arguments");
-        LoreItemsAdministrationUseCase useCase = resolveUseCase(sender);
-        if (useCase == null) {
-            return true;
-        }
         String subcommand = parseSubcommand(sender, arguments);
         if (subcommand == null) {
             return true;
         }
         if (BROWSE_SUBCOMMAND.equals(subcommand)) {
+            if (!canBrowse(sender)) {
+                sender.sendMessage("You do not have permission to browse lore-item templates.");
+                return true;
+            }
             executeBrowse(sender, arguments);
+            return true;
+        }
+        LoreItemsAdministrationUseCase useCase = resolveEvidenceUseCase(sender);
+        if (useCase == null) {
             return true;
         }
         CommandActor actor = CommandActor.capture(sender);
@@ -122,7 +126,13 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         trackingGui.openDefinitions(player.getUniqueId(), MIN_PAGE_NUMBER);
     }
 
-    private LoreItemsAdministrationUseCase resolveUseCase(CommandSender sender) {
+    static boolean canBrowse(CommandSender sender) {
+        Objects.requireNonNull(sender, "sender");
+        return sender.hasPermission(AUDIT_PERMISSION)
+                || sender.hasPermission(PaperTemplateEditorManager.EDIT_PERMISSION);
+    }
+
+    private LoreItemsAdministrationUseCase resolveEvidenceUseCase(CommandSender sender) {
         if (!sender.hasPermission(AUDIT_PERMISSION)) {
             sender.sendMessage("You do not have permission to inspect lore-item evidence.");
             return null;

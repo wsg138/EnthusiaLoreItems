@@ -97,7 +97,11 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
         public CompletionStage<TemplateRevisionStartResult> startConfirmed(
                 TemplateRevisionConfirmation confirmed) {
             confirmation = confirmed;
-            return TemplateRevisionRolloutStore.super.startConfirmed(confirmed);
+            return start(
+            confirmed.newRevision(),
+            confirmed.expectedCurrentRevision(),
+            confirmed.auditEvent(),
+            confirmed.initialBatchLimit());
         }
 
         @Override

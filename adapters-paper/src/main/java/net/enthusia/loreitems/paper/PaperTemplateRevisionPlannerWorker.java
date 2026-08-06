@@ -81,7 +81,8 @@ public final class PaperTemplateRevisionPlannerWorker implements AutoCloseable {
             report("start template rollout discovery", exception);
             return;
         }
-        stage.whenComplete(this::discovered);
+        stage.whenComplete((page, failure) ->
+            dispatchContinuation(() -> discovered(page, failure)));
     }
 
     private void discovered(
@@ -106,7 +107,30 @@ public final class PaperTemplateRevisionPlannerWorker implements AutoCloseable {
             report("schedule a template rollout batch", exception);
             return;
         }
-        stage.whenComplete((result, throwable) -> scheduled(result, throwable));
+        stage.whenComplete((result, throwable) ->
+            dispatchContinuation(() -> scheduled(result, throwable)));
+    }
+
+    private void dispatchContinuation(Runnable continuation) {
+        if (closed) {
+            inFlight.set(false);
+            return;
+        }
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (closed) {
+                    inFlight.set(false);
+                    return;
+                }
+                continuation.run();
+            });
+        } catch (RuntimeException exception) {
+            inFlight.set(false);
+            plugin.getLogger().log(
+                    Level.FINE,
+                    "Could not resume template rollout planning during shutdown.",
+                    exception);
+        }
     }
 
     private void scheduled(TemplateRevisionRolloutBatchResult result, Throwable failure) {

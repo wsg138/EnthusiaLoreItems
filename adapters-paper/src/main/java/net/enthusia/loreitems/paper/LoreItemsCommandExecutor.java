@@ -92,24 +92,33 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         if (arguments.length != 1) {
             return List.of();
         }
-        return topLevelCompletions(sender, arguments[0]);
+        return topLevelCompletions(
+            sender, arguments[0], administrationExecutor != null);
     }
 
     static List<String> topLevelCompletions(CommandSender sender, String input) {
+        return topLevelCompletions(sender, input, true);
+    }
+
+    static List<String> topLevelCompletions(
+            CommandSender sender, String input, boolean administrationAvailable) {
         Objects.requireNonNull(sender, "sender");
         String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
         List<String> candidates = new ArrayList<>();
         addIfAllowed(candidates, sender, CREATE_SUBCOMMAND, "enthusia.loreitems.admin.create");
         addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
         addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
-        addIfAllowed(candidates, sender, BROWSE_SUBCOMMAND,
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
-        addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
-        addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
-        addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+        if (administrationAvailable) {
+            if (LoreItemsAdministrationCommandExecutor.canBrowse(sender)) {
+                candidates.add(BROWSE_SUBCOMMAND);
+            }
+            addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+            addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+            addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+        }
         return candidates.stream().filter(value -> value.startsWith(prefix)).toList();
     }
 

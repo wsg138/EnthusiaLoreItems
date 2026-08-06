@@ -47,9 +47,9 @@ class PaperTemplateRevisionPlannerWorkerTest {
                      new PaperTemplateRevisionPlannerWorker(
                              plugin, useCase, 7, executionWakes::incrementAndGet)) {
             worker.start();
-            server.getScheduler().performOneTick();
-            server.getScheduler().performOneTick();
-            server.getScheduler().performOneTick();
+            for (int tick = 0; tick < 8; tick++) {
+                server.getScheduler().performOneTick();
+            }
 
             assertEquals(2, useCase.listCalls);
             assertEquals(2, useCase.scheduleCalls);
@@ -70,6 +70,9 @@ class PaperTemplateRevisionPlannerWorkerTest {
             assertEquals(1, useCase.listCalls);
 
             useCase.discovery.complete(emptyPage());
+            worker.requestRun();
+            assertEquals(1, useCase.listCalls);
+            server.getScheduler().performOneTick();
             worker.requestRun();
             assertEquals(2, useCase.listCalls);
         }
