@@ -19,11 +19,13 @@ public record TemplateManagementSnapshot(
     }
 
     public boolean rolloutActive() {
-        return pendingUpdateCount > 0L;
+        return pendingUpdateCount > NO_PENDING_UPDATES;
     }
 
+    private static final long NO_PENDING_UPDATES = 0L;
+
     private static void requireCount(long value, String name) {
-        if (value < 0L) {
+        if (value < NO_PENDING_UPDATES) {
             throw new IllegalArgumentException(name + " must not be negative");
         }
     }

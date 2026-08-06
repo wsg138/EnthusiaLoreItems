@@ -255,8 +255,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     void receiveChat(UUID playerId, UUID sessionId, String message) {
         PaperTemplateEditorSession session = sessions.get(playerId);
         Player player = Bukkit.getPlayer(playerId);
-        if (session == null || player == null || !session.sessionId.equals(sessionId)
-                || session.state != PaperTemplateEditorSession.State.AWAITING_CHAT) {
+        if (!isCurrentChatSession(session, player, sessionId)) {
             pendingChatSessions.remove(playerId, sessionId);
             return;
         }
@@ -264,20 +263,32 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             cancelSession(player, session, "Permission was removed; draft cancelled.", false);
             return;
         }
-        String normalized = message.strip();
-        if (normalized.equalsIgnoreCase("cancel")) {
-            pendingChatSessions.remove(playerId);
+        processChatMessage(player, session, message.strip());
+    }
+
+    private static boolean isCurrentChatSession(
+            PaperTemplateEditorSession session, Player player, UUID sessionId) {
+        return session != null
+                && player != null
+                && session.sessionId.equals(sessionId)
+                && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT;
+    }
+
+    private void processChatMessage(
+            Player player, PaperTemplateEditorSession session, String message) {
+        if (message.equalsIgnoreCase("cancel")) {
+            pendingChatSessions.remove(player.getUniqueId());
             session.pendingAction = null;
             session.state = PaperTemplateEditorSession.State.EDITING;
             resetTimeout(session);
             renderer.showEditor(player, session);
             return;
         }
-        if (!normalized.regionMatches(true, 0, "submit ", 0, 7)) {
+        if (!message.regionMatches(true, 0, "submit ", 0, 7)) {
             player.sendMessage("Nothing was applied. Type submit <value>, or cancel.");
             return;
         }
-        String input = normalized.substring(7).strip();
+        String input = message.substring(7).strip();
         if (input.isEmpty()) {
             player.sendMessage("Nothing was applied. A value is required after submit.");
             return;
@@ -292,7 +303,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         session.draft = result.item();
         session.pendingAction = null;
         session.state = PaperTemplateEditorSession.State.EDITING;
-        pendingChatSessions.remove(playerId);
+        pendingChatSessions.remove(player.getUniqueId());
         resetTimeout(session);
         player.sendMessage(result.detail());
         renderer.showEditor(player, session);

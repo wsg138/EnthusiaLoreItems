@@ -16,7 +16,9 @@ import org.bukkit.plugin.Plugin;
 /** Bounded asynchronous loading for the read-only template-management screen. */
 final class PaperTemplateManagementLoader {
     private static final int MAX_QUERIES = 32;
+    private static final int MINIMUM_QUERY_CAPACITY = 1;
     private static final long QUERY_TIMEOUT_SECONDS = 10L;
+    private static final long MINIMUM_QUERY_TIMEOUT = 1L;
     private static final String UNAVAILABLE =
             "Template editing is unavailable while durable storage is read-only or initializing.";
 
@@ -60,10 +62,10 @@ final class PaperTemplateManagementLoader {
         this.templateCodec = Objects.requireNonNull(templateCodec, "templateCodec");
         this.failureHandler = Objects.requireNonNull(failureHandler, "failureHandler");
         this.mainThreadExecutor = Objects.requireNonNull(mainThreadExecutor, "mainThreadExecutor");
-        if (maximumQueries < 1) {
+        if (maximumQueries < MINIMUM_QUERY_CAPACITY) {
             throw new IllegalArgumentException("maximumQueries must be positive");
         }
-        if (queryTimeout < 1L) {
+        if (queryTimeout < MINIMUM_QUERY_TIMEOUT) {
             throw new IllegalArgumentException("queryTimeout must be positive");
         }
         this.queryCapacity = new Semaphore(maximumQueries);
@@ -102,8 +104,8 @@ final class PaperTemplateManagementLoader {
             failureHandler.handle(playerId, "load template management", exception);
             return;
         }
-        stage.thenApply(snapshot -> snapshot)
-                .toCompletableFuture()
+        stage.toCompletableFuture()
+                .copy()
                 .orTimeout(queryTimeout, queryTimeoutUnit)
                 .whenComplete((snapshot, failure) -> {
                     queryCapacity.release();

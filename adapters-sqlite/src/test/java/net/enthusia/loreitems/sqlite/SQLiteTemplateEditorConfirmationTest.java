@@ -31,7 +31,8 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class SQLiteTemplateEditorConfirmationTest {
+@SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
+    class SQLiteTemplateEditorConfirmationTest {
     private static final TemplateRevision REVISION_ONE = new TemplateRevision(1);
     private static final TemplateRevision REVISION_TWO = new TemplateRevision(2);
     private static final long CONFIRMED_AT = 2_000L;

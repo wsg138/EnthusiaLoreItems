@@ -24,7 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
-class PaperTemplateRevisionPlannerWorkerTest {
+@SuppressWarnings("PMD.DoNotUseThreads")
+    class PaperTemplateRevisionPlannerWorkerTest {
     private ServerMock server;
     private Plugin plugin;
 

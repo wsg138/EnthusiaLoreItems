@@ -135,21 +135,36 @@ final class PaperTemplateCommonEditor {
     private static String enchant(ItemStack item, String input) {
         ItemMeta meta = PaperTemplateEditorSupport.requireMeta(item);
         String[] values = input.strip().split("\\s+");
-        if (values.length == 1 && values[0].equalsIgnoreCase("clear")) {
-            meta.removeEnchantments();
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("remove")) {
-            meta.removeEnchant(enchantment(values[1]));
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("tooltip")) {
-            setFlag(meta, ItemFlag.HIDE_ENCHANTS, !PaperTemplateEditorSupport.bool(values[1]));
-        } else if (values.length == 3 && values[0].equalsIgnoreCase("set")) {
-            int level = PaperTemplateEditorSupport.integer(values[2], 1, 32_767, "level");
-            meta.addEnchant(enchantment(values[1]), level, true);
-        } else {
-            throw new IllegalArgumentException(
-                    "Use set <key> <level>, remove <key>, clear, or tooltip visible|hidden");
-        }
+        editEnchantments(meta, values);
         PaperTemplateEditorSupport.applyMeta(item, meta);
         return "Enchantments updated";
+    }
+
+    private static void editEnchantments(ItemMeta meta, String[] values) {
+        String usage =
+                "Use set <key> <level>, remove <key>, clear, or tooltip visible|hidden";
+        switch (values[0].toLowerCase(Locale.ROOT)) {
+            case "clear" -> {
+                requireLength(values, 1, usage);
+                meta.removeEnchantments();
+            }
+            case "remove" -> {
+                requireLength(values, 2, usage);
+                meta.removeEnchant(enchantment(values[1]));
+            }
+            case "tooltip" -> {
+                requireLength(values, 2, usage);
+                setFlag(meta, ItemFlag.HIDE_ENCHANTS,
+                        !PaperTemplateEditorSupport.bool(values[1]));
+            }
+            case "set" -> {
+                requireLength(values, 3, usage);
+                int level = PaperTemplateEditorSupport.integer(
+                        values[2], 1, 32_767, "level");
+                meta.addEnchant(enchantment(values[1]), level, true);
+            }
+            default -> throw new IllegalArgumentException(usage);
+        }
     }
 
     private static Enchantment enchantment(String value) {
@@ -196,35 +211,57 @@ final class PaperTemplateCommonEditor {
     private static String attribute(ItemStack item, String input) {
         ItemMeta meta = PaperTemplateEditorSupport.requireMeta(item);
         String[] values = input.strip().split("\\s+");
-        if (values.length == 1 && values[0].equalsIgnoreCase("clear")) {
-            meta.setAttributeModifiers(null);
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("remove")) {
-            removeModifier(meta, PaperTemplateEditorSupport.key(values[1]));
-        } else if (values.length == 6 && values[0].equalsIgnoreCase("set")) {
-            Attribute attribute = Registry.ATTRIBUTE.get(PaperTemplateEditorSupport.key(values[1]));
-            if (attribute == null) {
-                throw new IllegalArgumentException("Unknown attribute key");
-            }
-            NamespacedKey modifierKey = PaperTemplateEditorSupport.key(values[2]);
-            AttributeModifier.Operation operation = parseOperation(values[3]);
-            double amount = PaperTemplateEditorSupport.decimal(values[4], "amount");
-            EquipmentSlotGroup group = EquipmentSlotGroup.getByName(values[5]);
-            if (group == null) {
-                throw new IllegalArgumentException("Unknown equipment slot/group");
-            }
-            removeModifier(meta, modifierKey);
-            if (!meta.addAttributeModifier(
-                    attribute,
-                    new AttributeModifier(modifierKey, amount, operation, group))) {
-                throw new IllegalArgumentException("Paper rejected the attribute modifier");
-            }
-        } else {
-            throw new IllegalArgumentException(
-                    "Use set <attribute> <modifier-key> <operation> <amount> <slot/group>, "
-                            + "remove <modifier-key>, or clear");
-        }
+        editAttributes(meta, values);
         PaperTemplateEditorSupport.applyMeta(item, meta);
         return "Attribute modifiers updated";
+    }
+
+    private static void editAttributes(ItemMeta meta, String[] values) {
+        String usage =
+                "Use set <attribute> <modifier-key> <operation> <amount> <slot/group>, "
+                        + "remove <modifier-key>, or clear";
+        switch (values[0].toLowerCase(Locale.ROOT)) {
+            case "clear" -> {
+                requireLength(values, 1, usage);
+                meta.setAttributeModifiers(null);
+            }
+            case "remove" -> {
+                requireLength(values, 2, usage);
+                removeModifier(meta, PaperTemplateEditorSupport.key(values[1]));
+            }
+            case "set" -> {
+                requireLength(values, 6, usage);
+                setAttribute(meta, values);
+            }
+            default -> throw new IllegalArgumentException(usage);
+        }
+    }
+
+    private static void setAttribute(ItemMeta meta, String[] values) {
+        Attribute attribute = Registry.ATTRIBUTE.get(
+                PaperTemplateEditorSupport.key(values[1]));
+        if (attribute == null) {
+            throw new IllegalArgumentException("Unknown attribute key");
+        }
+        NamespacedKey modifierKey = PaperTemplateEditorSupport.key(values[2]);
+        AttributeModifier.Operation operation = parseOperation(values[3]);
+        double amount = PaperTemplateEditorSupport.decimal(values[4], "amount");
+        EquipmentSlotGroup group = EquipmentSlotGroup.getByName(values[5]);
+        if (group == null) {
+            throw new IllegalArgumentException("Unknown equipment slot/group");
+        }
+        removeModifier(meta, modifierKey);
+        if (!meta.addAttributeModifier(
+                attribute,
+                new AttributeModifier(modifierKey, amount, operation, group))) {
+            throw new IllegalArgumentException("Paper rejected the attribute modifier");
+        }
+    }
+
+    private static void requireLength(String[] values, int expected, String usage) {
+        if (values.length != expected) {
+            throw new IllegalArgumentException(usage);
+        }
     }
 
     private static AttributeModifier.Operation parseOperation(String value) {

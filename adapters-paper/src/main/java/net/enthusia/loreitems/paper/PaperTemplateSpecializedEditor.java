@@ -122,6 +122,12 @@ final class PaperTemplateSpecializedEditor {
         }
     }
 
+    private static void requireLength(String[] values, int expected, String usage) {
+        if (values.length != expected) {
+            throw new IllegalArgumentException(usage);
+        }
+    }
+
     private static IllegalArgumentException potionUsage() {
         return new IllegalArgumentException(
                 "Use base <key>, set-effect <key> <ticks> <amplifier> <ambient> "
@@ -167,22 +173,37 @@ final class PaperTemplateSpecializedEditor {
             throw new IllegalArgumentException("This material does not support banner patterns");
         }
         String[] values = input.strip().split("\\s+");
-        if (values.length == 1 && values[0].equalsIgnoreCase("clear")) {
-            meta.setPatterns(List.of());
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("remove")) {
-            meta.removePattern(index(values[1], meta.numberOfPatterns(), "banner pattern"));
-        } else if (values.length == 3 && values[0].equalsIgnoreCase("add")) {
-            meta.addPattern(pattern(values[1], values[2]));
-        } else if (values.length == 4 && values[0].equalsIgnoreCase("set")) {
-            meta.setPattern(index(values[1], meta.numberOfPatterns(), "banner pattern"),
-                    pattern(values[2], values[3]));
-        } else {
-            throw new IllegalArgumentException(
-                    "Use add <dye> <pattern-key>, set <index> <dye> <pattern-key>, "
-                            + "remove <index>, or clear");
-        }
+        editBanner(meta, values);
         PaperTemplateEditorSupport.applyMeta(item, meta);
         return "Banner patterns updated";
+    }
+
+    private static void editBanner(BannerMeta meta, String[] values) {
+        String usage =
+                "Use add <dye> <pattern-key>, set <index> <dye> <pattern-key>, "
+                        + "remove <index>, or clear";
+        switch (values[0].toLowerCase(Locale.ROOT)) {
+            case "clear" -> {
+                requireLength(values, 1, usage);
+                meta.setPatterns(List.of());
+            }
+            case "remove" -> {
+                requireLength(values, 2, usage);
+                meta.removePattern(index(
+                        values[1], meta.numberOfPatterns(), "banner pattern"));
+            }
+            case "add" -> {
+                requireLength(values, 3, usage);
+                meta.addPattern(pattern(values[1], values[2]));
+            }
+            case "set" -> {
+                requireLength(values, 4, usage);
+                meta.setPattern(index(
+                                values[1], meta.numberOfPatterns(), "banner pattern"),
+                        pattern(values[2], values[3]));
+            }
+            default -> throw new IllegalArgumentException(usage);
+        }
     }
 
     private static Pattern pattern(String dyeValue, String typeValue) {
@@ -242,18 +263,29 @@ final class PaperTemplateSpecializedEditor {
 
     private static void editRocket(FireworkMeta meta, String input) {
         String[] values = input.strip().split("\\s+");
-        if (values.length == 2 && values[0].equalsIgnoreCase("power")) {
-            meta.setPower(PaperTemplateEditorSupport.integer(values[1], 0, 255, "power"));
-        } else if (values.length == 1 && values[0].equalsIgnoreCase("clear")) {
-            meta.clearEffects();
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("remove")) {
-            meta.removeEffect(index(values[1], meta.getEffectsSize(), "firework effect"));
-        } else if (values.length == 6 && values[0].equalsIgnoreCase("add")) {
-            meta.addEffect(effect(values, 1));
-        } else {
-            throw new IllegalArgumentException(
-                    "Use power <0-255>, add <type> <colors> <fade|none> <flicker> <trail>, "
-                            + "remove <index>, or clear");
+        String usage =
+                "Use power <0-255>, add <type> <colors> <fade|none> <flicker> <trail>, "
+                        + "remove <index>, or clear";
+        switch (values[0].toLowerCase(Locale.ROOT)) {
+            case "power" -> {
+                requireLength(values, 2, usage);
+                meta.setPower(PaperTemplateEditorSupport.integer(
+                        values[1], 0, 255, "power"));
+            }
+            case "clear" -> {
+                requireLength(values, 1, usage);
+                meta.clearEffects();
+            }
+            case "remove" -> {
+                requireLength(values, 2, usage);
+                meta.removeEffect(index(
+                        values[1], meta.getEffectsSize(), "firework effect"));
+            }
+            case "add" -> {
+                requireLength(values, 6, usage);
+                meta.addEffect(effect(values, 1));
+            }
+            default -> throw new IllegalArgumentException(usage);
         }
     }
 
