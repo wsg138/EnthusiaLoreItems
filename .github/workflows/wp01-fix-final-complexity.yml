@@ -1,0 +1,67 @@
+name: Apply final WP-01 complexity fix
+
+on:
+  push:
+    branches:
+      - agent/wp-01-editor-template-management
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Extract administration worker activation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java')
+          source = path.read_text()
+          old = '''            warningWorker.start();
+              anomalyListener.start();
+              planner.start();
+              anomalyWarningWorker = warningWorker;
+              identityAnomalyListener = anomalyListener;
+              templateRevisionPlannerWorker = planner;
+              getLogger().info(
+                      "Lore-item anomaly detection, warnings, and administration are active.");
+          '''
+          new = '''            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
+          '''
+          if old not in source:
+              raise SystemExit('expected worker activation block not found')
+          source = source.replace(old, new, 1)
+          marker = '''    private void registerAdministrationServices(
+          '''
+          helper = '''    private void activateAdministrationWorkers(
+                  PaperAnomalyWarningWorker warningWorker,
+                  PaperIdentityAnomalyListener anomalyListener,
+                  PaperTemplateRevisionPlannerWorker planner) {
+              warningWorker.start();
+              anomalyListener.start();
+              planner.start();
+              anomalyWarningWorker = warningWorker;
+              identityAnomalyListener = anomalyListener;
+              templateRevisionPlannerWorker = planner;
+              getLogger().info(
+                      "Lore-item anomaly detection, warnings, and administration are active.");
+          }
+
+          '''
+          if marker not in source:
+              raise SystemExit('administration service marker not found')
+          path.write_text(source.replace(marker, helper + marker, 1))
+          PY
+          rm -f .github/workflows/wp01-fix-final-complexity.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: reduce administration startup complexity'
+          git push origin HEAD:agent/wp-01-editor-template-management
