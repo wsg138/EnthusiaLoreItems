@@ -26,6 +26,14 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 
 final class SQLiteDestructiveControlStore {
     private static final int SINGLE_ROW = 1;
+    private static final int JSON_CONTROL_LIMIT = 0x20;
+    private static final int JSON_UNICODE_WIDTH = 4;
+    private static final char JSON_QUOTE = '"';
+    private static final char JSON_REVERSE_SOLIDUS = '\\';
+    private static final String JSON_UNICODE_PREFIX = "\\u";
+    private static final String JSON_ZERO_PADDING = "0000";
+    private static final String[] JSON_CONTROL_ESCAPES = createJsonControlEscapes();
+
     private final SQLiteStorageRuntime storage;
     private final SQLiteDestructiveQueryStore queries;
 
@@ -378,29 +386,37 @@ final class SQLiteDestructiveControlStore {
         StringBuilder escaped = new StringBuilder(value.length() + 16);
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
-            switch (character) {
-                case '"' -> escaped.append("\\\"");
-                case '\\' -> escaped.append("\\\\");
-                case '\b' -> escaped.append("\\b");
-                case '\f' -> escaped.append("\\f");
-                case '\n' -> escaped.append("\\n");
-                case '\r' -> escaped.append("\\r");
-                case '\t' -> escaped.append("\\t");
-                default -> appendJsonCharacter(escaped, character);
+            if (character == JSON_QUOTE || character == JSON_REVERSE_SOLIDUS) {
+                escaped.append(JSON_REVERSE_SOLIDUS).append(character);
+            } else if (character < JSON_CONTROL_LIMIT) {
+                appendJsonControl(escaped, character);
+            } else {
+                escaped.append(character);
             }
         }
         return escaped.toString();
     }
 
-    private static void appendJsonCharacter(StringBuilder escaped, char character) {
-        if (character >= ' ') {
-            escaped.append(character);
+    private static void appendJsonControl(StringBuilder escaped, char character) {
+        String shortEscape = JSON_CONTROL_ESCAPES[character];
+        if (shortEscape != null) {
+            escaped.append(shortEscape);
             return;
         }
         String hexadecimal = Integer.toHexString(character);
-        escaped.append("\\u");
-        escaped.append("0000", 0, 4 - hexadecimal.length());
-        escaped.append(hexadecimal);
+        escaped.append(JSON_UNICODE_PREFIX)
+                .append(JSON_ZERO_PADDING, 0, JSON_UNICODE_WIDTH - hexadecimal.length())
+                .append(hexadecimal);
+    }
+
+    private static String[] createJsonControlEscapes() {
+        String[] escapes = new String[JSON_CONTROL_LIMIT];
+        escapes['\b'] = "\\b";
+        escapes['\f'] = "\\f";
+        escapes['\n'] = "\\n";
+        escapes['\r'] = "\\r";
+        escapes['\t'] = "\\t";
+        return escapes;
     }
 
     private record TargetReviewSnapshot(
