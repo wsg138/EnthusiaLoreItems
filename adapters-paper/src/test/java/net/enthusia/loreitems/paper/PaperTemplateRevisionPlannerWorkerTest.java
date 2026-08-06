@@ -79,6 +79,37 @@ class PaperTemplateRevisionPlannerWorkerTest {
     }
 
     @Test
+    void completionCallbacksResumeOnlyOnTheBukkitScheduler() throws InterruptedException {
+        DeferredCandidateUseCase useCase = new DeferredCandidateUseCase();
+        AtomicInteger executionWakes = new AtomicInteger();
+        try (PaperTemplateRevisionPlannerWorker worker =
+                     new PaperTemplateRevisionPlannerWorker(
+                             plugin, useCase, 5, executionWakes::incrementAndGet)) {
+            worker.requestRun();
+            Thread discoveryThread = new Thread(
+                    () -> useCase.discovery.complete(useCase.candidatePage()));
+            discoveryThread.start();
+            discoveryThread.join();
+            assertEquals(0, useCase.scheduleCalls);
+
+            server.getScheduler().performOneTick();
+            assertEquals(1, useCase.scheduleCalls);
+
+            Thread schedulingThread = new Thread(
+                    () -> useCase.scheduling.complete(
+                            TemplateRevisionRolloutBatchResult.complete(1)));
+            schedulingThread.start();
+            schedulingThread.join();
+            assertEquals(0, executionWakes.get());
+
+            server.getScheduler().performOneTick();
+            assertEquals(0, executionWakes.get());
+            server.getScheduler().performOneTick();
+            assertEquals(1, executionWakes.get());
+        }
+    }
+
+    @Test
     void validatesTheConfiguredBound() {
         assertThrows(
                 IllegalArgumentException.class,
@@ -156,6 +187,42 @@ class PaperTemplateRevisionPlannerWorkerTest {
                 discovery = CompletableFuture.completedFuture(emptyPage());
             }
             return discovery;
+        }
+    }
+
+    private static final class DeferredCandidateUseCase
+            implements TemplateRevisionRolloutUseCase {
+        private final TemplateRevisionRolloutCandidate candidate =
+                new TemplateRevisionRolloutCandidate(
+                        new LoreDefinitionId(UUID.randomUUID()),
+                        new TemplateRevision(4));
+        private final CompletableFuture<Page<TemplateRevisionRolloutCandidate>> discovery =
+                new CompletableFuture<>();
+        private final CompletableFuture<TemplateRevisionRolloutBatchResult> scheduling =
+                new CompletableFuture<>();
+        private int scheduleCalls;
+
+        @Override
+        public CompletionStage<TemplateRevisionStartResult> start(
+                TemplateRevisionRolloutRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletionStage<TemplateRevisionRolloutBatchResult> scheduleNextBatch(
+                TemplateRevisionRolloutCandidate value, int limit) {
+            scheduleCalls++;
+            return scheduling;
+        }
+
+        @Override
+        public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
+                PageRequest request) {
+            return discovery;
+        }
+
+        private Page<TemplateRevisionRolloutCandidate> candidatePage() {
+            return new Page<>(List.of(candidate), 0, 1, false);
         }
     }
 }
