@@ -15,15 +15,17 @@ import org.bukkit.entity.Player;
 
 /** Parsing, presentation, and completion helpers kept outside the command dispatcher. */
 final class DestructiveCommandSupport {
+    private static final int FIRST_PAGE = 1;
+
     private DestructiveCommandSupport() {}
 
     static PageRequest pageRequest(
             String[] arguments, int pageArgumentIndex, int configuredPageSize) {
         int pageNumber = arguments.length > pageArgumentIndex
                 ? parsePositiveInt(arguments[pageArgumentIndex], "page")
-                : 1;
-        int pageSize = Math.max(1, Math.min(PageRequest.MAX_LIMIT, configuredPageSize));
-        return new PageRequest(Math.multiplyExact(pageNumber - 1, pageSize), pageSize);
+                : FIRST_PAGE;
+        int pageSize = Math.max(FIRST_PAGE, Math.min(PageRequest.MAX_LIMIT, configuredPageSize));
+        return new PageRequest(Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
     }
 
     static void showOperations(
@@ -103,7 +105,7 @@ final class DestructiveCommandSupport {
                 + " effect=" + target.effectState()
                 + " attempts=" + target.attemptCount()
                 + " location=" + location
-                + " path=" + String.valueOf(target.expectedContainerPath())
+                + " path=" + target.expectedContainerPath()
                 + nullableRemaining(" lease-remaining-ms=", target.claimExpiresAtEpochMillis(), nowEpochMillis)
                 + nullableValue(" before=", target.beforeFingerprint())
                 + nullableValue(" after=", target.afterFingerprint())
@@ -130,12 +132,9 @@ final class DestructiveCommandSupport {
 
     static DestructiveAdministrationUseCase.ReviewResolution parseResolution(String input) {
         return switch (input.toLowerCase(Locale.ROOT)) {
-            case "requeue" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .REQUEUE_NO_SIDE_EFFECT;
-            case "removed" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .MARK_VERIFIED_REMOVED;
-            case "abort" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .ABORT_NO_SIDE_EFFECT;
+            case "requeue" -> DestructiveAdministrationUseCase.ReviewResolution.REQUEUE_NO_SIDE_EFFECT;
+            case "removed" -> DestructiveAdministrationUseCase.ReviewResolution.MARK_VERIFIED_REMOVED;
+            case "abort" -> DestructiveAdministrationUseCase.ReviewResolution.ABORT_NO_SIDE_EFFECT;
             default -> throw new IllegalArgumentException(
                     "resolution must be requeue, removed, or abort");
         };
@@ -186,36 +185,12 @@ final class DestructiveCommandSupport {
         addIfAllowed(values, sender, "remove", LoreItemsDestructiveCommandExecutor.REMOVE_PERMISSION);
         addIfAllowed(values, sender, "purge", LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION);
         addIfAllowed(values, sender, "delete", LoreItemsDestructiveCommandExecutor.DELETE_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "operations",
-                LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "targets",
-                LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "destructive-metrics",
-                LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "pause-operation",
-                LoreItemsDestructiveCommandExecutor.CONTROL_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "resume-operation",
-                LoreItemsDestructiveCommandExecutor.CONTROL_PERMISSION);
-        addIfAllowed(
-                values,
-                sender,
-                "resolve-removal",
-                LoreItemsDestructiveCommandExecutor.REVIEW_PERMISSION);
+        addIfAllowed(values, sender, "operations", LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
+        addIfAllowed(values, sender, "targets", LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
+        addIfAllowed(values, sender, "destructive-metrics", LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION);
+        addIfAllowed(values, sender, "pause-operation", LoreItemsDestructiveCommandExecutor.CONTROL_PERMISSION);
+        addIfAllowed(values, sender, "resume-operation", LoreItemsDestructiveCommandExecutor.CONTROL_PERMISSION);
+        addIfAllowed(values, sender, "resolve-removal", LoreItemsDestructiveCommandExecutor.REVIEW_PERMISSION);
         return values.stream().filter(value -> value.startsWith(prefix)).toList();
     }
 
@@ -238,7 +213,7 @@ final class DestructiveCommandSupport {
     private static int parsePositiveInt(String input, String name) {
         try {
             int value = Integer.parseInt(input);
-            if (value < 1) {
+            if (value < FIRST_PAGE) {
                 throw new IllegalArgumentException(name + " must be positive");
             }
             return value;
@@ -248,12 +223,12 @@ final class DestructiveCommandSupport {
     }
 
     private static int pageNumber(Page<?> page) {
-        return page.offset() / page.limit() + 1;
+        return page.offset() / page.limit() + FIRST_PAGE;
     }
 
     private static void showPageFooter(CommandSender sender, Page<?> page) {
         sender.sendMessage(page.hasMore()
-                ? "More results are available on page " + (pageNumber(page) + 1) + '.'
+                ? "More results are available on page " + (pageNumber(page) + FIRST_PAGE) + '.'
                 : "End of results.");
     }
 
