@@ -65,6 +65,25 @@ class SQLiteDestructiveOperationStoreTest {
     }
 
     @Test
+    void confirmationRejectsExactTargetMovementBeforeAcceptance() {
+        try (SQLiteDestructiveTestFixture fixture = fixture("stale-target-snapshot.db")) {
+            var seed = fixture.seed(true);
+            var administration = fixture.administration();
+            var preview = fixture.preview(
+                    DestructiveOperationType.EXACT_INSTANCE_REMOVAL,
+                    seed,
+                    seed.instanceId());
+
+            fixture.moveCurrentState(seed.instanceId(), "player:moved-before-confirmation");
+            var result = administration.start(new StartRequest(
+                            preview, ADMIN_ACTOR, "stale-target-snapshot"))
+                    .toCompletableFuture().join();
+
+            assertEquals(StartStatus.STALE_CONFIRMATION, result.status());
+        }
+    }
+
+    @Test
     void pauseFencesClaimsAndVerifiedRemovalCompletesTheParent() {
         try (SQLiteDestructiveTestFixture fixture = fixture("pause.db")) {
             var seed = fixture.seed(true);

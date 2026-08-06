@@ -144,6 +144,20 @@ final class SQLiteDestructiveTestFixture implements AutoCloseable {
         }).toCompletableFuture().join();
     }
 
+    void moveCurrentState(LoreInstanceId instanceId, String locationKey) {
+        runtime.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE instance_current_state SET location_key = ?, "
+                            + "state_revision = state_revision + 1, updated_at = 2000 "
+                            + "WHERE instance_id = ?")) {
+                statement.setString(1, locationKey);
+                statement.setString(2, instanceId.value().toString());
+                assertTrue(statement.executeUpdate() == 1);
+            }
+            return null;
+        }).toCompletableFuture().join();
+    }
+
     @Override
     public void close() {
         runtime.close(Duration.ofSeconds(5));

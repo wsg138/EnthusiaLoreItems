@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.sqlite;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -47,6 +48,12 @@ final class SQLiteDestructiveQueryStore {
                     + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'";
     private static final String EXACT_TARGET_COUNTS = DEFINITION_TARGET_COUNTS
             + " AND instance.instance_id = ?";
+    private static final String TARGET_SNAPSHOT_SELECT =
+            "SELECT instance.instance_id, instance.applied_revision, current.state, "
+                    + "current.location_type, current.location_key, current.container_path "
+                    + "FROM lore_instances instance LEFT JOIN instance_current_state current "
+                    + "ON current.instance_id = instance.instance_id "
+                    + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'";
     private final SQLiteStorageRuntime storage;
 
     SQLiteDestructiveQueryStore(SQLiteStorageRuntime storage) {
@@ -85,7 +92,14 @@ final class SQLiteDestructiveQueryStore {
         }
         long queued = countQueuedWork(connection, request);
         long anomalies = countAnomalies(connection, request);
-        return Optional.of(toPreview(request, definition, targets, queued, anomalies));
+        String targetSnapshotToken = targetSnapshotToken(connection, request);
+        return Optional.of(toPreview(
+                request,
+                definition,
+                targets,
+                queued,
+                anomalies,
+                targetSnapshotToken));
     }
 
     Optional<OperationView> findByIdempotencyKey(Connection connection, String key)
@@ -127,7 +141,8 @@ final class SQLiteDestructiveQueryStore {
             DefinitionSnapshot definition,
             TargetCounts targets,
             long queued,
-            long anomalies) {
+            long anomalies,
+            String targetSnapshotToken) {
         return new Preview(
                 request.operationType(),
                 request.definitionId(),
@@ -139,7 +154,13 @@ final class SQLiteDestructiveQueryStore {
                 targets.inaccessibleCount(),
                 queued,
                 anomalies,
-                confirmationToken(request, definition, targets, queued, anomalies));
+                confirmationToken(
+                        request,
+                        definition,
+                        targets,
+                        queued,
+                        anomalies,
+                        targetSnapshotToken));
     }
 
     private static DefinitionSnapshot readDefinition(
@@ -198,6 +219,43 @@ final class SQLiteDestructiveQueryStore {
                     resultSet.getLong("target_count"),
                     resultSet.getLong("inaccessible_count"));
         }
+    }
+
+    private static String targetSnapshotToken(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        MessageDigest digest = sha256();
+        String sql = TARGET_SNAPSHOT_SELECT
+                + (request.exactInstanceId() == null ? "" : " AND instance.instance_id = ?")
+                + " ORDER BY instance.instance_id";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, request.definitionId().value().toString());
+            if (request.exactInstanceId() != null) {
+                statement.setString(2, request.exactInstanceId().value().toString());
+            }
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    updateDigest(digest, resultSet.getString("instance_id"));
+                    updateDigest(digest, Long.toString(resultSet.getLong("applied_revision")));
+                    updateDigest(digest, resultSet.getString("state"));
+                    updateDigest(digest, resultSet.getString("location_type"));
+                    updateDigest(digest, resultSet.getString("location_key"));
+                    updateDigest(digest, resultSet.getString("container_path"));
+                }
+            }
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void updateDigest(MessageDigest digest, String value) {
+        if (value == null) {
+            digest.update((byte) 0);
+            return;
+        }
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update((byte) 1);
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        digest.update(bytes);
     }
 
     private static long countQueuedWork(Connection connection, PreviewRequest request)
@@ -352,16 +410,21 @@ final class SQLiteDestructiveQueryStore {
             DefinitionSnapshot definition,
             TargetCounts targets,
             long queued,
-            long anomalies) {
+            long anomalies,
+            String targetSnapshotToken) {
         String material = request.operationType().name() + '|' + request.definitionId().value()
                 + '|' + (request.exactInstanceId() == null ? "-" : request.exactInstanceId().value())
                 + '|' + definition.lookupKey().value() + '|' + definition.currentRevision().value()
                 + '|' + targets.targetCount() + '|' + targets.inaccessibleCount()
-                + '|' + queued + '|' + anomalies;
+                + '|' + queued + '|' + anomalies + '|' + targetSnapshotToken;
+        MessageDigest digest = sha256();
+        digest.update(material.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static MessageDigest sha256() {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(material.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is required by Java", exception);
         }
