@@ -44,7 +44,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
     private static final String CONFIRM_DELETE = "confirm-delete";
     private static final String OPERATIONS = "operations";
     private static final String TARGETS = "targets";
-    private static final String METRICS = "destructive-metrics";
+    private static final String METRICS_ROUTE = "destructive-metrics";
     private static final String PAUSE = "pause-operation";
     private static final String RESUME = "resume-operation";
     private static final String RESOLVE_REMOVAL = "resolve-removal";
@@ -118,7 +118,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
                                 sender, arguments, DestructiveOperationType.DELETE_DEFINITION)),
                 Map.entry(OPERATIONS, this::listOperations),
                 Map.entry(TARGETS, this::listTargets),
-                Map.entry(METRICS, this::metrics),
+                Map.entry(METRICS_ROUTE, this::metrics),
                 Map.entry(PAUSE, (sender, arguments) -> control(sender, arguments, true)),
                 Map.entry(RESUME, (sender, arguments) -> control(sender, arguments, false)),
                 Map.entry(RESOLVE_REMOVAL, this::review));

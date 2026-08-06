@@ -97,7 +97,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         }
     }
 
-    LoreItemsDestructiveCommandExecutor destructiveExecutor() {
+    LoreItemsDestructiveCommandExecutor destructiveCommandExecutor() {
         return destructiveExecutor;
     }
 

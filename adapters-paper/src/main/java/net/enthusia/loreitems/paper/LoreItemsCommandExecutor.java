@@ -48,7 +48,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
                 administrationExecutor,
                 administrationExecutor == null
                         ? null
-                        : administrationExecutor.destructiveExecutor());
+                        : administrationExecutor.destructiveCommandExecutor());
     }
 
     public LoreItemsCommandExecutor(
