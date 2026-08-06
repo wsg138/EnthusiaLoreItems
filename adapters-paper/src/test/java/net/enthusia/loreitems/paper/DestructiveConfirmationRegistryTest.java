@@ -20,34 +20,38 @@ import org.junit.jupiter.api.Test;
 
 class DestructiveConfirmationRegistryTest {
     private static final Instant NOW = Instant.parse("2026-08-06T08:00:00Z");
+    private static final String ACTOR = "actor";
+    private static final String ACTOR_ONE = "actor-one";
+    private static final String REMOVE_TOKEN = "remove-token";
+    private static final String TOKEN = "token";
 
     @Test
     void consumesOnlyTheMatchingActorOperationAndToken() {
         DestructiveConfirmationRegistry registry = registryAt(NOW, 4);
         DestructiveAdministrationUseCase.Preview preview = preview(
-                DestructiveOperationType.EXACT_INSTANCE_REMOVAL, "remove-token");
-        registry.remember("actor-one", preview);
+                DestructiveOperationType.EXACT_INSTANCE_REMOVAL, REMOVE_TOKEN);
+        registry.remember(ACTOR_ONE, preview);
 
         assertTrue(registry.consume(
-                        "actor-one",
+                        ACTOR_ONE,
                         DestructiveOperationType.PURGE_DEFINITION,
-                        "remove-token")
+                        REMOVE_TOKEN)
                 .isEmpty());
         assertTrue(registry.consume(
                         "actor-two",
                         DestructiveOperationType.EXACT_INSTANCE_REMOVAL,
-                        "remove-token")
+                        REMOVE_TOKEN)
                 .isEmpty());
         assertTrue(registry.consume(
-                        "actor-one",
+                        ACTOR_ONE,
                         DestructiveOperationType.EXACT_INSTANCE_REMOVAL,
                         "wrong-token")
                 .isEmpty());
 
         Optional<DestructiveConfirmationRegistry.Session> confirmed = registry.consume(
-                "actor-one",
+                ACTOR_ONE,
                 DestructiveOperationType.EXACT_INSTANCE_REMOVAL,
-                "remove-token");
+                REMOVE_TOKEN);
         assertTrue(confirmed.isPresent());
         assertEquals(preview, confirmed.orElseThrow().preview());
         assertEquals(0, registry.size());
@@ -57,19 +61,19 @@ class DestructiveConfirmationRegistryTest {
     void replacingAnActorPreviewInvalidatesTheOlderSnapshot() {
         DestructiveConfirmationRegistry registry = registryAt(NOW, 4);
         registry.remember(
-                "actor",
+                ACTOR,
                 preview(DestructiveOperationType.PURGE_DEFINITION, "old-token"));
         registry.remember(
-                "actor",
+                ACTOR,
                 preview(DestructiveOperationType.DELETE_DEFINITION, "new-token"));
 
         assertTrue(registry.consume(
-                        "actor",
+                        ACTOR,
                         DestructiveOperationType.PURGE_DEFINITION,
                         "old-token")
                 .isEmpty());
         assertTrue(registry.consume(
-                        "actor",
+                        ACTOR,
                         DestructiveOperationType.DELETE_DEFINITION,
                         "new-token")
                 .isPresent());
@@ -105,13 +109,12 @@ class DestructiveConfirmationRegistryTest {
         DestructiveConfirmationRegistry registry = new DestructiveConfirmationRegistry(
                 clock, Duration.ofMinutes(5L), 4);
         registry.remember(
-                "actor", preview(DestructiveOperationType.PURGE_DEFINITION, "token"));
+                ACTOR, preview(DestructiveOperationType.PURGE_DEFINITION, TOKEN));
 
         clock.advance(Duration.ofMinutes(5L));
 
         assertEquals(0, registry.size());
-        assertTrue(registry.consume(
-                        "actor", DestructiveOperationType.PURGE_DEFINITION, "token")
+        assertTrue(registry.consume(ACTOR, DestructiveOperationType.PURGE_DEFINITION, TOKEN)
                 .isEmpty());
     }
 
@@ -140,14 +143,14 @@ class DestructiveConfirmationRegistryTest {
     }
 
     private static final class MutableClock extends Clock {
-        private Instant instant;
+        private Instant currentInstant;
 
         private MutableClock(Instant instant) {
-            this.instant = instant;
+            currentInstant = instant;
         }
 
         private void advance(Duration duration) {
-            instant = instant.plus(duration);
+            currentInstant = currentInstant.plus(duration);
         }
 
         @Override
@@ -165,7 +168,7 @@ class DestructiveConfirmationRegistryTest {
 
         @Override
         public Instant instant() {
-            return instant;
+            return currentInstant;
         }
     }
 }

@@ -18,6 +18,8 @@ final class PaperTemplateEditorRenderer {
     static final int MANAGEMENT_EDIT = 29;
     static final int MANAGEMENT_REPLACE = 31;
     static final int MANAGEMENT_INSTANCES = 33;
+    static final int MANAGEMENT_PURGE = 37;
+    static final int MANAGEMENT_DELETE = 41;
     static final int MANAGEMENT_BACK = 45;
     static final int MANAGEMENT_REFRESH = 49;
     static final int EDITOR_CANCEL = 45;
@@ -62,6 +64,24 @@ final class PaperTemplateEditorRenderer {
                 Material.PLAYER_HEAD,
                 "Browse instances",
                 List.of("Open paginated holders and location evidence.")));
+        if (player.hasPermission(LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION)) {
+            inventory.setItem(MANAGEMENT_PURGE, item(
+                    Material.LAVA_BUCKET,
+                    "Purge every instance",
+                    List.of(
+                            "Preview physical removal of every tracked copy.",
+                            "The definition and template remain active.",
+                            "A separate fixed confirmation is required.")));
+        }
+        if (player.hasPermission(LoreItemsDestructiveCommandExecutor.DELETE_PERMISSION)) {
+            inventory.setItem(MANAGEMENT_DELETE, item(
+                    Material.TNT,
+                    "Delete definition and items",
+                    List.of(
+                            "Preview deletion of this definition and all tracked copies.",
+                            "Returning copies remain scheduled for removal.",
+                            "A separate fixed confirmation is required.")));
+        }
         inventory.setItem(MANAGEMENT_BACK, item(
                 Material.ARROW,
                 "Back to definitions",

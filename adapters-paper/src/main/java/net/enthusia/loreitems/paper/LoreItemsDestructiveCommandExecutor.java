@@ -47,7 +47,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
     private static final String METRICS = "destructive-metrics";
     private static final String PAUSE = "pause-operation";
     private static final String RESUME = "resume-operation";
-    private static final String REVIEW = "resolve-removal";
+    private static final String RESOLVE_REMOVAL = "resolve-removal";
     private static final int MAX_IN_FLIGHT = 32;
     private static final int MAX_CONFIRMATIONS = 256;
     private static final Duration CONFIRMATION_TTL = Duration.ofMinutes(5L);
@@ -121,7 +121,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
                 Map.entry(METRICS, this::metrics),
                 Map.entry(PAUSE, (sender, arguments) -> control(sender, arguments, true)),
                 Map.entry(RESUME, (sender, arguments) -> control(sender, arguments, false)),
-                Map.entry(REVIEW, this::review));
+                Map.entry(RESOLVE_REMOVAL, this::review));
     }
 
     public boolean handles(String subcommand) {
@@ -199,8 +199,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             return;
         }
         DestructiveAdministrationUseCase.Preview preview = result.orElseThrow();
-        DestructiveConfirmationRegistry.Session session = confirmations.remember(
-                DestructiveCommandSupport.actorId(sender), preview);
+        confirmations.remember(DestructiveCommandSupport.actorId(sender), preview);
         sender.sendMessage("Destructive preview for " + preview.displayName()
                 + " [" + preview.lookupKey().value() + "] at revision "
                 + preview.expectedRevision().value() + ':');
@@ -208,10 +207,23 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
                 + ", inaccessible=" + preview.inaccessibleCount()
                 + ", queued=" + preview.queuedCount()
                 + ", anomalies=" + preview.anomalyCount());
+        sender.sendMessage(effectWarning(preview.operationType()));
         sender.sendMessage("This snapshot is fixed for five minutes. Confirm with: /loreitems "
                 + DestructiveCommandSupport.confirmationRoute(preview.operationType()) + ' '
                 + preview.confirmationToken());
-        sender.sendMessage("Confirmation session: " + session.idempotencyKey());
+    }
+
+    private static String effectWarning(DestructiveOperationType operationType) {
+        return switch (operationType) {
+            case EXACT_INSTANCE_REMOVAL ->
+                    "Irreversible effect: physically remove exactly this tracked instance.";
+            case PURGE_DEFINITION ->
+                    "Irreversible effect: physically remove every known or returning instance; "
+                            + "the definition remains active.";
+            case DELETE_DEFINITION ->
+                    "Irreversible effect: delete the definition and physically remove every known "
+                            + "or returning instance; copies are not merely untracked.";
+        };
     }
 
     private boolean confirm(
@@ -455,7 +467,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         if (arguments.length == 1) {
             return topLevelCompletions(sender, arguments[0]);
         }
-        if (arguments.length == 4 && REVIEW.equalsIgnoreCase(arguments[0])) {
+        if (arguments.length == 4 && RESOLVE_REMOVAL.equalsIgnoreCase(arguments[0])) {
             return List.of("requeue", "removed", "abort").stream()
                     .filter(value -> value.startsWith(arguments[3].toLowerCase(Locale.ROOT)))
                     .toList();

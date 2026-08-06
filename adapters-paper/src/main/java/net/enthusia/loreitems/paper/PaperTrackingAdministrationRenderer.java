@@ -36,6 +36,7 @@ final class PaperTrackingAdministrationRenderer {
 
     PaperTrackingAdministrationRenderer(Plugin plugin) {
         this.plugin = java.util.Objects.requireNonNull(plugin, "plugin");
+        new PaperDestructiveAdministrationGuiBridge(plugin);
     }
 
     void showDefinitions(Player player, int pageNumber, Page<LoreDefinition> page) {
@@ -72,18 +73,21 @@ final class PaperTrackingAdministrationRenderer {
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.instances(
                 definitionId, pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore instances");
+        boolean canRemove =
+                player.hasPermission(LoreItemsDestructiveCommandExecutor.REMOVE_PERMISSION);
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreInstance instance = page.items().get(index);
+            List<String> lore = new ArrayList<>(List.of(
+                    "Lifecycle: " + instance.lifecycle().name(),
+                    "Applied revision: " + instance.appliedRevision().value(),
+                    "Desired revision: " + instance.desiredRevision().value(),
+                    "Left-click to inspect evidence."));
+            if (canRemove) {
+                lore.add("Right-click to preview exact physical removal.");
+            }
             inventory.setItem(
                     index,
-                    item(
-                            Material.NETHER_STAR,
-                            shortId(instance.id().value()),
-                            List.of(
-                                    "Lifecycle: " + instance.lifecycle().name(),
-                                    "Applied revision: " + instance.appliedRevision().value(),
-                                    "Desired revision: " + instance.desiredRevision().value(),
-                                    "Click to inspect evidence.")));
+                    item(Material.NETHER_STAR, shortId(instance.id().value()), lore));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore(plugin));
         player.openInventory(inventory);
