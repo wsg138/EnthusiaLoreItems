@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -214,14 +215,13 @@ final class SQLiteDestructiveAdministrationStore {
                 if (!resultSet.next()) {
                     return null;
                 }
-                long deletedValue = resultSet.getLong("deleted_at");
+                resultSet.getLong("deleted_at");
                 boolean deleted = !resultSet.wasNull();
                 return new DefinitionSnapshot(
                         new DefinitionKey(resultSet.getString("lookup_key")),
                         resultSet.getString("display_name"),
                         new TemplateRevision(resultSet.getLong("current_revision")),
-                        deleted,
-                        deleted ? deletedValue : null);
+                        deleted);
             }
         }
     }
@@ -436,10 +436,6 @@ final class SQLiteDestructiveAdministrationStore {
                 "The destructive target is no longer eligible.");
     }
 
-    private static CompletionStage<ControlResult> unsupportedControl() {
-        throw new UnsupportedOperationException();
-    }
-
     private static ControlResult control(
             Connection connection,
             ControlRequest request,
@@ -463,7 +459,8 @@ final class SQLiteDestructiveAdministrationStore {
             return new ControlResult(
                     ControlStatus.ALREADY_IN_STATE,
                     operation,
-                    "The destructive operation is already " + target.name().toLowerCase() + '.');
+                    "The destructive operation is already "
+                            + target.name().toLowerCase(Locale.ROOT) + '.');
         }
         operation.state().transitionTo(target);
         try (PreparedStatement statement = connection.prepareStatement(
@@ -493,7 +490,8 @@ final class SQLiteDestructiveAdministrationStore {
         return new ControlResult(
                 ControlStatus.UPDATED,
                 findOperation(connection, request.operationId()).orElseThrow(),
-                "The destructive operation is now " + target.name().toLowerCase() + '.');
+                "The destructive operation is now "
+                        + target.name().toLowerCase(Locale.ROOT) + '.');
     }
 
     private static ReviewResult resolveReview(
@@ -733,27 +731,26 @@ final class SQLiteDestructiveAdministrationStore {
     private static Optional<OperationView> findByIdempotencyKey(
             Connection connection,
             String idempotencyKey) throws SQLException {
-        return findOperationByWhere(
-                connection,
-                "operation.idempotency_key = ?",
-                idempotencyKey);
+        try (PreparedStatement statement = connection.prepareStatement(
+                OPERATION_SELECT
+                        + "WHERE operation.idempotency_key = ?"
+                        + OPERATION_GROUP)) {
+            statement.setString(1, idempotencyKey);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next()
+                        ? Optional.of(SQLiteDestructiveRows.readOperation(resultSet))
+                        : Optional.empty();
+            }
+        }
     }
 
     static Optional<OperationView> findOperation(Connection connection, UUID operationId)
             throws SQLException {
-        return findOperationByWhere(
-                connection,
-                "operation.operation_id = ?",
-                operationId.toString());
-    }
-
-    private static Optional<OperationView> findOperationByWhere(
-            Connection connection,
-            String where,
-            String value) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                OPERATION_SELECT + "WHERE " + where + OPERATION_GROUP)) {
-            statement.setString(1, value);
+                OPERATION_SELECT
+                        + "WHERE operation.operation_id = ?"
+                        + OPERATION_GROUP)) {
+            statement.setString(1, operationId.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next()
                         ? Optional.of(SQLiteDestructiveRows.readOperation(resultSet))
@@ -884,8 +881,7 @@ final class SQLiteDestructiveAdministrationStore {
             DefinitionKey lookupKey,
             String displayName,
             TemplateRevision currentRevision,
-            boolean deleted,
-            Long deletedAt) {}
+            boolean deleted) {}
 
     private record TargetCounts(long targetCount, long inaccessibleCount) {}
 
