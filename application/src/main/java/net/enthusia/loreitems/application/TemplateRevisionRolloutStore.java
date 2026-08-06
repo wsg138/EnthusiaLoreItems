@@ -5,6 +5,9 @@ import net.enthusia.loreitems.domain.LoreDefinitionRevision;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
 public interface TemplateRevisionRolloutStore {
+    CompletionStage<TemplateRevisionStartResult> startConfirmed(
+            TemplateRevisionConfirmation confirmation);
+
     CompletionStage<TemplateRevisionStartResult> start(
             LoreDefinitionRevision newRevision,
             TemplateRevision expectedCurrentRevision,

@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import java.util.Objects;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.EventHandler;
@@ -11,6 +12,7 @@ import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 
@@ -28,9 +30,10 @@ final class PaperEntityTemplateUpdateEvents implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onItemDisplaySpawn(EntitySpawnEvent event) {
-        if (event.getEntity() instanceof ItemDisplay display) {
-            controller.observe(display);
+    public void onSupportedEntitySpawn(EntitySpawnEvent event) {
+        if (event.getEntity() instanceof ItemDisplay
+                || event.getEntity() instanceof ArmorStand) {
+            controller.observe(event.getEntity());
         }
     }
 
@@ -44,6 +47,12 @@ final class PaperEntityTemplateUpdateEvents implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemFrameChange(PlayerItemFrameChangeEvent event) {
         controller.scheduleNextTick(event.getItemFrame());
+    }
+
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onArmorStandManipulate(PlayerArmorStandManipulateEvent event) {
+        controller.scheduleNextTick(event.getRightClicked());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

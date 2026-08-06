@@ -21,7 +21,7 @@ final class PaperTemplateUpdateAccessRegistry {
 
     private final Map<PaperInventoryReference, List<PaperTemplateUpdateScanner.Candidate>>
             inventorySnapshots = new ConcurrentHashMap<>();
-    private final Map<UUID, PaperTemplateUpdateScanner.Candidate> entitySnapshots =
+    private final Map<UUID, List<PaperTemplateUpdateScanner.Candidate>> entitySnapshots =
             new ConcurrentHashMap<>();
     private final Set<PaperInventoryReference> incompleteReferences =
             ConcurrentHashMap.newKeySet();
@@ -67,10 +67,18 @@ final class PaperTemplateUpdateAccessRegistry {
     void replaceEntity(
             UUID entityId,
             PaperTemplateUpdateScanner.Candidate candidate) {
-        Objects.requireNonNull(entityId, "entityId");
         Objects.requireNonNull(candidate, "candidate");
-        addDirty(entitySnapshots.put(entityId, candidate));
-        addDirty(candidate);
+        replaceEntity(entityId, List.of(candidate));
+    }
+
+    void replaceEntity(
+            UUID entityId,
+            List<PaperTemplateUpdateScanner.Candidate> candidates) {
+        Objects.requireNonNull(entityId, "entityId");
+        Objects.requireNonNull(candidates, "candidates");
+        List<PaperTemplateUpdateScanner.Candidate> snapshot = List.copyOf(candidates);
+        addDirty(entitySnapshots.put(entityId, snapshot));
+        addDirty(snapshot);
     }
 
     void removeEntity(UUID entityId) {
@@ -80,7 +88,7 @@ final class PaperTemplateUpdateAccessRegistry {
 
     void completeEntityCoverage(Set<UUID> seenEntityIds) {
         Objects.requireNonNull(seenEntityIds, "seenEntityIds");
-        for (Map.Entry<UUID, PaperTemplateUpdateScanner.Candidate> entry
+        for (Map.Entry<UUID, List<PaperTemplateUpdateScanner.Candidate>> entry
                 : entitySnapshots.entrySet()) {
             if (!seenEntityIds.contains(entry.getKey())
                     && entitySnapshots.remove(entry.getKey(), entry.getValue())) {
@@ -148,7 +156,10 @@ final class PaperTemplateUpdateAccessRegistry {
                 : inventorySnapshots.values()) {
             addCandidateCounts(counts, candidates);
         }
-        addCandidateCounts(counts, entitySnapshots.values());
+        for (List<PaperTemplateUpdateScanner.Candidate> candidates
+                : entitySnapshots.values()) {
+            addCandidateCounts(counts, candidates);
+        }
         return counts;
     }
 

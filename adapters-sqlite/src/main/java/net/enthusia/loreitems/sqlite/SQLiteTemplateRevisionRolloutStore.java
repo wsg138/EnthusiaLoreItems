@@ -17,12 +17,15 @@ import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutBatchResult;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutBatchStatus;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutCandidate;
+import net.enthusia.loreitems.application.TemplateRevisionConfirmation;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutStore;
 import net.enthusia.loreitems.application.TemplateRevisionStartResult;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreDefinitionRevision;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
+import net.enthusia.loreitems.sqlite.SQLiteTemplateRevisionConfirmationStore.ConfirmationState;
+import net.enthusia.loreitems.sqlite.SQLiteTemplateRevisionConfirmationStore.EncodedRevision;
 
 public final class SQLiteTemplateRevisionRolloutStore
         implements TemplateRevisionRolloutStore {
@@ -63,6 +66,20 @@ public final class SQLiteTemplateRevisionRolloutStore
     }
 
     @Override
+    public CompletionStage<TemplateRevisionStartResult> startConfirmed(
+            TemplateRevisionConfirmation confirmation) {
+        Objects.requireNonNull(confirmation, "confirmation");
+        validateStart(
+                confirmation.newRevision(),
+                confirmation.expectedCurrentRevision(),
+                confirmation.auditEvent(),
+                confirmation.initialBatchLimit());
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> startConfirmedInTransaction(transaction, confirmation)));
+    }
+
+    @Override
     public CompletionStage<TemplateRevisionRolloutBatchResult> scheduleNextBatch(
             TemplateRevisionRolloutCandidate candidate,
             long scheduledAtEpochMillis,
@@ -82,6 +99,51 @@ public final class SQLiteTemplateRevisionRolloutStore
         Objects.requireNonNull(request, "request");
         requireFirstPage(request);
         return storage.execute(connection -> listIncomplete(connection, request));
+    }
+
+    private TemplateRevisionStartResult startConfirmedInTransaction(
+            Connection connection,
+            TemplateRevisionConfirmation confirmation) throws SQLException {
+        Optional<ConfirmationState> previous = SQLiteTemplateRevisionConfirmationStore.findConfirmation(
+                connection, confirmation.confirmationId());
+        if (previous.isPresent()) {
+            ConfirmationState state = previous.orElseThrow();
+            if (state.matches(confirmation)) {
+                return TemplateRevisionStartResult.alreadyStarted(
+                        state.definitionId(), state.targetRevision());
+            }
+            Optional<DefinitionState> definition = findDefinitionState(
+                    connection, confirmation.newRevision().definitionId());
+            return definition
+                    .map(value -> TemplateRevisionStartResult.revisionConflict(
+                            confirmation.newRevision().definitionId(), value.currentRevision()))
+                    .orElseGet(() -> TemplateRevisionStartResult.definitionNotFound(
+                            confirmation.newRevision().definitionId()));
+        }
+        Optional<EncodedRevision> persistedBefore = SQLiteTemplateRevisionConfirmationStore.findRevision(
+                connection,
+                confirmation.newRevision().definitionId(),
+                confirmation.expectedCurrentRevision());
+        if (persistedBefore.isEmpty()
+                || !persistedBefore.orElseThrow().matches(confirmation.beforeTemplate())) {
+            Optional<DefinitionState> definition = findDefinitionState(
+                    connection, confirmation.newRevision().definitionId());
+            return definition
+                    .map(value -> TemplateRevisionStartResult.revisionConflict(
+                            confirmation.newRevision().definitionId(), value.currentRevision()))
+                    .orElseGet(() -> TemplateRevisionStartResult.definitionNotFound(
+                            confirmation.newRevision().definitionId()));
+        }
+        TemplateRevisionStartResult result = startInTransaction(
+                connection,
+                confirmation.newRevision(),
+                confirmation.expectedCurrentRevision(),
+                confirmation.auditEvent(),
+                confirmation.initialBatchLimit());
+        if (result.status() == net.enthusia.loreitems.application.TemplateRevisionStartStatus.STARTED) {
+            SQLiteTemplateRevisionConfirmationStore.insertConfirmation(connection, confirmation);
+        }
+        return result;
     }
 
     private TemplateRevisionStartResult startInTransaction(

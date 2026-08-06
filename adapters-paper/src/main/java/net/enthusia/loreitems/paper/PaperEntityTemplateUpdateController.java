@@ -54,17 +54,15 @@ final class PaperEntityTemplateUpdateController implements AutoCloseable {
 
     void observe(Entity entity) {
         Objects.requireNonNull(entity, "entity");
-        PaperEntityTemplateUpdateReference reference =
-                PaperEntityTemplateUpdateReference.capture(entity);
-        if (reference == null) {
+        if (!PaperEntityTemplateUpdateReference.supports(entity)) {
             return;
         }
         UUID entityId = entity.getUniqueId();
-        PaperTemplateUpdateScanner.Candidate candidate = scanner.scan(entity);
-        if (candidate == null) {
+        List<PaperTemplateUpdateScanner.Candidate> candidates = scanner.scanAll(entity);
+        if (candidates.isEmpty()) {
             registry.removeEntity(entityId);
         } else {
-            registry.replaceEntity(entityId, candidate);
+            registry.replaceEntity(entityId, candidates);
         }
         if (sweeping) {
             seenEntityIds.add(entityId);
@@ -73,7 +71,7 @@ final class PaperEntityTemplateUpdateController implements AutoCloseable {
 
     void remove(Entity entity) {
         Objects.requireNonNull(entity, "entity");
-        if (PaperEntityTemplateUpdateReference.capture(entity) == null) {
+        if (!PaperEntityTemplateUpdateReference.supports(entity)) {
             return;
         }
         UUID entityId = entity.getUniqueId();

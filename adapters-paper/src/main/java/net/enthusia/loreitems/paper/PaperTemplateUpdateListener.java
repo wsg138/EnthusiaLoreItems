@@ -48,7 +48,7 @@ final class PaperTemplateUpdateListener implements AutoCloseable {
             throw new IllegalStateException("Template-update listener cannot be started");
         }
         plugin.getServer().getPluginManager().registerEvents(events, plugin);
-        plugin.getServer().getOnlinePlayers().forEach(controller::enqueuePlayer);
+        controller.wakeAccessible();
         try {
             scanTask = plugin.getServer().getScheduler().runTaskTimer(
                     plugin, controller::drain, 1L, 1L);
@@ -56,6 +56,10 @@ final class PaperTemplateUpdateListener implements AutoCloseable {
             HandlerList.unregisterAll(events);
             throw exception;
         }
+    }
+
+    void wakeAccessible() {
+        controller.wakeAccessible();
     }
 
     @Override

@@ -54,3 +54,5 @@ The handoff workflow does not authorize automatic merging. Every merge still req
 - [Original phase-one implementation prompt](CHATGPT_IMPLEMENTATION_PROMPT.md)
 
 Implementation remains split into separate phases. A chat must complete and review the active phase without silently beginning later gameplay features in the same pull request.
+
+The current fixed remaining-work program is tracked under [`ai-agents/`](ai-agents/). WP-01 adds the complete GUI/chat template editor, exact-copy held-item fallback, and durable bounded revision rollout; later packages remain separate until their committed dependencies are complete.

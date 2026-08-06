@@ -18,17 +18,18 @@ public record TemplateRevisionStartResult(
                 Objects.requireNonNull(initialBatch, "initialBatch");
                 requireSuccessfulInitialBatch(initialBatch);
             }
+            case ALREADY_STARTED, DEFINITION_DELETED, REVISION_CONFLICT,
+                    ROLLOUT_IN_PROGRESS -> {
+                Objects.requireNonNull(currentRevision, "currentRevision");
+                if (initialBatch != null) {
+                    throw new IllegalArgumentException(
+                            "A non-new revision cannot expose an initial batch");
+                }
+            }
             case DEFINITION_NOT_FOUND -> {
                 if (currentRevision != null || initialBatch != null) {
                     throw new IllegalArgumentException(
                             "A missing definition cannot expose rollout state");
-                }
-            }
-            case DEFINITION_DELETED, REVISION_CONFLICT, ROLLOUT_IN_PROGRESS -> {
-                Objects.requireNonNull(currentRevision, "currentRevision");
-                if (initialBatch != null) {
-                    throw new IllegalArgumentException(
-                            "A rejected revision cannot expose an initial batch");
                 }
             }
             default -> throw new IllegalStateException("Unhandled revision start status: " + status);
@@ -44,6 +45,15 @@ public record TemplateRevisionStartResult(
                 definitionId,
                 currentRevision,
                 initialBatch);
+    }
+
+    public static TemplateRevisionStartResult alreadyStarted(
+            LoreDefinitionId definitionId, TemplateRevision currentRevision) {
+        return new TemplateRevisionStartResult(
+                TemplateRevisionStartStatus.ALREADY_STARTED,
+                definitionId,
+                currentRevision,
+                null);
     }
 
     public static TemplateRevisionStartResult definitionNotFound(

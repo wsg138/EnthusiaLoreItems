@@ -28,7 +28,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
 
-public final class LoreItemsAdministrationCommandExecutor implements CommandExecutor {
+public final class LoreItemsAdministrationCommandExecutor implements CommandExecutor, AutoCloseable {
     public static final String AUDIT_PERMISSION = "enthusia.loreitems.admin.audit";
 
     private static final String BROWSE_SUBCOMMAND = "browse";
@@ -47,20 +47,36 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private final Plugin plugin;
     private final IntSupplier pageSizeSupplier;
     private final PaperTrackingAdministrationGui trackingGui;
+    private final PaperTemplateEditorManager templateEditor;
     private final Set<CommandActor> activeActors = ConcurrentHashMap.newKeySet();
     private final Semaphore queryCapacity = new Semaphore(MAX_CONCURRENT_QUERIES);
 
     public LoreItemsAdministrationCommandExecutor(Plugin plugin, int pageSize) {
-        this(plugin, () -> pageSize);
+        this(plugin, () -> pageSize, () -> pageSize, () -> {});
     }
 
     public LoreItemsAdministrationCommandExecutor(
             Plugin plugin,
             IntSupplier pageSizeSupplier) {
+        this(plugin, pageSizeSupplier, pageSizeSupplier, () -> {});
+    }
+
+    public LoreItemsAdministrationCommandExecutor(
+            Plugin plugin,
+            IntSupplier pageSizeSupplier,
+            IntSupplier rolloutBatchSupplier,
+            Runnable rolloutWake) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
         validatePageSize(currentPageSize());
-        this.trackingGui = new PaperTrackingAdministrationGui(plugin, pageSizeSupplier);
+        this.templateEditor = new PaperTemplateEditorManager(
+                plugin,
+                Objects.requireNonNull(rolloutBatchSupplier, "rolloutBatchSupplier"),
+                Objects.requireNonNull(rolloutWake, "rolloutWake"));
+        this.trackingGui = new PaperTrackingAdministrationGui(
+                plugin, pageSizeSupplier, templateEditor);
+        this.templateEditor.setDefinitionNavigator(trackingGui::openDefinitions);
+        this.templateEditor.setInstanceNavigator(trackingGui::openInstances);
     }
 
     @Override
@@ -73,16 +89,20 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(arguments, "arguments");
-        LoreItemsAdministrationUseCase useCase = resolveUseCase(sender);
-        if (useCase == null) {
-            return true;
-        }
         String subcommand = parseSubcommand(sender, arguments);
         if (subcommand == null) {
             return true;
         }
         if (BROWSE_SUBCOMMAND.equals(subcommand)) {
+            if (!canBrowse(sender)) {
+                sender.sendMessage("You do not have permission to browse lore-item templates.");
+                return true;
+            }
             executeBrowse(sender, arguments);
+            return true;
+        }
+        LoreItemsAdministrationUseCase useCase = resolveEvidenceUseCase(sender);
+        if (useCase == null) {
             return true;
         }
         CommandActor actor = CommandActor.capture(sender);
@@ -106,7 +126,13 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         trackingGui.openDefinitions(player.getUniqueId(), MIN_PAGE_NUMBER);
     }
 
-    private LoreItemsAdministrationUseCase resolveUseCase(CommandSender sender) {
+    static boolean canBrowse(CommandSender sender) {
+        Objects.requireNonNull(sender, "sender");
+        return sender.hasPermission(AUDIT_PERMISSION)
+                || sender.hasPermission(PaperTemplateEditorManager.EDIT_PERMISSION);
+    }
+
+    private LoreItemsAdministrationUseCase resolveEvidenceUseCase(CommandSender sender) {
         if (!sender.hasPermission(AUDIT_PERMISSION)) {
             sender.sendMessage("You do not have permission to inspect lore-item evidence.");
             return null;
@@ -427,6 +453,15 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private record StateEvidence(
             Optional<InstanceCurrentState> currentState,
             Page<InstanceObservation> observations) {}
+
+    public void closeEditorSessions(String reason) {
+        templateEditor.closeSessions(reason);
+    }
+
+    @Override
+    public void close() {
+        templateEditor.close();
+    }
 
     private record HistoryEvidence(
             Page<InstanceAnomaly> anomalies,

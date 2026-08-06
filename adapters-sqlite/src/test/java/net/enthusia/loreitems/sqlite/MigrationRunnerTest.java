@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerTest {
-    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 3;
+    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 4;
     private static final String DEFINITION_ID = "10000000-0000-0000-0000-000000000001";
     private static final String INSTANCE_ID = "20000000-0000-0000-0000-000000000001";
     private static final String PENDING_MUTATION_ID =
@@ -36,6 +36,7 @@ class MigrationRunnerTest {
 
             assertEquals(EXPECTED_SCHEMA_VERSION_COUNT, countSchemaHistory(connection));
             assertEquals(1, countTable(connection, "direct_deliveries"));
+            assertEquals(1, countTable(connection, "template_edit_confirmations"));
             assertEquals(1, countIndex(connection, "uq_template_update_instance_revision"));
             assertEquals(1, countIndex(connection, "idx_mutations_type_claimable"));
             assertEquals(1, countIndex(connection, "idx_mutations_type_review"));

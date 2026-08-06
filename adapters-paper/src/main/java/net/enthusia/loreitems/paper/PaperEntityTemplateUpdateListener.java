@@ -40,6 +40,10 @@ final class PaperEntityTemplateUpdateListener implements AutoCloseable {
         }
     }
 
+    void wakeAccessible() {
+        controller.topologyChanged();
+    }
+
     @Override
     public void close() {
         closed = true;

@@ -1,12 +1,16 @@
 package net.enthusia.loreitems.paper;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 
-public final class LoreItemsCommandExecutor implements CommandExecutor {
+@SuppressWarnings({"PMD.AvoidLiteralsInIfCondition"})
+public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompleter {
     private static final String CREATE_SUBCOMMAND = "create";
     private static final String ADOPT_SUBCOMMAND = "adopt";
     private static final String GIVE_SUBCOMMAND = "give";
@@ -73,6 +77,60 @@ public final class LoreItemsCommandExecutor implements CommandExecutor {
                 yield true;
             }
         };
+    }
+
+
+    @Override
+    public List<String> onTabComplete(
+            CommandSender sender,
+            Command command,
+            String alias,
+            String[] arguments) {
+        Objects.requireNonNull(sender, "sender");
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(alias, "alias");
+        Objects.requireNonNull(arguments, "arguments");
+        if (arguments.length != 1) {
+            return List.of();
+        }
+        return topLevelCompletions(
+            sender, arguments[0], administrationExecutor != null);
+    }
+
+    static List<String> topLevelCompletions(CommandSender sender, String input) {
+        return topLevelCompletions(sender, input, true);
+    }
+
+    static List<String> topLevelCompletions(
+            CommandSender sender, String input, boolean administrationAvailable) {
+        Objects.requireNonNull(sender, "sender");
+        String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
+        List<String> candidates = new ArrayList<>();
+        addIfAllowed(candidates, sender, CREATE_SUBCOMMAND, "enthusia.loreitems.admin.create");
+        addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
+        addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
+        if (administrationAvailable) {
+            if (LoreItemsAdministrationCommandExecutor.canBrowse(sender)) {
+                candidates.add(BROWSE_SUBCOMMAND);
+            }
+            addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+            addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+            addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
+                    LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+        }
+        return candidates.stream().filter(value -> value.startsWith(prefix)).toList();
+    }
+
+    private static void addIfAllowed(
+            List<String> values,
+            CommandSender sender,
+            String value,
+            String permission) {
+        if (sender.hasPermission(permission)) {
+            values.add(value);
+        }
     }
 
     private boolean executeAdministration(

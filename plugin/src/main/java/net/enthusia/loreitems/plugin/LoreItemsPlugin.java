@@ -36,12 +36,16 @@ import net.enthusia.loreitems.application.PersistingDisplayItemObservationUseCas
 import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
 import net.enthusia.loreitems.application.PersistingItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.PersistingLoreItemsAdministrationUseCase;
+import net.enthusia.loreitems.application.PersistingTemplateManagementUseCase;
+import net.enthusia.loreitems.application.PersistingTemplateRevisionRolloutUseCase;
 import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
 import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
 import net.enthusia.loreitems.application.PreparedVoidLoss;
 import net.enthusia.loreitems.application.StorageState;
+import net.enthusia.loreitems.application.TemplateManagementUseCase;
+import net.enthusia.loreitems.application.TemplateRevisionRolloutUseCase;
 import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
@@ -57,6 +61,7 @@ import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
 import net.enthusia.loreitems.paper.PaperMutationRecoveryWorker;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
+import net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorker;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository;
@@ -70,6 +75,8 @@ import net.enthusia.loreitems.sqlite.SQLiteItemAnomalyObservationStore;
 import net.enthusia.loreitems.sqlite.SQLiteObservationRepository;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
+import net.enthusia.loreitems.sqlite.SQLiteTemplateManagementQueryStore;
+import net.enthusia.loreitems.sqlite.SQLiteTemplateRevisionRolloutStore;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
 import net.enthusia.loreitems.sqlite.SQLiteVoidLossStore;
 import org.bukkit.command.PluginCommand;
@@ -121,6 +128,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperDisplayItemListener displayItemListener;
     private volatile PaperIdentityAnomalyListener identityAnomalyListener;
     private volatile PaperAnomalyWarningWorker anomalyWarningWorker;
+    private volatile PaperTemplateRevisionPlannerWorker templateRevisionPlannerWorker;
+    private volatile LoreItemsAdministrationCommandExecutor administrationCommandExecutor;
     private volatile boolean stopping;
 
     @Override
@@ -162,12 +171,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
         LoreItemsAdministrationCommandExecutor administrationExecutor =
                 new LoreItemsAdministrationCommandExecutor(
                         this,
-                        () -> configuration.get().current().defaultPageSize());
-        command.setExecutor(new LoreItemsCommandExecutor(
+                        () -> configuration.get().current().defaultPageSize(),
+                        () -> configuration.get().current().mutationBudgetPerTick(),
+                        this::wakeTemplateRolloutPlanning);
+        administrationCommandExecutor = administrationExecutor;
+        LoreItemsCommandExecutor executor = new LoreItemsCommandExecutor(
                 createExecutor,
                 adoptExecutor,
                 giveExecutor,
-                administrationExecutor));
+                administrationExecutor);
+        command.setExecutor(executor);
+        command.setTabCompleter(executor);
     }
 
     private boolean activateProtectionListeners() {
@@ -211,6 +225,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
+        closeQuietly(templateRevisionPlannerWorker, "template-revision planner");
+        closeQuietly(administrationCommandExecutor, "administration command executor");
         closeQuietly(displayItemListener, "display-item listener");
         closeQuietly(protectionListener, "tracked-item protection listener");
         closeQuietly(directDeliveryWorker, "direct-delivery worker");
@@ -230,6 +246,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     public CompletionStage<AtomicConfiguration.ReloadResult> reloadFoundationConfiguration() {
+        LoreItemsAdministrationCommandExecutor administration = administrationCommandExecutor;
+        if (administration != null) {
+            administration.closeEditorSessions("configuration reload");
+        }
         CompletableFuture<AtomicConfiguration.ReloadResult> result = new CompletableFuture<>();
         pendingReloads.add(result);
         result.whenComplete((ignored, throwable) -> pendingReloads.remove(result));
@@ -380,6 +400,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new PersistingItemAnomalyObservationUseCase(
                         new SQLiteItemAnomalyObservationStore(runtime),
                         clock);
+        SQLiteTemplateRevisionRolloutStore rolloutStore =
+                new SQLiteTemplateRevisionRolloutStore(runtime);
+        TemplateRevisionRolloutUseCase rolloutUseCase =
+                new PersistingTemplateRevisionRolloutUseCase(rolloutStore, clock);
+        TemplateManagementUseCase templateManagementUseCase =
+                new PersistingTemplateManagementUseCase(
+                        new SQLiteTemplateManagementQueryStore(runtime),
+                        rolloutUseCase);
         if (publishWritableServices(
                 deliveryService,
                 createDefinitionUseCase,
@@ -391,6 +419,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             activateAdministrationServices(
                     administrationUseCase,
                     anomalyObservationUseCase,
+                    templateManagementUseCase,
+                    rolloutUseCase,
                     loaded);
             getLogger().info(
                     "Durable storage is active; definition creation, adoption, protection, "
@@ -482,6 +512,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private void activateAdministrationServices(
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            TemplateManagementUseCase templateManagementUseCase,
+            TemplateRevisionRolloutUseCase rolloutUseCase,
             FoundationConfiguration loaded) {
         try {
             getServer().getScheduler().runTask(
@@ -489,6 +521,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     () -> activateAdministrationServicesOnMainThread(
                             administrationUseCase,
                             anomalyObservationUseCase,
+                            templateManagementUseCase,
+                            rolloutUseCase,
                             loaded));
         } catch (RuntimeException exception) {
             publishUnavailableServices(
@@ -504,6 +538,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private void activateAdministrationServicesOnMainThread(
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            TemplateManagementUseCase templateManagementUseCase,
+            TemplateRevisionRolloutUseCase rolloutUseCase,
             FoundationConfiguration loaded) {
         synchronized (lifecycleLock) {
             if (stopping || identityAnomalyListener != null) {
@@ -512,6 +548,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             startAdministrationComponents(
                     administrationUseCase,
                     anomalyObservationUseCase,
+                    templateManagementUseCase,
+                    rolloutUseCase,
                     loaded);
         }
     }
@@ -519,6 +557,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private void startAdministrationComponents(
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            TemplateManagementUseCase templateManagementUseCase,
+            TemplateRevisionRolloutUseCase rolloutUseCase,
             FoundationConfiguration loaded) {
         PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
                 this,
@@ -529,26 +569,29 @@ public final class LoreItemsPlugin extends JavaPlugin {
         PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
                 this,
                 loaded.mutationBudgetPerTick());
+        PaperTemplateRevisionPlannerWorker planner = new PaperTemplateRevisionPlannerWorker(
+                this,
+                rolloutUseCase,
+                loaded.mutationBudgetPerTick(),
+                this::wakeAccessibleTemplateUpdates);
         ServicesManager services = getServer().getServicesManager();
         try {
             registerAdministrationServices(
                     services,
                     administrationUseCase,
                     anomalyObservationUseCase,
+                    templateManagementUseCase,
                     warningWorker);
-            warningWorker.start();
-            anomalyListener.start();
-            anomalyWarningWorker = warningWorker;
-            identityAnomalyListener = anomalyListener;
-            getLogger().info(
-                    "Lore-item anomaly detection, warnings, and administration are active.");
+            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
         } catch (RuntimeException exception) {
             rollbackAdministrationServices(
                     services,
                     administrationUseCase,
                     anomalyObservationUseCase,
+                    templateManagementUseCase,
                     warningWorker,
-                    anomalyListener);
+                    anomalyListener,
+                    planner);
             getLogger().log(
                     java.util.logging.Level.SEVERE,
                     "Could not activate lore-item anomaly and administration services; "
@@ -558,10 +601,25 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
     }
 
+    private void activateAdministrationWorkers(
+            PaperAnomalyWarningWorker warningWorker,
+            PaperIdentityAnomalyListener anomalyListener,
+            PaperTemplateRevisionPlannerWorker planner) {
+        warningWorker.start();
+        anomalyListener.start();
+        planner.start();
+        anomalyWarningWorker = warningWorker;
+        identityAnomalyListener = anomalyListener;
+        templateRevisionPlannerWorker = planner;
+        getLogger().info(
+                "Lore-item anomaly detection, warnings, and administration are active.");
+    }
+
     private void registerAdministrationServices(
             ServicesManager services,
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            TemplateManagementUseCase templateManagementUseCase,
             PaperAnomalyWarningWorker warningWorker) {
         services.register(
                 LoreItemsAdministrationUseCase.class,
@@ -571,6 +629,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
         services.register(
                 ItemAnomalyObservationUseCase.class,
                 anomalyObservationUseCase,
+                this,
+                ServicePriority.Normal);
+        services.register(
+                TemplateManagementUseCase.class,
+                templateManagementUseCase,
                 this,
                 ServicePriority.Normal);
         services.register(
@@ -584,11 +647,15 @@ public final class LoreItemsPlugin extends JavaPlugin {
             ServicesManager services,
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
+            TemplateManagementUseCase templateManagementUseCase,
             PaperAnomalyWarningWorker warningWorker,
-            PaperIdentityAnomalyListener anomalyListener) {
+            PaperIdentityAnomalyListener anomalyListener,
+            PaperTemplateRevisionPlannerWorker planner) {
+        closeQuietly(planner, "template-revision planner");
         closeQuietly(anomalyListener, "identity-anomaly listener");
         closeQuietly(warningWorker, "anomaly-warning worker");
         services.unregister(AnomalyWarningSink.class, warningWorker);
+        services.unregister(TemplateManagementUseCase.class, templateManagementUseCase);
         services.unregister(ItemAnomalyObservationUseCase.class, anomalyObservationUseCase);
         services.unregister(LoreItemsAdministrationUseCase.class, administrationUseCase);
     }
@@ -597,6 +664,21 @@ public final class LoreItemsPlugin extends JavaPlugin {
         PaperDirectDeliveryWorker worker = directDeliveryWorker;
         if (worker != null) {
             worker.wakePlayer(playerId);
+        }
+    }
+
+    private void wakeTemplateRolloutPlanning() {
+        PaperTemplateRevisionPlannerWorker planner = templateRevisionPlannerWorker;
+        if (planner != null) {
+            planner.wake();
+        }
+        wakeAccessibleTemplateUpdates();
+    }
+
+    private void wakeAccessibleTemplateUpdates() {
+        PaperMutationRecoveryWorker mutations = mutationRecoveryWorker;
+        if (mutations != null) {
+            mutations.wakeAccessible();
         }
     }
 

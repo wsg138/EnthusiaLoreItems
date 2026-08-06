@@ -20,5 +20,8 @@ permissions:
     description: Queues a new lore-item instance for a player.
     default: op
   enthusia.loreitems.admin.audit:
-    description: Views active lore-item anomalies, audit evidence, and recovery work.
+    description: Views active lore-item anomalies, audit evidence, recovery work, and template status.
+    default: op
+  enthusia.loreitems.admin.edit:
+    description: Creates and confirms lore-item template revisions through the GUI/chat editor.
     default: op

@@ -2,59 +2,48 @@
 
 ## Purpose
 
-This is the current GitHub-backed handoff for the fixed remaining-work program after reconciling the automatic-routing amendment. Live GitHub always outranks this snapshot.
+This is the current GitHub-backed handoff for the fixed remaining-work program. Live GitHub always outranks this snapshot.
 
-## Reconciled live state
+## Prospective completion
 
-- LoreItems live `main` at reconciliation: `2b6e20d0bf1d66f9efa092455d26f269f0107405`
-- PR #10: confirmed merged by that normal merge commit
-- `main` exact-head `verify`: successful
-- Fixed packages: 6
-- Complete: 0
-- Remaining: 6
-- Weighted remaining-program progress: 0%
-- Active implementation package: WP-01
+- Package: WP-01 — editor and template management
+- Status: `COMPLETE` prospectively, pending final-records verification, normal merge, and live-main verification
 - Canonical branch: `agent/wp-01-editor-template-management`
-- Draft PR: #11, `WP-01: complete editor and template management`
-- Reconciled WP-01 head: `e8a1f4f3f0588f138bf2484adcda816a275a3030`
-- Reviews: none submitted
-- Unresolved review threads: zero
-- Exact-head checks observed: `export` success; `toolchain` success; `verify` failure; external Codacy action required
+- Pull request: #11, `WP-01: complete editor and template management`
+- Live `main` before merge: `05fade8645ac994bd9ab498c64449ea4cf084384`
+- Starting branch SHA for this completing session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
+- Reviewed source head: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
+- Verified pre-completion checkpoint: `22a28078f25b5e24aa6c611f6dff06ab504a4267`
+- Next package prepared as READY: WP-02; it must not be started in this chat
 
-The previous committed state that called WP-01 `READY` is stale. The canonical branch and draft PR are live unfinished work, so WP-01 is `IN_PROGRESS` and must be resumed before any new package is selected.
+## Completed acceptance criteria
 
-## Workflow amendment
+- Complete definition-specific management and GUI/chat editor workflow with bounded permission-checked sessions and explicit lifecycle handling.
+- Every required material, name, lore, enchantment, glint, damage, unbreakable, attribute, model, stack-size, custom-model-data, dye, potion, trim, banner, profile, firework, and tooltip/flag operation.
+- Exact held-item replacement fallback with versioned codec preservation, identity stripping, amount/max-stack normalization, preview, and confirmation.
+- Immutable monotonic revisions with actor and before/after evidence; atomic durable rollout intent; duplicate/replay/restart idempotency.
+- Bounded accessible updates across all required scopes; durable natural-observation deferral without force loading.
+- Identity/revision verification and safe anomaly/review routing for malformed, conflicting, stale, mismatched, or ambiguous evidence.
+- Degraded/read-only rejection, Bukkit-thread and async-storage boundaries, pagination, bounds, reload/shutdown ownership, permissions, tab completion, messages, and documentation.
+- Required automated test matrix, harsh review, confirmed fixes, exact-head gates, and review resolution.
 
-The same universal dispatcher prompt now works for every future worker. It automatically:
+## Verification
 
-- reconciles live GitHub before routing;
-- searches all package branch names and all open/draft PRs;
-- resumes the single unfinished package before new selection;
-- prioritizes `IN_PROGRESS`, `PARTIAL`, `IN_REVIEW`, and `VERIFYING`;
-- selects only the lowest-numbered dependency-verified `READY` package when no unfinished package exists;
-- stops on conflicting active package locks;
-- uses the canonical branch/PR plus expected-head checkpointing as the concurrency lock;
-- requires committed checkpoints after coherent sections and before intentional stops;
-- preserves interrupted work as `PARTIAL` on the same branch;
-- awards progress only after normal merge and verified authoritative `COMPLETE` state;
-- stops after completing a package instead of beginning the newly unlocked package.
+- GitHub Actions run `31073464520` on `22a28078f25b5e24aa6c611f6dff06ab504a4267` passed full Gradle verification, repository-tool tests, new-code complexity, and exact-head Codacy.
+- Reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` has successful Codacy analysis with zero annotations.
+- All live inline review threads are resolved and no review is in requested-changes state.
+- Full findings, fixes, risk coverage, and deliberately rejected low-value suggestions are recorded in `ai-agents/reports/WP-01-author-harsh-review.md`.
 
-The valid status set is limited to `BLOCKED`, `READY`, `IN_PROGRESS`, `PARTIAL`, `IN_REVIEW`, `VERIFYING`, and `COMPLETE`.
+## Counts and progress prepared by this commit
 
-## Race and loophole review result
+- Completed packages: 1 of 6
+- Remaining packages: 5 of 6
+- Weighted progress: 20%
+- WP-02: READY
+- WP-03 through WP-06: BLOCKED
 
-- Simultaneous claim attempts cannot create alternate package branches; canonical ref creation and expected-head checkpointing determine the winner, and head movement forces the other worker to stop.
-- Abrupt interruption remains resumable because the canonical branch/PR survives even without a final checkpoint.
-- Stale `READY` text cannot override an active canonical branch or PR.
-- A `PARTIAL` package is resumed before any new `READY` package.
-- Later `BLOCKED` packages cannot be selected.
-- Partial implementation, local tests, review approval, or an unverified merge cannot be called complete or receive weighted credit.
-- Local-only handoffs are invalid.
-- Ad hoc subpackages and substitute branches remain prohibited.
-- A completing worker must stop after normal merge and live verification.
+These values become authoritative only after this exact records commit is verified, normally merged, and observed on live `main`.
 
 ## Exact next action
 
-A future implementation worker uses `ai-agents/UNIVERSAL-AGENT-PROMPT.md` without inserting any package ID. It re-fetches live state and, while PR #11 remains unfinished, resumes WP-01 on `agent/wp-01-editor-template-management`, records a fast-forward resume checkpoint, completes the remaining WP-01 contract, and does not begin WP-02.
-
-The planning branch `docs/automatic-work-package-routing` is documentation-only and must not modify WP-01 implementation.
+Verify the final records commit at exact head, reconcile any new review activity, normally merge PR #11, confirm live `main` and authoritative package state, and stop without beginning WP-02.
