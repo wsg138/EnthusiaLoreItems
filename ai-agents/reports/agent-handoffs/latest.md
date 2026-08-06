@@ -7,30 +7,36 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## Active assignment
 
 - Package: WP-01 — editor and template management
-- Status: `IN_PROGRESS`
+- Status: `VERIFYING`
 - Canonical branch: `agent/wp-01-editor-template-management`
 - Pull request: #11, `WP-01: complete editor and template management`
 - Live `main`: `05fade8645ac994bd9ab498c64449ea4cf084384`
-- Exact resume parent: `f974c2d23a488d0e08d0902a37929e69e0456a57`
-- Implementation baseline: `88e2ad7ea2e1df2481bf3c17702131c2fd1df725`
+- Starting branch SHA for this resumed session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
+- Reviewed source head before this checkpoint: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
 
-## Resume reconciliation
+## Completed package work
 
-The automatic router found exactly one unfinished fixed package: WP-01 on PR #11. No other open PR or fixed LoreItems package branch conflicts with the lock, so no new package was selected.
+The branch contains the complete WP-01 operator workflow and required backend integration: definition-specific management, bounded editor sessions, all contracted common and specialized component edits, exact held-item replacement, draft/preview/confirm, immutable audit-backed revisions, atomic durable rollout intent, bounded accessible updates, natural deferred updates, identity/ambiguity safeguards, degraded-mode rejection, permissions, documentation, and automated tests.
 
-The exact-head CI run for `f974c2d23a488d0e08d0902a37929e69e0456a57` completed with Gradle `clean check` passing and three repository-tool tests passing, then failed the new-code complexity gate because `LoreItemsPlugin.startAdministrationComponents(...)` has NLOC 53 against a limit of 50. Exact-head Codacy was skipped.
+The resumed agent fixed every confirmed live review or verification defect: operation-specific chat parsing and validation isolation; browse/edit permission routing across command, completion, GUI, and loader boundaries; unavailable-route completion filtering; Bukkit-thread continuation marshalling; required complete confirmation persistence; confirmation-timeout feedback; concurrent bounded session tracking; hung management-query timeout with permit recovery; exact-head complexity; and all Codacy findings.
 
-Four CodeRabbit review threads are unresolved:
+Focused regression coverage now includes edit-only routing, unavailable administration completions, off-thread rollout completions, edit-only GUI lifecycle, duplicate/over-capacity session rejection, query timeout permit recovery, duplicate confirmation, stale-session fencing, invalid/cancel/timeout/disconnect/reload behavior, and exact held-item identity stripping.
 
-1. Text-backed editor tiles do not yet parse and apply operation-specific values through chat.
-2. Validation failure can retain partial draft mutation because input is applied before errors are checked.
-3. Confirmation timeout feedback can be suppressed by stale-session fencing.
-4. The administration startup method exceeds the complexity threshold.
+## Verification state
 
-## Retained completed scope
+- The verified checkout that produced source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` passed full `gradle --no-daemon clean check`.
+- Exact-head Codacy on that source head succeeded with zero annotations.
+- All live inline review threads are resolved; CodeRabbit is the independent review source and has no requested-changes review.
+- GitHub marked the PR CI run on the bot-authored source commit `action_required` before creating jobs. This normal user-authored checkpoint is intended to obtain ordinary exact-head CI evidence; it is not a code blocker.
 
-The branch contains the template-management screens, editor session lifecycle, typed component operations, exact held-item replacement fallback, immutable/idempotent atomic confirmation, bounded durable rollout, accessible and natural-observation updates, identity/ambiguity safeguards, permissions/routing, tests, and operator/development documentation. The unresolved review findings must be corrected before those paths satisfy the complete operator-workflow acceptance criteria.
+## Remaining checklist
+
+1. Confirm exact-head official CI, repository tools, complexity, and Codacy on this checkpoint.
+2. Reconcile any new review activity.
+3. Commit prospective WP-01 `COMPLETE`, WP-02 `READY`, counts `1/6`, remaining `5/6`, and weighted progress `20%` only after those gates pass.
+4. Verify the final coordination commit at exact head.
+5. Normally merge PR #11, verify live `main`, and stop without starting WP-02.
 
 ## Exact next action
 
-Implement all four findings with focused regression tests on this branch. Commit a coherent implementation checkpoint listing completed and remaining criteria. Then inspect exact-head GitHub Actions, Codacy, all reviews, and every thread; fix any further confirmed issue before prospective completion state, normal merge, and live-main verification. WP-02 remains blocked and must not be started.
+Inspect the exact-head workflow and Codacy results for this verification checkpoint. Fix any confirmed failure on the same branch; otherwise prepare and verify the prospective completion commit.
