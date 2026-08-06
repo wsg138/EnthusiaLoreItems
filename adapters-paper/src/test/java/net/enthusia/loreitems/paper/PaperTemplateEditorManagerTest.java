@@ -41,6 +41,7 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
+@SuppressWarnings({"PMD.AvoidFieldNameMatchingMethodName"})
 class PaperTemplateEditorManagerTest {
     private static final TemplateRevision REVISION_ONE = new TemplateRevision(1);
     private static final TemplateRevision REVISION_TWO = new TemplateRevision(2);

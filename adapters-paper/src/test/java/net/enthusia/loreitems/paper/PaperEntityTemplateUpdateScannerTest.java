@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
+@SuppressWarnings({"PMD.AvoidFieldNameMatchingMethodName"})
 class PaperEntityTemplateUpdateScannerTest {
     private static final LoreDefinitionId DEFINITION_ID = new LoreDefinitionId(
             UUID.fromString("11111111-1111-1111-1111-111111111111"));

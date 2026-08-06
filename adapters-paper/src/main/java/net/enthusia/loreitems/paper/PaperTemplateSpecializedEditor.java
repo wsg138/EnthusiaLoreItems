@@ -29,6 +29,7 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.potion.PotionType;
 
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.AvoidLiteralsInIfCondition", "PMD.CyclomaticComplexity"})
 final class PaperTemplateSpecializedEditor {
     PaperTemplateEditResult apply(ItemStack source, String action, String input) {
         ItemStack item = source.clone();
@@ -40,12 +41,10 @@ final class PaperTemplateSpecializedEditor {
                 case "banner" -> banner(item, input);
                 case "profile" -> profile(item, input);
                 case "firework" -> firework(item, input);
-                default -> null;
+                default -> throw new IllegalArgumentException("Unsupported editor action");
             };
-            return detail == null
-                    ? PaperTemplateEditResult.rejected(source, "Unsupported editor action")
-                    : PaperTemplateEditResult.accepted(
-                            PaperTemplateEditorSupport.normalized(item), detail);
+            return PaperTemplateEditResult.accepted(
+            PaperTemplateEditorSupport.normalized(item), detail);
         } catch (IllegalArgumentException exception) {
             return PaperTemplateEditResult.rejected(source, exception.getMessage());
         }

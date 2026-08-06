@@ -39,6 +39,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.AvoidFieldNameMatchingMethodName"})
 class PaperTemplateDraftEditorTest {
     private static final PlainTextComponentSerializer PLAIN =
             PlainTextComponentSerializer.plainText();

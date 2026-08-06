@@ -14,6 +14,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Plans one bounded durable rollout batch per pass until every active instance is queued. */
+@SuppressWarnings({"PMD.NullAssignment"})
 public final class PaperTemplateRevisionPlannerWorker implements AutoCloseable {
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long PERIOD_TICKS = 20L;

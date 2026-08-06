@@ -7,6 +7,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Main-thread-only draft session. */
+@SuppressWarnings({"PMD.NullAssignment"})
 final class PaperTemplateEditorSession {
     enum State {
         EDITING,

@@ -27,7 +27,7 @@ final class PaperTemplateEditorRenderer {
     static final int PREVIEW_CANCEL = 33;
 
     private static final int SIZE = 54;
-    private static final Map<Integer, ActionSpec> ACTIONS = actions();
+    private static final Map<Integer, ActionSpec> EDITOR_ACTIONS = actions();
 
     void showManagement(
             Player player,
@@ -78,7 +78,7 @@ final class PaperTemplateEditorRenderer {
                 session.snapshot, session.sessionId, session.returnPage);
         Inventory inventory = create(view, "Template editor");
         inventory.setItem(4, session.draft.clone());
-        ACTIONS.forEach((slot, action) -> inventory.setItem(
+        EDITOR_ACTIONS.forEach((slot, action) -> inventory.setItem(
                 slot,
                 item(action.icon(), action.title(), action.help())));
         inventory.setItem(EDITOR_CANCEL, item(
@@ -121,7 +121,7 @@ final class PaperTemplateEditorRenderer {
     }
 
     static ActionSpec action(int slot) {
-        return ACTIONS.get(slot);
+        return EDITOR_ACTIONS.get(slot);
     }
 
     private static Inventory create(PaperTemplateEditorView view, String title) {
@@ -130,6 +130,7 @@ final class PaperTemplateEditorRenderer {
         return inventory;
     }
 
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private static Map<Integer, ActionSpec> actions() {
         Map<Integer, ActionSpec> actions = new LinkedHashMap<>();
         add(actions, 9, "material", Material.STONE, "Base material",

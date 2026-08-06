@@ -10,6 +10,7 @@ import org.bukkit.block.Container;
 import org.bukkit.plugin.Plugin;
 
 /** Bounded main-thread walker over containers in chunks that are already loaded. */
+@SuppressWarnings({"PMD.AvoidInstantiatingObjectsInLoops", "PMD.NullAssignment"})
 final class PaperLoadedContainerWalker {
     private static final Chunk[] EMPTY_CHUNKS = new Chunk[0];
     private static final BlockState[] EMPTY_STATES = new BlockState[0];

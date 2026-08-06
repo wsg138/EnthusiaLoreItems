@@ -23,6 +23,7 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.AvoidLiteralsInIfCondition", "PMD.CyclomaticComplexity", "PMD.NullAssignment"})
 final class PaperTemplateCommonEditor {
     private static final Map<String, CommonAction> ACTIONS = Map.ofEntries(
             Map.entry("custom-name", PaperTemplateCommonEditor::customName),

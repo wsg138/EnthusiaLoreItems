@@ -1,6 +1,5 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -26,6 +25,7 @@ import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
 
 /** Bounded GUI/chat draft lifecycle with explicit preview and durable confirmation. */
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.AvoidLiteralsInIfCondition", "PMD.CyclomaticComplexity", "PMD.NullAssignment"})
 public final class PaperTemplateEditorManager implements AutoCloseable {
     public static final String EDIT_PERMISSION = "enthusia.loreitems.admin.edit";
 
@@ -41,8 +41,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     private final PaperTemplateEditorRenderer renderer = new PaperTemplateEditorRenderer();
     private final PaperTemplateDraftEditor draftEditor = new PaperTemplateDraftEditor();
     private final PaperItemTemplateCodec templateCodec = new PaperItemTemplateCodec();
-    private final Map<UUID, PaperTemplateEditorSession> sessions = new HashMap<>();
-    private final Map<UUID, UUID> awaitingChat = new ConcurrentHashMap<>();
+    private final Map<UUID, PaperTemplateEditorSession> sessions = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> pendingChatSessions = new ConcurrentHashMap<>();
     private final PaperTemplateManagementLoader managementLoader;
     private final PaperTemplateEditorEvents events;
 
@@ -97,7 +97,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     UUID chatSessionId(UUID playerId) {
-        return awaitingChat.get(Objects.requireNonNull(playerId, "playerId"));
+        return pendingChatSessions.get(Objects.requireNonNull(playerId, "playerId"));
     }
 
     void receiveChatAsync(UUID playerId, UUID sessionId, String message) {
@@ -107,7 +107,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     void handleQuit(UUID playerId) {
         PaperTemplateEditorSession session = sessions.remove(playerId);
         if (session != null) {
-            awaitingChat.remove(session.playerId);
+            pendingChatSessions.remove(session.playerId);
             session.close();
         }
     }
@@ -129,7 +129,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
                 session.close();
             }
             sessions.clear();
-            awaitingChat.clear();
+            pendingChatSessions.clear();
         });
     }
 
@@ -143,8 +143,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     void dispatchClick(Player player, PaperTemplateEditorView view, int slot) {
-        if (!player.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)) {
-            player.sendMessage("You do not have permission to inspect lore-item templates.");
+        if (!LoreItemsAdministrationCommandExecutor.canBrowse(player)) {
+            player.sendMessage("You do not have permission to browse lore-item templates.");
             return;
         }
         switch (view.screen) {
@@ -238,7 +238,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             PaperTemplateEditorRenderer.ActionSpec action) {
         session.pendingAction = action.action();
         session.state = PaperTemplateEditorSession.State.AWAITING_CHAT;
-        awaitingChat.put(player.getUniqueId(), session.sessionId);
+        pendingChatSessions.put(player.getUniqueId(), session.sessionId);
         resetTimeout(session);
         player.closeInventory();
         player.sendMessage(action.title() + ": " + String.join(" ", action.help()));
@@ -257,7 +257,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         Player player = Bukkit.getPlayer(playerId);
         if (session == null || player == null || !session.sessionId.equals(sessionId)
                 || session.state != PaperTemplateEditorSession.State.AWAITING_CHAT) {
-            awaitingChat.remove(playerId, sessionId);
+            pendingChatSessions.remove(playerId, sessionId);
             return;
         }
         if (!player.hasPermission(EDIT_PERMISSION)) {
@@ -266,7 +266,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         }
         String normalized = message.strip();
         if (normalized.equalsIgnoreCase("cancel")) {
-            awaitingChat.remove(playerId);
+            pendingChatSessions.remove(playerId);
             session.pendingAction = null;
             session.state = PaperTemplateEditorSession.State.EDITING;
             resetTimeout(session);
@@ -292,7 +292,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         session.draft = result.item();
         session.pendingAction = null;
         session.state = PaperTemplateEditorSession.State.EDITING;
-        awaitingChat.remove(playerId);
+        pendingChatSessions.remove(playerId);
         resetTimeout(session);
         player.sendMessage(result.detail());
         renderer.showEditor(player, session);
@@ -381,7 +381,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         if (result.status() == TemplateRevisionStartStatus.STARTED
                 || result.status() == TemplateRevisionStartStatus.ALREADY_STARTED) {
             sessions.remove(playerId);
-            awaitingChat.remove(playerId);
+            pendingChatSessions.remove(playerId);
             session.close();
             player.closeInventory();
             player.sendMessage("Template revision " + result.currentRevision().value()
@@ -391,7 +391,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             return;
         }
         sessions.remove(playerId);
-        awaitingChat.remove(playerId);
+        pendingChatSessions.remove(playerId);
         session.close();
         player.closeInventory();
         player.sendMessage("Template confirmation was not applied: " + result.status());
@@ -415,7 +415,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             String detail,
             boolean reopenManagement) {
         sessions.remove(player.getUniqueId());
-        awaitingChat.remove(player.getUniqueId());
+        pendingChatSessions.remove(player.getUniqueId());
         session.close();
         player.closeInventory();
         player.sendMessage(detail);
@@ -446,7 +446,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         boolean confirmationInFlight =
                 session.state == PaperTemplateEditorSession.State.CONFIRMING;
         sessions.remove(playerId);
-        awaitingChat.remove(playerId);
+        pendingChatSessions.remove(playerId);
         session.close();
         if (player != null) {
             player.closeInventory();
@@ -461,7 +461,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     boolean awaitingChat(UUID playerId) {
-        return awaitingChat.containsKey(Objects.requireNonNull(playerId, "playerId"));
+        return pendingChatSessions.containsKey(Objects.requireNonNull(playerId, "playerId"));
     }
 
     PaperTemplateEditorSession.State sessionState(UUID playerId) {

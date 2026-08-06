@@ -9,6 +9,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 
+@SuppressWarnings({"PMD.AvoidLiteralsInIfCondition"})
 public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompleter {
     private static final String CREATE_SUBCOMMAND = "create";
     private static final String ADOPT_SUBCOMMAND = "adopt";
