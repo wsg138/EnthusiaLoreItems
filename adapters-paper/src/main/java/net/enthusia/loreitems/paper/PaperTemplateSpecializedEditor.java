@@ -44,7 +44,7 @@ final class PaperTemplateSpecializedEditor {
                 default -> throw new IllegalArgumentException("Unsupported editor action");
             };
             return PaperTemplateEditResult.accepted(
-            PaperTemplateEditorSupport.normalized(item), detail);
+                    PaperTemplateEditorSupport.normalized(item), detail);
         } catch (IllegalArgumentException exception) {
             return PaperTemplateEditResult.rejected(source, exception.getMessage());
         }
