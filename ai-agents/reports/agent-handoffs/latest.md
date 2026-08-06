@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is the current GitHub-backed handoff for the fixed remaining-work program. Live GitHub always outranks this snapshot.
+This is the current GitHub-backed handoff for the fixed remaining-work program. Live GitHub outranks this snapshot.
 
 ## Active package claim
 
@@ -11,55 +11,55 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Initial claim checkpoint: `2612d40607916414f06d4d6a46aef3d887bafc89`
-- Last exact-head green implementation checkpoint: `00071255cf34221876cf041fe2c0dda487fc317b`
+- Session starting head: `9b3a622e4b1b1ae27bc74fde5ee191fe5d40875b`
+- Verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
 
 ## Completed section
 
-The durable destructive-operation core is implemented and exact-head green:
+The durable core and destructive-first Paper execution are implemented and exact-head green:
 
-- explicit parent operation, target, and effect state models;
-- forward-only V5 SQLite schema with immutable target identity and active-target uniqueness;
-- idempotent confirmation and atomic exact/purge/delete acceptance;
-- full-delete definition exclusion plus durable deleted-definition marker;
-- immutable target snapshotting, paginated inspection, parent pause/resume, metrics, and audit history;
-- claim/release/complete/review persistence with lease expiry moved to ambiguous review;
-- evidence-gated review resolution;
-- verified lifecycle removal and late-copy reopen/create behavior;
-- integration coverage for acceptance, pause fencing, review, recovery, completion, and late deletion.
+- reload-safe canonical location evidence for inventory, entity, and nested references;
+- verified root and nested physical removal without forced loads;
+- support through the existing natural-access scanner for player/ender inventories, loaded inventories, nested shulkers/bundles, dropped items, frames, displays, and armor stands;
+- durable preparation before main-thread mutation and durable completion or evidence review afterward;
+- destructive work takes priority, while candidates with no destructive target continue through the unchanged template-update path;
+- shared bounded recovery and shutdown fencing;
+- automatic SQLite destructive-store activation without coupling Paper to SQLite;
+- focused Paper tests for removal, divergence review, and destructive-first ordering.
 
 ## Exact-head verification
 
-- Green implementation head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
-- Checkpoint commit containing coordination evidence: `00071255cf34221876cf041fe2c0dda487fc317b`
-- GitHub Actions run: `31077567338`
+- Green implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
+- GitHub Actions run: `31082380710`
 - Gradle verification: passed
 - Repository tooling: passed
 - Differential complexity: passed
-- New-code coverage: passed
-- Exact-head Codacy CLI: passed
-- Open review threads at checkpoint: none
+- Exact-head Codacy: passed
+- CodeRabbit: passed
+- Submitted PR reviews: none
+- Open review threads: none
 
 ## Harsh-review findings fixed
 
-- Corrected a `ResultSet.wasNull()` ordering defect that could have hidden active definitions.
-- Replaced runtime-built SQL variants with fixed prepared statements.
-- Split oversized persistence classes and methods to satisfy repository complexity limits.
-- Preserved SQLite trigger enforcement while joining the repository's established migration analyzer exclusion.
-- Prevented blind retry of expired physical claims by persisting ambiguous-effect review evidence.
+- Corrected nested-record constructor visibility after the first compile gate.
+- Refactored physical-removal verification after the complexity gate found an oversized method.
+- Added a shutdown fence before fallback template preparation.
+- Replaced nullable optional-capability wiring with explicit `Optional` handling after Codacy review.
+- Removed the unnecessary MockBukkit server field flagged by Codacy.
+- Physical divergence now preserves the changed item and requires evidence review rather than deleting it.
 
 ## Remaining package criteria
 
-- Destructive-first natural-access Paper execution across player, ender, open inventory, loaded block/entity, nested shulker/bundle, dropped item, frame, display, and armor-stand scopes.
-- Verified main-thread physical removal with async claim/completion persistence and no forced loads.
-- Duplicate and malformed evidence preservation.
-- Bounded recovery wired into enable/reload/shutdown.
-- Privileged commands and GUI actions for operation-specific previews/confirmations, operation and target pages, metrics, pause/resume, and evidence review resolution.
-- Permissions, messages, completion, audit/history, documentation, restart/reload tests, Paper/command/GUI tests, full harsh review, final exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
+- Privileged remove, purge, and full-delete command flows with operation-specific preview and confirmation sessions.
+- Paginated operation and target administration, metrics display, pause/resume, and evidence-gated review commands.
+- GUI actions for the same administration functions.
+- Required permissions, messages, completion, audit/history presentation, and documentation.
+- Command, GUI, reload/restart, duplicate/malformed-evidence, and broader recovery tests.
+- Full-package harsh review, final exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
 
 ## Precise blocker
 
-No external dependency blocks WP-02. The remaining Paper and operator-administration sections were not completed and verified in this session. Unverified Paper edits were discarded by restoring the claimed branch to the last exact green checkpoint before this PARTIAL bookkeeping.
+No external dependency blocks WP-02. Useful verified work is committed, but the complete package contract is not finished; therefore the same branch and draft PR remain the durable lock.
 
 ## Program counts
 
@@ -71,4 +71,4 @@ No external dependency blocks WP-02. The remaining Paper and operator-administra
 
 ## Exact next action
 
-Resume WP-02 on the same branch and PR. Extend the existing reload-safe Paper references with canonical location evidence and verified removal, then add a destructive-first coordinator that sends non-target candidates into the unchanged template-update coordinator.
+Resume WP-02 on the same branch and PR. Implement the privileged destructive-administration command executor against `DestructiveAdministrationUseCase`, including fixed confirmation sessions, operation/target pages, pause/resume/review controls, and worker wakeups. Then wire matching GUI actions.
