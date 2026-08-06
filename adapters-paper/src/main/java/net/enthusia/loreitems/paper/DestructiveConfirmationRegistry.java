@@ -18,6 +18,7 @@ final class DestructiveConfirmationRegistry {
     private final Clock clock;
     private final long ttlMillis;
     private final int capacity;
+    private final Object lock = new Object();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
     DestructiveConfirmationRegistry(Clock clock, Duration ttl, int capacity) {
@@ -34,7 +35,7 @@ final class DestructiveConfirmationRegistry {
     }
 
     Session remember(String actorId, DestructiveAdministrationUseCase.Preview preview) {
-        synchronized (sessions) {
+        synchronized (lock) {
             String normalizedActor = requireActor(actorId);
             Objects.requireNonNull(preview, "preview");
             long now = clock.millis();
@@ -57,7 +58,7 @@ final class DestructiveConfirmationRegistry {
 
     Optional<Session> consume(
             String actorId, DestructiveOperationType operationType, String confirmationToken) {
-        synchronized (sessions) {
+        synchronized (lock) {
             String normalizedActor = requireActor(actorId);
             Objects.requireNonNull(operationType, "operationType");
             String normalizedToken = Objects.requireNonNull(
@@ -77,13 +78,13 @@ final class DestructiveConfirmationRegistry {
     }
 
     void clear() {
-        synchronized (sessions) {
+        synchronized (lock) {
             sessions.clear();
         }
     }
 
     int size() {
-        synchronized (sessions) {
+        synchronized (lock) {
             removeExpired(clock.millis());
             return sessions.size();
         }
