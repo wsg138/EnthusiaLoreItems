@@ -26,7 +26,11 @@ public final class MigrationRunner {
             new Migration(
                     4,
                     "template editor confirmations",
-                    "db/migration/V4__template_editor_confirmations.sql"));
+                    "db/migration/V4__template_editor_confirmations.sql"),
+            new Migration(
+                    5,
+                    "destructive administration",
+                    "db/migration/V5__destructive_administration.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
