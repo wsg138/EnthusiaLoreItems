@@ -161,7 +161,6 @@ class PaperTemplateEditorManagerTest {
         assertEquals(1, rolloutWakes.get());
     }
 
-
     @Test
     void confirmationTimeoutDoesNotClaimTheDurableRequestWasCancelled() {
         openEditor();
@@ -231,6 +230,22 @@ class PaperTemplateEditorManagerTest {
         assertInstanceOf(ItemIdentityReadResult.Untracked.class,
                 identityCodec.readIdentity(draft));
         assertEquals(0, useCase.confirmCalls);
+    }
+
+    @Test
+    void editOnlyAdministratorCanUseTheManagementGui() {
+        player.addAttachment(
+                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, false);
+
+        manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
+        click(PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
+
+        assertEquals(1, manager.activeSessionCount());
+        assertEquals(
+                PaperTemplateEditorSession.State.EDITING,
+                manager.sessionState(player.getUniqueId()));
+        click(10);
+        assertTrue(manager.awaitingChat(player.getUniqueId()));
     }
 
     @Test
