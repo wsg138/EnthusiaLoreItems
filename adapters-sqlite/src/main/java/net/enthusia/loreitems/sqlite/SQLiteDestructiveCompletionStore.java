@@ -273,7 +273,7 @@ final class SQLiteDestructiveCompletionStore {
             LoreInstanceId instanceId,
             String beforeFingerprint) {
         return "{\"instanceId\":\"" + instanceId.value()
-                + "\",\"beforeFingerprint\":\"" + beforeFingerprint + "\"}";
+                + "\",\"beforeFingerprint\":\"" + SQLiteDestructiveControlStore.escapeJson(beforeFingerprint) + "\"}";
     }
 
     private static String reviewDetail(

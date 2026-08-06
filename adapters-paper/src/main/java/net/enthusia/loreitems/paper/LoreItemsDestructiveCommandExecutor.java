@@ -400,10 +400,10 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             reportFailure(sender, exception);
             return true;
         }
-        stage.whenComplete((result, throwable) -> scheduleResult(() -> {
+        stage.whenComplete((result, throwable) -> {
             release(actor);
-            deliverResult(sender, result, throwable, success);
-        }));
+            scheduleResult(() -> deliverResult(sender, result, throwable, success));
+        });
         return true;
     }
 

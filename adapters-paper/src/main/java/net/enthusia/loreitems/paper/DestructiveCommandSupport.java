@@ -25,7 +25,11 @@ final class DestructiveCommandSupport {
                 ? parsePositiveInt(arguments[pageArgumentIndex], "page")
                 : FIRST_PAGE;
         int pageSize = Math.max(FIRST_PAGE, Math.min(PageRequest.MAX_LIMIT, configuredPageSize));
-        return new PageRequest(Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
+        try {
+            return new PageRequest(Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("That page number is too large.");
+        }
     }
 
     static void showOperations(

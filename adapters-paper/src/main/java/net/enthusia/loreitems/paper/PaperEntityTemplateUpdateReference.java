@@ -204,11 +204,15 @@ record PaperEntityTemplateUpdateReference(
             if (!usable(entity) || !kind.matches(entity)) {
                 return false;
             }
-            ItemStack current = reference().read(entity);
+            PaperEntityTemplateUpdateReference ref = reference();
+            if (ref == null) {
+                return false;
+            }
+            ItemStack current = ref.read(entity);
             if (!PaperItemFingerprint.of(current).equals(PaperItemFingerprint.of(originalItem))) {
                 return false;
             }
-            reference().remove(entity);
+            ref.remove(entity);
             return true;
         }
 
@@ -217,7 +221,11 @@ record PaperEntityTemplateUpdateReference(
             if (!usable(entity) || !kind.matches(entity)) {
                 return null;
             }
-            ItemStack stored = reference().read(entity);
+            PaperEntityTemplateUpdateReference ref = reference();
+            if (ref == null) {
+                return null;
+            }
+            ItemStack stored = ref.read(entity);
             return stored.getType().isAir() ? null : stored.clone();
         }
 

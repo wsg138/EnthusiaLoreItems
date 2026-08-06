@@ -372,8 +372,14 @@ final class SQLiteDestructiveControlStore {
         return state.name().toLowerCase(Locale.ROOT);
     }
 
-    private static String escapeJson(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    static String escapeJson(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\b", "\\b")
+                .replace("\f", "\\f")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private record TargetReviewSnapshot(

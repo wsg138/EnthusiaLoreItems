@@ -170,11 +170,16 @@ final class SQLiteDestructiveClaimStore {
                         + "claim_token = NULL, claim_expires_at = NULL, expected_fingerprint = NULL, "
                         + "before_fingerprint = NULL, after_fingerprint = NULL, last_error = ?, "
                         + "updated_at = ? WHERE operation_id = ? AND instance_id = ? "
-                        + "AND state = 'COMPLETED'")) {
+                        + "AND state = 'COMPLETED' AND NOT EXISTS (SELECT 1 FROM destructive_targets "
+                        + "WHERE instance_id = ? AND state NOT IN ('COMPLETED', 'ABORTED') "
+                        + "AND NOT (operation_id = ? AND instance_id = ?))")) {
             statement.setString(1, "A naturally encountered late copy reopened completed purge/delete work.");
             statement.setLong(2, now);
             statement.setString(3, completed.operationId().toString());
             statement.setString(4, completed.instanceId().value().toString());
+            statement.setString(5, completed.instanceId().value().toString());
+            statement.setString(6, completed.operationId().toString());
+            statement.setString(7, completed.instanceId().value().toString());
             return statement.executeUpdate() == SINGLE_ROW;
         }
     }

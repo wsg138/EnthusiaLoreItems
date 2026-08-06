@@ -261,6 +261,10 @@ public interface DestructiveAdministrationUseCase {
                     || reviewCount < 0L || completedCount < 0L || abortedCount < 0L) {
                 throw new IllegalArgumentException("Destructive operation counts must not be negative");
             }
+            if (completedCount + abortedCount > targetCount) {
+                throw new IllegalArgumentException(
+                        "Destructive operation terminal counts exceed target count");
+            }
             if (state.terminal() != (terminalAtEpochMillis != null)) {
                 throw new IllegalArgumentException(
                         "Destructive operation terminal timestamp does not match state");
