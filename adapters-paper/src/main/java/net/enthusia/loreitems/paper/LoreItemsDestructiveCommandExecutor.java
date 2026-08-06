@@ -463,6 +463,10 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         return List.of();
     }
 
+    void clearConfirmations() {
+        confirmations.clear();
+    }
+
     @Override
     public void close() {
         closed = true;

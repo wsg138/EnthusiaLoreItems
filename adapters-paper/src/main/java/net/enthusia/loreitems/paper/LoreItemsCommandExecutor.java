@@ -41,7 +41,14 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             AdoptHeldItemCommandExecutor adoptExecutor,
             GiveLoreItemCommandExecutor giveExecutor,
             LoreItemsAdministrationCommandExecutor administrationExecutor) {
-        this(createExecutor, adoptExecutor, giveExecutor, administrationExecutor, null);
+        this(
+                createExecutor,
+                adoptExecutor,
+                giveExecutor,
+                administrationExecutor,
+                administrationExecutor == null
+                        ? null
+                        : administrationExecutor.destructiveExecutor());
     }
 
     public LoreItemsCommandExecutor(

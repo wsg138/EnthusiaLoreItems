@@ -49,7 +49,7 @@ final class DestructiveCommandSupport {
     }
 
     static void showMetrics(
-            CommandSender sender, DestructiveAdministrationUseCase.QueueMetrics metrics) {
+            CommandSender sender, DestructiveAdministrationUseCase.Metrics metrics) {
         sender.sendMessage("Destructive queue metrics: active=" + metrics.activeOperations()
                 + ", paused=" + metrics.pausedOperations()
                 + ", queued-targets=" + metrics.queuedTargets()

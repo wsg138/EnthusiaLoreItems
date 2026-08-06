@@ -8,7 +8,7 @@ description: Durable lore-item tracking and delivery for Enthusia SMP.
 commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
-    usage: /loreitems create <lookup-key> <display name> | /loreitems adopt <lookup-key> | /loreitems give <lookup-key> [player] | /loreitems browse | /loreitems anomalies [page] | /loreitems audit <instance-uuid> [page] | /loreitems recovery [page]
+    usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|remove|purge|delete|operations|targets|destructive-metrics|pause-operation|resume-operation|resolve-removal ...
 permissions:
   enthusia.loreitems.admin.create:
     description: Creates a lore definition from the held item.
@@ -24,4 +24,22 @@ permissions:
     default: op
   enthusia.loreitems.admin.edit:
     description: Creates and confirms lore-item template revisions through the GUI/chat editor.
+    default: op
+  enthusia.loreitems.admin.remove:
+    description: Previews and confirms exact lore-item instance removal.
+    default: op
+  enthusia.loreitems.admin.purge:
+    description: Previews and confirms removal of all instances of a lore definition.
+    default: op
+  enthusia.loreitems.admin.delete:
+    description: Previews and confirms full deletion of a lore definition and its instances.
+    default: op
+  enthusia.loreitems.admin.destructive.inspect:
+    description: Inspects destructive operations, targets, and queue metrics.
+    default: op
+  enthusia.loreitems.admin.destructive.control:
+    description: Pauses and resumes durable destructive operations.
+    default: op
+  enthusia.loreitems.admin.destructive.review:
+    description: Resolves destructive targets that require evidence review.
     default: op

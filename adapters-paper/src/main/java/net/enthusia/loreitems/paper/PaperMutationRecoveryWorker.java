@@ -10,14 +10,18 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
+import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
 import net.enthusia.loreitems.application.DestructiveOperationStore;
 import net.enthusia.loreitems.application.DestructiveOperationStoreProvider;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PersistingDestructiveAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingDestructiveRemovalExecutionUseCase;
 import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
@@ -30,6 +34,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final Plugin plugin;
     private final PendingMutationRepository repository;
     private final Optional<DestructiveOperationStore> destructiveStore;
+    private final Optional<DestructiveAdministrationUseCase> destructiveAdministration;
     private final int recoveryLimit;
     private final PaperTemplateUpdateCoordinator templateUpdateCoordinator;
     private final PaperTemplateUpdateAccessRegistry templateUpdateAccessRegistry;
@@ -38,6 +43,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
+    private boolean destructiveServicesRegistered;
     private volatile boolean closed;
 
     public PaperMutationRecoveryWorker(
@@ -76,6 +82,8 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         }
         this.recoveryLimit = recoveryLimit;
         Clock clock = Clock.systemUTC();
+        this.destructiveAdministration = destructiveStore.map(
+                store -> new PersistingDestructiveAdministrationUseCase(store, clock));
         TemplateUpdateExecutionUseCase useCase = new PersistingTemplateUpdateExecutionUseCase(
                 templateStore,
                 clock,
@@ -97,6 +105,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (closed || task != null) {
             throw new IllegalStateException("Mutation recovery worker cannot be started");
         }
+        registerDestructiveServices();
         templateUpdateListener.start();
         try {
             entityTemplateUpdateListener.start();
@@ -109,6 +118,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             entityTemplateUpdateListener.close();
             templateUpdateListener.close();
             templateUpdateCoordinator.close();
+            unregisterDestructiveServices();
             throw exception;
         }
     }
@@ -191,6 +201,42 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                 recoveryLimit);
     }
 
+    private void registerDestructiveServices() {
+        if (destructiveAdministration.isEmpty()) {
+            return;
+        }
+        ServicesManager services = plugin.getServer().getServicesManager();
+        DestructiveAdministrationUseCase administration = destructiveAdministration.orElseThrow();
+        services.register(
+                DestructiveAdministrationUseCase.class,
+                administration,
+                plugin,
+                ServicePriority.Normal);
+        try {
+            services.register(
+                    PaperMutationRecoveryWorker.class,
+                    this,
+                    plugin,
+                    ServicePriority.Normal);
+            destructiveServicesRegistered = true;
+        } catch (RuntimeException exception) {
+            services.unregister(DestructiveAdministrationUseCase.class, administration);
+            throw exception;
+        }
+    }
+
+    private void unregisterDestructiveServices() {
+        if (!destructiveServicesRegistered) {
+            return;
+        }
+        ServicesManager services = plugin.getServer().getServicesManager();
+        services.unregister(PaperMutationRecoveryWorker.class, this);
+        services.unregister(
+                DestructiveAdministrationUseCase.class,
+                destructiveAdministration.orElseThrow());
+        destructiveServicesRegistered = false;
+    }
+
     private static Optional<DestructiveOperationStore> optionalDestructiveStore(
             PendingMutationRepository repository) {
         Objects.requireNonNull(repository, "repository");
@@ -232,6 +278,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (current != null) {
             current.cancel();
         }
+        unregisterDestructiveServices();
     }
 
     private record RecoveryCounts(int templateUpdates, int destructiveRemovals) {}
