@@ -10,7 +10,7 @@ The universal dispatcher automatically resumes or selects exactly one package. A
 
 | Order | Package | Fixed objective | Weight | Status | Exact dependency |
 |---:|---|---|---:|---|---|
-| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | IN_PROGRESS | PR #9 merged; live baseline reconciled |
+| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | VERIFYING | Exact-head CI/Codacy, review reconciliation, normal merge, and live verification |
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | BLOCKED | WP-01 COMPLETE |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | Complete one-use mass distributions. | 20% | BLOCKED | WP-02 COMPLETE |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | Complete automated production hardening and produce a release candidate. | 15% | BLOCKED | WP-03 COMPLETE |
@@ -21,11 +21,10 @@ The universal dispatcher automatically resumes or selects exactly one package. A
 
 - Package: WP-01
 - Branch: `agent/wp-01-editor-template-management`
-- Draft PR: #11, `WP-01: complete editor and template management`
-- Reconciled head: `e8a1f4f3f0588f138bf2484adcda816a275a3030`
-- Meaning: the canonical branch and draft PR make WP-01 `IN_PROGRESS` even though the prior `main` snapshot recorded it as `READY`.
-
-The documentation branch `docs/automatic-work-package-routing` is a planning/workflow amendment, not a package lock and not implementation progress.
+- Pull request: #11, `WP-01: complete editor and template management`
+- Reconciled implementation/merge-main head: `2f3f8ea88f14e5354e437920b86c12b8f843f5a8`
+- Status: `VERIFYING`
+- Meaning: implementation and the separate author-side harsh review are committed; exact-head gates and final review reconciliation remain. WP-02 stays blocked.
 
 ## Automatic selection and resume rule
 
