@@ -32,7 +32,8 @@ final class DestructiveCommandSupport {
         if (page.items().isEmpty()) {
             sender.sendMessage("No destructive operations are recorded on this page.");
         }
-        page.items().forEach(operation -> sender.sendMessage(formatOperation(operation)));
+        long now = System.currentTimeMillis();
+        page.items().forEach(operation -> sender.sendMessage(formatOperation(operation, now)));
         showPageFooter(sender, page);
     }
 
@@ -44,7 +45,8 @@ final class DestructiveCommandSupport {
         if (page.items().isEmpty()) {
             sender.sendMessage("No destructive targets are recorded on this page.");
         }
-        page.items().forEach(target -> sender.sendMessage(formatTarget(target)));
+        long now = System.currentTimeMillis();
+        page.items().forEach(target -> sender.sendMessage(formatTarget(target, now)));
         showPageFooter(sender, page);
     }
 
@@ -60,27 +62,54 @@ final class DestructiveCommandSupport {
     }
 
     static String formatOperation(DestructiveAdministrationUseCase.OperationView operation) {
+        return formatOperation(operation, System.currentTimeMillis());
+    }
+
+    static String formatOperation(
+            DestructiveAdministrationUseCase.OperationView operation, long nowEpochMillis) {
+        String target = operation.exactInstanceId() == null
+                ? "definition=" + operation.definitionId().value()
+                : "definition=" + operation.definitionId().value()
+                        + " instance=" + operation.exactInstanceId().value();
         return operation.operationId() + " " + operation.operationType()
+                + " " + target
+                + " revision=" + operation.expectedRevision().value()
                 + " state=" + operation.state()
+                + " actor=" + operation.actorId()
                 + " targets=" + operation.targetCount()
                 + " remaining=" + operation.remainingCount()
                 + " claimed=" + operation.claimedCount()
                 + " review=" + operation.reviewCount()
                 + " completed=" + operation.completedCount()
-                + " aborted=" + operation.abortedCount();
+                + " aborted=" + operation.abortedCount()
+                + " accepted-age-ms=" + age(nowEpochMillis, operation.acceptedAtEpochMillis())
+                + " updated-age-ms=" + age(nowEpochMillis, operation.updatedAtEpochMillis())
+                + nullableEpoch(" terminal-at=", operation.terminalAtEpochMillis());
     }
 
     static String formatTarget(DestructiveAdministrationUseCase.TargetView target) {
+        return formatTarget(target, System.currentTimeMillis());
+    }
+
+    static String formatTarget(
+            DestructiveAdministrationUseCase.TargetView target, long nowEpochMillis) {
         String location = target.expectedLocationType() == null
                 ? "unknown"
                 : target.expectedLocationType() + ':' + target.expectedLocationKey();
-        String error = target.lastError() == null ? "" : " error=" + target.lastError();
-        return target.instanceId().value() + " state=" + target.state()
+        return target.instanceId().value()
+                + " definition=" + target.definitionId().value()
+                + " revision=" + target.expectedAppliedRevision().value()
+                + " state=" + target.state()
                 + " effect=" + target.effectState()
                 + " attempts=" + target.attemptCount()
                 + " location=" + location
                 + " path=" + String.valueOf(target.expectedContainerPath())
-                + error;
+                + nullableRemaining(" lease-remaining-ms=", target.claimExpiresAtEpochMillis(), nowEpochMillis)
+                + nullableValue(" before=", target.beforeFingerprint())
+                + nullableValue(" after=", target.afterFingerprint())
+                + nullableValue(" error=", target.lastError())
+                + " created-age-ms=" + age(nowEpochMillis, target.createdAtEpochMillis())
+                + " updated-age-ms=" + age(nowEpochMillis, target.updatedAtEpochMillis());
     }
 
     static String confirmationRoute(DestructiveOperationType operationType) {
@@ -188,6 +217,22 @@ final class DestructiveCommandSupport {
                 "resolve-removal",
                 LoreItemsDestructiveCommandExecutor.REVIEW_PERMISSION);
         return values.stream().filter(value -> value.startsWith(prefix)).toList();
+    }
+
+    private static long age(long nowEpochMillis, long eventEpochMillis) {
+        return Math.max(0L, nowEpochMillis - eventEpochMillis);
+    }
+
+    private static String nullableEpoch(String prefix, Long epochMillis) {
+        return epochMillis == null ? "" : prefix + epochMillis;
+    }
+
+    private static String nullableRemaining(String prefix, Long epochMillis, long nowEpochMillis) {
+        return epochMillis == null ? "" : prefix + Math.max(0L, epochMillis - nowEpochMillis);
+    }
+
+    private static String nullableValue(String prefix, String value) {
+        return value == null || value.isBlank() ? "" : prefix + value;
     }
 
     private static int parsePositiveInt(String input, String name) {
