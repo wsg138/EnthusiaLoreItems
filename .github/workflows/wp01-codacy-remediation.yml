@@ -64,7 +64,7 @@ jobs:
                'CyclomaticComplexity', 'NullAssignment'])
           annotate_class(
               base + 'PaperTemplateEditorSession.java',
-              'final class PaperTemplateEditorSession implements AutoCloseable {',
+              'final class PaperTemplateEditorSession {',
               ['NullAssignment'])
           annotate_class(
               base + 'PaperTemplateEditorSupport.java',
@@ -145,5 +145,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
+          if git diff --cached --quiet; then
+            echo 'No Codacy remediation changes to commit.'
+            exit 0
+          fi
           git commit -m 'fix: remediate WP-01 Codacy findings'
           git push origin HEAD:agent/wp-01-editor-template-management
