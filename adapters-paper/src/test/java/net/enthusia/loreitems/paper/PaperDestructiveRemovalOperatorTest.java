@@ -36,8 +36,8 @@ class PaperDestructiveRemovalOperatorTest {
 
     @BeforeEach
     void setUp() {
-        MockBukkit.mock();
-        player = MockBukkit.getMock().addPlayer();
+        var server = MockBukkit.mock();
+        player = server.addPlayer();
         plugin = MockBukkit.createMockPlugin();
         identityCodec = new PaperItemIdentityCodec();
         operator = new PaperDestructiveRemovalOperator(identityCodec);
