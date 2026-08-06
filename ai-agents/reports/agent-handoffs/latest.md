@@ -7,12 +7,14 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## WP-02 publication state
 
 - Package: WP-02 — destructive administration
-- Status: `COMPLETE` prospectively
+- Status: `COMPLETE` prospectively; final exact-head verification is active
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Ready pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
 - Resume starting branch head: `956f8c9a433d2819bbec16f072f7a44149fbbbad`
-- Verified pre-final head: `eddded7254e78113dc29f0421dfc2becbf9194ee`
+- Prospective COMPLETE coordination commit: `201103a417018b01558180bab955838a3bdeb7e8`
+- Review-remediation heads: `cea33307f57ba2c8ff775e2c2376ed1490c495cb`, `8ade7870bc0256eb4d35bbcd56657f9c7ff2f64c`, and `47b4ba39ed335d4599cafac2c1d379feaa0104ef`
+- Final review report update: `91746574d46a6500d968a6325fd28c557bb66f4c`
 - Next package after authoritative completion: WP-03 — one-use mass distributions, `READY`
 
 ## Completed package scope
@@ -22,37 +24,42 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 - Physical removal coverage for player and Ender inventories, loaded inventories, nested shulkers and bundles, dropped items, item/glow frames, item displays, and armor-stand equipment.
 - Privileged preview-confirm flows for remove, purge, and delete with actor-specific, operation-specific, expiring, bounded, single-use confirmation sessions.
 - Paginated operation and target inspection, metrics, pause/resume, evidence-gated review controls, GUI entry points, permissions, messages, tab completion, lifecycle cleanup, worker wakeups, and operator recovery documentation.
-- Focused domain, SQLite, migration, Paper execution, command confirmation, GUI, recovery, divergence, pause-fence, unknown-outcome, and stale-confirmation tests.
 
-## Verification after runner recovery
+## Runner recovery and exact-head evidence
 
-GitHub Actions was not waived. Exact head `eddded7254e78113dc29f0421dfc2becbf9194ee` passed workflow run `31117469546`, attempt 2.
+GitHub Actions was not waived. Successful workflows after runner recovery include:
 
-The successful workflow executed:
+- run `31117469546`, attempt 2, on `eddded7254e78113dc29f0421dfc2becbf9194ee`;
+- run `31123084632` on `201103a417018b01558180bab955838a3bdeb7e8`;
+- run `31123973081` on `cea33307f57ba2c8ff775e2c2376ed1490c495cb`.
 
-- Java 21;
-- Gradle 8.14.3;
-- `gradle --no-daemon clean check`;
-- installation of `tools/requirements.txt`;
-- `python3 -m unittest discover -s tools -p 'test_*.py'`;
-- new-code complexity verification;
-- exact-head Codacy verification.
+Each run completed Java 21 setup, Gradle 8.14.3 setup, `gradle --no-daemon clean check`, repository-tool tests, new-code complexity verification, and exact-head Codacy verification.
 
-External Codacy check `92670804638` succeeded for the same head with zero annotations.
+Exact remediation head `47b4ba39ed335d4599cafac2c1d379feaa0104ef` passed external Codacy check `92692113429` with zero annotations. The commit containing this latest handoff must still pass final exact-head GitHub Actions and Codacy before merge.
 
-## Review state and final harsh review
+## Submitted review and remediation
+
+CodeRabbit submitted a COMMENT review with six actionable threads after the coordination head passed. All six were validated and fixed on the same WP-02 branch:
+
+1. bounded page-offset overflow handling;
+2. async permit and active-actor cleanup on scheduler rejection;
+3. nullable item-display stack handling;
+4. non-terminal late-target uniqueness fencing;
+5. complete audit JSON and fingerprint escaping;
+6. overflow-safe operation aggregate validation.
+
+The author review additionally preserved `NONE_OBSERVED` evidence for evidence-gated requeue and abort decisions. Focused regression tests cover page overflow, nullable displays, all JSON control characters, and overflowing terminal-count sums. Existing package tests cover the remaining claim, shutdown, review, and recovery behavior.
+
+## Current review state
 
 - PR #13 is ready for review.
-- Submitted reviews before the final coordination commit: none.
-- Requested changes before the final coordination commit: none.
-- Unresolved review threads before the final coordination commit: zero.
-- The prior independent full-package harsh review identified four findings, all fixed in WP-02.
-- The final author-side harsh review reconfirmed irreversible-effect safety, wrong-target fences, idempotency, late-copy behavior, pause fences, ambiguity handling, main-thread boundaries, bounded work, reload/shutdown recovery, history visibility, and evidence accuracy.
-- No remaining blocker was found.
+- No submitted review is in `CHANGES_REQUESTED` state.
+- The six actionable threads have corresponding fixes and must be formally resolved after the final exact-head workflow succeeds.
+- The detailed final author-side harsh review is recorded in `ai-agents/reports/agent-handoffs/2026-08-06-wp-02-final-verification.md`.
 
 ## Outage history
 
-The earlier runs `31116665464`, `31117144848`, and attempt 1 of `31117469546` did not reach checkout during the GitHub Actions service incident. They were platform failures, not repository-code failures. Once runners recovered, attempt 2 of `31117469546` passed. No outage waiver record was committed because GitHub Actions ultimately passed.
+Runs `31116665464`, `31117144848`, and attempt 1 of `31117469546` stopped before checkout during the GitHub Actions incident. They were platform failures rather than repository-code failures. Once runners recovered, exact-head workflows passed. No outage waiver record was committed because GitHub Actions ultimately ran successfully.
 
 ## Prospective queue state
 
@@ -67,4 +74,4 @@ This state becomes authoritative only after normal merge and live-main verificat
 
 ## Exact next action
 
-Verify final exact-head Actions, Codacy, and review state for the coordination commit, update PR #13 with the final evidence, normally merge it, verify the resulting live `main` and post-merge CI, and stop. Do not claim or begin WP-03.
+Inspect the exact-head Actions and Codacy checks created by this handoff update. Repair any repository failure, resolve every addressed review thread, update PR #13 with final evidence, merge it only through the normal merge-commit method, verify the resulting live `main` and post-merge CI, and stop without claiming or beginning WP-03.
