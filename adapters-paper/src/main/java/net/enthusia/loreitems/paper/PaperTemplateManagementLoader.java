@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import net.enthusia.loreitems.application.TemplateManagementSnapshot;
 import net.enthusia.loreitems.application.TemplateManagementUseCase;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
@@ -15,6 +16,7 @@ import org.bukkit.plugin.Plugin;
 /** Bounded asynchronous loading for the read-only template-management screen. */
 final class PaperTemplateManagementLoader {
     private static final int MAX_QUERIES = 32;
+    private static final long QUERY_TIMEOUT_SECONDS = 10L;
     private static final String UNAVAILABLE =
             "Template editing is unavailable while durable storage is read-only or initializing.";
 
@@ -23,7 +25,9 @@ final class PaperTemplateManagementLoader {
     private final PaperItemTemplateCodec templateCodec;
     private final FailureHandler failureHandler;
     private final MainThreadExecutor mainThreadExecutor;
-    private final Semaphore queryCapacity = new Semaphore(MAX_QUERIES);
+    private final Semaphore queryCapacity;
+    private final long queryTimeout;
+    private final TimeUnit queryTimeoutUnit;
 
     PaperTemplateManagementLoader(
             Plugin plugin,
@@ -31,17 +35,45 @@ final class PaperTemplateManagementLoader {
             PaperItemTemplateCodec templateCodec,
             FailureHandler failureHandler,
             MainThreadExecutor mainThreadExecutor) {
+        this(
+                plugin,
+                renderer,
+                templateCodec,
+                failureHandler,
+                mainThreadExecutor,
+                MAX_QUERIES,
+                QUERY_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS);
+    }
+
+    PaperTemplateManagementLoader(
+            Plugin plugin,
+            PaperTemplateEditorRenderer renderer,
+            PaperItemTemplateCodec templateCodec,
+            FailureHandler failureHandler,
+            MainThreadExecutor mainThreadExecutor,
+            int maximumQueries,
+            long queryTimeout,
+            TimeUnit queryTimeoutUnit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.renderer = Objects.requireNonNull(renderer, "renderer");
         this.templateCodec = Objects.requireNonNull(templateCodec, "templateCodec");
         this.failureHandler = Objects.requireNonNull(failureHandler, "failureHandler");
         this.mainThreadExecutor = Objects.requireNonNull(mainThreadExecutor, "mainThreadExecutor");
+        if (maximumQueries < 1) {
+            throw new IllegalArgumentException("maximumQueries must be positive");
+        }
+        if (queryTimeout < 1L) {
+            throw new IllegalArgumentException("queryTimeout must be positive");
+        }
+        this.queryCapacity = new Semaphore(maximumQueries);
+        this.queryTimeout = queryTimeout;
+        this.queryTimeoutUnit = Objects.requireNonNull(queryTimeoutUnit, "queryTimeoutUnit");
     }
 
     void open(UUID playerId, LoreDefinitionId definitionId, int returnPage) {
         Player player = Bukkit.getPlayer(playerId);
-        if (player == null || !player.hasPermission(
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)) {
+        if (player == null || !LoreItemsAdministrationCommandExecutor.canBrowse(player)) {
             return;
         }
         TemplateManagementUseCase useCase = resolveUseCase();
@@ -70,14 +102,16 @@ final class PaperTemplateManagementLoader {
             failureHandler.handle(playerId, "load template management", exception);
             return;
         }
-        stage.whenComplete((snapshot, failure) -> {
-            queryCapacity.release();
-            if (failure != null) {
-                failureHandler.handle(playerId, "load template management", failure);
-                return;
-            }
-            mainThreadExecutor.execute(() -> show(playerId, snapshot, returnPage));
-        });
+        stage.toCompletableFuture()
+                .orTimeout(queryTimeout, queryTimeoutUnit)
+                .whenComplete((snapshot, failure) -> {
+                    queryCapacity.release();
+                    if (failure != null) {
+                        failureHandler.handle(playerId, "load template management", failure);
+                        return;
+                    }
+                    mainThreadExecutor.execute(() -> show(playerId, snapshot, returnPage));
+                });
     }
 
     private void show(
