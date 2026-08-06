@@ -143,6 +143,10 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
     }
 
     private void startTemplateUpdate(PaperTemplateUpdateScanner.Candidate candidate) {
+        if (isClosed()) {
+            finish(candidate);
+            return;
+        }
         CompletionStage<TemplateUpdatePrepareResult> preparation;
         try {
             preparation = Objects.requireNonNull(
@@ -426,9 +430,6 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
 
     @Override
     public void close() {
-        if (destructiveCoordinator != null) {
-            destructiveCoordinator.close();
-        }
         synchronized (lock) {
             closed = true;
             for (PaperTemplateUpdateScanner.Candidate candidate : queued) {
@@ -436,6 +437,9 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             }
             queued.clear();
             saturated = false;
+        }
+        if (destructiveCoordinator != null) {
+            destructiveCoordinator.close();
         }
     }
 }
