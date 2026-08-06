@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -28,7 +29,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
 
     private final Plugin plugin;
     private final PendingMutationRepository repository;
-    private final DestructiveOperationStore destructiveStore;
+    private final Optional<DestructiveOperationStore> destructiveStore;
     private final int recoveryLimit;
     private final PaperTemplateUpdateCoordinator templateUpdateCoordinator;
     private final PaperTemplateUpdateAccessRegistry templateUpdateAccessRegistry;
@@ -43,13 +44,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             Plugin plugin,
             PendingMutationRepository repository,
             int recoveryLimit) {
-        this(
-                plugin,
-                repository,
-                repository instanceof DestructiveOperationStoreProvider provider
-                        ? provider.destructiveOperationStore()
-                        : null,
-                recoveryLimit);
+        this(plugin, repository, optionalDestructiveStore(repository), recoveryLimit);
     }
 
     public PaperMutationRecoveryWorker(
@@ -57,8 +52,21 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             PendingMutationRepository repository,
             DestructiveOperationStore destructiveStore,
             int recoveryLimit) {
+        this(
+                plugin,
+                repository,
+                Optional.of(Objects.requireNonNull(destructiveStore, "destructiveStore")),
+                recoveryLimit);
+    }
+
+    private PaperMutationRecoveryWorker(
+            Plugin plugin,
+            PendingMutationRepository repository,
+            Optional<DestructiveOperationStore> destructiveStore,
+            int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.destructiveStore = Objects.requireNonNull(destructiveStore, "destructiveStore");
         if (recoveryLimit < MIN_RECOVERY_LIMIT) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
@@ -66,29 +74,13 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             throw new IllegalArgumentException(
                     "repository must also provide template-update execution storage");
         }
-        this.destructiveStore = destructiveStore;
         this.recoveryLimit = recoveryLimit;
         Clock clock = Clock.systemUTC();
         TemplateUpdateExecutionUseCase useCase = new PersistingTemplateUpdateExecutionUseCase(
                 templateStore,
                 clock,
                 MUTATION_CLAIM_LEASE);
-        this.templateUpdateCoordinator = destructiveStore == null
-                ? new PaperTemplateUpdateCoordinator(
-                        plugin,
-                        useCase,
-                        new PaperTemplateUpdateOperator(),
-                        recoveryLimit)
-                : new PaperTemplateUpdateCoordinator(
-                        plugin,
-                        useCase,
-                        new PaperTemplateUpdateOperator(),
-                        new PersistingDestructiveRemovalExecutionUseCase(
-                                destructiveStore,
-                                clock,
-                                MUTATION_CLAIM_LEASE),
-                        new PaperDestructiveRemovalOperator(),
-                        recoveryLimit);
+        this.templateUpdateCoordinator = createCoordinator(useCase, clock);
         this.templateUpdateAccessRegistry = new PaperTemplateUpdateAccessRegistry();
         this.templateUpdateListener = new PaperTemplateUpdateListener(
                 plugin,
@@ -138,12 +130,9 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             CompletionStage<Integer> templateRecovery = Objects.requireNonNull(
                     repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit),
                     "template recovery stage");
-            CompletionStage<Integer> destructiveRecovery = destructiveStore == null
-                    ? CompletableFuture.completedFuture(0)
-                    : Objects.requireNonNull(
-                            destructiveStore.moveExpiredClaimsToReview(
-                                    Instant.now(), recoveryLimit),
-                            "destructive recovery stage");
+            CompletionStage<Integer> destructiveRecovery = destructiveStore
+                    .map(this::recoverDestructiveClaims)
+                    .orElseGet(() -> CompletableFuture.completedFuture(0));
             stage = templateRecovery.thenCombine(
                     destructiveRecovery,
                     RecoveryCounts::new);
@@ -172,6 +161,45 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             reportRecovery("template-update", recovered.templateUpdates());
             reportRecovery("destructive-removal", recovered.destructiveRemovals());
         });
+    }
+
+    private CompletionStage<Integer> recoverDestructiveClaims(DestructiveOperationStore store) {
+        return Objects.requireNonNull(
+                store.moveExpiredClaimsToReview(Instant.now(), recoveryLimit),
+                "destructive recovery stage");
+    }
+
+    private PaperTemplateUpdateCoordinator createCoordinator(
+            TemplateUpdateExecutionUseCase useCase,
+            Clock clock) {
+        if (destructiveStore.isEmpty()) {
+            return new PaperTemplateUpdateCoordinator(
+                    plugin,
+                    useCase,
+                    new PaperTemplateUpdateOperator(),
+                    recoveryLimit);
+        }
+        return new PaperTemplateUpdateCoordinator(
+                plugin,
+                useCase,
+                new PaperTemplateUpdateOperator(),
+                new PersistingDestructiveRemovalExecutionUseCase(
+                        destructiveStore.orElseThrow(),
+                        clock,
+                        MUTATION_CLAIM_LEASE),
+                new PaperDestructiveRemovalOperator(),
+                recoveryLimit);
+    }
+
+    private static Optional<DestructiveOperationStore> optionalDestructiveStore(
+            PendingMutationRepository repository) {
+        Objects.requireNonNull(repository, "repository");
+        if (repository instanceof DestructiveOperationStoreProvider provider) {
+            return Optional.of(Objects.requireNonNull(
+                    provider.destructiveOperationStore(),
+                    "destructive operation store"));
+        }
+        return Optional.empty();
     }
 
     private void reportRecovery(String kind, int recovered) {
