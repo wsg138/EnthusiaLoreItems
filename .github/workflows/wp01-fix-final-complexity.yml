@@ -1,4 +1,4 @@
-name: Apply final WP-01 complexity fix
+name: Apply WP-01 review remediation
 
 on:
   push:
@@ -16,52 +16,632 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-      - name: Extract administration worker activation
+      - name: Apply guarded review fixes
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java')
-          source = path.read_text()
-          old = '''            warningWorker.start();
-              anomalyListener.start();
-              planner.start();
-              anomalyWarningWorker = warningWorker;
-              identityAnomalyListener = anomalyListener;
-              templateRevisionPlannerWorker = planner;
-              getLogger().info(
-                      "Lore-item anomaly detection, warnings, and administration are active.");
-          '''
-          new = '''            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
-          '''
-          if old not in source:
-              raise SystemExit('expected worker activation block not found')
-          source = source.replace(old, new, 1)
-          marker = '''    private void registerAdministrationServices(
-          '''
-          helper = '''    private void activateAdministrationWorkers(
-                  PaperAnomalyWarningWorker warningWorker,
-                  PaperIdentityAnomalyListener anomalyListener,
-                  PaperTemplateRevisionPlannerWorker planner) {
-              warningWorker.start();
-              anomalyListener.start();
-              planner.start();
-              anomalyWarningWorker = warningWorker;
-              identityAnomalyListener = anomalyListener;
-              templateRevisionPlannerWorker = planner;
-              getLogger().info(
-                      "Lore-item anomaly detection, warnings, and administration are active.");
-          }
+          def replace(path_name, old, new):
+              path = Path(path_name)
+              source = path.read_text()
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path_name}: expected one guarded match, found {count}')
+              path.write_text(source.replace(old, new, 1))
 
-          '''
-          if marker not in source:
-              raise SystemExit('administration service marker not found')
-          path.write_text(source.replace(marker, helper + marker, 1))
+          replace(
+              'adapters-paper/src/main/java/net/enthusia/loreitems/paper/LoreItemsAdministrationCommandExecutor.java',
+              '''        LoreItemsAdministrationUseCase useCase = resolveUseCase(sender);
+                  if (useCase == null) {
+                      return true;
+                  }
+                  String subcommand = parseSubcommand(sender, arguments);
+                  if (subcommand == null) {
+                      return true;
+                  }
+                  if (BROWSE_SUBCOMMAND.equals(subcommand)) {
+                      executeBrowse(sender, arguments);
+                      return true;
+                  }
+                  CommandActor actor = CommandActor.capture(sender);
+          ''',
+              '''        String subcommand = parseSubcommand(sender, arguments);
+                  if (subcommand == null) {
+                      return true;
+                  }
+                  if (BROWSE_SUBCOMMAND.equals(subcommand)) {
+                      if (!canBrowse(sender)) {
+                          sender.sendMessage("You do not have permission to browse lore-item templates.");
+                          return true;
+                      }
+                      executeBrowse(sender, arguments);
+                      return true;
+                  }
+                  LoreItemsAdministrationUseCase useCase = resolveEvidenceUseCase(sender);
+                  if (useCase == null) {
+                      return true;
+                  }
+                  CommandActor actor = CommandActor.capture(sender);
+          ''')
+          replace(
+              'adapters-paper/src/main/java/net/enthusia/loreitems/paper/LoreItemsAdministrationCommandExecutor.java',
+              '''    private LoreItemsAdministrationUseCase resolveUseCase(CommandSender sender) {
+                  if (!sender.hasPermission(AUDIT_PERMISSION)) {
+                      sender.sendMessage("You do not have permission to inspect lore-item evidence.");
+                      return null;
+                  }
+                  LoreItemsAdministrationUseCase useCase = plugin.getServer()
+                          .getServicesManager()
+                          .load(LoreItemsAdministrationUseCase.class);
+                  if (useCase == null) {
+                      sender.sendMessage("Lore-item administration is unavailable while storage initializes.");
+                  }
+                  return useCase;
+              }
+          ''',
+              '''    static boolean canBrowse(CommandSender sender) {
+                  Objects.requireNonNull(sender, "sender");
+                  return sender.hasPermission(AUDIT_PERMISSION)
+                          || sender.hasPermission(PaperTemplateEditorManager.EDIT_PERMISSION);
+              }
+
+              private LoreItemsAdministrationUseCase resolveEvidenceUseCase(CommandSender sender) {
+                  if (!sender.hasPermission(AUDIT_PERMISSION)) {
+                      sender.sendMessage("You do not have permission to inspect lore-item evidence.");
+                      return null;
+                  }
+                  LoreItemsAdministrationUseCase useCase = plugin.getServer()
+                          .getServicesManager()
+                          .load(LoreItemsAdministrationUseCase.class);
+                  if (useCase == null) {
+                      sender.sendMessage("Lore-item administration is unavailable while storage initializes.");
+                  }
+                  return useCase;
+              }
+          ''')
+
+          replace(
+              'adapters-paper/src/main/java/net/enthusia/loreitems/paper/LoreItemsCommandExecutor.java',
+              '''        return topLevelCompletions(sender, arguments[0]);
+              }
+
+              static List<String> topLevelCompletions(CommandSender sender, String input) {
+                  Objects.requireNonNull(sender, "sender");
+                  String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
+                  List<String> candidates = new ArrayList<>();
+                  addIfAllowed(candidates, sender, CREATE_SUBCOMMAND, "enthusia.loreitems.admin.create");
+                  addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
+                  addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
+                  addIfAllowed(candidates, sender, BROWSE_SUBCOMMAND,
+                          LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                  addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
+                          LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                  addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
+                          LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                  addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
+                          LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                  return candidates.stream().filter(value -> value.startsWith(prefix)).toList();
+              }
+          ''',
+              '''        return topLevelCompletions(
+                      sender, arguments[0], administrationExecutor != null);
+              }
+
+              static List<String> topLevelCompletions(CommandSender sender, String input) {
+                  return topLevelCompletions(sender, input, true);
+              }
+
+              static List<String> topLevelCompletions(
+                      CommandSender sender, String input, boolean administrationAvailable) {
+                  Objects.requireNonNull(sender, "sender");
+                  String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
+                  List<String> candidates = new ArrayList<>();
+                  addIfAllowed(candidates, sender, CREATE_SUBCOMMAND, "enthusia.loreitems.admin.create");
+                  addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
+                  addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
+                  if (administrationAvailable) {
+                      if (LoreItemsAdministrationCommandExecutor.canBrowse(sender)) {
+                          candidates.add(BROWSE_SUBCOMMAND);
+                      }
+                      addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
+                              LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                      addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
+                              LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                      addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
+                              LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+                  }
+                  return candidates.stream().filter(value -> value.startsWith(prefix)).toList();
+              }
+          ''')
+
+          replace(
+              'adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTemplateRevisionPlannerWorker.java',
+              '''        stage.whenComplete(this::discovered);
+              }
+          ''',
+              '''        stage.whenComplete((page, failure) ->
+                      dispatchContinuation(() -> discovered(page, failure)));
+              }
+          ''')
+          replace(
+              'adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTemplateRevisionPlannerWorker.java',
+              '''        stage.whenComplete((result, throwable) -> scheduled(result, throwable));
+              }
+
+              private void scheduled(TemplateRevisionRolloutBatchResult result, Throwable failure) {
+          ''',
+              '''        stage.whenComplete((result, throwable) ->
+                      dispatchContinuation(() -> scheduled(result, throwable)));
+              }
+
+              private void dispatchContinuation(Runnable continuation) {
+                  if (closed) {
+                      inFlight.set(false);
+                      return;
+                  }
+                  try {
+                      plugin.getServer().getScheduler().runTask(plugin, () -> {
+                          if (closed) {
+                              inFlight.set(false);
+                              return;
+                          }
+                          continuation.run();
+                      });
+                  } catch (RuntimeException exception) {
+                      inFlight.set(false);
+                      plugin.getLogger().log(
+                              Level.FINE,
+                              "Could not resume template rollout planning during shutdown.",
+                              exception);
+                  }
+              }
+
+              private void scheduled(TemplateRevisionRolloutBatchResult result, Throwable failure) {
+          ''')
+
+          replace(
+              'application/src/main/java/net/enthusia/loreitems/application/TemplateRevisionRolloutStore.java',
+              '''    default CompletionStage<TemplateRevisionStartResult> startConfirmed(
+                      TemplateRevisionConfirmation confirmation) {
+                  return start(
+                          confirmation.newRevision(),
+                          confirmation.expectedCurrentRevision(),
+                          confirmation.auditEvent(),
+                          confirmation.initialBatchLimit());
+              }
+          ''',
+              '''    CompletionStage<TemplateRevisionStartResult> startConfirmed(
+                      TemplateRevisionConfirmation confirmation);
+          ''')
+          replace(
+              'application/src/test/java/net/enthusia/loreitems/application/PersistingTemplateRevisionRolloutUseCaseTest.java',
+              '''        public CompletionStage<TemplateRevisionStartResult> startConfirmed(
+                      TemplateRevisionConfirmation confirmed) {
+                  confirmation = confirmed;
+                  return TemplateRevisionRolloutStore.super.startConfirmed(confirmed);
+              }
+          ''',
+              '''        public CompletionStage<TemplateRevisionStartResult> startConfirmed(
+                      TemplateRevisionConfirmation confirmed) {
+                  confirmation = confirmed;
+                  return start(
+                          confirmed.newRevision(),
+                          confirmed.expectedCurrentRevision(),
+                          confirmed.auditEvent(),
+                          confirmed.initialBatchLimit());
+              }
+          ''')
+
+          replace(
+              'plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java',
+              '''            warningWorker.start();
+                      anomalyListener.start();
+                      planner.start();
+                      anomalyWarningWorker = warningWorker;
+                      identityAnomalyListener = anomalyListener;
+                      templateRevisionPlannerWorker = planner;
+                      getLogger().info(
+                              "Lore-item anomaly detection, warnings, and administration are active.");
+          ''',
+              '''            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
+          ''')
+          replace(
+              'plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java',
+              '''    private void registerAdministrationServices(
+          ''',
+              '''    private void activateAdministrationWorkers(
+                      PaperAnomalyWarningWorker warningWorker,
+                      PaperIdentityAnomalyListener anomalyListener,
+                      PaperTemplateRevisionPlannerWorker planner) {
+                  warningWorker.start();
+                  anomalyListener.start();
+                  planner.start();
+                  anomalyWarningWorker = warningWorker;
+                  identityAnomalyListener = anomalyListener;
+                  templateRevisionPlannerWorker = planner;
+                  getLogger().info(
+                          "Lore-item anomaly detection, warnings, and administration are active.");
+              }
+
+              private void registerAdministrationServices(
+          ''')
+
+          Path('adapters-paper/src/test/java/net/enthusia/loreitems/paper/LoreItemsCommandCompletionTest.java').write_text(r'''package net.enthusia.loreitems.paper;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
+import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
+import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
+import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.Plugin;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.MockBukkit;
+import org.mockbukkit.mockbukkit.entity.PlayerMock;
+
+class LoreItemsCommandCompletionTest {
+    private Plugin plugin;
+    private PlayerMock player;
+
+    @BeforeEach
+    void setUp() {
+        MockBukkit.mock();
+        plugin = MockBukkit.createMockPlugin();
+        player = MockBukkit.getMock().addPlayer();
+    }
+
+    @AfterEach
+    void tearDown() {
+        MockBukkit.unmock();
+    }
+
+    @Test
+    void hidesAdministrativeRoutesWithoutTheirPermissions() {
+        assertEquals(List.of(), LoreItemsCommandExecutor.topLevelCompletions(player, ""));
+    }
+
+    @Test
+    void filtersTopLevelRoutesByPermissionAndPrefix() {
+        player.addAttachment(plugin, "enthusia.loreitems.admin.create", true);
+        player.addAttachment(
+                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
+
+        assertEquals(
+                List.of("create", "browse", "anomalies", "audit", "recovery"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, ""));
+        assertEquals(
+                List.of("anomalies", "audit"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, "a"));
+        assertEquals(
+                List.of("browse"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, "BR"));
+    }
+
+    @Test
+    void editOnlyAdministratorsCanBrowseWithoutEvidenceRoutes() {
+        player.addAttachment(plugin, PaperTemplateEditorManager.EDIT_PERMISSION, true);
+
+        assertEquals(
+                List.of("browse"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, ""));
+    }
+
+    @Test
+    void threeArgumentExecutorDoesNotAdvertiseUnavailableAdministrationRoutes() {
+        player.addAttachment(
+                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
+        LoreItemsCommandExecutor executor = new LoreItemsCommandExecutor(
+                new CreateDefinitionCommandExecutor(
+                        plugin,
+                        request -> CompletableFuture.failedFuture(
+                                new AssertionError("create must not execute")),
+                        new PaperHeldItemDefinitionSnapshotter()),
+                new AdoptHeldItemCommandExecutor(
+                        plugin,
+                        LoreItemsCommandCompletionTest::unusedAdoptionUseCase,
+                        new PaperHeldItemAdoptionOperator()),
+                new GiveLoreItemCommandExecutor(
+                        plugin,
+                        (definitionKey, playerId, operationId) ->
+                                CompletableFuture.failedFuture(
+                                        new AssertionError("give must not execute")),
+                        ignored -> {}));
+
+        assertEquals(
+                List.of(),
+                executor.onTabComplete(
+                        player, command(), "loreitems", new String[] {""}));
+    }
+
+    private static AdoptHeldItemUseCase unusedAdoptionUseCase() {
+        return new AdoptHeldItemUseCase() {
+            @Override
+            public CompletionStage<PrepareHeldItemAdoptionResult> prepare(
+                    PrepareHeldItemAdoptionRequest request) {
+                return CompletableFuture.failedFuture(
+                        new AssertionError("adoption must not execute"));
+            }
+
+            @Override
+            public CompletionStage<Boolean> complete(
+                    PreparedHeldItemAdoption adoption, String afterFingerprint) {
+                return CompletableFuture.failedFuture(
+                        new AssertionError("adoption must not execute"));
+            }
+
+            @Override
+            public CompletionStage<Boolean> requireReview(
+                    PreparedHeldItemAdoption adoption, String reason) {
+                return CompletableFuture.failedFuture(
+                        new AssertionError("adoption must not execute"));
+            }
+        };
+    }
+
+    private static Command command() {
+        return new Command("loreitems") {
+            @Override
+            public boolean execute(
+                    CommandSender sender, String commandLabel, String[] arguments) {
+                throw new AssertionError("command must not execute");
+            }
+        };
+    }
+}
+''')
+
+          Path('adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperTemplateRevisionPlannerWorkerTest.java').write_text(r'''package net.enthusia.loreitems.paper;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
+import net.enthusia.loreitems.application.Page;
+import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.TemplateRevisionRolloutBatchResult;
+import net.enthusia.loreitems.application.TemplateRevisionRolloutCandidate;
+import net.enthusia.loreitems.application.TemplateRevisionRolloutRequest;
+import net.enthusia.loreitems.application.TemplateRevisionRolloutUseCase;
+import net.enthusia.loreitems.application.TemplateRevisionStartResult;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.TemplateRevision;
+import org.bukkit.plugin.Plugin;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.MockBukkit;
+import org.mockbukkit.mockbukkit.ServerMock;
+
+class PaperTemplateRevisionPlannerWorkerTest {
+    private ServerMock server;
+    private Plugin plugin;
+
+    @BeforeEach
+    void setUp() {
+        server = MockBukkit.mock();
+        plugin = MockBukkit.createMockPlugin();
+    }
+
+    @AfterEach
+    void tearDown() {
+        MockBukkit.unmock();
+    }
+
+    @Test
+    void schedulesOnlyOneBoundedBatchPerPassAndContinuesWhenMoreRemain() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        AtomicInteger executionWakes = new AtomicInteger();
+        try (PaperTemplateRevisionPlannerWorker worker =
+                     new PaperTemplateRevisionPlannerWorker(
+                             plugin, useCase, 7, executionWakes::incrementAndGet)) {
+            worker.start();
+            for (int tick = 0; tick < 8; tick++) {
+                server.getScheduler().performOneTick();
+            }
+
+            assertEquals(2, useCase.listCalls);
+            assertEquals(2, useCase.scheduleCalls);
+            assertEquals(7, useCase.lastBatchLimit);
+            assertEquals(2, executionWakes.get());
+        }
+    }
+
+    @Test
+    void inFlightDiscoveryPreventsOverlappingDatabaseQueries() {
+        DeferredUseCase useCase = new DeferredUseCase();
+        try (PaperTemplateRevisionPlannerWorker worker =
+                     new PaperTemplateRevisionPlannerWorker(plugin, useCase, 5)) {
+            worker.requestRun();
+            worker.requestRun();
+            worker.wake();
+            server.getScheduler().performOneTick();
+            assertEquals(1, useCase.listCalls);
+
+            useCase.discovery.complete(emptyPage());
+            worker.requestRun();
+            assertEquals(1, useCase.listCalls);
+            server.getScheduler().performOneTick();
+            worker.requestRun();
+            assertEquals(2, useCase.listCalls);
+        }
+    }
+
+    @Test
+    void completionCallbacksResumeOnlyOnTheBukkitScheduler() throws InterruptedException {
+        DeferredCandidateUseCase useCase = new DeferredCandidateUseCase();
+        AtomicInteger executionWakes = new AtomicInteger();
+        try (PaperTemplateRevisionPlannerWorker worker =
+                     new PaperTemplateRevisionPlannerWorker(
+                             plugin, useCase, 5, executionWakes::incrementAndGet)) {
+            worker.requestRun();
+            Thread discoveryThread = new Thread(
+                    () -> useCase.discovery.complete(useCase.candidatePage()));
+            discoveryThread.start();
+            discoveryThread.join();
+            assertEquals(0, useCase.scheduleCalls);
+
+            server.getScheduler().performOneTick();
+            assertEquals(1, useCase.scheduleCalls);
+
+            Thread schedulingThread = new Thread(
+                    () -> useCase.scheduling.complete(
+                            TemplateRevisionRolloutBatchResult.complete(1)));
+            schedulingThread.start();
+            schedulingThread.join();
+            assertEquals(0, executionWakes.get());
+
+            server.getScheduler().performOneTick();
+            assertEquals(0, executionWakes.get());
+            server.getScheduler().performOneTick();
+            assertEquals(1, executionWakes.get());
+        }
+    }
+
+    @Test
+    void validatesTheConfiguredBound() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PaperTemplateRevisionPlannerWorker(plugin, new RecordingUseCase(), 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PaperTemplateRevisionPlannerWorker(
+                        plugin,
+                        new RecordingUseCase(),
+                        PageRequest.MAX_LIMIT + 1));
+    }
+
+    private static Page<TemplateRevisionRolloutCandidate> emptyPage() {
+        return new Page<>(List.of(), 0, 1, false);
+    }
+
+    private static final class RecordingUseCase implements TemplateRevisionRolloutUseCase {
+        private final TemplateRevisionRolloutCandidate candidate =
+                new TemplateRevisionRolloutCandidate(
+                        new LoreDefinitionId(UUID.randomUUID()),
+                        new TemplateRevision(2));
+        private int listCalls;
+        private int scheduleCalls;
+        private int lastBatchLimit;
+
+        @Override
+        public CompletionStage<TemplateRevisionStartResult> start(
+                TemplateRevisionRolloutRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletionStage<TemplateRevisionRolloutBatchResult> scheduleNextBatch(
+                TemplateRevisionRolloutCandidate value, int limit) {
+            scheduleCalls++;
+            lastBatchLimit = limit;
+            return CompletableFuture.completedFuture(scheduleCalls == 1
+                    ? TemplateRevisionRolloutBatchResult.scheduled(1, true)
+                    : TemplateRevisionRolloutBatchResult.complete(1));
+        }
+
+        @Override
+        public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
+                PageRequest request) {
+            listCalls++;
+            return CompletableFuture.completedFuture(
+                    listCalls <= 2
+                            ? new Page<>(List.of(candidate), 0, request.limit(), false)
+                            : emptyPage());
+        }
+    }
+
+    private static final class DeferredUseCase implements TemplateRevisionRolloutUseCase {
+        private CompletableFuture<Page<TemplateRevisionRolloutCandidate>> discovery =
+                new CompletableFuture<>();
+        private int listCalls;
+
+        @Override
+        public CompletionStage<TemplateRevisionStartResult> start(
+                TemplateRevisionRolloutRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletionStage<TemplateRevisionRolloutBatchResult> scheduleNextBatch(
+                TemplateRevisionRolloutCandidate candidate, int limit) {
+            throw new AssertionError("No candidate should be scheduled");
+        }
+
+        @Override
+        public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
+                PageRequest request) {
+            listCalls++;
+            if (discovery.isDone()) {
+                discovery = CompletableFuture.completedFuture(emptyPage());
+            }
+            return discovery;
+        }
+    }
+
+    private static final class DeferredCandidateUseCase
+            implements TemplateRevisionRolloutUseCase {
+        private final TemplateRevisionRolloutCandidate candidate =
+                new TemplateRevisionRolloutCandidate(
+                        new LoreDefinitionId(UUID.randomUUID()),
+                        new TemplateRevision(4));
+        private final CompletableFuture<Page<TemplateRevisionRolloutCandidate>> discovery =
+                new CompletableFuture<>();
+        private final CompletableFuture<TemplateRevisionRolloutBatchResult> scheduling =
+                new CompletableFuture<>();
+        private int scheduleCalls;
+
+        @Override
+        public CompletionStage<TemplateRevisionStartResult> start(
+                TemplateRevisionRolloutRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletionStage<TemplateRevisionRolloutBatchResult> scheduleNextBatch(
+                TemplateRevisionRolloutCandidate value, int limit) {
+            scheduleCalls++;
+            return scheduling;
+        }
+
+        @Override
+        public CompletionStage<Page<TemplateRevisionRolloutCandidate>> listIncomplete(
+                PageRequest request) {
+            return discovery;
+        }
+
+        private Page<TemplateRevisionRolloutCandidate> candidatePage() {
+            return new Page<>(List.of(candidate), 0, 1, false);
+        }
+    }
+}
+''')
           PY
+      - name: Run focused regression tests
+        run: >-
+          ./gradlew --no-daemon
+          :application:test --tests net.enthusia.loreitems.application.PersistingTemplateRevisionRolloutUseCaseTest
+          :adapters-paper:test --tests net.enthusia.loreitems.paper.LoreItemsCommandCompletionTest
+          --tests net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorkerTest
+      - name: Run full verification
+        run: ./gradlew --no-daemon clean check
+      - name: Commit verified remediation
+        shell: bash
+        run: |
           rm -f .github/workflows/wp01-fix-final-complexity.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'refactor: reduce administration startup complexity'
+          git commit -m 'fix: resolve WP-01 review findings'
           git push origin HEAD:agent/wp-01-editor-template-management
