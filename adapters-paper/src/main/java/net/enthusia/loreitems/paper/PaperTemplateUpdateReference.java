@@ -24,7 +24,7 @@ interface PaperTemplateUpdateReference {
     }
 
     record DestructiveLocation(String locationType, String locationKey, String containerPath) {
-        DestructiveLocation {
+        public DestructiveLocation {
             Objects.requireNonNull(locationType, "locationType");
             Objects.requireNonNull(locationKey, "locationKey");
             if (locationType.isBlank() || locationKey.isBlank()) {
