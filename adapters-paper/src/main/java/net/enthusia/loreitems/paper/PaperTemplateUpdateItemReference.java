@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.StringJoiner;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.Inventory;
@@ -47,6 +48,14 @@ record PaperTemplateUpdateItemReference(
     }
 
     @Override
+    public DestructiveLocation destructiveLocation() {
+        return new DestructiveLocation(
+                inventoryLocationType(inventoryReference),
+                inventoryLocationKey(inventoryReference),
+                containerPath());
+    }
+
+    @Override
     public Optional<Resolved> resolve(Plugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
         Optional<Inventory> resolvedInventory = inventoryReference.resolve(plugin);
@@ -68,6 +77,47 @@ record PaperTemplateUpdateItemReference(
                 nestedPath,
                 Objects.requireNonNull(root, "root").clone(),
                 target.clone()));
+    }
+
+    private String containerPath() {
+        StringJoiner path = new StringJoiner("/");
+        path.add("slot=" + rootSlot);
+        for (NestedStep step : nestedPath) {
+            path.add(step.kind().name() + '=' + Integer.toString(step.index()));
+        }
+        return path.toString();
+    }
+
+    private static String inventoryLocationType(PaperInventoryReference reference) {
+        if (reference instanceof PaperInventoryReference.PlayerMain) {
+            return "PLAYER_INVENTORY";
+        }
+        if (reference instanceof PaperInventoryReference.PlayerEnder) {
+            return "ENDER_CHEST";
+        }
+        if (reference instanceof PaperInventoryReference.Block) {
+            return "LOADED_BLOCK_INVENTORY";
+        }
+        if (reference instanceof PaperInventoryReference.EntityInventory) {
+            return "LOADED_ENTITY_INVENTORY";
+        }
+        throw new IllegalArgumentException("Unsupported inventory reference");
+    }
+
+    private static String inventoryLocationKey(PaperInventoryReference reference) {
+        if (reference instanceof PaperInventoryReference.PlayerMain player) {
+            return player.playerId().toString();
+        }
+        if (reference instanceof PaperInventoryReference.PlayerEnder player) {
+            return player.playerId().toString();
+        }
+        if (reference instanceof PaperInventoryReference.Block block) {
+            return block.worldId() + ":" + block.x() + ':' + block.y() + ':' + block.z();
+        }
+        if (reference instanceof PaperInventoryReference.EntityInventory entity) {
+            return entity.entityId().toString();
+        }
+        throw new IllegalArgumentException("Unsupported inventory reference");
     }
 
     private static ItemStack readAt(
@@ -123,10 +173,23 @@ record PaperTemplateUpdateItemReference(
             case SHULKER -> replaceShulkerChild(parent, path, depth, step.index(), replacement);
             case BUNDLE -> replaceBundleChild(parent, path, depth, step.index(), replacement);
         };
-        if (!applied) {
+        return applied ? parent : null;
+    }
+
+    private static ItemStack removeAt(
+            ItemStack item,
+            List<NestedStep> path,
+            int depth) {
+        if (item == null || item.getType().isAir() || depth >= path.size()) {
             return null;
         }
-        return parent;
+        ItemStack parent = item.clone();
+        NestedStep step = path.get(depth);
+        boolean removed = switch (step.kind()) {
+            case SHULKER -> removeShulkerChild(parent, path, depth, step.index());
+            case BUNDLE -> removeBundleChild(parent, path, depth, step.index());
+        };
+        return removed ? parent : null;
     }
 
     private static boolean replaceShulkerChild(
@@ -173,6 +236,67 @@ record PaperTemplateUpdateItemReference(
             return false;
         }
         items.set(index, updated);
+        bundle.setItems(items);
+        return parent.setItemMeta(bundle);
+    }
+
+    private static boolean removeShulkerChild(
+            ItemStack parent,
+            List<NestedStep> path,
+            int depth,
+            int index) {
+        ItemMeta meta = parent.getItemMeta();
+        if (!(meta instanceof BlockStateMeta blockMeta)) {
+            return false;
+        }
+        BlockState state = blockMeta.getBlockState();
+        if (!(state instanceof ShulkerBox shulker)
+                || index >= shulker.getInventory().getSize()) {
+            return false;
+        }
+        ItemStack child = shulker.getInventory().getItem(index);
+        if (child == null || child.getType().isAir()) {
+            return false;
+        }
+        if (depth + 1 == path.size()) {
+            shulker.getInventory().setItem(index, null);
+        } else {
+            ItemStack updated = removeAt(child, path, depth + 1);
+            if (updated == null) {
+                return false;
+            }
+            shulker.getInventory().setItem(index, updated);
+        }
+        blockMeta.setBlockState(shulker);
+        return parent.setItemMeta(blockMeta);
+    }
+
+    private static boolean removeBundleChild(
+            ItemStack parent,
+            List<NestedStep> path,
+            int depth,
+            int index) {
+        ItemMeta meta = parent.getItemMeta();
+        if (!(meta instanceof BundleMeta bundle)) {
+            return false;
+        }
+        List<ItemStack> items = new ArrayList<>(bundle.getItems());
+        if (index >= items.size()) {
+            return false;
+        }
+        ItemStack child = items.get(index);
+        if (child == null || child.getType().isAir()) {
+            return false;
+        }
+        if (depth + 1 == path.size()) {
+            items.remove(index);
+        } else {
+            ItemStack updated = removeAt(child, path, depth + 1);
+            if (updated == null) {
+                return false;
+            }
+            items.set(index, updated);
+        }
         bundle.setItems(items);
         return parent.setItemMeta(bundle);
     }
@@ -227,6 +351,27 @@ record PaperTemplateUpdateItemReference(
         @Override
         public boolean replace(ItemStack replacement) {
             ItemStack updatedRoot = replaceAt(originalRoot, nestedPath, 0, replacement);
+            if (updatedRoot == null) {
+                return false;
+            }
+            inventory.setItem(rootSlot, updatedRoot);
+            return true;
+        }
+
+        @Override
+        public boolean remove() {
+            ItemStack currentRoot = inventory.getItem(rootSlot);
+            ItemStack currentItem = readAt(currentRoot, nestedPath, 0);
+            if (currentItem == null
+                    || !PaperItemFingerprint.of(currentItem)
+                            .equals(PaperItemFingerprint.of(capturedOriginalItem))) {
+                return false;
+            }
+            if (nestedPath.isEmpty()) {
+                inventory.setItem(rootSlot, null);
+                return true;
+            }
+            ItemStack updatedRoot = removeAt(currentRoot, nestedPath, 0);
             if (updatedRoot == null) {
                 return false;
             }

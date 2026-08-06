@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.bukkit.Material;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -56,6 +57,14 @@ record PaperEntityTemplateUpdateReference(
     }
 
     @Override
+    public DestructiveLocation destructiveLocation() {
+        return new DestructiveLocation(
+                kind.name(),
+                entityId.toString(),
+                equipmentSlot == null ? null : "slot=" + equipmentSlot.name());
+    }
+
+    @Override
     public Optional<Resolved> resolve(Plugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
         Entity entity = plugin.getServer().getEntity(entityId);
@@ -84,6 +93,14 @@ record PaperEntityTemplateUpdateReference(
         } else {
             kind.writeRoot(entity, replacement);
         }
+    }
+
+    private void remove(Entity entity) {
+        if (kind == Kind.DROPPED_ITEM) {
+            entity.remove();
+            return;
+        }
+        write(entity, new ItemStack(Material.AIR));
     }
 
     private static EntityEquipment equipment(Entity entity) {
@@ -183,11 +200,25 @@ record PaperEntityTemplateUpdateReference(
         }
 
         @Override
+        public boolean remove() {
+            if (!usable(entity) || !kind.matches(entity)) {
+                return false;
+            }
+            ItemStack current = reference().read(entity);
+            if (!PaperItemFingerprint.of(current).equals(PaperItemFingerprint.of(originalItem))) {
+                return false;
+            }
+            reference().remove(entity);
+            return true;
+        }
+
+        @Override
         public ItemStack readStored() {
             if (!usable(entity) || !kind.matches(entity)) {
                 return null;
             }
-            return reference().read(entity).clone();
+            ItemStack stored = reference().read(entity);
+            return stored.getType().isAir() ? null : stored.clone();
         }
 
         @Override
