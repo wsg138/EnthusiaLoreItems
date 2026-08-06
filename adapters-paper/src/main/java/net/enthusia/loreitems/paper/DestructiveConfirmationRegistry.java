@@ -3,11 +3,11 @@ package net.enthusia.loreitems.paper;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
 import net.enthusia.loreitems.domain.DestructiveOperationType;
 
@@ -18,13 +18,13 @@ final class DestructiveConfirmationRegistry {
     private final Clock clock;
     private final long ttlMillis;
     private final int capacity;
-    private final Map<String, Session> sessions = new HashMap<>();
+    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
     DestructiveConfirmationRegistry(Clock clock, Duration ttl, int capacity) {
         this.clock = Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(ttl, "ttl");
         ttlMillis = ttl.toMillis();
-        if (ttlMillis < 1L) {
+        if (ttlMillis < MIN_CAPACITY) {
             throw new IllegalArgumentException("Confirmation TTL must be positive");
         }
         if (capacity < MIN_CAPACITY) {
@@ -33,53 +33,60 @@ final class DestructiveConfirmationRegistry {
         this.capacity = capacity;
     }
 
-    synchronized Session remember(
-            String actorId, DestructiveAdministrationUseCase.Preview preview) {
-        String normalizedActor = requireActor(actorId);
-        Objects.requireNonNull(preview, "preview");
-        long now = clock.millis();
-        removeExpired(now);
-        if (!sessions.containsKey(normalizedActor) && sessions.size() >= capacity) {
-            sessions.values().stream()
-                    .min(Comparator.comparingLong(Session::expiresAtEpochMillis))
-                    .ifPresent(oldest -> sessions.remove(oldest.actorId()));
+    Session remember(String actorId, DestructiveAdministrationUseCase.Preview preview) {
+        synchronized (sessions) {
+            String normalizedActor = requireActor(actorId);
+            Objects.requireNonNull(preview, "preview");
+            long now = clock.millis();
+            removeExpired(now);
+            if (!sessions.containsKey(normalizedActor) && sessions.size() >= capacity) {
+                sessions.values().stream()
+                        .min(Comparator.comparingLong(Session::expiresAtEpochMillis))
+                        .ifPresent(oldest -> sessions.remove(oldest.actorId()));
+            }
+            Session session = new Session(
+                    normalizedActor,
+                    preview.operationType(),
+                    preview,
+                    UUID.randomUUID().toString(),
+                    Math.addExact(now, ttlMillis));
+            sessions.put(normalizedActor, session);
+            return session;
         }
-        Session session = new Session(
-                normalizedActor,
-                preview.operationType(),
-                preview,
-                UUID.randomUUID().toString(),
-                Math.addExact(now, ttlMillis));
-        sessions.put(normalizedActor, session);
-        return session;
     }
 
-    synchronized Optional<Session> consume(
+    Optional<Session> consume(
             String actorId, DestructiveOperationType operationType, String confirmationToken) {
-        String normalizedActor = requireActor(actorId);
-        Objects.requireNonNull(operationType, "operationType");
-        String normalizedToken = Objects.requireNonNull(
-                        confirmationToken, "confirmationToken")
-                .strip();
-        long now = clock.millis();
-        removeExpired(now);
-        Session session = sessions.get(normalizedActor);
-        if (session == null
-                || session.operationType() != operationType
-                || !session.preview().confirmationToken().equals(normalizedToken)) {
-            return Optional.empty();
+        synchronized (sessions) {
+            String normalizedActor = requireActor(actorId);
+            Objects.requireNonNull(operationType, "operationType");
+            String normalizedToken = Objects.requireNonNull(
+                            confirmationToken, "confirmationToken")
+                    .strip();
+            long now = clock.millis();
+            removeExpired(now);
+            Session session = sessions.get(normalizedActor);
+            if (session == null
+                    || session.operationType() != operationType
+                    || !session.preview().confirmationToken().equals(normalizedToken)) {
+                return Optional.empty();
+            }
+            sessions.remove(normalizedActor);
+            return Optional.of(session);
         }
-        sessions.remove(normalizedActor);
-        return Optional.of(session);
     }
 
-    synchronized void clear() {
-        sessions.clear();
+    void clear() {
+        synchronized (sessions) {
+            sessions.clear();
+        }
     }
 
-    synchronized int size() {
-        removeExpired(clock.millis());
-        return sessions.size();
+    int size() {
+        synchronized (sessions) {
+            removeExpired(clock.millis());
+            return sessions.size();
+        }
     }
 
     private void removeExpired(long now) {
