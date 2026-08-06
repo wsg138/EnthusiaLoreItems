@@ -10,9 +10,9 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 - Branch: `agent/wp-01-editor-template-management`
 - Pull request: #11
 - Status: `VERIFYING`
-- Live `main` reconciled before final fixes: `05fade8645ac994bd9ab498c64449ea4cf084384`
-- GitHub branch head before the final review/fix commit: `17aa27e063756040b1546f9db260e660f96417c4`
-- Current exact head: the live PR #11 head containing this handoff; refresh it from GitHub before relying on the predecessor SHA
+- Live `main` reconciled before final fixes: `2b6e20d0bf1d66f9efa092455d26f269f0107405`
+- Final reviewed implementation commit: `88e2ad7ea2e1df2481bf3c17702131c2fd1df725`
+- Current exact head: the live PR #11 head containing this handoff; use GitHub checks for that exact SHA
 
 ## Completed WP-01 scope on the branch
 
@@ -27,9 +27,9 @@ A separate author-side full-package harsh-review pass is committed at `ai-agents
 - Focused regression tests for every recorded harsh-review finding: passed
 - `git diff --check`: passed
 - Local `clean check`: not claimed; the command window expired during SpotBugs after compilation/tests had progressed without a reported failure
-- Prior exact-head CI at `17aa27e063756040b1546f9db260e660f96417c4`: Gradle and repository-tool tests passed, but six new-code complexity gates failed; those findings are fixed in the commit containing this handoff
-- Final exact-head CI: pending after push
-- Final exact-head Codacy: pending after push
+- Prior exact-head CI at `17aa27e063756040b1546f9db260e660f96417c4`: Gradle and repository-tool tests passed, but six new-code complexity gates failed; those findings are fixed in `88e2ad7ea2e1df2481bf3c17702131c2fd1df725`
+- Final exact-head CI: pending on the live head containing this handoff
+- Final exact-head Codacy: pending on the live head containing this handoff
 - External reviewer: unavailable/not yet responsive; no external-review claim is made
 - Requested changes and unresolved review threads: refresh from live PR #11 before merge
 
@@ -41,4 +41,4 @@ WP-02 remains blocked. Do not begin it in this assignment.
 
 ## Exact next action
 
-Push the final WP-01 review fixes and coordination files to PR #11, update the PR title/body, run and inspect exact-head CI/Codacy, request or reconcile review, fix any failure on the same branch, normally merge PR #11, verify live `main`, then commit final `COMPLETE`/WP-02-unlocked coordination state and stop without beginning WP-02.
+Inspect exact-head CI and Codacy for the live PR #11 head, update the PR title/body, request or reconcile review, fix any failure on the same branch, normally merge PR #11, verify live `main`, then commit final `COMPLETE`/WP-02-unlocked coordination state and stop without beginning WP-02.
