@@ -2,14 +2,13 @@ package net.enthusia.loreitems.paper;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
@@ -18,7 +17,6 @@ import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
-import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DestructiveOperationType;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
@@ -26,11 +24,10 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 /** Privileged command surface for durable destructive administration. */
-@SuppressWarnings({"PMD.AvoidLiteralsInIfCondition", "PMD.CyclomaticComplexity"})
+@SuppressWarnings({"PMD.AvoidLiteralsInIfCondition"})
 public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable, TabCompleter {
     public static final String REMOVE_PERMISSION = "enthusia.loreitems.admin.remove";
     public static final String PURGE_PERMISSION = "enthusia.loreitems.admin.purge";
@@ -62,6 +59,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
     private final DestructiveConfirmationRegistry confirmations;
     private final Semaphore capacity = new Semaphore(MAX_IN_FLIGHT);
     private final java.util.Set<String> activeActors = ConcurrentHashMap.newKeySet();
+    private final Map<String, CommandHandler> handlers;
     private volatile boolean closed;
 
     public LoreItemsDestructiveCommandExecutor(
@@ -90,14 +88,46 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
                 wakeDestructiveWork, "wakeDestructiveWork");
         confirmations = new DestructiveConfirmationRegistry(
                 Objects.requireNonNull(clock, "clock"), CONFIRMATION_TTL, MAX_CONFIRMATIONS);
+        handlers = createHandlers();
+    }
+
+    private Map<String, CommandHandler> createHandlers() {
+        return Map.ofEntries(
+                Map.entry(REMOVE, this::previewExactRemoval),
+                Map.entry(
+                        PURGE,
+                        (sender, arguments) -> previewDefinition(
+                                sender, arguments, DestructiveOperationType.PURGE_DEFINITION)),
+                Map.entry(
+                        DELETE,
+                        (sender, arguments) -> previewDefinition(
+                                sender, arguments, DestructiveOperationType.DELETE_DEFINITION)),
+                Map.entry(
+                        CONFIRM_REMOVE,
+                        (sender, arguments) -> confirm(
+                                sender,
+                                arguments,
+                                DestructiveOperationType.EXACT_INSTANCE_REMOVAL)),
+                Map.entry(
+                        CONFIRM_PURGE,
+                        (sender, arguments) -> confirm(
+                                sender, arguments, DestructiveOperationType.PURGE_DEFINITION)),
+                Map.entry(
+                        CONFIRM_DELETE,
+                        (sender, arguments) -> confirm(
+                                sender, arguments, DestructiveOperationType.DELETE_DEFINITION)),
+                Map.entry(OPERATIONS, this::listOperations),
+                Map.entry(TARGETS, this::listTargets),
+                Map.entry(METRICS, this::metrics),
+                Map.entry(PAUSE, (sender, arguments) -> control(sender, arguments, true)),
+                Map.entry(RESUME, (sender, arguments) -> control(sender, arguments, false)),
+                Map.entry(REVIEW, this::review));
     }
 
     public boolean handles(String subcommand) {
-        return switch (Objects.requireNonNull(subcommand, "subcommand").toLowerCase(Locale.ROOT)) {
-            case REMOVE, PURGE, DELETE, CONFIRM_REMOVE, CONFIRM_PURGE, CONFIRM_DELETE,
-                    OPERATIONS, TARGETS, METRICS, PAUSE, RESUME, REVIEW -> true;
-            default -> false;
-        };
+        String normalized = Objects.requireNonNull(subcommand, "subcommand")
+                .toLowerCase(Locale.ROOT);
+        return handlers.containsKey(normalized);
     }
 
     public boolean onCommand(
@@ -110,23 +140,12 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             sender.sendMessage("Destructive administration is unavailable.");
             return true;
         }
-        String subcommand = arguments[0].toLowerCase(Locale.ROOT);
+        CommandHandler handler = handlers.get(arguments[0].toLowerCase(Locale.ROOT));
+        if (handler == null) {
+            return false;
+        }
         try {
-            return switch (subcommand) {
-                case REMOVE -> previewExactRemoval(sender, arguments);
-                case PURGE -> previewDefinition(sender, arguments, DestructiveOperationType.PURGE_DEFINITION);
-                case DELETE -> previewDefinition(sender, arguments, DestructiveOperationType.DELETE_DEFINITION);
-                case CONFIRM_REMOVE -> confirm(sender, arguments, DestructiveOperationType.EXACT_INSTANCE_REMOVAL);
-                case CONFIRM_PURGE -> confirm(sender, arguments, DestructiveOperationType.PURGE_DEFINITION);
-                case CONFIRM_DELETE -> confirm(sender, arguments, DestructiveOperationType.DELETE_DEFINITION);
-                case OPERATIONS -> listOperations(sender, arguments);
-                case TARGETS -> listTargets(sender, arguments);
-                case METRICS -> metrics(sender, arguments);
-                case PAUSE -> control(sender, arguments, true);
-                case RESUME -> control(sender, arguments, false);
-                case REVIEW -> review(sender, arguments);
-                default -> false;
-            };
+            return handler.execute(sender, arguments);
         } catch (IllegalArgumentException exception) {
             sender.sendMessage("Invalid destructive command: " + exception.getMessage());
             return true;
@@ -134,13 +153,16 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
     }
 
     private boolean previewExactRemoval(CommandSender sender, String[] arguments) {
-        if (!requirePermission(sender, REMOVE_PERMISSION) || arguments.length != 3) {
+        if (!DestructiveCommandSupport.requirePermission(sender, REMOVE_PERMISSION)
+                || arguments.length != 3) {
             sender.sendMessage(
                     "Usage: /loreitems remove <definition-uuid> <instance-uuid>");
             return true;
         }
-        LoreDefinitionId definitionId = new LoreDefinitionId(parseUuid(arguments[1], "definition"));
-        LoreInstanceId instanceId = new LoreInstanceId(parseUuid(arguments[2], "instance"));
+        LoreDefinitionId definitionId = new LoreDefinitionId(
+                DestructiveCommandSupport.parseUuid(arguments[1], "definition"));
+        LoreInstanceId instanceId = new LoreInstanceId(
+                DestructiveCommandSupport.parseUuid(arguments[2], "instance"));
         return submit(
                 sender,
                 () -> useCase().preview(new DestructiveAdministrationUseCase.PreviewRequest(
@@ -154,15 +176,15 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             CommandSender sender,
             String[] arguments,
             DestructiveOperationType operationType) {
-        String permission = operationType == DestructiveOperationType.PURGE_DEFINITION
-                ? PURGE_PERMISSION
-                : DELETE_PERMISSION;
+        String permission = DestructiveCommandSupport.permissionFor(operationType);
         String route = operationType == DestructiveOperationType.PURGE_DEFINITION ? PURGE : DELETE;
-        if (!requirePermission(sender, permission) || arguments.length != 2) {
+        if (!DestructiveCommandSupport.requirePermission(sender, permission)
+                || arguments.length != 2) {
             sender.sendMessage("Usage: /loreitems " + route + " <definition-uuid>");
             return true;
         }
-        LoreDefinitionId definitionId = new LoreDefinitionId(parseUuid(arguments[1], "definition"));
+        LoreDefinitionId definitionId = new LoreDefinitionId(
+                DestructiveCommandSupport.parseUuid(arguments[1], "definition"));
         return submit(
                 sender,
                 () -> useCase().preview(new DestructiveAdministrationUseCase.PreviewRequest(
@@ -177,8 +199,8 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             return;
         }
         DestructiveAdministrationUseCase.Preview preview = result.orElseThrow();
-        DestructiveConfirmationRegistry.Session session =
-                confirmations.remember(actorId(sender), preview);
+        DestructiveConfirmationRegistry.Session session = confirmations.remember(
+                DestructiveCommandSupport.actorId(sender), preview);
         sender.sendMessage("Destructive preview for " + preview.displayName()
                 + " [" + preview.lookupKey().value() + "] at revision "
                 + preview.expectedRevision().value() + ':');
@@ -187,7 +209,7 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
                 + ", queued=" + preview.queuedCount()
                 + ", anomalies=" + preview.anomalyCount());
         sender.sendMessage("This snapshot is fixed for five minutes. Confirm with: /loreitems "
-                + confirmationRoute(preview.operationType()) + ' '
+                + DestructiveCommandSupport.confirmationRoute(preview.operationType()) + ' '
                 + preview.confirmationToken());
         sender.sendMessage("Confirmation session: " + session.idempotencyKey());
     }
@@ -196,13 +218,16 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
             CommandSender sender,
             String[] arguments,
             DestructiveOperationType operationType) {
-        if (!requirePermission(sender, permissionFor(operationType)) || arguments.length != 2) {
-            sender.sendMessage("Usage: /loreitems " + confirmationRoute(operationType)
+        if (!DestructiveCommandSupport.requirePermission(
+                        sender, DestructiveCommandSupport.permissionFor(operationType))
+                || arguments.length != 2) {
+            sender.sendMessage("Usage: /loreitems "
+                    + DestructiveCommandSupport.confirmationRoute(operationType)
                     + " <confirmation-token>");
             return true;
         }
         Optional<DestructiveConfirmationRegistry.Session> session = confirmations.consume(
-                actorId(sender), operationType, arguments[1]);
+                DestructiveCommandSupport.actorId(sender), operationType, arguments[1]);
         if (session.isEmpty()) {
             sender.sendMessage(
                     "No matching unexpired confirmation exists. Run the destructive preview again.");
@@ -222,130 +247,126 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         if (result.operation() == null) {
             return;
         }
-        sender.sendMessage(formatOperation(result.operation()));
+        sender.sendMessage(DestructiveCommandSupport.formatOperation(result.operation()));
         wakeDestructiveWork.run();
     }
 
     private boolean listOperations(CommandSender sender, String[] arguments) {
-        if (!requirePermission(sender, INSPECT_PERMISSION) || arguments.length > 2) {
+        if (!DestructiveCommandSupport.requirePermission(sender, INSPECT_PERMISSION)
+                || arguments.length > 2) {
             sender.sendMessage("Usage: /loreitems operations [page]");
             return true;
         }
-        PageRequest page = pageRequest(arguments, 1);
+        PageRequest page = DestructiveCommandSupport.pageRequest(
+                arguments, 1, pageSizeSupplier.getAsInt());
         return submit(
                 sender,
                 () -> useCase().listOperations(page),
-                result -> showOperations(sender, result));
-    }
-
-    private void showOperations(
-            CommandSender sender, Page<DestructiveAdministrationUseCase.OperationView> page) {
-        sender.sendMessage("Destructive operations, page " + pageNumber(page) + ':');
-        if (page.items().isEmpty()) {
-            sender.sendMessage("No destructive operations are recorded on this page.");
-        }
-        page.items().forEach(operation -> sender.sendMessage(formatOperation(operation)));
-        showPageFooter(sender, page);
+                result -> DestructiveCommandSupport.showOperations(sender, result));
     }
 
     private boolean listTargets(CommandSender sender, String[] arguments) {
-        if (!requirePermission(sender, INSPECT_PERMISSION)
+        if (!DestructiveCommandSupport.requirePermission(sender, INSPECT_PERMISSION)
                 || arguments.length < 2
                 || arguments.length > 3) {
             sender.sendMessage("Usage: /loreitems targets <operation-uuid> [page]");
             return true;
         }
-        UUID operationId = parseUuid(arguments[1], "operation");
-        PageRequest page = pageRequest(arguments, 2);
+        UUID operationId = DestructiveCommandSupport.parseUuid(arguments[1], "operation");
+        PageRequest page = DestructiveCommandSupport.pageRequest(
+                arguments, 2, pageSizeSupplier.getAsInt());
         return submit(
                 sender,
                 () -> useCase().listTargets(operationId, page),
-                result -> showTargets(sender, operationId, result));
-    }
-
-    private void showTargets(
-            CommandSender sender,
-            UUID operationId,
-            Page<DestructiveAdministrationUseCase.TargetView> page) {
-        sender.sendMessage("Targets for " + operationId + ", page " + pageNumber(page) + ':');
-        if (page.items().isEmpty()) {
-            sender.sendMessage("No destructive targets are recorded on this page.");
-        }
-        page.items().forEach(target -> sender.sendMessage(formatTarget(target)));
-        showPageFooter(sender, page);
+                result -> DestructiveCommandSupport.showTargets(sender, operationId, result));
     }
 
     private boolean metrics(CommandSender sender, String[] arguments) {
-        if (!requirePermission(sender, INSPECT_PERMISSION) || arguments.length != 1) {
+        if (!DestructiveCommandSupport.requirePermission(sender, INSPECT_PERMISSION)
+                || arguments.length != 1) {
             sender.sendMessage("Usage: /loreitems destructive-metrics");
             return true;
         }
-        return submit(sender, () -> useCase().metrics(), result -> {
-            sender.sendMessage("Destructive queue metrics: active=" + result.activeOperations()
-                    + ", paused=" + result.pausedOperations()
-                    + ", queued-targets=" + result.queuedTargets()
-                    + ", leases=" + result.activeLeases()
-                    + ", review=" + result.reviewRequiredTargets()
-                    + ", oldest-queued-ms=" + result.oldestQueuedAgeMillis()
-                    + ", attempts=" + result.totalAttempts());
-        });
+        return submit(
+                sender,
+                () -> useCase().metrics(),
+                result -> DestructiveCommandSupport.showMetrics(sender, result));
     }
 
     private boolean control(CommandSender sender, String[] arguments, boolean pause) {
-        if (!requirePermission(sender, CONTROL_PERMISSION) || arguments.length != 2) {
+        if (!DestructiveCommandSupport.requirePermission(sender, CONTROL_PERMISSION)
+                || arguments.length != 2) {
             sender.sendMessage("Usage: /loreitems " + (pause ? PAUSE : RESUME)
                     + " <operation-uuid>");
             return true;
         }
         DestructiveAdministrationUseCase.ControlRequest request =
                 new DestructiveAdministrationUseCase.ControlRequest(
-                        parseUuid(arguments[1], "operation"), actorId(sender));
+                        DestructiveCommandSupport.parseUuid(arguments[1], "operation"),
+                        DestructiveCommandSupport.actorId(sender));
         return submit(
                 sender,
                 () -> pause ? useCase().pause(request) : useCase().resume(request),
-                result -> {
-                    sender.sendMessage(result.detail());
-                    if (result.operation() != null) {
-                        sender.sendMessage(formatOperation(result.operation()));
-                    }
-                    if (!pause && result.operation() != null) {
-                        wakeDestructiveWork.run();
-                    }
-                });
+                result -> showControlResult(sender, result, pause));
+    }
+
+    private void showControlResult(
+            CommandSender sender,
+            DestructiveAdministrationUseCase.ControlResult result,
+            boolean pause) {
+        sender.sendMessage(result.detail());
+        if (result.operation() == null) {
+            return;
+        }
+        sender.sendMessage(DestructiveCommandSupport.formatOperation(result.operation()));
+        if (!pause) {
+            wakeDestructiveWork.run();
+        }
     }
 
     private boolean review(CommandSender sender, String[] arguments) {
-        if (!requirePermission(sender, REVIEW_PERMISSION) || arguments.length < 5) {
+        if (!DestructiveCommandSupport.requirePermission(sender, REVIEW_PERMISSION)
+                || arguments.length < 5) {
             sender.sendMessage("Usage: /loreitems resolve-removal <operation-uuid> "
                     + "<instance-uuid> <requeue|removed|abort> <evidence>");
             return true;
         }
         DestructiveAdministrationUseCase.ReviewResolution resolution =
-                parseResolution(arguments[3]);
+                DestructiveCommandSupport.parseResolution(arguments[3]);
         DestructiveAdministrationUseCase.ReviewRequest request =
                 new DestructiveAdministrationUseCase.ReviewRequest(
-                        parseUuid(arguments[1], "operation"),
-                        new LoreInstanceId(parseUuid(arguments[2], "instance")),
+                        DestructiveCommandSupport.parseUuid(arguments[1], "operation"),
+                        new LoreInstanceId(
+                                DestructiveCommandSupport.parseUuid(arguments[2], "instance")),
                         resolution,
-                        actorId(sender),
+                        DestructiveCommandSupport.actorId(sender),
                         String.join(" ", Arrays.copyOfRange(arguments, 4, arguments.length)));
-        return submit(sender, () -> useCase().resolveReview(request), result -> {
-            sender.sendMessage(result.detail());
-            if (result.target() != null) {
-                sender.sendMessage(formatTarget(result.target()));
-                if (resolution == DestructiveAdministrationUseCase.ReviewResolution
-                        .REQUEUE_NO_SIDE_EFFECT) {
-                    wakeDestructiveWork.run();
-                }
-            }
-        });
+        return submit(
+                sender,
+                () -> useCase().resolveReview(request),
+                result -> showReviewResult(sender, result, resolution));
+    }
+
+    private void showReviewResult(
+            CommandSender sender,
+            DestructiveAdministrationUseCase.ReviewResult result,
+            DestructiveAdministrationUseCase.ReviewResolution resolution) {
+        sender.sendMessage(result.detail());
+        if (result.target() == null) {
+            return;
+        }
+        sender.sendMessage(DestructiveCommandSupport.formatTarget(result.target()));
+        if (resolution
+                == DestructiveAdministrationUseCase.ReviewResolution.REQUEUE_NO_SIDE_EFFECT) {
+            wakeDestructiveWork.run();
+        }
     }
 
     private <T> boolean submit(
             CommandSender sender,
             Supplier<CompletionStage<T>> task,
             Consumer<T> success) {
-        String actor = actorId(sender);
+        String actor = DestructiveCommandSupport.actorId(sender);
         if (closed) {
             sender.sendMessage("Destructive administration is unavailable.");
             return true;
@@ -369,18 +390,23 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         }
         stage.whenComplete((result, throwable) -> scheduleResult(() -> {
             release(actor);
-            if (closed) {
-                return;
-            }
-            if (throwable != null) {
-                reportFailure(sender, throwable);
-            } else if (result == null) {
-                sender.sendMessage("Destructive administration returned no result.");
-            } else {
-                success.accept(result);
-            }
+            deliverResult(sender, result, throwable, success);
         }));
         return true;
+    }
+
+    private <T> void deliverResult(
+            CommandSender sender, T result, Throwable throwable, Consumer<T> success) {
+        if (closed) {
+            return;
+        }
+        if (throwable != null) {
+            reportFailure(sender, throwable);
+        } else if (result == null) {
+            sender.sendMessage("Destructive administration returned no result.");
+        } else {
+            success.accept(result);
+        }
     }
 
     private DestructiveAdministrationUseCase useCase() {
@@ -408,148 +434,15 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
     }
 
     private void reportFailure(CommandSender sender, Throwable throwable) {
-        Throwable cause = unwrap(throwable);
+        Throwable cause = DestructiveCommandSupport.unwrap(throwable);
         plugin.getLogger().log(Level.SEVERE, "Destructive administration command failed.", cause);
         sender.sendMessage("Destructive administration failed: "
-                + cause.getClass().getSimpleName() + safeDetail(cause));
-    }
-
-    private PageRequest pageRequest(String[] arguments, int pageArgumentIndex) {
-        int pageNumber = arguments.length > pageArgumentIndex
-                ? parsePositiveInt(arguments[pageArgumentIndex], "page")
-                : 1;
-        int pageSize = Math.max(1, Math.min(PageRequest.MAX_LIMIT, pageSizeSupplier.getAsInt()));
-        return new PageRequest(Math.multiplyExact(pageNumber - 1, pageSize), pageSize);
-    }
-
-    private static int pageNumber(Page<?> page) {
-        return page.offset() / page.limit() + 1;
-    }
-
-    private static void showPageFooter(CommandSender sender, Page<?> page) {
-        sender.sendMessage(page.hasMore()
-                ? "More results are available on page " + (pageNumber(page) + 1) + '.'
-                : "End of results.");
-    }
-
-    private static String formatOperation(
-            DestructiveAdministrationUseCase.OperationView operation) {
-        return operation.operationId() + " " + operation.operationType()
-                + " state=" + operation.state()
-                + " targets=" + operation.targetCount()
-                + " remaining=" + operation.remainingCount()
-                + " claimed=" + operation.claimedCount()
-                + " review=" + operation.reviewCount()
-                + " completed=" + operation.completedCount()
-                + " aborted=" + operation.abortedCount();
-    }
-
-    private static String formatTarget(DestructiveAdministrationUseCase.TargetView target) {
-        String location = target.expectedLocationType() == null
-                ? "unknown"
-                : target.expectedLocationType() + ':' + target.expectedLocationKey();
-        String error = target.lastError() == null ? "" : " error=" + target.lastError();
-        return target.instanceId().value() + " state=" + target.state()
-                + " effect=" + target.effectState()
-                + " attempts=" + target.attemptCount()
-                + " location=" + location
-                + " path=" + String.valueOf(target.expectedContainerPath())
-                + error;
-    }
-
-    private static String confirmationRoute(DestructiveOperationType operationType) {
-        return switch (operationType) {
-            case EXACT_INSTANCE_REMOVAL -> CONFIRM_REMOVE;
-            case PURGE_DEFINITION -> CONFIRM_PURGE;
-            case DELETE_DEFINITION -> CONFIRM_DELETE;
-        };
-    }
-
-    private static String permissionFor(DestructiveOperationType operationType) {
-        return switch (operationType) {
-            case EXACT_INSTANCE_REMOVAL -> REMOVE_PERMISSION;
-            case PURGE_DEFINITION -> PURGE_PERMISSION;
-            case DELETE_DEFINITION -> DELETE_PERMISSION;
-        };
-    }
-
-    private static DestructiveAdministrationUseCase.ReviewResolution parseResolution(String input) {
-        return switch (input.toLowerCase(Locale.ROOT)) {
-            case "requeue" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .REQUEUE_NO_SIDE_EFFECT;
-            case "removed" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .MARK_VERIFIED_REMOVED;
-            case "abort" -> DestructiveAdministrationUseCase.ReviewResolution
-                    .ABORT_NO_SIDE_EFFECT;
-            default -> throw new IllegalArgumentException(
-                    "resolution must be requeue, removed, or abort");
-        };
-    }
-
-    private static UUID parseUuid(String input, String name) {
-        try {
-            return UUID.fromString(input);
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException(name + " must be a UUID", exception);
-        }
-    }
-
-    private static int parsePositiveInt(String input, String name) {
-        try {
-            int value = Integer.parseInt(input);
-            if (value < 1) {
-                throw new IllegalArgumentException(name + " must be positive");
-            }
-            return value;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException(name + " must be a positive integer", exception);
-        }
-    }
-
-    private static boolean requirePermission(CommandSender sender, String permission) {
-        if (sender.hasPermission(permission)) {
-            return true;
-        }
-        sender.sendMessage("You do not have permission: " + permission);
-        return false;
-    }
-
-    private static String actorId(CommandSender sender) {
-        if (sender instanceof Player player) {
-            return player.getUniqueId().toString();
-        }
-        String value = "sender:" + sender.getName();
-        return value.length() <= DestructiveAdministrationUseCase.StartRequest.MAX_ACTOR_LENGTH
-                ? value
-                : value.substring(0, DestructiveAdministrationUseCase.StartRequest.MAX_ACTOR_LENGTH);
-    }
-
-    private static String safeDetail(Throwable throwable) {
-        String message = throwable.getMessage();
-        return message == null || message.isBlank() ? "" : ": " + message;
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof CompletionException exception && exception.getCause() != null) {
-            return exception.getCause();
-        }
-        return throwable;
+                + cause.getClass().getSimpleName()
+                + DestructiveCommandSupport.safeDetail(cause));
     }
 
     static List<String> topLevelCompletions(CommandSender sender, String input) {
-        Objects.requireNonNull(sender, "sender");
-        String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
-        List<String> values = new ArrayList<>();
-        addIfAllowed(values, sender, REMOVE, REMOVE_PERMISSION);
-        addIfAllowed(values, sender, PURGE, PURGE_PERMISSION);
-        addIfAllowed(values, sender, DELETE, DELETE_PERMISSION);
-        addIfAllowed(values, sender, OPERATIONS, INSPECT_PERMISSION);
-        addIfAllowed(values, sender, TARGETS, INSPECT_PERMISSION);
-        addIfAllowed(values, sender, METRICS, INSPECT_PERMISSION);
-        addIfAllowed(values, sender, PAUSE, CONTROL_PERMISSION);
-        addIfAllowed(values, sender, RESUME, CONTROL_PERMISSION);
-        addIfAllowed(values, sender, REVIEW, REVIEW_PERMISSION);
-        return values.stream().filter(value -> value.startsWith(prefix)).toList();
+        return DestructiveCommandSupport.topLevelCompletions(sender, input);
     }
 
     @Override
@@ -570,19 +463,14 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         return List.of();
     }
 
-    private static void addIfAllowed(
-            List<String> values,
-            CommandSender sender,
-            String value,
-            String permission) {
-        if (sender.hasPermission(permission)) {
-            values.add(value);
-        }
-    }
-
     @Override
     public void close() {
         closed = true;
         confirmations.clear();
+    }
+
+    @FunctionalInterface
+    private interface CommandHandler {
+        boolean execute(CommandSender sender, String[] arguments);
     }
 }
