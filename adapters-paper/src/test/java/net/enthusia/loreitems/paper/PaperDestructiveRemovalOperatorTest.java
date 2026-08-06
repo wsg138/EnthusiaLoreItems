@@ -1,8 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -98,7 +98,9 @@ class PaperDestructiveRemovalOperatorTest {
         assertEquals(
                 PaperDestructiveRemovalOperator.ApplyResult.Status.REVIEW_REQUIRED,
                 result.status());
-        assertTrue(player.getInventory().getItem(0).getType() == Material.STONE);
+        ItemStack remaining = player.getInventory().getItem(0);
+        assertNotNull(remaining);
+        assertEquals(Material.STONE, remaining.getType());
     }
 
     private PaperTemplateUpdateScanner.Candidate candidate() {

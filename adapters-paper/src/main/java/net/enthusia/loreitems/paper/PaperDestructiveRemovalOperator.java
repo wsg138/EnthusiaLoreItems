@@ -73,39 +73,58 @@ final class PaperDestructiveRemovalOperator {
         if (resolved == null) {
             return ApplyResult.notAccessible();
         }
+        BeforeRemoval before = inspectBefore(resolved, removal);
+        if (before.failure() != null) {
+            return before.failure();
+        }
+        ApplyResult mutationFailure = applyPhysicalRemoval(resolved, before.fingerprint());
+        if (mutationFailure != null) {
+            return mutationFailure;
+        }
+        return verifyRemoval(resolved, removal, before.fingerprint());
+    }
+
+    private BeforeRemoval inspectBefore(
+            PaperTemplateUpdateReference.Resolved resolved,
+            DestructiveRemovalExecutionUseCase.PreparedRemoval removal) {
         ItemStack current = resolved.originalItem();
-        String beforeFingerprint;
+        String fingerprint;
         try {
-            beforeFingerprint = PaperItemFingerprint.of(current);
+            fingerprint = PaperItemFingerprint.of(current);
         } catch (RuntimeException exception) {
-            return ApplyResult.reviewRequired(
+            return BeforeRemoval.failed(ApplyResult.reviewRequired(
                     DestructiveEffectState.NONE_OBSERVED,
                     null,
                     null,
                     "Paper could not fingerprint the claimed item before removal: "
-                            + exception.getClass().getSimpleName());
+                            + exception.getClass().getSimpleName()));
         }
-        LoreItemIdentity currentIdentity;
+        LoreItemIdentity identity;
         try {
-            currentIdentity = trackedIdentity(current);
+            identity = trackedIdentity(current);
         } catch (RuntimeException exception) {
-            return ApplyResult.reviewRequired(
+            return BeforeRemoval.failed(ApplyResult.reviewRequired(
                     DestructiveEffectState.NONE_OBSERVED,
-                    beforeFingerprint,
+                    fingerprint,
                     null,
                     "Paper could not read the claimed item identity before removal: "
-                            + exception.getClass().getSimpleName());
+                            + exception.getClass().getSimpleName()));
         }
-        if (currentIdentity == null
-                || !currentIdentity.equals(removal.observedIdentity())
-                || !beforeFingerprint.equals(removal.beforeFingerprint())) {
-            return ApplyResult.reviewRequired(
+        if (identity == null
+                || !identity.equals(removal.observedIdentity())
+                || !fingerprint.equals(removal.beforeFingerprint())) {
+            return BeforeRemoval.failed(ApplyResult.reviewRequired(
                     DestructiveEffectState.NONE_OBSERVED,
-                    beforeFingerprint,
+                    fingerprint,
                     null,
-                    "The claimed physical item changed after durable destructive preparation.");
+                    "The claimed physical item changed after durable destructive preparation."));
         }
+        return BeforeRemoval.verified(fingerprint);
+    }
 
+    private static ApplyResult applyPhysicalRemoval(
+            PaperTemplateUpdateReference.Resolved resolved,
+            String beforeFingerprint) {
         final boolean removed;
         try {
             removed = resolved.remove();
@@ -117,14 +136,20 @@ final class PaperDestructiveRemovalOperator {
                     "Paper failed while applying the physical removal: "
                             + exception.getClass().getSimpleName());
         }
-        if (!removed) {
-            return ApplyResult.reviewRequired(
-                    DestructiveEffectState.NONE_OBSERVED,
-                    beforeFingerprint,
-                    null,
-                    "The physical reference changed before the claimed item could be removed.");
+        if (removed) {
+            return null;
         }
+        return ApplyResult.reviewRequired(
+                DestructiveEffectState.NONE_OBSERVED,
+                beforeFingerprint,
+                null,
+                "The physical reference changed before the claimed item could be removed.");
+    }
 
+    private ApplyResult verifyRemoval(
+            PaperTemplateUpdateReference.Resolved resolved,
+            DestructiveRemovalExecutionUseCase.PreparedRemoval removal,
+            String beforeFingerprint) {
         ItemStack stored;
         try {
             stored = resolved.readStored();
@@ -176,6 +201,24 @@ final class PaperDestructiveRemovalOperator {
             return PaperItemFingerprint.of(item);
         } catch (RuntimeException exception) {
             return null;
+        }
+    }
+
+    private record BeforeRemoval(String fingerprint, ApplyResult failure) {
+        private BeforeRemoval {
+            if ((fingerprint == null) == (failure == null)) {
+                throw new IllegalArgumentException(
+                        "Before-removal evidence must be either verified or failed");
+            }
+        }
+
+        private static BeforeRemoval verified(String fingerprint) {
+            return new BeforeRemoval(
+                    Objects.requireNonNull(fingerprint, "fingerprint"), null);
+        }
+
+        private static BeforeRemoval failed(ApplyResult failure) {
+            return new BeforeRemoval(null, Objects.requireNonNull(failure, "failure"));
         }
     }
 
