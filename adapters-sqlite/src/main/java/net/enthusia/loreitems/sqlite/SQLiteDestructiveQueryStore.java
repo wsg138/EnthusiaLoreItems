@@ -38,6 +38,15 @@ final class SQLiteDestructiveQueryStore {
             + "LEFT JOIN destructive_targets target "
             + "ON target.operation_id = operation.operation_id ";
     private static final String OPERATION_GROUP = " GROUP BY operation.operation_id ";
+    private static final String DEFINITION_TARGET_COUNTS =
+            "SELECT COUNT(*) target_count, "
+                    + "SUM(CASE WHEN current.state IS NULL OR current.state <> 'CONFIRMED_NOW' "
+                    + "THEN 1 ELSE 0 END) inaccessible_count FROM lore_instances instance "
+                    + "LEFT JOIN instance_current_state current "
+                    + "ON current.instance_id = instance.instance_id "
+                    + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'";
+    private static final String EXACT_TARGET_COUNTS = DEFINITION_TARGET_COUNTS
+            + " AND instance.instance_id = ?";
     private final SQLiteStorageRuntime storage;
 
     SQLiteDestructiveQueryStore(SQLiteStorageRuntime storage) {
@@ -145,11 +154,12 @@ final class SQLiteDestructiveQueryStore {
                     return null;
                 }
                 resultSet.getLong("deleted_at");
+                boolean deleted = !resultSet.wasNull();
                 return new DefinitionSnapshot(
                         new DefinitionKey(resultSet.getString("lookup_key")),
                         resultSet.getString("display_name"),
                         new TemplateRevision(resultSet.getLong("current_revision")),
-                        !resultSet.wasNull());
+                        deleted);
             }
         }
     }
@@ -157,67 +167,103 @@ final class SQLiteDestructiveQueryStore {
     private static TargetCounts readTargetCounts(
             Connection connection,
             PreviewRequest request) throws SQLException {
-        String sql = "SELECT COUNT(*) target_count, "
-                + "SUM(CASE WHEN current.state IS NULL OR current.state <> 'CONFIRMED_NOW' "
-                + "THEN 1 ELSE 0 END) inaccessible_count FROM lore_instances instance "
-                + "LEFT JOIN instance_current_state current ON current.instance_id = instance.instance_id "
-                + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'"
-                + exactClause(request);
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            bindIdentity(statement, request);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                resultSet.next();
-                return new TargetCounts(
-                        resultSet.getLong("target_count"),
-                        resultSet.getLong("inaccessible_count"));
-            }
+        return request.exactInstanceId() == null
+                ? readDefinitionTargetCounts(connection, request)
+                : readExactTargetCounts(connection, request);
+    }
+
+    private static TargetCounts readDefinitionTargetCounts(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(DEFINITION_TARGET_COUNTS)) {
+            statement.setString(1, request.definitionId().value().toString());
+            return readTargetCounts(statement);
+        }
+    }
+
+    private static TargetCounts readExactTargetCounts(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(EXACT_TARGET_COUNTS)) {
+            statement.setString(1, request.definitionId().value().toString());
+            statement.setString(2, request.exactInstanceId().value().toString());
+            return readTargetCounts(statement);
+        }
+    }
+
+    private static TargetCounts readTargetCounts(PreparedStatement statement) throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery()) {
+            resultSet.next();
+            return new TargetCounts(
+                    resultSet.getLong("target_count"),
+                    resultSet.getLong("inaccessible_count"));
         }
     }
 
     private static long countQueuedWork(Connection connection, PreviewRequest request)
             throws SQLException {
-        String sql = "SELECT COUNT(*) FROM pending_mutations mutation "
-                + "WHERE mutation.definition_id = ? "
-                + "AND mutation.state NOT IN ('COMPLETED', 'CANCELLED')"
-                + exactClause(request, "mutation");
-        return count(connection, request, sql);
+        return request.exactInstanceId() == null
+                ? countDefinitionQueuedWork(connection, request)
+                : countExactQueuedWork(connection, request);
+    }
+
+    private static long countDefinitionQueuedWork(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM pending_mutations WHERE definition_id = ? "
+                        + "AND state NOT IN ('COMPLETED', 'CANCELLED')")) {
+            statement.setString(1, request.definitionId().value().toString());
+            return count(statement);
+        }
+    }
+
+    private static long countExactQueuedWork(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM pending_mutations WHERE definition_id = ? "
+                        + "AND state NOT IN ('COMPLETED', 'CANCELLED') AND instance_id = ?")) {
+            statement.setString(1, request.definitionId().value().toString());
+            statement.setString(2, request.exactInstanceId().value().toString());
+            return count(statement);
+        }
     }
 
     private static long countAnomalies(Connection connection, PreviewRequest request)
             throws SQLException {
-        String sql = "SELECT COUNT(*) FROM instance_anomalies anomaly "
-                + "WHERE anomaly.definition_id = ? "
-                + "AND anomaly.status IN ('OPEN', 'ACKNOWLEDGED')"
-                + exactClause(request, "anomaly");
-        return count(connection, request, sql);
+        return request.exactInstanceId() == null
+                ? countDefinitionAnomalies(connection, request)
+                : countExactAnomalies(connection, request);
     }
 
-    private static long count(Connection connection, PreviewRequest request, String sql)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            bindIdentity(statement, request);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                resultSet.next();
-                return resultSet.getLong(1);
-            }
+    private static long countDefinitionAnomalies(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM instance_anomalies WHERE definition_id = ? "
+                        + "AND status IN ('OPEN', 'ACKNOWLEDGED')")) {
+            statement.setString(1, request.definitionId().value().toString());
+            return count(statement);
         }
     }
 
-    private static String exactClause(PreviewRequest request) {
-        return request.exactInstanceId() == null ? "" : " AND instance.instance_id = ?";
-    }
-
-    private static String exactClause(PreviewRequest request, String alias) {
-        return request.exactInstanceId() == null
-                ? ""
-                : " AND " + alias + ".instance_id = ?";
-    }
-
-    private static void bindIdentity(PreparedStatement statement, PreviewRequest request)
-            throws SQLException {
-        statement.setString(1, request.definitionId().value().toString());
-        if (request.exactInstanceId() != null) {
+    private static long countExactAnomalies(
+            Connection connection,
+            PreviewRequest request) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM instance_anomalies WHERE definition_id = ? "
+                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') AND instance_id = ?")) {
+            statement.setString(1, request.definitionId().value().toString());
             statement.setString(2, request.exactInstanceId().value().toString());
+            return count(statement);
+        }
+    }
+
+    private static long count(PreparedStatement statement) throws SQLException {
+        try (ResultSet resultSet = statement.executeQuery()) {
+            resultSet.next();
+            return resultSet.getLong(1);
         }
     }
 
@@ -225,9 +271,10 @@ final class SQLiteDestructiveQueryStore {
             Connection connection,
             PageRequest request) throws SQLException {
         List<OperationView> values = new ArrayList<>();
-        String sql = OPERATION_SELECT + OPERATION_GROUP
-                + "ORDER BY operation.accepted_at DESC, operation.operation_id LIMIT ? OFFSET ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                OPERATION_SELECT + OPERATION_GROUP
+                        + "ORDER BY operation.accepted_at DESC, operation.operation_id "
+                        + "LIMIT ? OFFSET ?")) {
             statement.setInt(1, request.limit() + 1);
             statement.setInt(2, request.offset());
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -269,15 +316,22 @@ final class SQLiteDestructiveQueryStore {
     }
 
     private static Metrics metrics(Connection connection, long now) throws SQLException {
-        String sql = "SELECT "
-                + "(SELECT COUNT(*) FROM destructive_operations WHERE state = 'ACTIVE') active_operations, "
-                + "(SELECT COUNT(*) FROM destructive_operations WHERE state = 'PAUSED') paused_operations, "
-                + "(SELECT COUNT(*) FROM destructive_targets WHERE state = 'PENDING') queued_targets, "
-                + "(SELECT COUNT(*) FROM destructive_targets WHERE state = 'CLAIMED') active_leases, "
-                + "(SELECT COUNT(*) FROM destructive_targets WHERE state = 'REVIEW_REQUIRED') review_targets, "
-                + "(SELECT MIN(created_at) FROM destructive_targets WHERE state = 'PENDING') oldest_created, "
-                + "(SELECT COALESCE(SUM(attempt_count), 0) FROM destructive_targets) total_attempts";
-        try (PreparedStatement statement = connection.prepareStatement(sql);
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT "
+                        + "(SELECT COUNT(*) FROM destructive_operations WHERE state = 'ACTIVE') "
+                        + "active_operations, "
+                        + "(SELECT COUNT(*) FROM destructive_operations WHERE state = 'PAUSED') "
+                        + "paused_operations, "
+                        + "(SELECT COUNT(*) FROM destructive_targets WHERE state = 'PENDING') "
+                        + "queued_targets, "
+                        + "(SELECT COUNT(*) FROM destructive_targets WHERE state = 'CLAIMED') "
+                        + "active_leases, "
+                        + "(SELECT COUNT(*) FROM destructive_targets "
+                        + "WHERE state = 'REVIEW_REQUIRED') review_targets, "
+                        + "(SELECT MIN(created_at) FROM destructive_targets "
+                        + "WHERE state = 'PENDING') oldest_created, "
+                        + "(SELECT COALESCE(SUM(attempt_count), 0) FROM destructive_targets) "
+                        + "total_attempts");
                 ResultSet resultSet = statement.executeQuery()) {
             resultSet.next();
             long oldest = resultSet.getLong("oldest_created");

@@ -19,6 +19,20 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 
 final class SQLiteDestructiveAcceptanceStore {
     private static final int SINGLE_ROW = 1;
+    private static final String TARGET_INSERT =
+            "INSERT INTO destructive_targets(operation_id, instance_id, definition_id, "
+                    + "expected_applied_revision, expected_location_type, expected_location_key, "
+                    + "expected_container_path, expected_fingerprint, state, effect_state, "
+                    + "claim_token, claim_expires_at, attempt_count, before_fingerprint, "
+                    + "after_fingerprint, last_error, created_at, updated_at) "
+                    + "SELECT ?, instance.instance_id, instance.definition_id, instance.applied_revision, "
+                    + "current.location_type, current.location_key, current.container_path, NULL, "
+                    + "'PENDING', 'UNKNOWN', NULL, NULL, 0, NULL, NULL, NULL, ?, ? "
+                    + "FROM lore_instances instance LEFT JOIN instance_current_state current "
+                    + "ON current.instance_id = instance.instance_id "
+                    + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'";
+    private static final String EXACT_TARGET_INSERT = TARGET_INSERT
+            + " AND instance.instance_id = ?";
     private final SQLiteStorageRuntime storage;
     private final SQLiteDestructiveQueryStore queries;
 
@@ -124,10 +138,9 @@ final class SQLiteDestructiveAcceptanceStore {
 
     private static boolean hasTargetConflict(Connection connection, Preview preview)
             throws SQLException {
-        if (preview.exactInstanceId() == null) {
-            return hasDefinitionTargetConflict(connection, preview);
-        }
-        return hasExactTargetConflict(connection, preview);
+        return preview.exactInstanceId() == null
+                ? hasDefinitionTargetConflict(connection, preview)
+                : hasExactTargetConflict(connection, preview);
     }
 
     private static boolean hasDefinitionTargetConflict(Connection connection, Preview preview)
@@ -220,8 +233,7 @@ final class SQLiteDestructiveAcceptanceStore {
             UUID operationId,
             Preview preview,
             long now) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                targetInsertSql(""))) {
+        try (PreparedStatement statement = connection.prepareStatement(TARGET_INSERT)) {
             bindTargetInsert(statement, operationId, preview, now);
             return statement.executeUpdate();
         }
@@ -232,27 +244,11 @@ final class SQLiteDestructiveAcceptanceStore {
             UUID operationId,
             Preview preview,
             long now) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                targetInsertSql(" AND instance.instance_id = ?"))) {
+        try (PreparedStatement statement = connection.prepareStatement(EXACT_TARGET_INSERT)) {
             bindTargetInsert(statement, operationId, preview, now);
             statement.setString(5, preview.exactInstanceId().value().toString());
             return statement.executeUpdate();
         }
-    }
-
-    private static String targetInsertSql(String exactClause) {
-        return "INSERT INTO destructive_targets(operation_id, instance_id, definition_id, "
-                + "expected_applied_revision, expected_location_type, expected_location_key, "
-                + "expected_container_path, expected_fingerprint, state, effect_state, "
-                + "claim_token, claim_expires_at, attempt_count, before_fingerprint, "
-                + "after_fingerprint, last_error, created_at, updated_at) "
-                + "SELECT ?, instance.instance_id, instance.definition_id, instance.applied_revision, "
-                + "current.location_type, current.location_key, current.container_path, NULL, "
-                + "'PENDING', 'UNKNOWN', NULL, NULL, 0, NULL, NULL, NULL, ?, ? "
-                + "FROM lore_instances instance LEFT JOIN instance_current_state current "
-                + "ON current.instance_id = instance.instance_id "
-                + "WHERE instance.definition_id = ? AND instance.lifecycle_state = 'ACTIVE'"
-                + exactClause;
     }
 
     private static void bindTargetInsert(

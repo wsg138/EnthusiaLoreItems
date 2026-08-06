@@ -21,13 +21,12 @@ import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DestructiveOperationState;
 
 final class SQLiteDestructiveAdministrationStore {
-    private final SQLiteStorageRuntime storage;
     private final SQLiteDestructiveQueryStore queries;
     private final SQLiteDestructiveAcceptanceStore acceptance;
     private final SQLiteDestructiveControlStore controls;
 
     SQLiteDestructiveAdministrationStore(SQLiteStorageRuntime storage) {
-        this.storage = Objects.requireNonNull(storage, "storage");
+        Objects.requireNonNull(storage, "storage");
         this.queries = new SQLiteDestructiveQueryStore(storage);
         this.acceptance = new SQLiteDestructiveAcceptanceStore(storage, queries);
         this.controls = new SQLiteDestructiveControlStore(storage, queries);
