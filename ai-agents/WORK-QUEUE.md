@@ -11,7 +11,7 @@ Live GitHub outranks this snapshot. The universal dispatcher automatically resum
 | Order | Package | Fixed objective | Weight | Status | Exact dependency |
 |---:|---|---|---:|---|---|
 | 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | COMPLETE | PR #11 normally merged; live `main` is `50ac248b1583739c57b7dcb25b4e949436b736ce` |
-| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | IN_PROGRESS | Exact canonical branch claimed from verified live `main`; draft PR follows the non-empty claim commit |
+| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | IN_PROGRESS | Canonical branch and draft PR #13 are the active durable lock |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | Complete one-use mass distributions. | 20% | BLOCKED | WP-02 COMPLETE |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | Complete automated production hardening and produce a release candidate. | 15% | BLOCKED | WP-03 COMPLETE |
 | 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | Process manual live-server acceptance evidence, fix every confirmed defect, and release EnthusiaLoreItems. | 15% | BLOCKED | WP-04 release candidate published |
@@ -21,15 +21,16 @@ Live GitHub outranks this snapshot. The universal dispatcher automatically resum
 
 - Package: WP-02 — destructive administration
 - Branch: `agent/wp-02-destructive-administration`
-- Draft PR: to be opened immediately after this non-empty claim checkpoint because GitHub rejects an empty-branch PR
+- Draft PR: #13, `WP-02: complete destructive administration`
 - Starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
+- Initial claim checkpoint: `2612d40607916414f06d4d6a46aef3d887bafc89`
 - Status: `IN_PROGRESS`
-- Completed criteria: live routing reconciliation, dependency verification, all required workflow/contract/requirement/architecture/plan reading, and exact canonical branch creation
+- Completed criteria: live routing reconciliation, dependency verification, all required workflow/contract/requirement/architecture/plan reading, exact canonical branch creation, durable claim commit, and exact draft PR creation
 - Remaining criteria: the complete WP-02 contract
 - Tests: none at claim time
 - Findings: none established yet
 - Blocker: none
-- Exact next action: open the exact draft PR, record its number in a follow-up checkpoint, then inspect and implement the complete package
+- Exact next action: inspect existing destructive-operation implementation and tests, identify the contract delta, and implement the first coherent section
 
 ## Automatic selection and resume rule
 
