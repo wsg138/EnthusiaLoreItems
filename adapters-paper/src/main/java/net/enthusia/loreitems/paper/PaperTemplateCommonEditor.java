@@ -1,16 +1,17 @@
 package net.enthusia.loreitems.paper;
 
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Color;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import io.papermc.paper.registry.RegistryAccess;
-import io.papermc.paper.registry.RegistryKey;
 import org.bukkit.Registry;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
@@ -23,37 +24,40 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 
 final class PaperTemplateCommonEditor {
+    private static final Map<String, CommonAction> ACTIONS = Map.ofEntries(
+            Map.entry("custom-name", PaperTemplateCommonEditor::customName),
+            Map.entry("item-name", PaperTemplateCommonEditor::itemName),
+            Map.entry("lore", PaperTemplateCommonEditor::lore),
+            Map.entry("enchant", PaperTemplateCommonEditor::enchant),
+            Map.entry("glint", PaperTemplateCommonEditor::glint),
+            Map.entry("durability", PaperTemplateCommonEditor::durability),
+            Map.entry("attribute", PaperTemplateCommonEditor::attribute),
+            Map.entry("item-model", PaperTemplateCommonEditor::itemModel),
+            Map.entry("max-stack", PaperTemplateCommonEditor::maxStack),
+            Map.entry("custom-model-data", PaperTemplateCommonEditor::customModelData),
+            Map.entry("flags", PaperTemplateCommonEditor::flags),
+            Map.entry("tooltip", PaperTemplateCommonEditor::tooltip));
+
     PaperTemplateEditResult apply(ItemStack source, String action, String input) {
         ItemStack item = source.clone();
         try {
-            String detail;
             if (action.equals("material")) {
                 item = material(item, input);
-                detail = "Base material changed to " + item.getType().getKey();
-            } else {
-                detail = switch (action) {
-                case "custom-name" -> customName(item, input);
-                case "item-name" -> itemName(item, input);
-                case "lore" -> lore(item, input);
-                case "enchant" -> enchant(item, input);
-                case "glint" -> glint(item, input);
-                case "durability" -> durability(item, input);
-                case "attribute" -> attribute(item, input);
-                case "item-model" -> itemModel(item, input);
-                case "max-stack" -> maxStack(item, input);
-                case "custom-model-data" -> customModelData(item, input);
-                case "flags" -> flags(item, input);
-                case "tooltip" -> tooltip(item, input);
-                    default -> null;
-                };
+                return accepted(item, "Base material changed to " + item.getType().getKey());
             }
-            return detail == null
-                    ? PaperTemplateEditResult.rejected(source, "Unsupported editor action")
-                    : PaperTemplateEditResult.accepted(
-                            PaperTemplateEditorSupport.normalized(item), detail);
+            CommonAction editor = ACTIONS.get(action);
+            if (editor == null) {
+                return PaperTemplateEditResult.rejected(source, "Unsupported editor action");
+            }
+            return accepted(item, editor.apply(item, input));
         } catch (IllegalArgumentException exception) {
             return PaperTemplateEditResult.rejected(source, exception.getMessage());
         }
+    }
+
+    private static PaperTemplateEditResult accepted(ItemStack item, String detail) {
+        return PaperTemplateEditResult.accepted(
+                PaperTemplateEditorSupport.normalized(item), detail);
     }
 
     private static ItemStack material(ItemStack item, String input) {
@@ -418,4 +422,10 @@ final class PaperTemplateCommonEditor {
             Objects.requireNonNull(modifier, "modifier");
         }
     }
+
+    @FunctionalInterface
+    private interface CommonAction {
+        String apply(ItemStack item, String input);
+    }
+
 }

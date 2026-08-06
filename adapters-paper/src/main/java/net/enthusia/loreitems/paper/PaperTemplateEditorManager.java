@@ -1,16 +1,12 @@
 package net.enthusia.loreitems.paper;
 
-import io.papermc.paper.event.player.AsyncChatEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
 import java.util.function.IntSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.EncodedItemTemplate;
@@ -21,25 +17,19 @@ import net.enthusia.loreitems.application.TemplateRevisionRolloutRequest;
 import net.enthusia.loreitems.application.TemplateRevisionStartResult;
 import net.enthusia.loreitems.application.TemplateRevisionStartStatus;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
 
 /** Bounded GUI/chat draft lifecycle with explicit preview and durable confirmation. */
-public final class PaperTemplateEditorManager implements Listener, AutoCloseable {
+public final class PaperTemplateEditorManager implements AutoCloseable {
     public static final String EDIT_PERMISSION = "enthusia.loreitems.admin.edit";
 
     private static final int MAX_SESSIONS = 32;
-    private static final int MAX_QUERIES = 32;
     private static final long SESSION_TIMEOUT_TICKS = 20L * 60L * 5L;
     private static final String UNAVAILABLE =
             "Template editing is unavailable while durable storage is read-only or initializing.";
@@ -52,8 +42,9 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
     private final PaperTemplateDraftEditor draftEditor = new PaperTemplateDraftEditor();
     private final PaperItemTemplateCodec templateCodec = new PaperItemTemplateCodec();
     private final Map<UUID, PaperTemplateEditorSession> sessions = new HashMap<>();
-    private final Set<UUID> awaitingChat = ConcurrentHashMap.newKeySet();
-    private final Semaphore queryCapacity = new Semaphore(MAX_QUERIES);
+    private final Map<UUID, UUID> awaitingChat = new ConcurrentHashMap<>();
+    private final PaperTemplateManagementLoader managementLoader;
+    private final PaperTemplateEditorEvents events;
 
     private InstanceNavigator instanceNavigator = (playerId, definitionId, page) -> {};
     private DefinitionNavigator definitionNavigator = (playerId, page) -> {};
@@ -76,8 +67,11 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
             throw new IllegalArgumentException("sessionTimeoutTicks must be positive");
         }
         this.sessionTimeoutTicks = sessionTimeoutTicks;
+        this.managementLoader = new PaperTemplateManagementLoader(
+                plugin, renderer, templateCodec, this::handleFailure, this::runMain);
+        this.events = new PaperTemplateEditorEvents(this);
         requireBatchLimit();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        plugin.getServer().getPluginManager().registerEvents(events, plugin);
     }
 
     void setInstanceNavigator(InstanceNavigator navigator) {
@@ -94,44 +88,24 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
         runMain(() -> openManagementMain(playerId, definitionId, returnPage));
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof PaperTemplateEditorView view)) {
-            return;
-        }
-        event.setCancelled(true);
-        if (event.getClickedInventory() != event.getView().getTopInventory()
-                || !(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        dispatchClick(player, view, event.getRawSlot());
+        events.onClick(event);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onDrag(InventoryDragEvent event) {
-        if (!(event.getInventory().getHolder() instanceof PaperTemplateEditorView)) {
-            return;
-        }
-        int topSize = event.getView().getTopInventory().getSize();
-        if (event.getRawSlots().stream().anyMatch(slot -> slot < topSize)) {
-            event.setCancelled(true);
-        }
+    void onQuit(PlayerQuitEvent event) {
+        events.onQuit(event);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onChat(AsyncChatEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-        if (!awaitingChat.contains(playerId)) {
-            return;
-        }
-        event.setCancelled(true);
-        String message = PlainTextComponentSerializer.plainText().serialize(event.message());
-        runMain(() -> receiveChat(playerId, message));
+    UUID chatSessionId(UUID playerId) {
+        return awaitingChat.get(Objects.requireNonNull(playerId, "playerId"));
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onQuit(PlayerQuitEvent event) {
-        PaperTemplateEditorSession session = sessions.remove(event.getPlayer().getUniqueId());
+    void receiveChatAsync(UUID playerId, UUID sessionId, String message) {
+        runMain(() -> receiveChat(playerId, sessionId, message));
+    }
+
+    void handleQuit(UUID playerId) {
+        PaperTemplateEditorSession session = sessions.remove(playerId);
         if (session != null) {
             awaitingChat.remove(session.playerId);
             session.close();
@@ -145,8 +119,10 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
                 Player player = Bukkit.getPlayer(session.playerId);
                 if (player != null) {
                     player.sendMessage("Template draft cancelled: " + reason);
-                    if (player.getOpenInventory().getTopInventory().getHolder()
-                            instanceof PaperTemplateEditorView) {
+                    org.bukkit.inventory.Inventory topInventory =
+                            player.getOpenInventory().getTopInventory();
+                    if (topInventory != null
+                            && topInventory.getHolder() instanceof PaperTemplateEditorView) {
                         player.closeInventory();
                     }
                 }
@@ -163,64 +139,10 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
             message(playerId, UNAVAILABLE);
             return;
         }
-        Player player = Bukkit.getPlayer(playerId);
-        if (player == null || !player.hasPermission(
-                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)) {
-            return;
-        }
-        TemplateManagementUseCase useCase = resolveUseCase();
-        if (useCase == null) {
-            player.sendMessage(UNAVAILABLE);
-            return;
-        }
-        if (!queryCapacity.tryAcquire()) {
-            player.sendMessage("Too many template-management queries are active.");
-            return;
-        }
-        CompletionStage<Optional<TemplateManagementSnapshot>> stage;
-        try {
-            stage = Objects.requireNonNull(
-                    useCase.findSnapshot(definitionId), "template snapshot stage");
-        } catch (RuntimeException exception) {
-            queryCapacity.release();
-            handleFailure(playerId, "load template management", exception);
-            return;
-        }
-        stage.whenComplete((snapshot, failure) -> {
-            queryCapacity.release();
-            if (failure != null) {
-                handleFailure(playerId, "load template management", failure);
-                return;
-            }
-            runMain(() -> showManagement(playerId, snapshot, returnPage));
-        });
+        managementLoader.open(playerId, definitionId, returnPage);
     }
 
-    private void showManagement(
-            UUID playerId,
-            Optional<TemplateManagementSnapshot> snapshot,
-            int returnPage) {
-        Player player = Bukkit.getPlayer(playerId);
-        if (player == null) {
-            return;
-        }
-        if (snapshot == null || snapshot.isEmpty()) {
-            player.sendMessage("That lore definition is no longer active.");
-            return;
-        }
-        try {
-            TemplateManagementSnapshot value = snapshot.orElseThrow();
-            renderer.showManagement(
-                    player,
-                    value,
-                    templateCodec.decode(value.currentTemplate()),
-                    returnPage);
-        } catch (RuntimeException exception) {
-            handleFailure(playerId, "decode template preview", exception);
-        }
-    }
-
-    private void dispatchClick(Player player, PaperTemplateEditorView view, int slot) {
+    void dispatchClick(Player player, PaperTemplateEditorView view, int slot) {
         if (!player.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)) {
             player.sendMessage("You do not have permission to inspect lore-item templates.");
             return;
@@ -316,7 +238,7 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
             PaperTemplateEditorRenderer.ActionSpec action) {
         session.pendingAction = action.action();
         session.state = PaperTemplateEditorSession.State.AWAITING_CHAT;
-        awaitingChat.add(player.getUniqueId());
+        awaitingChat.put(player.getUniqueId(), session.sessionId);
         resetTimeout(session);
         player.closeInventory();
         player.sendMessage(action.title() + ": " + String.join(" ", action.help()));
@@ -324,11 +246,18 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
     }
 
     void receiveChat(UUID playerId, String message) {
+        UUID sessionId = chatSessionId(playerId);
+        if (sessionId != null) {
+            receiveChat(playerId, sessionId, message);
+        }
+    }
+
+    void receiveChat(UUID playerId, UUID sessionId, String message) {
         PaperTemplateEditorSession session = sessions.get(playerId);
         Player player = Bukkit.getPlayer(playerId);
-        if (session == null || player == null
+        if (session == null || player == null || !session.sessionId.equals(sessionId)
                 || session.state != PaperTemplateEditorSession.State.AWAITING_CHAT) {
-            awaitingChat.remove(playerId);
+            awaitingChat.remove(playerId, sessionId);
             return;
         }
         if (!player.hasPermission(EDIT_PERMISSION)) {
@@ -514,22 +443,25 @@ public final class PaperTemplateEditorManager implements Listener, AutoCloseable
             return;
         }
         Player player = Bukkit.getPlayer(playerId);
+        boolean confirmationInFlight =
+                session.state == PaperTemplateEditorSession.State.CONFIRMING;
         sessions.remove(playerId);
         awaitingChat.remove(playerId);
         session.close();
         if (player != null) {
             player.closeInventory();
-            player.sendMessage("Template draft timed out; no revision was created.");
+            player.sendMessage(confirmationInFlight
+                    ? "Template confirmation is still processing; reopen management to check durable status."
+                    : "Template draft timed out; no revision was created.");
         }
     }
-
 
     int activeSessionCount() {
         return sessions.size();
     }
 
     boolean awaitingChat(UUID playerId) {
-        return awaitingChat.contains(Objects.requireNonNull(playerId, "playerId"));
+        return awaitingChat.containsKey(Objects.requireNonNull(playerId, "playerId"));
     }
 
     PaperTemplateEditorSession.State sessionState(UUID playerId) {

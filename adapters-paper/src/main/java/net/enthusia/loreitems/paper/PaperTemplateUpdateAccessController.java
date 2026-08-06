@@ -183,33 +183,48 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
     }
 
     void drain() {
-        for (int count = 0; count < budget; count++) {
-            PaperInventoryReference reference = scanBacklog.poll();
-            if (reference != null) {
-                scan(reference);
-                continue;
-            }
-            if (!loadedContainerSweep) {
-                break;
-            }
-            PaperLoadedContainerWalker.Step step = loadedContainerWalker.visitNext(plugin);
-            if (step.containerReference() != null) {
-                enqueue(step.containerReference());
-            }
-            if (step.sweepComplete()) {
-                finishLoadedContainerSweep();
-            }
+        for (int count = 0; count < budget && drainOne(); count++) {
+            // Work is deliberately bounded by the configured per-tick budget.
         }
-        if (scanBacklog.isEmpty() && !loadedContainerSweep) {
-            retryRejectedScans();
+        finishDrain();
+    }
+
+    private boolean drainOne() {
+        PaperInventoryReference reference = scanBacklog.poll();
+        if (reference != null) {
+            scan(reference);
+            return true;
         }
-        if (scanBacklog.isEmpty() && !loadedContainerSweep) {
-            dispatchUniqueAccessibleItems();
-            if (saturated) {
-                saturated = false;
-                plugin.getLogger().fine("Template-update scan backlog has drained.");
-            }
+        if (!loadedContainerSweep) {
+            return false;
         }
+        PaperLoadedContainerWalker.Step step = loadedContainerWalker.visitNext(plugin);
+        if (step.containerReference() != null) {
+            enqueue(step.containerReference());
+        }
+        if (step.sweepComplete()) {
+            finishLoadedContainerSweep();
+        }
+        return true;
+    }
+
+    private void finishDrain() {
+        if (discoveryPending()) {
+            return;
+        }
+        retryRejectedScans();
+        if (discoveryPending()) {
+            return;
+        }
+        dispatchUniqueAccessibleItems();
+        if (saturated) {
+            saturated = false;
+            plugin.getLogger().fine("Template-update scan backlog has drained.");
+        }
+    }
+
+    private boolean discoveryPending() {
+        return !scanBacklog.isEmpty() || loadedContainerSweep;
     }
 
 

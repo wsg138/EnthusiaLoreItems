@@ -153,7 +153,7 @@ attribute:         set <attribute-key> <modifier-key> <operation> <amount> <slot
                    | remove <modifier-key> | clear
 item-model:        <namespaced-key> | clear
 max-stack:         1
-custom-model-data: floats <csv> | flags <csv> | strings <csv> | colors <csv> | clear
+custom-model-data: floats <csv> | flags <csv> | strings <pipe-separated> | colors <csv> | clear
 dye:               <#RRGGBB> | clear
 potion:            base <type> | set-effect <type> <duration> <amplifier> <ambient> <particles> <icon>
                    | remove-effect <type> | clear-effects | color <#RRGGBB> | clear-color
@@ -173,7 +173,7 @@ Styled text accepts literal text, one solid hex color, or a multi-stop gradient.
 
 One confirmation ID is persisted with the immutable next revision, actor, before/after template evidence, audit event, desired instance revisions, and durable rollout mutation rows in one SQLite transaction. Callback replay or restart returns the stored confirmation result only when every request field and template byte matches; altered replay, stale revision, inactive/deleted definition, or transaction failure creates no second revision or rollout.
 
-The rollout planner queries and stages only configured bounded batches. Existing inventory and naturally encountered entity/container update workers preserve definition ID and instance UUID, verify the expected old revision and post-write identity, and send malformed, duplicated, stale, missing, or otherwise ambiguous outcomes to review instead of overwriting or retrying blindly. Offline players and unloaded chunks remain durably pending until a supported natural observation; no editor path force-loads chunks. Paper object access and codec work stay on the server thread, while SQLite work uses the bounded database executor.
+The rollout planner queries and stages only configured bounded batches. Existing inventory and naturally encountered entity/container update workers cover player and Ender Chest inventories, loaded physical containers, nested shulkers and bundles, dropped items, item frames and glow item frames, item displays, and individual armor-stand equipment slots. They preserve definition ID and instance UUID, verify the expected old revision and post-write identity, and send malformed, duplicated, stale, missing, or otherwise ambiguous outcomes to review instead of overwriting or retrying blindly. Offline players and unloaded chunks remain durably pending until a supported natural observation; no editor path force-loads chunks. Paper object access and codec work stay on the server thread, while SQLite work uses the bounded database executor.
 
 ## Static analysis policy
 

@@ -233,7 +233,7 @@ class SQLiteTemplateEditorConfirmationTest {
             assertEquals(REVISION_TWO, snapshot.definition().currentRevision());
             assertEquals(2L, snapshot.activeInstanceCount());
             assertEquals(1L, snapshot.anomalyCount());
-            assertEquals(1L, snapshot.pendingUpdateCount());
+            assertEquals(2L, snapshot.pendingUpdateCount());
             assertEquals(1, snapshot.currentTemplate().codecVersion());
             assertEquals(List.of((byte) 7, (byte) 8, (byte) 9), bytes(snapshot));
         } finally {

@@ -16,10 +16,13 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.GlowItemFrame;
+import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
@@ -73,6 +76,36 @@ class PaperEntityTemplateUpdateReferenceTest {
         assertApplied(frame);
 
         assertTarget(frame.getItem());
+    }
+
+
+    @Test
+    void updatesNormalItemFrameWithoutReplacingTheEntity() {
+        ItemFrame frame = world.spawn(
+                new Location(world, 3, 64, 3), ItemFrame.class);
+        frame.setItem(tracked("Old"), false);
+
+        assertApplied(frame);
+
+        assertTarget(frame.getItem());
+    }
+
+    @Test
+    void updatesOneArmorStandSlotWithoutChangingSiblingEquipment() {
+        ArmorStand stand = world.spawn(
+                new Location(world, 4, 64, 4), ArmorStand.class);
+        ItemStack unrelatedBoots = ItemStack.of(Material.LEATHER_BOOTS);
+        stand.getEquipment().setHelmet(tracked("Old"));
+        stand.getEquipment().setBoots(unrelatedBoots);
+        PaperEntityTemplateUpdateReference reference =
+                PaperEntityTemplateUpdateReference.armorStand(stand, EquipmentSlot.HEAD);
+
+        PaperTemplateUpdateOperator.ApplyResult result =
+                new PaperTemplateUpdateOperator().apply(plugin, reference, preparedUpdate());
+
+        assertEquals(PaperTemplateUpdateOperator.ApplyResult.Status.APPLIED, result.status());
+        assertTarget(stand.getEquipment().getHelmet());
+        assertEquals(unrelatedBoots, stand.getEquipment().getBoots());
     }
 
     @Test

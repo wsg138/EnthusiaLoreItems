@@ -12,6 +12,7 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.inventory.ItemStack;
@@ -87,6 +88,24 @@ class PaperEntityTemplateUpdateControllerTest {
         registry.finishDispatch(batch, java.util.Set.of());
     }
 
+
+    @Test
+    void loadedSweepPublishesEveryTrackedArmorStandEquipmentSlot() {
+        ArmorStand stand = world.spawn(
+                new Location(world, 6, 64, 6), ArmorStand.class);
+        stand.getEquipment().setHelmet(tracked(6, Material.DIAMOND_HELMET));
+        stand.getEquipment().setItemInMainHand(tracked(7, Material.DIAMOND_SWORD));
+        controller = new PaperEntityTemplateUpdateController(plugin, registry, 4);
+        controller.observe(stand);
+
+        completeInitialSweep();
+
+        PaperTemplateUpdateAccessRegistry.DispatchBatch batch =
+                registry.prepareDispatch(server.getOnlinePlayers());
+        assertEquals(2, batch.candidates().size());
+        registry.finishDispatch(batch, java.util.Set.of());
+    }
+
     @Test
     void chunkTopologyChangeFailsClosedUntilAReplacementSweepCompletes() {
         Item item = dropTracked(4);
@@ -120,13 +139,18 @@ class PaperEntityTemplateUpdateControllerTest {
 
     private Item dropTracked(int index) {
         world.getChunkAt(index >> 4, index >> 4);
+        return world.dropItem(
+                new Location(world, index, 64, index),
+                tracked(index, Material.NETHER_STAR));
+    }
+
+    private static ItemStack tracked(int index, Material material) {
         LoreItemIdentity identity = new LoreItemIdentity(
                 DEFINITION_ID,
                 new LoreInstanceId(new UUID(0L, index)),
                 new TemplateRevision(1));
-        ItemStack item = new PaperItemIdentityCodec().writeIdentity(
-                ItemStack.of(Material.NETHER_STAR), identity);
-        return world.dropItem(new Location(world, index, 64, index), item);
+        return new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(material), identity);
     }
 
     private static PaperEntityTemplateUpdateReference entityReference(
@@ -140,9 +164,9 @@ class PaperEntityTemplateUpdateControllerTest {
         private int scanCalls;
 
         @Override
-        PaperTemplateUpdateScanner.Candidate scan(Entity entity) {
+        List<PaperTemplateUpdateScanner.Candidate> scanAll(Entity entity) {
             scanCalls++;
-            return delegate.scan(entity);
+            return delegate.scanAll(entity);
         }
     }
 }

@@ -2,8 +2,8 @@ package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.util.List;
 import java.util.UUID;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
@@ -14,6 +14,7 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,12 +23,9 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
 
 class PaperEntityTemplateUpdateScannerTest {
-    private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
-            new LoreDefinitionId(UUID.fromString(
-                    "11111111-1111-1111-1111-111111111111")),
-            new LoreInstanceId(UUID.fromString(
-                    "22222222-2222-2222-2222-222222222222")),
-            new TemplateRevision(1));
+    private static final LoreDefinitionId DEFINITION_ID = new LoreDefinitionId(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"));
+    private static final LoreItemIdentity IDENTITY = identity(2L);
 
     private ServerMock server;
     private World world;
@@ -47,8 +45,7 @@ class PaperEntityTemplateUpdateScannerTest {
     void emitsItemDisplayCandidateWithReloadSafeEntityReference() {
         ItemDisplay display = world.spawn(
                 new Location(world, 4, 64, 4), ItemDisplay.class);
-        display.setItemStack(new PaperItemIdentityCodec().writeIdentity(
-                ItemStack.of(Material.NETHER_STAR), IDENTITY));
+        display.setItemStack(tracked(Material.NETHER_STAR, IDENTITY));
 
         PaperTemplateUpdateScanner.Candidate candidate =
                 new PaperEntityTemplateUpdateScanner().scan(display);
@@ -62,10 +59,43 @@ class PaperEntityTemplateUpdateScannerTest {
     }
 
     @Test
-    void ignoresUnsupportedEntities() {
+    void emitsOneCandidatePerTrackedArmorStandEquipmentSlot() {
         ArmorStand stand = world.spawn(
                 new Location(world, 5, 64, 5), ArmorStand.class);
+        LoreItemIdentity helmetIdentity = identity(3L);
+        LoreItemIdentity handIdentity = identity(4L);
+        stand.getEquipment().setHelmet(tracked(Material.DIAMOND_HELMET, helmetIdentity));
+        stand.getEquipment().setItemInMainHand(tracked(Material.DIAMOND_SWORD, handIdentity));
+        stand.getEquipment().setBoots(ItemStack.of(Material.LEATHER_BOOTS));
 
-        assertNull(new PaperEntityTemplateUpdateScanner().scan(stand));
+        List<PaperTemplateUpdateScanner.Candidate> candidates =
+                new PaperEntityTemplateUpdateScanner().scanAll(stand);
+
+        assertEquals(2, candidates.size());
+        assertArmorStandCandidate(candidates.get(0), handIdentity, EquipmentSlot.HAND);
+        assertArmorStandCandidate(candidates.get(1), helmetIdentity, EquipmentSlot.HEAD);
+    }
+
+    private static void assertArmorStandCandidate(
+            PaperTemplateUpdateScanner.Candidate candidate,
+            LoreItemIdentity identity,
+            EquipmentSlot expectedSlot) {
+        assertEquals(identity, candidate.identity());
+        PaperEntityTemplateUpdateReference reference = assertInstanceOf(
+                PaperEntityTemplateUpdateReference.class,
+                candidate.reference());
+        assertEquals(PaperEntityTemplateUpdateReference.Kind.ARMOR_STAND, reference.kind());
+        assertEquals(expectedSlot, reference.equipmentSlot());
+    }
+
+    private static ItemStack tracked(Material material, LoreItemIdentity identity) {
+        return new PaperItemIdentityCodec().writeIdentity(ItemStack.of(material), identity);
+    }
+
+    private static LoreItemIdentity identity(long instanceId) {
+        return new LoreItemIdentity(
+                DEFINITION_ID,
+                new LoreInstanceId(new UUID(0L, instanceId)),
+                new TemplateRevision(1));
     }
 }

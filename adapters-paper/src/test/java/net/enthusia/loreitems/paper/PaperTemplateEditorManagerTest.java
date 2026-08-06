@@ -98,7 +98,7 @@ class PaperTemplateEditorManagerTest {
         assertEquals(0, useCase.confirmCalls);
 
         openEditor();
-        manager.onQuit(new PlayerQuitEvent(
+        server.getPluginManager().callEvent(new PlayerQuitEvent(
                 player, Component.empty(), PlayerQuitEvent.QuitReason.DISCONNECTED));
         assertEquals(0, manager.activeSessionCount());
         assertEquals(0, useCase.confirmCalls);
@@ -108,6 +108,27 @@ class PaperTemplateEditorManagerTest {
         server.getScheduler().performOneTick();
         server.getScheduler().performOneTick();
         assertEquals(0, manager.activeSessionCount());
+        assertEquals(0, useCase.confirmCalls);
+    }
+
+    @Test
+    void staleAsyncChatFromAClosedSessionCannotEditANewSession() {
+        openEditor();
+        click(10);
+        UUID staleSessionId = manager.chatSessionId(player.getUniqueId());
+        assertNotNull(staleSessionId);
+        manager.closeSessions("controlled restart");
+
+        openEditor();
+        click(10);
+        UUID currentSessionId = manager.chatSessionId(player.getUniqueId());
+        assertNotNull(currentSessionId);
+        assertFalse(staleSessionId.equals(currentSessionId));
+
+        manager.receiveChat(player.getUniqueId(), staleSessionId, "submit literal stale");
+        assertTrue(manager.awaitingChat(player.getUniqueId()));
+        assertEquals(PaperTemplateEditorSession.State.AWAITING_CHAT,
+                manager.sessionState(player.getUniqueId()));
         assertEquals(0, useCase.confirmCalls);
     }
 
@@ -137,6 +158,31 @@ class PaperTemplateEditorManagerTest {
 
         assertEquals(0, manager.activeSessionCount());
         assertEquals(1, rolloutWakes.get());
+    }
+
+
+    @Test
+    void confirmationTimeoutDoesNotClaimTheDurableRequestWasCancelled() {
+        openEditor();
+        click(10);
+        manager.receiveChat(player.getUniqueId(), "submit literal Edited name");
+        click(PaperTemplateEditorRenderer.EDITOR_PREVIEW);
+        click(PaperTemplateEditorRenderer.PREVIEW_CONFIRM);
+        assertEquals(1, useCase.confirmCalls);
+        while (player.nextComponentMessage() != null) {
+            // Discard setup and prompt messages before asserting the timeout outcome.
+        }
+
+        server.getScheduler().performOneTick();
+        server.getScheduler().performOneTick();
+        server.getScheduler().performOneTick();
+
+        assertEquals(0, manager.activeSessionCount());
+        assertEquals(
+                Component.text(
+                        "Template confirmation is still processing; reopen management to check durable status."),
+                player.nextComponentMessage());
+        assertEquals(0, rolloutWakes.get());
     }
 
     @Test
@@ -215,7 +261,7 @@ class PaperTemplateEditorManagerTest {
                 rawSlot,
                 ClickType.LEFT,
                 InventoryAction.PICKUP_ALL);
-        manager.onClick(event);
+        server.getPluginManager().callEvent(event);
         assertTrue(event.isCancelled());
     }
 

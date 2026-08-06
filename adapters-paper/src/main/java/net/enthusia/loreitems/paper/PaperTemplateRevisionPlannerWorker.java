@@ -21,14 +21,24 @@ public final class PaperTemplateRevisionPlannerWorker implements AutoCloseable {
     private final Plugin plugin;
     private final TemplateRevisionRolloutUseCase useCase;
     private final int batchLimit;
+    private final Runnable executionWake;
     private final AtomicBoolean inFlight = new AtomicBoolean();
     private BukkitTask task;
     private volatile boolean closed;
 
     public PaperTemplateRevisionPlannerWorker(
             Plugin plugin, TemplateRevisionRolloutUseCase useCase, int batchLimit) {
+        this(plugin, useCase, batchLimit, () -> {});
+    }
+
+    public PaperTemplateRevisionPlannerWorker(
+            Plugin plugin,
+            TemplateRevisionRolloutUseCase useCase,
+            int batchLimit,
+            Runnable executionWake) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
+        this.executionWake = Objects.requireNonNull(executionWake, "executionWake");
         if (batchLimit < 1 || batchLimit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("batchLimit is outside bounded page limits");
         }
@@ -109,8 +119,22 @@ public final class PaperTemplateRevisionPlannerWorker implements AutoCloseable {
             plugin.getLogger().severe("Template rollout scheduling returned no result.");
             return;
         }
+        if (result.scheduledCount() > 0) {
+            scheduleExecutionWake();
+        }
         if (result.hasMore()) {
             wake();
+        }
+    }
+
+    private void scheduleExecutionWake() {
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, executionWake);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.FINE,
+                    "Could not wake accessible template-update execution during shutdown.",
+                    exception);
         }
     }
 

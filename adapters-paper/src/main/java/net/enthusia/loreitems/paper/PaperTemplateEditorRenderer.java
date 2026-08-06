@@ -7,12 +7,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import net.enthusia.loreitems.application.TemplateManagementSnapshot;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import net.kyori.adventure.text.Component;
 
 final class PaperTemplateEditorRenderer {
     static final int MANAGEMENT_EDIT = 29;

@@ -15,7 +15,9 @@ import io.papermc.paper.registry.RegistryKey;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.Bukkit;
 import org.bukkit.Color;
+import org.bukkit.DyeColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
@@ -98,6 +100,23 @@ class PaperTemplateDraftEditorTest {
     }
 
     @Test
+    void parsesLiteralSolidAndGradientTextForNamesAndLore() {
+        ItemStack source = ItemStack.of(Material.PAPER);
+        ItemStack literal = apply(source, "custom-name", "literal Literal name");
+        assertEquals("Literal name", plain(literal.getItemMeta().customName()));
+        ItemStack solid = apply(source, "item-name", "solid #123456 Solid item name");
+        assertEquals("Solid item name", plain(solid.getItemMeta().itemName()));
+        assertEquals(TextColor.fromHexString("#123456"), solid.getItemMeta().itemName().color());
+        ItemStack gradient = apply(source, "custom-name", "gradient #ff0000,#0000ff Gradient");
+        assertEquals("Gradient", plain(gradient.getItemMeta().customName()));
+        List<Component> letters = gradient.getItemMeta().customName().children();
+        assertEquals(TextColor.fromHexString("#ff0000"), letters.getFirst().color());
+        assertEquals(TextColor.fromHexString("#0000ff"), letters.getLast().color());
+        ItemStack lore = apply(source, "lore", "add gradient #00ff00,#000000 Lore");
+        assertEquals("Lore", plain(Objects.requireNonNull(lore.getItemMeta().lore()).getFirst()));
+    }
+
+    @Test
     void validatesMaterialStackSizeDurabilityAndUnbreakableState() {
         ItemStack paper = ItemStack.of(Material.PAPER, 2);
         ItemStack sword = apply(paper, "material", "minecraft:diamond_sword");
@@ -115,46 +134,58 @@ class PaperTemplateDraftEditorTest {
     }
 
     @Test
-    void editsEnchantmentsTooltipGlintFlagsAndTooltipStyle() {
+    void editsEnchantmentsAndGlintOverrides() {
         ItemStack sword = ItemStack.of(Material.DIAMOND_SWORD);
-        ItemStack enchanted = apply(sword, "enchant", "set minecraft:sharpness 7");
         Enchantment sharpness = Objects.requireNonNull(
                 RegistryAccess.registryAccess().getRegistry(RegistryKey.ENCHANTMENT)
                         .get(NamespacedKey.minecraft("sharpness")));
+        ItemStack enchanted = apply(sword, "enchant", "set minecraft:sharpness 7");
         assertEquals(7, enchanted.getItemMeta().getEnchantLevel(sharpness));
+        enchanted = apply(enchanted, "enchant", "set minecraft:sharpness 3");
+        assertEquals(3, enchanted.getItemMeta().getEnchantLevel(sharpness));
         ItemStack hidden = apply(enchanted, "enchant", "tooltip hidden");
         assertTrue(hidden.getItemMeta().hasItemFlag(ItemFlag.HIDE_ENCHANTS));
         ItemStack visible = apply(hidden, "enchant", "tooltip visible");
         assertFalse(visible.getItemMeta().hasItemFlag(ItemFlag.HIDE_ENCHANTS));
+        assertFalse(apply(visible, "enchant", "remove minecraft:sharpness")
+                .getItemMeta().hasEnchant(sharpness));
+        assertTrue(apply(enchanted, "enchant", "clear").getItemMeta().getEnchants().isEmpty());
+
         ItemMeta glintTrue = apply(visible, "glint", "true").getItemMeta();
-        assertTrue(glintTrue.hasEnchantmentGlintOverride());
         assertEquals(Boolean.TRUE, glintTrue.getEnchantmentGlintOverride());
         ItemMeta glintFalse = apply(visible, "glint", "false").getItemMeta();
-        assertTrue(glintFalse.hasEnchantmentGlintOverride());
         assertEquals(Boolean.FALSE, glintFalse.getEnchantmentGlintOverride());
         assertFalse(apply(visible, "glint", "unset")
                 .getItemMeta().hasEnchantmentGlintOverride());
-        ItemStack flagged = apply(visible, "flags", "add hide_attributes");
-        assertTrue(flagged.getItemMeta().hasItemFlag(ItemFlag.HIDE_ATTRIBUTES));
-        assertFalse(apply(flagged, "flags", "remove hide_attributes")
-                .getItemMeta().hasItemFlag(ItemFlag.HIDE_ATTRIBUTES));
-        assertTrue(apply(visible, "tooltip", "hide true").getItemMeta().isHideTooltip());
-        ItemStack styledTooltip = apply(
-                visible, "tooltip", "style minecraft:test_style");
-        assertEquals(1, styledTooltip.getItemMeta().getMaxStackSize());
-        apply(styledTooltip, "tooltip", "style clear");
-        assertEquals(0, apply(enchanted, "enchant", "clear").getItemMeta().getEnchants().size());
     }
 
     @Test
-    void editsAttributesModelsAndModernCustomModelData() {
+    void editsFlagsAndTooltipControls() {
         ItemStack sword = ItemStack.of(Material.DIAMOND_SWORD);
+        ItemStack flagged = apply(sword, "flags", "add hide_attributes");
+        assertTrue(flagged.getItemMeta().hasItemFlag(ItemFlag.HIDE_ATTRIBUTES));
+        flagged = apply(flagged, "flags", "add hide_unbreakable");
+        assertFalse(apply(flagged, "flags", "remove hide_attributes")
+                .getItemMeta().hasItemFlag(ItemFlag.HIDE_ATTRIBUTES));
+        assertTrue(apply(flagged, "flags", "clear").getItemMeta().getItemFlags().isEmpty());
+
+        ItemStack hidden = apply(sword, "tooltip", "hide true");
+        assertTrue(hidden.getItemMeta().isHideTooltip());
+        assertFalse(apply(hidden, "tooltip", "hide false").getItemMeta().isHideTooltip());
+        ItemStack styled = apply(sword, "tooltip", "style minecraft:test_style");
+        assertEquals(1, styled.getAmount());
+        assertEquals(1, apply(styled, "tooltip", "style clear").getAmount());
+    }
+
+    @Test
+    void editsAttributesAndItemModels() {
+        ItemStack sword = ItemStack.of(Material.DIAMOND_SWORD);
+        Attribute attackDamage = Objects.requireNonNull(
+                org.bukkit.Registry.ATTRIBUTE.get(NamespacedKey.minecraft("attack_damage")));
         ItemStack attributed = apply(
                 sword,
                 "attribute",
                 "set minecraft:attack_damage enthusia:test_damage add_number 4.5 mainhand");
-        Attribute attackDamage = Objects.requireNonNull(
-                org.bukkit.Registry.ATTRIBUTE.get(NamespacedKey.minecraft("attack_damage")));
         assertEquals(1, Objects.requireNonNull(
                 attributed.getItemMeta().getAttributeModifiers(attackDamage)).size());
         ItemStack replaced = apply(
@@ -164,81 +195,100 @@ class PaperTemplateDraftEditorTest {
         assertEquals(1, Objects.requireNonNull(
                 replaced.getItemMeta().getAttributeModifiers(attackDamage)).size());
         ItemStack removed = apply(replaced, "attribute", "remove enthusia:test_damage");
-        assertTrue(removed.getItemMeta().getAttributeModifiers(attackDamage) == null
-                || removed.getItemMeta().getAttributeModifiers(attackDamage).isEmpty());
+        assertFalse(removed.getItemMeta().hasAttributeModifiers());
+        assertFalse(apply(replaced, "attribute", "clear").getItemMeta().hasAttributeModifiers());
 
         ItemStack modeled = apply(sword, "item-model", "enthusia:blade");
-        assertTrue(modeled.getItemMeta().hasMaxStackSize());
-        apply(modeled, "item-model", "clear");
+        assertEquals(1, modeled.getAmount());
+        assertEquals(1, apply(modeled, "item-model", "clear").getAmount());
+    }
 
+    @Test
+    void editsModernCustomModelDataComponents() {
+        ItemStack sword = ItemStack.of(Material.DIAMOND_SWORD);
         ItemStack floats = apply(sword, "custom-model-data", "floats 1.5,2.25");
+        assertEquals(1, floats.getAmount());
         ItemStack flags = apply(floats, "custom-model-data", "flags true,false,true");
+        assertEquals(1, flags.getAmount());
         ItemStack strings = apply(flags, "custom-model-data", "strings first|second value");
+        assertEquals(1, strings.getAmount());
         ItemStack colors = apply(strings, "custom-model-data", "colors #010203,#abcdef");
-        apply(colors, "custom-model-data", "clear");
+        assertEquals(1, colors.getAmount());
+        assertEquals(1, apply(colors, "custom-model-data", "clear").getAmount());
         assertRejected(sword, "custom-model-data", "floats NaN");
         assertRejected(sword, "custom-model-data", "strings first||third");
     }
 
     @Test
-    void editsDyePotionTrimBannerProfileAndFireworks() {
+    void editsDyePotionAndTrimData() {
         ItemStack leather = apply(
                 ItemStack.of(Material.LEATHER_CHESTPLATE), "dye", "#123456");
-        assertEquals(Color.fromRGB(0x123456),
-                assertInstanceOf(LeatherArmorMeta.class, leather.getItemMeta()).getColor());
+        LeatherArmorMeta leatherMeta = assertInstanceOf(LeatherArmorMeta.class, leather.getItemMeta());
+        assertEquals(Color.fromRGB(0x123456), leatherMeta.getColor());
+        ItemStack clearedLeather = apply(leather, "dye", "clear");
+        assertEquals(Bukkit.getItemFactory().getDefaultLeatherColor(),
+                assertInstanceOf(LeatherArmorMeta.class, clearedLeather.getItemMeta()).getColor());
 
         ItemStack potion = apply(ItemStack.of(Material.POTION), "potion", "base minecraft:strong_healing");
-        PotionMeta potionMeta = assertInstanceOf(PotionMeta.class, potion.getItemMeta());
-        assertNotNull(potionMeta.getBasePotionType());
-        potion = apply(
-                potion,
-                "potion",
-                "set-effect minecraft:speed 200 2 false true true");
+        assertNotNull(assertInstanceOf(PotionMeta.class, potion.getItemMeta()).getBasePotionType());
+        potion = apply(potion, "potion", "set-effect minecraft:speed 200 2 false true true");
         assertEquals(1, assertInstanceOf(PotionMeta.class, potion.getItemMeta()).getCustomEffects().size());
+        potion = apply(potion, "potion", "remove-effect minecraft:speed");
+        assertTrue(assertInstanceOf(PotionMeta.class, potion.getItemMeta()).getCustomEffects().isEmpty());
+        potion = apply(potion, "potion", "set-effect minecraft:speed 200 2 false true true");
+        assertTrue(assertInstanceOf(PotionMeta.class,
+                apply(potion, "potion", "clear-effects").getItemMeta()).getCustomEffects().isEmpty());
         potion = apply(potion, "potion", "color #112233");
         assertEquals(Color.fromRGB(0x112233),
                 assertInstanceOf(PotionMeta.class, potion.getItemMeta()).getColor());
         assertNull(assertInstanceOf(PotionMeta.class,
                 apply(potion, "potion", "clear-color").getItemMeta()).getColor());
 
-        ItemStack armor = apply(
-                ItemStack.of(Material.NETHERITE_CHESTPLATE),
-                "trim",
-                "minecraft:gold minecraft:sentry");
+        ItemStack armor = apply(ItemStack.of(Material.NETHERITE_CHESTPLATE),
+                "trim", "minecraft:gold minecraft:sentry");
         assertNotNull(assertInstanceOf(ArmorMeta.class, armor.getItemMeta()).getTrim());
         assertNull(assertInstanceOf(ArmorMeta.class,
                 apply(armor, "trim", "clear").getItemMeta()).getTrim());
+    }
 
-        ItemStack banner = apply(
-                ItemStack.of(Material.WHITE_BANNER),
-                "banner",
-                "add red minecraft:stripe_center");
+    @Test
+    void editsEveryBannerPatternOperation() {
+        ItemStack banner = apply(ItemStack.of(Material.WHITE_BANNER),
+                "banner", "add red minecraft:stripe_center");
+        banner = apply(banner, "banner", "add blue minecraft:stripe_top");
+        assertEquals(2, assertInstanceOf(BannerMeta.class, banner.getItemMeta()).numberOfPatterns());
+        banner = apply(banner, "banner", "set 1 green minecraft:stripe_bottom");
+        assertEquals(DyeColor.GREEN,
+                assertInstanceOf(BannerMeta.class, banner.getItemMeta()).getPattern(0).getColor());
+        banner = apply(banner, "banner", "remove 2");
         assertEquals(1, assertInstanceOf(BannerMeta.class, banner.getItemMeta()).numberOfPatterns());
         assertEquals(0, assertInstanceOf(BannerMeta.class,
                 apply(banner, "banner", "clear").getItemMeta()).numberOfPatterns());
+    }
 
+    @Test
+    void editsProfilesAndEveryFireworkOperation() {
         UUID profileId = UUID.randomUUID();
-        ItemStack head = apply(
-                ItemStack.of(Material.PLAYER_HEAD),
-                "profile",
-                profileId + " Example");
+        ItemStack head = apply(ItemStack.of(Material.PLAYER_HEAD),
+                "profile", profileId + " Example");
         assertEquals(profileId,
                 assertInstanceOf(SkullMeta.class, head.getItemMeta()).getPlayerProfile().getId());
         assertNull(assertInstanceOf(SkullMeta.class,
                 apply(head, "profile", "clear").getItemMeta()).getPlayerProfile());
 
         ItemStack rocket = apply(ItemStack.of(Material.FIREWORK_ROCKET), "firework", "power 3");
-        rocket = apply(
-                rocket,
-                "firework",
-                "add ball #ff0000,#00ff00 #0000ff true false");
+        rocket = apply(rocket, "firework", "add ball #ff0000,#00ff00 #0000ff true false");
+        rocket = apply(rocket, "firework", "add burst #123456 none false true");
         FireworkMeta rocketMeta = assertInstanceOf(FireworkMeta.class, rocket.getItemMeta());
         assertEquals(3, rocketMeta.getPower());
-        assertEquals(1, rocketMeta.getEffectsSize());
-        ItemStack star = apply(
-                ItemStack.of(Material.FIREWORK_STAR),
-                "firework",
-                "set burst #123456 none false true");
+        assertEquals(2, rocketMeta.getEffectsSize());
+        rocket = apply(rocket, "firework", "remove 1");
+        assertEquals(1, assertInstanceOf(FireworkMeta.class, rocket.getItemMeta()).getEffectsSize());
+        assertEquals(0, assertInstanceOf(FireworkMeta.class,
+                apply(rocket, "firework", "clear").getItemMeta()).getEffectsSize());
+
+        ItemStack star = apply(ItemStack.of(Material.FIREWORK_STAR),
+                "firework", "set burst #123456 none false true");
         assertNotNull(assertInstanceOf(FireworkEffectMeta.class, star.getItemMeta()).getEffect());
         assertNull(assertInstanceOf(FireworkEffectMeta.class,
                 apply(star, "firework", "clear").getItemMeta()).getEffect());

@@ -570,7 +570,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 this,
                 loaded.mutationBudgetPerTick());
         PaperTemplateRevisionPlannerWorker planner = new PaperTemplateRevisionPlannerWorker(
-                this, rolloutUseCase, loaded.mutationBudgetPerTick());
+                this,
+                rolloutUseCase,
+                loaded.mutationBudgetPerTick(),
+                this::wakeAccessibleTemplateUpdates);
         ServicesManager services = getServer().getServicesManager();
         try {
             registerAdministrationServices(
@@ -662,6 +665,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
         if (planner != null) {
             planner.wake();
         }
+        wakeAccessibleTemplateUpdates();
+    }
+
+    private void wakeAccessibleTemplateUpdates() {
         PaperMutationRecoveryWorker mutations = mutationRecoveryWorker;
         if (mutations != null) {
             mutations.wakeAccessible();

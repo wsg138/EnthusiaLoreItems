@@ -8,9 +8,9 @@ A package is assigned as a whole. Commits and internal checklists are implementa
 
 ## Ordered queue
 
-| Order | Package | Fixed objective | Weight | Initial status | Exact dependency |
+| Order | Package | Fixed objective | Weight | Status | Exact dependency |
 |---:|---|---|---:|---|---|
-| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | READY | PR #9 merged; live baseline reconciled |
+| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | VERIFYING | Final WP-01 exact-head gates and normal merge |
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | BLOCKED | WP-01 COMPLETE |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | Complete one-use mass distributions. | 20% | BLOCKED | WP-02 COMPLETE |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | Complete automated production hardening and produce a release candidate. | 15% | BLOCKED | WP-03 COMPLETE |

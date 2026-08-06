@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutBatchResult;
@@ -41,15 +42,19 @@ class PaperTemplateRevisionPlannerWorkerTest {
     @Test
     void schedulesOnlyOneBoundedBatchPerPassAndContinuesWhenMoreRemain() {
         RecordingUseCase useCase = new RecordingUseCase();
+        AtomicInteger executionWakes = new AtomicInteger();
         try (PaperTemplateRevisionPlannerWorker worker =
-                     new PaperTemplateRevisionPlannerWorker(plugin, useCase, 7)) {
+                     new PaperTemplateRevisionPlannerWorker(
+                             plugin, useCase, 7, executionWakes::incrementAndGet)) {
             worker.start();
+            server.getScheduler().performOneTick();
             server.getScheduler().performOneTick();
             server.getScheduler().performOneTick();
 
             assertEquals(2, useCase.listCalls);
             assertEquals(2, useCase.scheduleCalls);
             assertEquals(7, useCase.lastBatchLimit);
+            assertEquals(2, executionWakes.get());
         }
     }
 

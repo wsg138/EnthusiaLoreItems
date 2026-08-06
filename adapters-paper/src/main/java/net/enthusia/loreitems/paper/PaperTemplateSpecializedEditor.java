@@ -1,5 +1,7 @@
 package net.enthusia.loreitems.paper;
 
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -8,8 +10,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.DyeColor;
 import org.bukkit.FireworkEffect;
-import io.papermc.paper.registry.RegistryAccess;
-import io.papermc.paper.registry.RegistryKey;
 import org.bukkit.Registry;
 import org.bukkit.block.banner.Pattern;
 import org.bukkit.block.banner.PatternType;
@@ -71,37 +71,63 @@ final class PaperTemplateSpecializedEditor {
             throw new IllegalArgumentException("This material does not support potion data");
         }
         String[] values = input.strip().split("\\s+");
-        if (values.length == 2 && values[0].equalsIgnoreCase("base")) {
-            PotionType type = Registry.POTION.get(PaperTemplateEditorSupport.key(values[1]));
-            if (type == null) {
-                throw new IllegalArgumentException("Unknown potion base type");
+        switch (values[0].toLowerCase(Locale.ROOT)) {
+            case "base" -> setPotionBase(meta, values);
+            case "clear-effects" -> {
+                requireLength(values, 1);
+                meta.clearCustomEffects();
             }
-            meta.setBasePotionType(type);
-        } else if (values.length == 1 && values[0].equalsIgnoreCase("clear-effects")) {
-            meta.clearCustomEffects();
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("remove-effect")) {
-            meta.removeCustomEffect(effectType(values[1]));
-        } else if (values.length == 2 && values[0].equalsIgnoreCase("color")) {
-            meta.setColor(PaperTemplateEditorSupport.color(values[1]));
-        } else if (values.length == 1 && values[0].equalsIgnoreCase("clear-color")) {
-            meta.setColor(null);
-        } else if (values.length == 7 && values[0].equalsIgnoreCase("set-effect")) {
-            PotionEffect effect = new PotionEffect(
-                    effectType(values[1]),
-                    PaperTemplateEditorSupport.integer(values[2], 1, Integer.MAX_VALUE, "duration"),
-                    PaperTemplateEditorSupport.integer(values[3], 0, 255, "amplifier"),
-                    PaperTemplateEditorSupport.bool(values[4]),
-                    PaperTemplateEditorSupport.bool(values[5]),
-                    PaperTemplateEditorSupport.bool(values[6]));
-            meta.addCustomEffect(effect, true);
-        } else {
-            throw new IllegalArgumentException(
-                    "Use base <key>, set-effect <key> <ticks> <amplifier> <ambient> "
-                            + "<particles> <icon>, remove-effect <key>, clear-effects, "
-                            + "color <hex>, or clear-color");
+            case "remove-effect" -> {
+                requireLength(values, 2);
+                meta.removeCustomEffect(effectType(values[1]));
+            }
+            case "color" -> {
+                requireLength(values, 2);
+                meta.setColor(PaperTemplateEditorSupport.color(values[1]));
+            }
+            case "clear-color" -> {
+                requireLength(values, 1);
+                meta.setColor(null);
+            }
+            case "set-effect" -> setPotionEffect(meta, values);
+            default -> throw potionUsage();
         }
         PaperTemplateEditorSupport.applyMeta(item, meta);
         return "Potion components updated";
+    }
+
+    private static void setPotionBase(PotionMeta meta, String[] values) {
+        requireLength(values, 2);
+        PotionType type = Registry.POTION.get(PaperTemplateEditorSupport.key(values[1]));
+        if (type == null) {
+            throw new IllegalArgumentException("Unknown potion base type");
+        }
+        meta.setBasePotionType(type);
+    }
+
+    private static void setPotionEffect(PotionMeta meta, String[] values) {
+        requireLength(values, 7);
+        PotionEffect effect = new PotionEffect(
+                effectType(values[1]),
+                PaperTemplateEditorSupport.integer(values[2], 1, Integer.MAX_VALUE, "duration"),
+                PaperTemplateEditorSupport.integer(values[3], 0, 255, "amplifier"),
+                PaperTemplateEditorSupport.bool(values[4]),
+                PaperTemplateEditorSupport.bool(values[5]),
+                PaperTemplateEditorSupport.bool(values[6]));
+        meta.addCustomEffect(effect, true);
+    }
+
+    private static void requireLength(String[] values, int expected) {
+        if (values.length != expected) {
+            throw potionUsage();
+        }
+    }
+
+    private static IllegalArgumentException potionUsage() {
+        return new IllegalArgumentException(
+                "Use base <key>, set-effect <key> <ticks> <amplifier> <ambient> "
+                        + "<particles> <icon>, remove-effect <key>, clear-effects, "
+                        + "color <hex>, or clear-color");
     }
 
     private static PotionEffectType effectType(String value) {

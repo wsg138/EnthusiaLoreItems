@@ -3,26 +3,56 @@ package net.enthusia.loreitems.paper;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.ItemFrame;
+import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
-/** Immutable reference to a root item carried by an already-loaded entity. */
-record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
+/** Immutable reference to an item carried by an already-loaded entity. */
+record PaperEntityTemplateUpdateReference(
+        UUID entityId,
+        Kind kind,
+        EquipmentSlot equipmentSlot)
         implements PaperTemplateUpdateReference {
 
     PaperEntityTemplateUpdateReference {
         Objects.requireNonNull(entityId, "entityId");
         Objects.requireNonNull(kind, "kind");
+        if (kind == Kind.ARMOR_STAND) {
+            requireArmorStandSlot(equipmentSlot);
+        } else if (equipmentSlot != null) {
+            throw new IllegalArgumentException("equipmentSlot is only valid for armor stands");
+        }
+    }
+
+    PaperEntityTemplateUpdateReference(UUID entityId, Kind kind) {
+        this(entityId, kind, null);
     }
 
     static PaperEntityTemplateUpdateReference capture(Entity entity) {
         Objects.requireNonNull(entity, "entity");
-        Kind kind = Kind.from(entity);
-        return kind == null ? null : new PaperEntityTemplateUpdateReference(entity.getUniqueId(), kind);
+        Kind kind = Kind.fromRoot(entity);
+        return kind == null
+                ? null
+                : new PaperEntityTemplateUpdateReference(entity.getUniqueId(), kind);
+    }
+
+    static PaperEntityTemplateUpdateReference armorStand(
+            ArmorStand armorStand,
+            EquipmentSlot equipmentSlot) {
+        Objects.requireNonNull(armorStand, "armorStand");
+        return new PaperEntityTemplateUpdateReference(
+                armorStand.getUniqueId(), Kind.ARMOR_STAND, equipmentSlot);
+    }
+
+    static boolean supports(Entity entity) {
+        Objects.requireNonNull(entity, "entity");
+        return entity instanceof ArmorStand || Kind.fromRoot(entity) != null;
     }
 
     @Override
@@ -32,11 +62,41 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
         if (!usable(entity) || !kind.matches(entity)) {
             return Optional.empty();
         }
-        ItemStack item = kind.read(entity);
+        ItemStack item = read(entity);
         if (item.getType().isAir()) {
             return Optional.empty();
         }
-        return Optional.of(new Resolved(entity, kind, item.clone()));
+        return Optional.of(new Resolved(entity, kind, equipmentSlot, item.clone()));
+    }
+
+    ItemStack read(Entity entity) {
+        Objects.requireNonNull(entity, "entity");
+        if (kind == Kind.ARMOR_STAND) {
+            return equipment(entity).getItem(equipmentSlot);
+        }
+        return kind.readRoot(entity);
+    }
+
+    private void write(Entity entity, ItemStack item) {
+        ItemStack replacement = item.clone();
+        if (kind == Kind.ARMOR_STAND) {
+            equipment(entity).setItem(equipmentSlot, replacement, true);
+        } else {
+            kind.writeRoot(entity, replacement);
+        }
+    }
+
+    private static EntityEquipment equipment(Entity entity) {
+        return Objects.requireNonNull(
+                ((ArmorStand) entity).getEquipment(),
+                "armor stand equipment");
+    }
+
+    private static void requireArmorStandSlot(EquipmentSlot equipmentSlot) {
+        Objects.requireNonNull(equipmentSlot, "equipmentSlot");
+        if (equipmentSlot == EquipmentSlot.BODY || equipmentSlot == EquipmentSlot.SADDLE) {
+            throw new IllegalArgumentException("unsupported armor stand equipment slot");
+        }
     }
 
     private static boolean usable(Entity entity) {
@@ -46,9 +106,10 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
     enum Kind {
         DROPPED_ITEM,
         ITEM_FRAME,
-        ITEM_DISPLAY;
+        ITEM_DISPLAY,
+        ARMOR_STAND;
 
-        private static Kind from(Entity entity) {
+        private static Kind fromRoot(Entity entity) {
             if (entity instanceof Item) {
                 return DROPPED_ITEM;
             }
@@ -66,23 +127,25 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
                 case DROPPED_ITEM -> entity instanceof Item;
                 case ITEM_FRAME -> entity instanceof ItemFrame;
                 case ITEM_DISPLAY -> entity instanceof ItemDisplay;
+                case ARMOR_STAND -> entity instanceof ArmorStand;
             };
         }
 
-        private ItemStack read(Entity entity) {
+        private ItemStack readRoot(Entity entity) {
             return switch (this) {
                 case DROPPED_ITEM -> ((Item) entity).getItemStack();
                 case ITEM_FRAME -> ((ItemFrame) entity).getItem();
                 case ITEM_DISPLAY -> ((ItemDisplay) entity).getItemStack();
+                case ARMOR_STAND -> throw new IllegalStateException("armor stand slot required");
             };
         }
 
-        private void write(Entity entity, ItemStack item) {
-            ItemStack replacement = item.clone();
+        private void writeRoot(Entity entity, ItemStack item) {
             switch (this) {
-                case DROPPED_ITEM -> ((Item) entity).setItemStack(replacement);
-                case ITEM_FRAME -> ((ItemFrame) entity).setItem(replacement, false);
-                case ITEM_DISPLAY -> ((ItemDisplay) entity).setItemStack(replacement);
+                case DROPPED_ITEM -> ((Item) entity).setItemStack(item);
+                case ITEM_FRAME -> ((ItemFrame) entity).setItem(item, false);
+                case ITEM_DISPLAY -> ((ItemDisplay) entity).setItemStack(item);
+                case ARMOR_STAND -> throw new IllegalStateException("armor stand slot required");
             }
         }
     }
@@ -90,11 +153,17 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
     static final class Resolved implements PaperTemplateUpdateReference.Resolved {
         private final Entity entity;
         private final Kind kind;
+        private final EquipmentSlot equipmentSlot;
         private final ItemStack originalItem;
 
-        private Resolved(Entity entity, Kind kind, ItemStack originalItem) {
+        private Resolved(
+                Entity entity,
+                Kind kind,
+                EquipmentSlot equipmentSlot,
+                ItemStack originalItem) {
             this.entity = Objects.requireNonNull(entity, "entity");
             this.kind = Objects.requireNonNull(kind, "kind");
+            this.equipmentSlot = equipmentSlot;
             this.originalItem = Objects.requireNonNull(originalItem, "originalItem");
         }
 
@@ -109,7 +178,7 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
             if (!usable(entity) || !kind.matches(entity)) {
                 return false;
             }
-            kind.write(entity, replacement);
+            reference().write(entity, replacement);
             return true;
         }
 
@@ -118,7 +187,7 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
             if (!usable(entity) || !kind.matches(entity)) {
                 return null;
             }
-            return kind.read(entity).clone();
+            return reference().read(entity).clone();
         }
 
         @Override
@@ -126,11 +195,16 @@ record PaperEntityTemplateUpdateReference(UUID entityId, Kind kind)
             if (!usable(entity) || !kind.matches(entity)) {
                 return false;
             }
-            kind.write(entity, originalItem);
+            reference().write(entity, originalItem);
             ItemStack restored = readStored();
             return restored != null
                     && PaperItemFingerprint.of(restored)
                             .equals(PaperItemFingerprint.of(originalItem));
+        }
+
+        private PaperEntityTemplateUpdateReference reference() {
+            return new PaperEntityTemplateUpdateReference(
+                    entity.getUniqueId(), kind, equipmentSlot);
         }
     }
 }
