@@ -13,6 +13,8 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 
 final class SQLiteDestructiveCompletionStore {
     private static final int SINGLE_ROW = 1;
+    private static final String NOW_PARAMETER = "now";
+
     private final SQLiteStorageRuntime storage;
 
     SQLiteDestructiveCompletionStore(SQLiteStorageRuntime storage) {
@@ -25,7 +27,7 @@ final class SQLiteDestructiveCompletionStore {
             Instant now) {
         Objects.requireNonNull(removal, "removal");
         String normalizedReason = normalizeDetail(reason, "reason");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> releaseRemoval(
@@ -39,7 +41,7 @@ final class SQLiteDestructiveCompletionStore {
         Objects.requireNonNull(removal, "removal");
         String normalizedFingerprint = normalizeDetail(
                 beforeFingerprint, "beforeFingerprint");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> completeRemoval(
@@ -70,7 +72,7 @@ final class SQLiteDestructiveCompletionStore {
     }
 
     CompletionStage<Integer> moveExpiredClaimsToReview(Instant now, int limit) {
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
@@ -84,7 +86,7 @@ final class SQLiteDestructiveCompletionStore {
             Instant now) {
         Objects.requireNonNull(removal, "removal");
         Objects.requireNonNull(effectState, "effectState");
-        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(now, NOW_PARAMETER);
         if (effectState == DestructiveEffectState.UNKNOWN) {
             throw new IllegalArgumentException(
                     "Review evidence must classify the observed physical effect");

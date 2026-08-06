@@ -19,6 +19,7 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 
 final class SQLiteDestructiveAcceptanceStore {
     private static final int SINGLE_ROW = 1;
+    private static final long EMPTY_TARGET_COUNT = 0L;
     private static final String TARGET_INSERT =
             "INSERT INTO destructive_targets(operation_id, instance_id, definition_id, "
                     + "expected_applied_revision, expected_location_type, expected_location_key, "
@@ -323,7 +324,7 @@ final class SQLiteDestructiveAcceptanceStore {
             UUID operationId,
             long targetCount,
             long now) throws SQLException {
-        if (targetCount != 0L) {
+        if (targetCount != EMPTY_TARGET_COUNT) {
             return;
         }
         try (PreparedStatement statement = connection.prepareStatement(

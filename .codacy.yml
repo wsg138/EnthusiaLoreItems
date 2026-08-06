@@ -6,3 +6,4 @@ exclude_paths:
   - "adapters-sqlite/src/main/resources/db/migration/V2__template_revision_rollout.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V3__mutation_queue_controls.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V4__template_editor_confirmations.sql"
+  - "adapters-sqlite/src/main/resources/db/migration/V5__destructive_administration.sql"

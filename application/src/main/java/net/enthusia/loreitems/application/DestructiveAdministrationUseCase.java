@@ -36,7 +36,7 @@ public interface DestructiveAdministrationUseCase {
             LoreInstanceId exactInstanceId) {
         public PreviewRequest {
             Objects.requireNonNull(operationType, "operationType");
-            Objects.requireNonNull(definitionId, "definitionId");
+            definitionId = requireDefinitionId(definitionId);
             if (operationType.exactInstanceRequired() != (exactInstanceId != null)) {
                 throw new IllegalArgumentException(
                         "Exact-instance identity must match the destructive operation type");
@@ -60,7 +60,7 @@ public interface DestructiveAdministrationUseCase {
 
         public Preview {
             Objects.requireNonNull(operationType, "operationType");
-            Objects.requireNonNull(definitionId, "definitionId");
+            definitionId = requireDefinitionId(definitionId);
             Objects.requireNonNull(lookupKey, "lookupKey");
             Objects.requireNonNull(displayName, "displayName");
             Objects.requireNonNull(expectedRevision, "expectedRevision");
@@ -91,9 +91,8 @@ public interface DestructiveAdministrationUseCase {
 
         public StartRequest {
             Objects.requireNonNull(preview, "preview");
-            Objects.requireNonNull(actorId, "actorId");
+            actorId = requireActorId(actorId).strip();
             Objects.requireNonNull(idempotencyKey, "idempotencyKey");
-            actorId = actorId.strip();
             idempotencyKey = idempotencyKey.strip();
             if (actorId.isEmpty() || actorId.length() > MAX_ACTOR_LENGTH) {
                 throw new IllegalArgumentException("Invalid destructive-operation actor");
@@ -142,9 +141,8 @@ public interface DestructiveAdministrationUseCase {
 
     record ControlRequest(UUID operationId, String actorId) {
         public ControlRequest {
-            Objects.requireNonNull(operationId, "operationId");
-            Objects.requireNonNull(actorId, "actorId");
-            actorId = actorId.strip();
+            operationId = requireOperationId(operationId);
+            actorId = requireActorId(actorId).strip();
             if (actorId.isEmpty() || actorId.length() > StartRequest.MAX_ACTOR_LENGTH) {
                 throw new IllegalArgumentException("Invalid destructive-operation actor");
             }
@@ -184,12 +182,11 @@ public interface DestructiveAdministrationUseCase {
         public static final int MAX_EVIDENCE_DETAIL_LENGTH = 2_000;
 
         public ReviewRequest {
-            Objects.requireNonNull(operationId, "operationId");
+            operationId = requireOperationId(operationId);
             Objects.requireNonNull(instanceId, "instanceId");
             Objects.requireNonNull(resolution, "resolution");
-            Objects.requireNonNull(actorId, "actorId");
+            actorId = requireActorId(actorId).strip();
             Objects.requireNonNull(evidenceDetail, "evidenceDetail");
-            actorId = actorId.strip();
             evidenceDetail = evidenceDetail.strip();
             if (actorId.isEmpty() || actorId.length() > StartRequest.MAX_ACTOR_LENGTH) {
                 throw new IllegalArgumentException("Invalid destructive-review actor");
@@ -249,12 +246,12 @@ public interface DestructiveAdministrationUseCase {
             long updatedAtEpochMillis,
             Long terminalAtEpochMillis) {
         public OperationView {
-            Objects.requireNonNull(operationId, "operationId");
+            operationId = requireOperationId(operationId);
             Objects.requireNonNull(operationType, "operationType");
-            Objects.requireNonNull(definitionId, "definitionId");
+            definitionId = requireDefinitionId(definitionId);
             Objects.requireNonNull(expectedRevision, "expectedRevision");
             Objects.requireNonNull(state, "state");
-            Objects.requireNonNull(actorId, "actorId");
+            actorId = requireActorId(actorId);
             Objects.requireNonNull(idempotencyKey, "idempotencyKey");
             if (operationType.exactInstanceRequired() != (exactInstanceId != null)) {
                 throw new IllegalArgumentException(
@@ -293,9 +290,9 @@ public interface DestructiveAdministrationUseCase {
             long createdAtEpochMillis,
             long updatedAtEpochMillis) {
         public TargetView {
-            Objects.requireNonNull(operationId, "operationId");
+            operationId = requireOperationId(operationId);
             Objects.requireNonNull(instanceId, "instanceId");
-            Objects.requireNonNull(definitionId, "definitionId");
+            definitionId = requireDefinitionId(definitionId);
             Objects.requireNonNull(expectedAppliedRevision, "expectedAppliedRevision");
             Objects.requireNonNull(state, "state");
             Objects.requireNonNull(effectState, "effectState");
@@ -325,5 +322,17 @@ public interface DestructiveAdministrationUseCase {
                 throw new IllegalArgumentException("Destructive metrics must not be negative");
             }
         }
+    }
+
+    private static LoreDefinitionId requireDefinitionId(LoreDefinitionId definitionId) {
+        return Objects.requireNonNull(definitionId, "definitionId");
+    }
+
+    private static UUID requireOperationId(UUID operationId) {
+        return Objects.requireNonNull(operationId, "operationId");
+    }
+
+    private static String requireActorId(String actorId) {
+        return Objects.requireNonNull(actorId, "actorId");
     }
 }

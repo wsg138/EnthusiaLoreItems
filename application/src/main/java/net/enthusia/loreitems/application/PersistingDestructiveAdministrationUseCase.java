@@ -9,6 +9,8 @@ import java.util.concurrent.CompletionStage;
 
 public final class PersistingDestructiveAdministrationUseCase
         implements DestructiveAdministrationUseCase {
+    private static final String REQUEST_PARAMETER = "request";
+
     private final DestructiveOperationStore store;
     private final Clock clock;
 
@@ -21,18 +23,18 @@ public final class PersistingDestructiveAdministrationUseCase
 
     @Override
     public CompletionStage<Optional<Preview>> preview(PreviewRequest request) {
-        return store.preview(Objects.requireNonNull(request, "request"));
+        return store.preview(Objects.requireNonNull(request, REQUEST_PARAMETER));
     }
 
     @Override
     public CompletionStage<StartResult> start(StartRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, REQUEST_PARAMETER);
         return store.start(request, UUID.randomUUID(), clock.instant());
     }
 
     @Override
     public CompletionStage<Page<OperationView>> listOperations(PageRequest request) {
-        return store.listOperations(Objects.requireNonNull(request, "request"));
+        return store.listOperations(Objects.requireNonNull(request, REQUEST_PARAMETER));
     }
 
     @Override
@@ -41,27 +43,27 @@ public final class PersistingDestructiveAdministrationUseCase
             PageRequest request) {
         return store.listTargets(
                 Objects.requireNonNull(operationId, "operationId"),
-                Objects.requireNonNull(request, "request"));
+                Objects.requireNonNull(request, REQUEST_PARAMETER));
     }
 
     @Override
     public CompletionStage<ControlResult> pause(ControlRequest request) {
         return store.pause(
-                Objects.requireNonNull(request, "request"),
+                Objects.requireNonNull(request, REQUEST_PARAMETER),
                 clock.instant());
     }
 
     @Override
     public CompletionStage<ControlResult> resume(ControlRequest request) {
         return store.resume(
-                Objects.requireNonNull(request, "request"),
+                Objects.requireNonNull(request, REQUEST_PARAMETER),
                 clock.instant());
     }
 
     @Override
     public CompletionStage<ReviewResult> resolveReview(ReviewRequest request) {
         return store.resolveReview(
-                Objects.requireNonNull(request, "request"),
+                Objects.requireNonNull(request, REQUEST_PARAMETER),
                 clock.instant());
     }
 

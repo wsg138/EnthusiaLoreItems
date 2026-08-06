@@ -5,19 +5,19 @@ public enum DestructiveOperationType {
     PURGE_DEFINITION(false, false),
     DELETE_DEFINITION(false, true);
 
-    private final boolean exactInstanceRequired;
-    private final boolean deletesDefinition;
+    private final boolean requiresExactInstance;
+    private final boolean removesDefinition;
 
-    DestructiveOperationType(boolean exactInstanceRequired, boolean deletesDefinition) {
-        this.exactInstanceRequired = exactInstanceRequired;
-        this.deletesDefinition = deletesDefinition;
+    DestructiveOperationType(boolean requiresExactInstance, boolean removesDefinition) {
+        this.requiresExactInstance = requiresExactInstance;
+        this.removesDefinition = removesDefinition;
     }
 
     public boolean exactInstanceRequired() {
-        return exactInstanceRequired;
+        return requiresExactInstance;
     }
 
     public boolean deletesDefinition() {
-        return deletesDefinition;
+        return removesDefinition;
     }
 }
