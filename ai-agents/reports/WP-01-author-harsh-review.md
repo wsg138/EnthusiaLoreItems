@@ -28,25 +28,25 @@ This is the completing agent's author-side harsh review of the full WP-01 change
 6. **Confirmation timeout feedback could be fenced out as stale.** Session cleanup now preserves accurate durable-processing feedback without claiming the already-submitted request was cancelled.
 7. **Administration startup exceeded the repository complexity threshold.** Worker activation was extracted into a coherent lifecycle helper.
 8. **Session tracking used a non-concurrent map while asynchronous chat could read it.** Session and pending-chat tracking use concurrent bounded maps; tests prove duplicate sessions and the global 32-session limit are rejected without revision creation.
-9. **A hung management snapshot query could permanently consume a permit.** Management queries have a bounded timeout applied to a dependent future, release permits on completion/failure/timeout, and retain the storage-owned future. A one-permit regression test proves capacity recovers.
+9. **A hung management snapshot query could permanently consume a permit.** Management queries have a bounded timeout applied to a copied dependent future, release permits on completion/failure/timeout, and retain the storage-owned future. A one-permit regression test proves capacity recovers.
 10. **Edit-only access remained blocked in the management loader even after command and GUI fixes.** The loader now uses the shared browse authorization rule, with direct lifecycle coverage.
 11. **A specialized editor branch compared a local result to itself.** Unsupported actions now throw explicit validation failure; accepted operations return the normalized edited item without a null sentinel.
-12. **Codacy reported 55 new issues, then 12 after the first remediation.** Actual complexity findings were refactored into smaller parser helpers; concurrency and correctness findings were fixed; narrowly scoped suppressions remain only for analyzer-inappropriate parser/test patterns. Exact-head Codacy on reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` succeeded with zero annotations.
+12. **Codacy reported 55 new issues, then 12 after the first remediation.** Actual complexity findings were refactored into smaller parser helpers; concurrency and correctness findings were fixed; narrowly scoped suppressions remain only for analyzer-inappropriate parser/test patterns. Exact-head Codacy succeeded with zero annotations.
 
 ## Review suggestions not converted into code
 
-- Deriving GUI action sets from renderer internals, sharing tiny index helpers across unrelated editors, and replacing current registry access solely to avoid an API deprecation warning were not required for correctness or the WP-01 contract. At the verification boundary, those refactors would increase coupling or compatibility risk without closing a confirmed defect.
-- Additional readback tests suggested in the review body duplicate stronger existing codec/component round-trip, draft-operation, preview, held-item, and rollout-preservation tests. No uncovered acceptance criterion was identified.
+- Deriving GUI action sets from renderer internals, sharing tiny index helpers across unrelated editors, removing an exhaustive-switch default, and replacing current registry access solely to avoid a deprecation warning were not required for correctness or the WP-01 contract. At the verification boundary, those refactors would increase coupling or compatibility risk without closing a confirmed defect.
+- Additional component readback assertions suggested in the review body duplicate stronger existing codec/component round-trip, draft-operation, preview, held-item, and rollout-preservation tests. No uncovered acceptance criterion was identified.
 - The temporary self-modifying workflow mechanism used to obtain a remote checkout was removed from the final source head. It is not part of the package implementation.
 
-## Verification evidence before this checkpoint
+## Final verification evidence
 
 - Focused regression tests passed in GitHub-hosted Java 21/Gradle 8.14.3 checkouts before each generated source commit.
 - Full `gradle --no-daemon clean check` passed in the checkout that produced reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c`.
-- Repository-tool tests and the new-code complexity gate passed on the prior normal exact code head; the final complexity refactors also passed full Gradle verification before commit.
-- Exact-head Codacy on `7b91ca90eb27574e1fdf0779e02c448f52158f8c` succeeded with zero annotations.
-- All live inline review threads are resolved and no review is in requested-changes state.
+- GitHub Actions run `31073464520` on normal user-authored checkpoint `22a28078f25b5e24aa6c611f6dff06ab504a4267` passed full Gradle verification, all repository-tool tests, the new-code complexity gate, and exact-head Codacy.
+- Codacy analysis on the reviewed source head succeeded with zero annotations.
+- Every live inline review thread is resolved; reviews are COMMENTED rather than requested changes.
 
-## Remaining verification
+## Verdict
 
-The bot-authored source commit did not receive instantiated official CI jobs and was marked `action_required`. This user-authored coordination checkpoint must receive ordinary exact-head GitHub Actions, repository-tool, complexity, and Codacy success. After that, only prospective completion records, their exact-head verification, normal merge, and live-main verification remain.
+**READY FOR NORMAL MERGE after exact-head verification of the prospective completion records commit.** No confirmed WP-01 acceptance criterion remains unimplemented. No confirmed release-blocking defect remains open. WP-02 is only prepared as the exact next READY package and must not begin in this chat.

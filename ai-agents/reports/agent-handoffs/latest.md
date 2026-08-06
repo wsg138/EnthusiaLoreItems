@@ -4,39 +4,46 @@
 
 This is the current GitHub-backed handoff for the fixed remaining-work program. Live GitHub always outranks this snapshot.
 
-## Active assignment
+## Prospective completion
 
 - Package: WP-01 — editor and template management
-- Status: `VERIFYING`
+- Status: `COMPLETE` prospectively, pending final-records verification, normal merge, and live-main verification
 - Canonical branch: `agent/wp-01-editor-template-management`
 - Pull request: #11, `WP-01: complete editor and template management`
-- Live `main`: `05fade8645ac994bd9ab498c64449ea4cf084384`
-- Starting branch SHA for this resumed session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
-- Reviewed source head before this checkpoint: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
+- Live `main` before merge: `05fade8645ac994bd9ab498c64449ea4cf084384`
+- Starting branch SHA for this completing session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
+- Reviewed source head: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
+- Verified pre-completion checkpoint: `22a28078f25b5e24aa6c611f6dff06ab504a4267`
+- Next package prepared as READY: WP-02; it must not be started in this chat
 
-## Completed package work
+## Completed acceptance criteria
 
-The branch contains the complete WP-01 operator workflow and required backend integration: definition-specific management, bounded editor sessions, all contracted common and specialized component edits, exact held-item replacement, draft/preview/confirm, immutable audit-backed revisions, atomic durable rollout intent, bounded accessible updates, natural deferred updates, identity/ambiguity safeguards, degraded-mode rejection, permissions, documentation, and automated tests.
+- Complete definition-specific management and GUI/chat editor workflow with bounded permission-checked sessions and explicit lifecycle handling.
+- Every required material, name, lore, enchantment, glint, damage, unbreakable, attribute, model, stack-size, custom-model-data, dye, potion, trim, banner, profile, firework, and tooltip/flag operation.
+- Exact held-item replacement fallback with versioned codec preservation, identity stripping, amount/max-stack normalization, preview, and confirmation.
+- Immutable monotonic revisions with actor and before/after evidence; atomic durable rollout intent; duplicate/replay/restart idempotency.
+- Bounded accessible updates across all required scopes; durable natural-observation deferral without force loading.
+- Identity/revision verification and safe anomaly/review routing for malformed, conflicting, stale, mismatched, or ambiguous evidence.
+- Degraded/read-only rejection, Bukkit-thread and async-storage boundaries, pagination, bounds, reload/shutdown ownership, permissions, tab completion, messages, and documentation.
+- Required automated test matrix, harsh review, confirmed fixes, exact-head gates, and review resolution.
 
-The resumed agent fixed every confirmed live review or verification defect: operation-specific chat parsing and validation isolation; browse/edit permission routing across command, completion, GUI, and loader boundaries; unavailable-route completion filtering; Bukkit-thread continuation marshalling; required complete confirmation persistence; confirmation-timeout feedback; concurrent bounded session tracking; hung management-query timeout with permit recovery; exact-head complexity; and all Codacy findings.
+## Verification
 
-Focused regression coverage now includes edit-only routing, unavailable administration completions, off-thread rollout completions, edit-only GUI lifecycle, duplicate/over-capacity session rejection, query timeout permit recovery, duplicate confirmation, stale-session fencing, invalid/cancel/timeout/disconnect/reload behavior, and exact held-item identity stripping.
+- GitHub Actions run `31073464520` on `22a28078f25b5e24aa6c611f6dff06ab504a4267` passed full Gradle verification, repository-tool tests, new-code complexity, and exact-head Codacy.
+- Reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` has successful Codacy analysis with zero annotations.
+- All live inline review threads are resolved and no review is in requested-changes state.
+- Full findings, fixes, risk coverage, and deliberately rejected low-value suggestions are recorded in `ai-agents/reports/WP-01-author-harsh-review.md`.
 
-## Verification state
+## Counts and progress prepared by this commit
 
-- The verified checkout that produced source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` passed full `gradle --no-daemon clean check`.
-- Exact-head Codacy on that source head succeeded with zero annotations.
-- All live inline review threads are resolved; CodeRabbit is the independent review source and has no requested-changes review.
-- GitHub marked the PR CI run on the bot-authored source commit `action_required` before creating jobs. This normal user-authored checkpoint is intended to obtain ordinary exact-head CI evidence; it is not a code blocker.
+- Completed packages: 1 of 6
+- Remaining packages: 5 of 6
+- Weighted progress: 20%
+- WP-02: READY
+- WP-03 through WP-06: BLOCKED
 
-## Remaining checklist
-
-1. Confirm exact-head official CI, repository tools, complexity, and Codacy on this checkpoint.
-2. Reconcile any new review activity.
-3. Commit prospective WP-01 `COMPLETE`, WP-02 `READY`, counts `1/6`, remaining `5/6`, and weighted progress `20%` only after those gates pass.
-4. Verify the final coordination commit at exact head.
-5. Normally merge PR #11, verify live `main`, and stop without starting WP-02.
+These values become authoritative only after this exact records commit is verified, normally merged, and observed on live `main`.
 
 ## Exact next action
 
-Inspect the exact-head workflow and Codacy results for this verification checkpoint. Fix any confirmed failure on the same branch; otherwise prepare and verify the prospective completion commit.
+Verify the final records commit at exact head, reconcile any new review activity, normally merge PR #11, confirm live `main` and authoritative package state, and stop without beginning WP-02.
