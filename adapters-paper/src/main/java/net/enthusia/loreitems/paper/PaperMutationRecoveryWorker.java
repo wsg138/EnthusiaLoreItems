@@ -89,6 +89,14 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         }
     }
 
+    public void wakeAccessible() {
+        if (closed) {
+            return;
+        }
+        templateUpdateListener.wakeAccessible();
+        entityTemplateUpdateListener.wakeAccessible();
+    }
+
     void requestRun() {
         if (closed || !recoveryInFlight.compareAndSet(false, true)) {
             return;

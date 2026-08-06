@@ -3,6 +3,10 @@ package net.enthusia.loreitems.paper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
@@ -10,6 +14,11 @@ import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
+import org.bukkit.Chunk;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.Container;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
@@ -52,6 +61,60 @@ class PaperTemplateUpdateAccessControllerTest {
         assertRetriesWithoutAnotherAccessEvent(new FailOnceScanner());
     }
 
+    @Test
+    void accessibleWakeScansOnlineInventoriesAndLoadedContainersWithinBudget() {
+        World world = plugin.getServer().getWorlds().isEmpty()
+                ? ((ServerMock) plugin.getServer()).addSimpleWorld("world")
+                : plugin.getServer().getWorlds().getFirst();
+        Chunk chunk = world.getChunkAt(0, 0);
+        world.getBlockAt(4, 64, 4).setType(Material.CHEST);
+        BlockState chestState = world.getBlockAt(4, 64, 4).getState();
+        Inventory chest = ((Container) chestState).getInventory();
+        RecordingInventoryScanner scanner = new RecordingInventoryScanner();
+        PaperLoadedContainerWalker walker = new PaperLoadedContainerWalker(
+                new PaperLoadedContainerWalker.Source() {
+                    @Override
+                    public List<World> worlds(Plugin ignored) {
+                        return List.of(world);
+                    }
+
+                    @Override
+                    public Chunk[] loadedChunks(World ignored) {
+                        return new Chunk[] {chunk};
+                    }
+
+                    @Override
+                    public BlockState[] tileEntities(Chunk ignored) {
+                        return new BlockState[] {chestState};
+                    }
+                });
+        controller = new PaperTemplateUpdateAccessController(
+                plugin,
+                new UnexpectedExecutionUseCase(),
+                new PaperTemplateUpdateOperator(),
+                1,
+                scanner,
+                walker);
+
+        controller.wakeAccessible();
+        int previousCalls = 0;
+        for (int pass = 0; pass < 64; pass++) {
+            controller.drain();
+            assertTrue(scanner.scanCalls - previousCalls <= 1);
+            previousCalls = scanner.scanCalls;
+            if (scanner.inventories.contains(player.getInventory())
+                    && scanner.inventories.contains(player.getEnderChest())
+                    && scanner.inventories.contains(chest)) {
+                return;
+            }
+        }
+        throw new AssertionError("Accessible wake coverage: main="
+                + scanner.inventories.contains(player.getInventory())
+                + ", ender=" + scanner.inventories.contains(player.getEnderChest())
+                + ", chest=" + scanner.inventories.contains(chest)
+                + ", scans=" + scanner.scanCalls);
+    }
+
     private void assertRetriesWithoutAnotherAccessEvent(RetryOnceScanner scanner) {
         controller = new PaperTemplateUpdateAccessController(
                 plugin,
@@ -69,6 +132,31 @@ class PaperTemplateUpdateAccessControllerTest {
         controller.drain();
         assertEquals(RETRIED_SCAN_COUNT, scanner.scanCalls);
         assertTrue(scanner.resetAfterFirstAttempt);
+    }
+
+    private static final class RecordingInventoryScanner extends PaperTemplateUpdateScanner {
+        private final Set<Inventory> inventories = new HashSet<>();
+        private int scanCalls;
+
+        @Override
+        ScanResult scan(
+                Plugin plugin,
+                Inventory inventory,
+                Consumer<Candidate> consumer) {
+            scanCalls++;
+            inventories.add(inventory);
+            return ScanResult.complete(0);
+        }
+
+        @Override
+        void reset(PaperInventoryReference reference) {
+            // No retained cursor state.
+        }
+
+        @Override
+        void clear() {
+            inventories.clear();
+        }
     }
 
     private abstract static class RetryOnceScanner extends PaperTemplateUpdateScanner {

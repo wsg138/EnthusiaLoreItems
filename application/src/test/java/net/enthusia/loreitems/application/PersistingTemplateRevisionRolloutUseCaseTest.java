@@ -2,6 +2,7 @@ package net.enthusia.loreitems.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -26,22 +27,32 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
                 Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC));
         LoreDefinitionId definitionId = new LoreDefinitionId(UUID.randomUUID());
         UUID actorId = UUID.randomUUID();
+        UUID confirmationId = UUID.randomUUID();
+        EncodedItemTemplate before = new EncodedItemTemplate(3, new byte[] {1, 2, 3});
+        EncodedItemTemplate after = new EncodedItemTemplate(3, new byte[] {9, 8, 7});
 
         TemplateRevisionStartResult result = useCase.start(new TemplateRevisionRolloutRequest(
+                        confirmationId,
                         definitionId,
                         new TemplateRevision(7),
-                        new EncodedItemTemplate(3, new byte[] {9, 8, 7}),
+                        before,
+                        after,
                         actorId,
                         25))
                 .toCompletableFuture().join();
 
         assertEquals(TemplateRevisionStartStatus.STARTED, result.status());
+        assertEquals(confirmationId, store.confirmation.confirmationId());
         assertEquals(new TemplateRevision(8), store.revision.revision());
         assertEquals(3, store.revision.codecVersion());
         assertEquals(NOW, store.revision.createdAtEpochMillis());
         assertEquals("template_revision_started", store.audit.eventType());
         assertEquals(actorId.toString(), store.audit.actorId());
-        assertEquals("{\"previousRevision\":7,\"targetRevision\":8}", store.audit.detailJson());
+        assertTrue(store.audit.detailJson().contains("\"confirmationId\""));
+        assertTrue(store.audit.detailJson().contains("\"previousRevision\":7"));
+        assertTrue(store.audit.detailJson().contains("\"targetRevision\":8"));
+        assertTrue(store.audit.detailJson().contains("\"beforeSha256\""));
+        assertTrue(store.audit.detailJson().contains("\"afterSha256\""));
         assertEquals(25, store.initialBatchLimit);
     }
 
@@ -75,11 +86,19 @@ class PersistingTemplateRevisionRolloutUseCaseTest {
     }
 
     private static final class CapturingStore implements TemplateRevisionRolloutStore {
+        private TemplateRevisionConfirmation confirmation;
         private LoreDefinitionRevision revision;
         private AuditEventRecord audit;
         private int initialBatchLimit;
         private int continuationCalls;
         private int listCalls;
+
+        @Override
+        public CompletionStage<TemplateRevisionStartResult> startConfirmed(
+                TemplateRevisionConfirmation confirmed) {
+            confirmation = confirmed;
+            return TemplateRevisionRolloutStore.super.startConfirmed(confirmed);
+        }
 
         @Override
         public CompletionStage<TemplateRevisionStartResult> start(

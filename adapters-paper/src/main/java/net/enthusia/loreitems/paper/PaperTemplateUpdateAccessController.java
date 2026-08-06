@@ -25,8 +25,11 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
     private final PaperTemplateUpdateScanBacklog scanBacklog;
     private final PaperTemplateUpdateRetryBacklog retryBacklog;
     private final boolean ownsCoordinator;
+    private final PaperLoadedContainerWalker loadedContainerWalker;
 
     private boolean saturated;
+    private boolean loadedContainerSweep;
+    private boolean loadedContainerRescanRequired;
     private boolean closed;
 
     PaperTemplateUpdateAccessController(
@@ -43,6 +46,16 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             PaperTemplateUpdateOperator operator,
             int budget,
             PaperTemplateUpdateScanner scanner) {
+        this(plugin, useCase, operator, budget, scanner, new PaperLoadedContainerWalker());
+    }
+
+    PaperTemplateUpdateAccessController(
+            Plugin plugin,
+            TemplateUpdateExecutionUseCase useCase,
+            PaperTemplateUpdateOperator operator,
+            int budget,
+            PaperTemplateUpdateScanner scanner,
+            PaperLoadedContainerWalker loadedContainerWalker) {
         this(
                 plugin,
                 new PaperTemplateUpdateCoordinator(
@@ -53,6 +66,7 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
                 new PaperTemplateUpdateAccessRegistry(),
                 budget,
                 scanner,
+                loadedContainerWalker,
                 true);
     }
 
@@ -67,6 +81,7 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
                 accessRegistry,
                 budget,
                 new PaperTemplateUpdateScanner(),
+                new PaperLoadedContainerWalker(),
                 false);
     }
 
@@ -76,11 +91,14 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
             PaperTemplateUpdateAccessRegistry accessRegistry,
             int budget,
             PaperTemplateUpdateScanner scanner,
+            PaperLoadedContainerWalker loadedContainerWalker,
             boolean ownsCoordinator) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
         this.accessRegistry = Objects.requireNonNull(accessRegistry, "accessRegistry");
         this.scanner = Objects.requireNonNull(scanner, "scanner");
+        this.loadedContainerWalker = Objects.requireNonNull(
+                loadedContainerWalker, "loadedContainerWalker");
         if (budget < MIN_BUDGET) {
             throw new IllegalArgumentException("budget must be positive");
         }
@@ -95,6 +113,24 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
         Objects.requireNonNull(player, "player");
         enqueue(new PaperInventoryReference.PlayerMain(player.getUniqueId()));
         enqueue(new PaperInventoryReference.PlayerEnder(player.getUniqueId()));
+    }
+
+    void wakeAccessible() {
+        if (closed) {
+            return;
+        }
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            enqueuePlayer(player);
+            PaperInventoryReference.capture(player.getOpenInventory().getTopInventory())
+                    .filter(reference -> !(reference instanceof PaperInventoryReference.PlayerMain)
+                            && !(reference instanceof PaperInventoryReference.PlayerEnder))
+                    .ifPresent(this::enqueue);
+        }
+        if (loadedContainerSweep) {
+            loadedContainerRescanRequired = true;
+        } else {
+            beginLoadedContainerSweep();
+        }
     }
 
     void scheduleViewRescan(Player player, Inventory topInventory) {
@@ -149,21 +185,47 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
     void drain() {
         for (int count = 0; count < budget; count++) {
             PaperInventoryReference reference = scanBacklog.poll();
-            if (reference == null) {
+            if (reference != null) {
+                scan(reference);
+                continue;
+            }
+            if (!loadedContainerSweep) {
                 break;
             }
-            scan(reference);
+            PaperLoadedContainerWalker.Step step = loadedContainerWalker.visitNext(plugin);
+            if (step.containerReference() != null) {
+                enqueue(step.containerReference());
+            }
+            if (step.sweepComplete()) {
+                finishLoadedContainerSweep();
+            }
         }
-        if (scanBacklog.isEmpty()) {
+        if (scanBacklog.isEmpty() && !loadedContainerSweep) {
             retryRejectedScans();
         }
-        if (scanBacklog.isEmpty()) {
+        if (scanBacklog.isEmpty() && !loadedContainerSweep) {
             dispatchUniqueAccessibleItems();
             if (saturated) {
                 saturated = false;
                 plugin.getLogger().fine("Template-update scan backlog has drained.");
             }
         }
+    }
+
+
+    private void beginLoadedContainerSweep() {
+        loadedContainerWalker.clear();
+        loadedContainerSweep = true;
+        loadedContainerRescanRequired = false;
+    }
+
+    private void finishLoadedContainerSweep() {
+        if (loadedContainerRescanRequired) {
+            beginLoadedContainerSweep();
+            return;
+        }
+        loadedContainerSweep = false;
+        loadedContainerWalker.clear();
     }
 
     private void enqueueContinuation(PaperInventoryReference reference) {
@@ -275,10 +337,13 @@ final class PaperTemplateUpdateAccessController implements AutoCloseable {
         closed = true;
         scanBacklog.clear();
         retryBacklog.clear();
+        loadedContainerWalker.clear();
+        loadedContainerSweep = false;
         scanner.clear();
         accessRegistry.clear();
         if (ownsCoordinator) {
             coordinator.close();
         }
     }
+
 }

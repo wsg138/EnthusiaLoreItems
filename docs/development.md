@@ -130,6 +130,51 @@ Administrators with `enthusia.loreitems.admin.audit` can use the initial paginat
 
 These commands expose unresolved anomalies, current state, recent observation/audit evidence, and non-terminal delivery or mutation recovery records. They are read-only. Explicit anomaly resolution, recovery mutation controls, and GUI administration remain assigned to later phases.
 
+## Template editor and revision rollout
+
+Administrators with `enthusia.loreitems.admin.audit` can select a definition from the paginated administration browser and inspect its current template revision, active-instance count, unresolved-anomaly count, pending-update count, rollout state, and safe item preview. Editing additionally requires `enthusia.loreitems.admin.edit` and a writable storage runtime.
+
+Only one private editor session may exist per administrator, and the global session/query limits are bounded. Clicking an editor field starts chat input. Chat input is explicit: use `submit <value>` to apply one validated change to the in-memory draft, or `cancel` to abandon the prompt. Invalid input leaves the draft and persisted template unchanged. The entire draft is shown in a current-versus-proposed preview before confirmation. Timeout, disconnect, reload, shutdown, permission loss, stale inventory clicks, or explicit cancellation close the session without creating a revision or rollout.
+
+The editor exposes these component actions:
+
+```text
+material:          minecraft:<material>
+custom-name:       clear | literal <text> | solid <#RRGGBB> <text>
+                   | gradient <#RRGGBB,#RRGGBB,...> <text>
+item-name:         same styles as custom-name
+lore:              add <styled-text> | edit <1-based-line> <styled-text>
+                   | remove <1-based-line> | move <from> <to> | clear
+enchant:           set <namespaced-key> <integer-level> | remove <key> | clear
+                   | tooltip visible|hidden
+glint:             true | false | unset
+durability:        damage <value> | unbreakable true|false
+attribute:         set <attribute-key> <modifier-key> <operation> <amount> <slot-group>
+                   | remove <modifier-key> | clear
+item-model:        <namespaced-key> | clear
+max-stack:         1
+custom-model-data: floats <csv> | flags <csv> | strings <csv> | colors <csv> | clear
+dye:               <#RRGGBB> | clear
+potion:            base <type> | set-effect <type> <duration> <amplifier> <ambient> <particles> <icon>
+                   | remove-effect <type> | clear-effects | color <#RRGGBB> | clear-color
+trim:              <material-key> <pattern-key> | clear
+banner:            add <dye-color> <pattern-key> | set <index> <dye-color> <pattern-key>
+                   | remove <index> | clear
+profile:           <uuid> [name] | clear
+firework:          power <0-255> | add <type> <colors> <fade-colors|none> <flicker> <trail>
+                   | remove <index> | clear; stars use set/clear with the same effect syntax
+flags:             add <item-flag> | remove <item-flag> | clear
+tooltip:           hide true|false | style <namespaced-key|clear>
+```
+
+Styled text accepts literal text, one solid hex color, or a multi-stop gradient. Namespaced keys, enum values, numeric ranges, material compatibility, and component-specific item types are validated before the draft changes. Tracked templates and generated instances are always normalized to amount one and maximum stack size one, regardless of editor input.
+
+`Replace from held item` remains the exact-copy fallback for Paper-supported components not individually exposed above. The held item is cloned through the versioned Paper template codec, all LoreItems definition/instance/revision identity is removed, foreign persistent data and supported components are retained, amount and maximum stack size are normalized to one, and the replacement still requires preview and confirmation.
+
+One confirmation ID is persisted with the immutable next revision, actor, before/after template evidence, audit event, desired instance revisions, and durable rollout mutation rows in one SQLite transaction. Callback replay or restart returns the stored confirmation result only when every request field and template byte matches; altered replay, stale revision, inactive/deleted definition, or transaction failure creates no second revision or rollout.
+
+The rollout planner queries and stages only configured bounded batches. Existing inventory and naturally encountered entity/container update workers preserve definition ID and instance UUID, verify the expected old revision and post-write identity, and send malformed, duplicated, stale, missing, or otherwise ambiguous outcomes to review instead of overwriting or retrying blindly. Offline players and unloaded chunks remain durably pending until a supported natural observation; no editor path force-loads chunks. Paper object access and codec work stay on the server thread, while SQLite work uses the bounded database executor.
+
 ## Static analysis policy
 
 Codacy continues to analyze Java source and tests with PMD and the configured Java analyzers. The final size findings were resolved through source decomposition: administration formatting, identity scanning, terminal-void coordination, plugin activation, and test fixture seeding now have focused boundaries. No Java metric exclusion remains. The terminal-void coordinator narrowly suppresses PMD's `UseConcurrentHashMap` rule because its map and set are one compound state machine guarded by a single lock; independently changing one collection would not make the transition atomic. The immutable released SQLite migration remains excluded from non-SQLite SQL policies.
@@ -142,8 +187,6 @@ Operators should preserve the database file, inspect the logged startup error, v
 
 ## Current limitations
 
-Implementation PR 2 is complete in automated verification: held-item definition creation and adoption, durable direct delivery, environmental/durability/conversion protection, terminal void loss, supported display entities, non-player pickup prevention, initial audit/recovery command views, duplicate and malformed-stack evidence, and five-minute staff warnings are implemented within the documented phase boundary.
+Automated verification now covers definition creation/adoption, durable direct delivery, protection and void loss, bounded tracking and reconciliation, duplicate/malformed evidence, paginated administration, and the complete WP-01 template editor plus durable revision rollout. Destructive administration, mass distributions, production hardening/live acceptance, release publication, and EnthusiaTags integration remain assigned to later fixed packages.
 
-Broad event-driven tracking and reconciliation across all player/container/nested locations, Ender Chest support, paginated GUIs, explicit anomaly resolution and recovery actions, metrics/backpressure reporting, editing, deletion, campaigns, and EnthusiaTags integration remain later-phase work.
-
-No live Paper/Leaf server behavior has been tested. Automated MockBukkit, codec, application, architecture, and SQLite tests do not prove real-server event ordering, item-component serialization, reload behavior, command registration, or operator workflow.
+No live Paper/Leaf server behavior has been tested. MockBukkit does not fully emulate every modern Paper data component, so automated adapter tests verify accepted command paths, validation, identity stripping, component round trips where supported, session lifecycle, persistence, and rollout safety; WP-05 remains responsible for real-server component rendering, event ordering, reload behavior, and the complete operator acceptance matrix.

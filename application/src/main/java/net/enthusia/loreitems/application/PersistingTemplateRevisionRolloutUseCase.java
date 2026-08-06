@@ -1,6 +1,9 @@
 package net.enthusia.loreitems.application;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.LoreDefinitionRevision;
@@ -39,13 +42,16 @@ public final class PersistingTemplateRevisionRolloutUseCase
                 EVENT_TYPE,
                 ACTOR_TYPE,
                 request.actorId().toString(),
-                auditDetail(request.expectedCurrentRevision(), targetRevision),
+                auditDetail(request, targetRevision),
                 createdAt);
-        return store.start(
+        return store.startConfirmed(new TemplateRevisionConfirmation(
+                request.confirmationId(),
                 revision,
                 request.expectedCurrentRevision(),
+                request.beforeTemplate(),
                 auditEvent,
-                request.initialBatchLimit());
+                request.actorId(),
+                request.initialBatchLimit()));
     }
 
     @Override
@@ -78,8 +84,24 @@ public final class PersistingTemplateRevisionRolloutUseCase
     }
 
     private static String auditDetail(
-            TemplateRevision previousRevision, TemplateRevision targetRevision) {
-        return "{\"previousRevision\":" + previousRevision.value()
-                + ",\"targetRevision\":" + targetRevision.value() + '}';
+            TemplateRevisionRolloutRequest request, TemplateRevision targetRevision) {
+        return "{\"confirmationId\":\"" + request.confirmationId()
+                + "\",\"previousRevision\":" + request.expectedCurrentRevision().value()
+                + ",\"targetRevision\":" + targetRevision.value()
+                + ",\"beforeCodec\":" + request.beforeTemplate().codecVersion()
+                + ",\"afterCodec\":" + request.template().codecVersion()
+                + ",\"beforeBytes\":" + request.beforeTemplate().payload().length
+                + ",\"afterBytes\":" + request.template().payload().length
+                + ",\"beforeSha256\":\"" + sha256(request.beforeTemplate().payload())
+                + "\",\"afterSha256\":\"" + sha256(request.template().payload())
+                + "\"}";
+    }
+
+    private static String sha256(byte[] payload) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(payload));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 }

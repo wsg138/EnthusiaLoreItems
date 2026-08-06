@@ -50,10 +50,15 @@ public final class PaperTrackingAdministrationGui implements Listener {
     private final IntSupplier pageSizeSupplier;
     private final Semaphore queryCapacity = new Semaphore(MAX_QUERIES);
     private final PaperTrackingAdministrationRenderer renderer;
+    private final PaperTemplateEditorManager templateEditor;
 
-    public PaperTrackingAdministrationGui(Plugin plugin, IntSupplier pageSizeSupplier) {
+    public PaperTrackingAdministrationGui(
+            Plugin plugin,
+            IntSupplier pageSizeSupplier,
+            PaperTemplateEditorManager templateEditor) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
+        this.templateEditor = Objects.requireNonNull(templateEditor, "templateEditor");
         this.renderer = new PaperTrackingAdministrationRenderer(plugin);
         currentPageSize();
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -137,11 +142,12 @@ public final class PaperTrackingAdministrationGui implements Listener {
         } else if (slot == NEXT && view.hasMore) {
             openDefinitionsMain(player.getUniqueId(), view.pageNumber + FIRST_PAGE);
         } else if (slot < view.definitionIds.size()) {
-            openInstances(player.getUniqueId(), view.definitionIds.get(slot), FIRST_PAGE);
+            templateEditor.openManagement(
+                    player.getUniqueId(), view.definitionIds.get(slot), view.pageNumber);
         }
     }
 
-    private void openInstances(
+    void openInstances(
             UUID playerId, LoreDefinitionId definitionId, int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {

@@ -22,7 +22,11 @@ public final class MigrationRunner {
             new Migration(
                     3,
                     "mutation queue controls",
-                    "db/migration/V3__mutation_queue_controls.sql"));
+                    "db/migration/V3__mutation_queue_controls.sql"),
+            new Migration(
+                    4,
+                    "template editor confirmations",
+                    "db/migration/V4__template_editor_confirmations.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
