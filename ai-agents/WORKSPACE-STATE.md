@@ -12,8 +12,8 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 - Status: `PARTIAL`
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
-- Session starting head: `9b3a622e4b1b1ae27bc74fde5ee191fe5d40875b`
-- Verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
+- Session starting head: `c1526d5d6bbe1e03639fea13d0fb9856952f9b0d`
+- Latest implementation head: `98bceb74a3b25e827c546b85db16f28820d223c3`
 - Dependency verification: WP-01 is normally merged through live `main`
 
 ## Package status
@@ -21,7 +21,7 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 | Package | Weight | Status | Reason |
 |---|---:|---|---|
 | WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
-| WP-02 | 20% | PARTIAL | Durable core and destructive-first Paper execution are green; operator administration remains |
+| WP-02 | 20% | PARTIAL | Full implementation is present and tests pass; two exact-head Codacy naming findings remain before completion |
 | WP-03 | 20% | BLOCKED | WP-02 is not COMPLETE |
 | WP-04 | 15% | BLOCKED | WP-03 is not COMPLETE |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate is not verified |
@@ -36,48 +36,46 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 
 ## Completed acceptance criteria
 
-- Preserved the existing idempotent destructive-operation core, V5 migration, operation/target lifecycle, pause/resume, metrics, evidence review, recovery, completion, and late-copy behavior.
-- Extended reload-safe natural-access references with canonical destructive location evidence.
-- Added verified exact-reference physical removal for player and ender inventories, loaded inventories, nested shulker and bundle paths, dropped items, frames, displays, and armor-stand equipment.
-- Added a destructive-first coordinator that routes candidates with no destructive work into the existing template-update path.
-- Reused the existing bounded natural-access pipeline without forced loads or background Paper object access.
-- Wired destructive expired-claim recovery into the existing mutation worker while preserving repositories without the optional capability.
-- Added focused Paper tests for verified removal, changed-item review behavior, and destructive-before-template ordering.
+- Durable, reboot-safe, idempotent exact removal, purge, and full-delete operation state and target snapshots.
+- Incremental bounded destructive execution through the natural-access scanner without force loads or background Paper access.
+- Exact-reference and fingerprint verification before physical deletion, with changed or ambiguous evidence routed to review.
+- Privileged preview/confirm flows, operation-specific bounded confirmation sessions, worker wakeups, pagination, metrics, pause/resume, review controls, GUI actions, permissions, messages, completion, and lifecycle cleanup.
+- Tracking, audit, age, error, retry, lease, operation, and target evidence presentation.
+- Focused domain, SQLite, migration, Paper removal, command confirmation, GUI, recovery, and destructive-first ordering tests.
+- Operator recovery documentation and package implementation checkpoints.
 
 ## Tests and verification
 
-- Exact verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
-- GitHub Actions run: `31082380710` — success
-- Gradle verification: passed
-- Repository tooling: passed
-- Differential complexity gate: passed
-- Exact-head Codacy: passed
-- CodeRabbit status: passed
-- Submitted PR reviews: none
-- Unresolved review threads: none
-- Live Paper/Leaf server behavior: not yet claimed
+- Last fully completed exact-head run before the final synchronization cleanup: head `6dea133365abf3c9ae66015ff77432a065154ab4`, run `31104121759`.
+- Gradle `clean check`: passed, 40 tasks.
+- Repository tooling: 3 tests passed.
+- Differential complexity gate: passed with no new violations.
+- Codacy: reduced from 12 findings to 2 naming findings.
+- Latest implementation head `98bceb74a3b25e827c546b85db16f28820d223c3` has run `31104530673` in progress at this checkpoint.
+- Submitted PR reviews: none.
+- Unresolved review threads: none.
+- Live Paper/Leaf server behavior: not claimed.
 
 ## Harsh-review findings fixed
 
-- Fixed a public nested-record constructor compile failure.
-- Split an oversized physical-removal method into precondition capture, mutation, and post-mutation verification.
-- Fenced the destructive fallback path during shutdown so template preparation cannot begin after closure.
-- Replaced a nullable optional-capability constructor path flagged by Codacy with explicit `Optional` capability handling.
-- Localized the MockBukkit server setup flagged by Codacy.
-- Preserved changed physical items instead of removing them after the durable claim snapshot diverged.
+- Replaced unsafe confirmation registry coordination with a concurrent map and bounded, dedicated-lock critical sections.
+- Preserved single-use, actor-specific, operation-specific, expiring confirmation semantics under concurrent access.
+- Removed repeated command-label literals in command tests.
+- Moved per-instance lore allocation out of the renderer loop.
+- Removed helper literals and unnecessary string conversion findings.
+- Corrected synchronization on the concurrent map itself by introducing a dedicated lock object.
 
 ## Remaining acceptance criteria
 
-- Add privileged remove, purge, and full-delete command flows with operation-specific preview and confirmation sessions.
-- Add paginated operation/target inspection, metrics, pause/resume, and evidence-gated review commands and GUI actions.
-- Add required permissions, messages, completion, audit/history presentation, and documentation.
-- Add command, GUI, reload/restart, duplicate/malformed-evidence, and broader recovery tests.
-- Perform full-package harsh review, resolve exact-head CI/Codacy/review findings, normally merge, and verify live `main`.
+- Rename the `METRICS` route constant or `metrics` handler in `LoreItemsDestructiveCommandExecutor` to remove the remaining PMD field/method collision.
+- Rename the `destructiveExecutor` field or accessor in `LoreItemsAdministrationCommandExecutor` and update its call site.
+- Rerun exact-head GitHub Actions and Codacy after those two changes and the final coordination commit.
+- Perform final review reconciliation, mark the PR ready, update WP-02 to COMPLETE, unlock only WP-03, normally merge, and verify live `main`.
 
 ## Precise blocker
 
-No external dependency blocks WP-02. The session reached a coherent verified boundary after physical execution; the operator-administration section remains on the same package, branch, and draft PR.
+No external dependency blocks WP-02. Final publication is withheld because exact-head Codacy still reports two confirmed naming findings; CI and review findings remain work for this same package.
 
 ## Exact next action
 
-Implement the privileged destructive-administration command executor against `DestructiveAdministrationUseCase`, including fixed confirmation sessions and worker wakeups after accepted or resumed operations. Then add GUI actions without creating another package.
+On `agent/wp-02-destructive-administration`, rename the two colliding identifiers without suppressions, rerun exact-head CI/Codacy, then complete the queue/state/handoff transition, mark PR #13 ready, normally merge it, and verify live `main` without beginning WP-03.
