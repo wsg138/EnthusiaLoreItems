@@ -57,6 +57,21 @@ class LoreItemsCommandCompletionTest {
     }
 
     @Test
+    void filtersDestructiveRoutesByTheirExactPermissions() {
+        player.addAttachment(
+                plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
+        player.addAttachment(
+                plugin, LoreItemsDestructiveCommandExecutor.INSPECT_PERMISSION, true);
+
+        assertEquals(
+                List.of("purge", "operations", "targets", "destructive-metrics"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, ""));
+        assertEquals(
+                List.of("purge"),
+                LoreItemsCommandExecutor.topLevelCompletions(player, "p"));
+    }
+
+    @Test
     void editOnlyAdministratorsCanBrowseWithoutEvidenceRoutes() {
         player.addAttachment(plugin, PaperTemplateEditorManager.EDIT_PERMISSION, true);
 
