@@ -9,7 +9,7 @@ This queue contains exactly six fixed work packages. Package identity, order, de
 | Order | Package | Fixed objective | Weight | Status | Exact dependency |
 |---:|---|---|---:|---|---|
 | 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | COMPLETE | PR #11 normally merged; live `main` is `50ac248b1583739c57b7dcb25b4e949436b736ce` |
-| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | PARTIAL | Same canonical branch and draft PR #13; durable core and destructive-first Paper execution are green, operator administration remains |
+| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | PARTIAL | Same canonical branch and draft PR #13; implementation and tests are present, two exact-head Codacy naming findings remain |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | Complete one-use mass distributions. | 20% | BLOCKED | WP-02 COMPLETE |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | Complete automated production hardening and produce a release candidate. | 15% | BLOCKED | WP-03 COMPLETE |
 | 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | Process manual live-server acceptance evidence, fix every confirmed defect, and release EnthusiaLoreItems. | 15% | BLOCKED | WP-04 release candidate published |
@@ -21,15 +21,16 @@ This queue contains exactly six fixed work packages. Package identity, order, de
 - Branch: `agent/wp-02-destructive-administration`
 - Draft PR: #13, `WP-02: complete destructive administration`
 - Starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Resumed from branch head: `9b3a622e4b1b1ae27bc74fde5ee191fe5d40875b`
-- Verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
-- Exact-head CI run: `31082380710` — success
+- Session starting head: `c1526d5d6bbe1e03639fea13d0fb9856952f9b0d`
+- Latest implementation head: `98bceb74a3b25e827c546b85db16f28820d223c3`
+- Last completed exact-head CI run: `31104121759` on `6dea133365abf3c9ae66015ff77432a065154ab4`
+- Latest implementation CI run: `31104530673`, in progress when the checkpoint was written
 - Status: `PARTIAL`
-- Completed criteria: durable idempotent operation core; exact/purge/delete acceptance; deletion markers; pagination, pause/resume, metrics, evidence review, recovery, verified completion, late-copy behavior; V5 migration; reload-safe destructive-first physical execution across the existing natural-access scanner; exact-reference removal for inventories, nested shulkers/bundles, dropped items, frames, displays, and armor stands; shared lifecycle recovery and focused Paper tests
-- Remaining criteria: operator commands and GUI, operation-specific confirmation sessions, permissions/messages, duplicate and malformed evidence administration, documentation, broader command/GUI/reload tests, full-package harsh review, final exact-head verification, review resolution, normal merge, and post-merge verification
+- Completed criteria: durable operation state; exact/purge/delete semantics; bounded destructive-first execution; exact-reference and fingerprint verification; review-required divergence; preview-confirm commands; operation/target inspection; metrics; pause/resume; evidence review; GUI actions; permissions; completion; reload cleanup; worker wakeups; documentation; focused domain, SQLite, migration, Paper, command, GUI, and recovery tests
+- Remaining criteria: resolve two confirmed exact-head PMD naming collisions, rerun exact-head Actions/Codacy, reconcile review state, mark ready, transition WP-02 to COMPLETE, unlock only WP-03, normally merge, and verify live main
 - Review state: no submitted reviews and no unresolved review threads at checkpoint
-- Blocker: no external blocker; useful verified work is committed but WP-02 is not complete
-- Exact next action: implement the privileged destructive-administration command surface and operation-specific confirmation sessions against `DestructiveAdministrationUseCase`, then wire GUI actions and worker wakeups
+- Blocker: no external blocker; exact-head Codacy is not yet clean
+- Exact next action: rename the `METRICS` route constant or handler and the `destructiveExecutor` field or accessor without suppressions, rerun exact-head verification, then publish and merge WP-02
 
 ## Automatic selection and resume rule
 
