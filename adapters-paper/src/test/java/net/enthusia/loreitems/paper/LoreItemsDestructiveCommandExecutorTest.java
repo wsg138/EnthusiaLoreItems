@@ -29,6 +29,7 @@ import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class LoreItemsDestructiveCommandExecutorTest {
+    private static final String COMMAND_LABEL = "loreitems";
     private static final String TOKEN = "purge-token";
     private static final String CONFIRM_PURGE = "confirm-purge";
 
@@ -61,7 +62,7 @@ class LoreItemsDestructiveCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {"purge", useCase.definitionId.value().toString()});
 
         assertNull(useCase.previewRequest);
@@ -70,19 +71,19 @@ class LoreItemsDestructiveCommandExecutorTest {
 
     @Test
     void matchingOperationConfirmationStartsOnceAndWakesWork() {
-        player.addAttachment(
-                plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
+        player.addAttachment(plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
         previewPurge();
 
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {CONFIRM_PURGE, TOKEN});
         server.getScheduler().performOneTick();
 
         assertNotNull(useCase.previewRequest);
-        assertEquals(DestructiveOperationType.PURGE_DEFINITION,
+        assertEquals(
+                DestructiveOperationType.PURGE_DEFINITION,
                 useCase.previewRequest.operationType());
         assertEquals(1, useCase.startCalls);
         assertNotNull(useCase.startRequest);
@@ -92,7 +93,7 @@ class LoreItemsDestructiveCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {CONFIRM_PURGE, TOKEN});
         server.getScheduler().performOneTick();
         assertEquals(1, useCase.startCalls);
@@ -100,16 +101,14 @@ class LoreItemsDestructiveCommandExecutorTest {
 
     @Test
     void wrongOperationDoesNotConsumeTheMatchingConfirmation() {
-        player.addAttachment(
-                plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
-        player.addAttachment(
-                plugin, LoreItemsDestructiveCommandExecutor.DELETE_PERMISSION, true);
+        player.addAttachment(plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
+        player.addAttachment(plugin, LoreItemsDestructiveCommandExecutor.DELETE_PERMISSION, true);
         previewPurge();
 
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {"confirm-delete", TOKEN});
         server.getScheduler().performOneTick();
         assertEquals(0, useCase.startCalls);
@@ -117,7 +116,7 @@ class LoreItemsDestructiveCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {CONFIRM_PURGE, TOKEN});
         server.getScheduler().performOneTick();
         assertEquals(1, useCase.startCalls);
@@ -125,15 +124,14 @@ class LoreItemsDestructiveCommandExecutorTest {
 
     @Test
     void reloadCleanupInvalidatesUnconfirmedPreview() {
-        player.addAttachment(
-                plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
+        player.addAttachment(plugin, LoreItemsDestructiveCommandExecutor.PURGE_PERMISSION, true);
         previewPurge();
         executor.clearConfirmations();
 
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {CONFIRM_PURGE, TOKEN});
         server.getScheduler().performOneTick();
 
@@ -145,13 +143,13 @@ class LoreItemsDestructiveCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitems",
+                COMMAND_LABEL,
                 new String[] {"purge", useCase.definitionId.value().toString()});
         server.getScheduler().performOneTick();
     }
 
     private static Command command() {
-        return new Command("loreitems") {
+        return new Command(COMMAND_LABEL) {
             @Override
             public boolean execute(
                     CommandSender sender, String commandLabel, String[] arguments) {
@@ -241,7 +239,8 @@ class LoreItemsDestructiveCommandExecutorTest {
 
         @Override
         public CompletionStage<Metrics> metrics() {
-            return CompletableFuture.completedFuture(new Metrics(0L, 0L, 0L, 0L, 0L, 0L, 0L));
+            return CompletableFuture.completedFuture(
+                    new Metrics(0L, 0L, 0L, 0L, 0L, 0L, 0L));
         }
 
         private static <T> Page<T> emptyPage(PageRequest request) {
