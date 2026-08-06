@@ -102,7 +102,8 @@ final class PaperTemplateManagementLoader {
             failureHandler.handle(playerId, "load template management", exception);
             return;
         }
-        stage.toCompletableFuture()
+        stage.thenApply(snapshot -> snapshot)
+                .toCompletableFuture()
                 .orTimeout(queryTimeout, queryTimeoutUnit)
                 .whenComplete((snapshot, failure) -> {
                     queryCapacity.release();
