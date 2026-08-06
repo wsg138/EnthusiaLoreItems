@@ -12,31 +12,49 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
 - Initial claim checkpoint: `2612d40607916414f06d4d6a46aef3d887bafc89`
-- Dependency: WP-01 is `COMPLETE`; PR #11 normally merged and historical head `08f92b8b185e4022154bc34a01d30f3123c6043b` is contained in live `main`
+- Current green implementation head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
 
-## Reconciliation and claim completed
+## Completed section
 
-- Live LoreItems `main`, recent merges, open/draft PRs, commit checks/workflow visibility, and every canonical LoreItems package branch were inspected.
-- The canonical WP-06 branch in EnthusiaTags and the contract-defined LoreItems WP-06 branches were inspected; none creates an unfinished fixed-package lock.
-- All six package contracts, the dispatcher, agent rules, workspace state, queue, prior handoff, requirements, architecture, and implementation plan were read from exact live `main`.
-- No unfinished canonical package branch or PR existed. WP-02 was the first eligible package.
-- The exact WP-02 branch was created atomically from the verified live `main` SHA.
-- The durable claim checkpoint was committed and exact draft PR #13 was opened from that head.
+The durable destructive-operation core is implemented and exact-head green:
 
-## Completed acceptance criteria in this checkpoint
+- explicit parent operation, target, and effect state models;
+- forward-only V5 SQLite schema with immutable target identity and active-target uniqueness;
+- idempotent confirmation and atomic exact/purge/delete acceptance;
+- full-delete definition exclusion plus durable deleted-definition marker;
+- immutable target snapshotting, paginated inspection, parent pause/resume, metrics, and audit history;
+- claim/release/complete/review persistence with lease expiry moved to ambiguous review;
+- evidence-gated review resolution;
+- verified lifecycle removal and late-copy reopen/create behavior;
+- integration coverage for acceptance, pause fencing, review, recovery, completion, and late deletion.
 
-Only routing, dependency verification, required-document reading, canonical branch creation, durable `IN_PROGRESS` state recording, and exact draft PR creation are complete.
+## Exact-head verification
 
-## Remaining acceptance criteria
+- Head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
+- GitHub Actions run: `31077567338`
+- Gradle verification: passed
+- Repository tooling: passed
+- Differential complexity: passed
+- New-code coverage: passed
+- Exact-head Codacy CLI: passed
+- Open review threads at checkpoint: none
 
-The full WP-02 contract remains, including exact removal, purge, full delete and late-copy behavior, confirmations, durable idempotent intent, bounded physical execution, queue inspection, pause/resume, evidence-gated review resolution, duplicate/malformed preservation, metrics, permissions, messages, history, recovery, lifecycle behavior, tests, documentation, harsh review, exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
+## Harsh-review findings fixed
 
-## Tests, findings, and limitations
+- Corrected a `ResultSet.wasNull()` ordering defect that could have hidden active definitions.
+- Replaced runtime-built SQL variants with fixed prepared statements.
+- Split oversized persistence classes and methods to satisfy repository complexity limits.
+- Preserved SQLite trigger enforcement while joining the repository's established migration analyzer exclusion.
+- Prevented blind retry of expired physical claims by persisting ambiguous-effect review evidence.
 
-- Tests run: none at claim time.
-- Known implementation findings: none established yet.
-- External blocker: none.
-- Local environment: GitHub DNS resolution is unavailable, so a dependency-capable local checkout could not be created. GitHub connector state and repository-native CI remain the durable evidence path.
+## Remaining package criteria
+
+- Destructive-first natural-access Paper execution across player, ender, open inventory, loaded block/entity, nested shulker/bundle, dropped item, frame, display, and armor-stand scopes.
+- Verified main-thread physical removal with async claim/completion persistence and no forced loads.
+- Duplicate and malformed evidence preservation.
+- Bounded recovery wired into enable/reload/shutdown.
+- Privileged commands and GUI actions for operation-specific previews/confirmations, operation and target pages, metrics, pause/resume, and evidence review resolution.
+- Permissions, messages, completion, audit/history, documentation, restart/reload tests, Paper/command/GUI tests, full harsh review, final exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
 
 ## Program counts
 
@@ -48,4 +66,4 @@ The full WP-02 contract remains, including exact removal, purge, full delete and
 
 ## Exact next action
 
-Inspect existing destructive mutation, deleted-marker, queue-control, Paper execution, GUI/command, persistence, and test code; identify the precise delta to the complete WP-02 contract; then implement the first coherent section on PR #13.
+Extend the existing reload-safe Paper references with location evidence and verified removal, then add a destructive-first coordinator that sends non-target candidates into the unchanged template-update coordinator.

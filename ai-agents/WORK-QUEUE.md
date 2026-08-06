@@ -11,7 +11,7 @@ Live GitHub outranks this snapshot. The universal dispatcher automatically resum
 | Order | Package | Fixed objective | Weight | Status | Exact dependency |
 |---:|---|---|---:|---|---|
 | 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | Complete the editor and template-management interface. | 20% | COMPLETE | PR #11 normally merged; live `main` is `50ac248b1583739c57b7dcb25b4e949436b736ce` |
-| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | IN_PROGRESS | Canonical branch and draft PR #13 are the active durable lock |
+| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | Complete destructive administration and queued-operation controls. | 20% | IN_PROGRESS | Durable operation core green at `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`; Paper execution and administration remain |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | Complete one-use mass distributions. | 20% | BLOCKED | WP-02 COMPLETE |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | Complete automated production hardening and produce a release candidate. | 15% | BLOCKED | WP-03 COMPLETE |
 | 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | Process manual live-server acceptance evidence, fix every confirmed defect, and release EnthusiaLoreItems. | 15% | BLOCKED | WP-04 release candidate published |
@@ -23,14 +23,13 @@ Live GitHub outranks this snapshot. The universal dispatcher automatically resum
 - Branch: `agent/wp-02-destructive-administration`
 - Draft PR: #13, `WP-02: complete destructive administration`
 - Starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Initial claim checkpoint: `2612d40607916414f06d4d6a46aef3d887bafc89`
+- Current green implementation head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
 - Status: `IN_PROGRESS`
-- Completed criteria: live routing reconciliation, dependency verification, all required workflow/contract/requirement/architecture/plan reading, exact canonical branch creation, durable claim commit, and exact draft PR creation
-- Remaining criteria: the complete WP-02 contract
-- Tests: none at claim time
-- Findings: none established yet
+- Completed criteria: durable idempotent intent, exact/purge/delete snapshot acceptance, immediate definition deletion marker behavior, paginated parent/target inspection, pause/resume fencing, metrics, evidence-gated review, expired-claim recovery, verified completion, late-copy handling, V5 migration, and SQLite integration tests
+- Remaining criteria: Paper physical execution across required scopes, commands/GUI/permissions/messages, lifecycle/reload/shutdown, documentation, full-package tests and harsh review, final exact-head verification, normal merge, and post-merge verification
+- Exact-head verification: GitHub Actions run `31077567338` passed Gradle verification, tooling, complexity, coverage, and Codacy
 - Blocker: none
-- Exact next action: inspect existing destructive-operation implementation and tests, identify the contract delta, and implement the first coherent section
+- Exact next action: add destructive-first natural-access Paper execution using the existing reload-safe scanner and references
 
 ## Automatic selection and resume rule
 
