@@ -7,12 +7,12 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## Active package claim
 
 - Package: WP-02 — destructive administration
-- Status: `PARTIAL`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Session starting branch head: `c1526d5d6bbe1e03639fea13d0fb9856952f9b0d`
-- Latest implementation head: `98bceb74a3b25e827c546b85db16f28820d223c3`
+- Resume starting branch head: `956f8c9a433d2819bbec16f072f7a44149fbbbad`
+- Latest implementation head before resume: `98bceb74a3b25e827c546b85db16f28820d223c3`
 
 ## Completed acceptance criteria
 
@@ -25,12 +25,14 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 
 ## Tests and exact results
 
-- Exact head `6dea133365abf3c9ae66015ff77432a065154ab4`, GitHub Actions run `31104121759`: Gradle `clean check` passed with 40 tasks; repository tooling passed 3 tests; differential complexity passed.
-- Codacy on that head reported only two naming collisions after 10 of 12 bounded findings were fixed.
-- Latest implementation head `98bceb74a3b25e827c546b85db16f28820d223c3` additionally fixes synchronization on the concurrent map by using a dedicated lock; run `31104530673` was in progress when this handoff was committed.
+- Exact head `956f8c9a433d2819bbec16f072f7a44149fbbbad`, GitHub Actions run `31104783506`: Gradle `clean check`, repository tooling, and differential complexity passed.
+- The same run failed at the exact-head Codacy gate because external Codacy check `92627380516` reported exactly two PMD field/method naming collisions.
+- Submitted reviews: none.
+- Requested changes: none.
+- Unresolved review threads: none.
 - No live Paper/Leaf server behavior is claimed.
 
-## Harsh-review findings and fixes
+## Harsh-review findings already fixed
 
 - Reworked the confirmation registry to preserve bounded eviction and single-use behavior under concurrent access.
 - Replaced synchronization on the concurrent map itself with a dedicated lock object.
@@ -41,22 +43,16 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 
 ## Remaining acceptance criteria
 
-- Resolve PMD field/method collision between `METRICS` and `metrics` in `LoreItemsDestructiveCommandExecutor`.
-- Resolve PMD field/method collision between `destructiveExecutor` and `destructiveExecutor()` in `LoreItemsAdministrationCommandExecutor`, updating the `LoreItemsCommandExecutor` call site if the accessor is renamed.
-- Rerun exact-head GitHub Actions and Codacy after the naming fixes and final coordination update.
-- Reconcile reviews and unresolved threads, mark PR #13 ready, update WP-02 to COMPLETE, unlock only WP-03 as READY, normally merge, and verify live `main`.
-
-## Review state
-
-- Submitted reviews: none at checkpoint.
-- Requested changes: none at checkpoint.
-- Unresolved review threads: none at checkpoint.
-- PR remains draft because exact-head Codacy is not clean.
+- Resolve the PMD collision between `METRICS` and `metrics` in `LoreItemsDestructiveCommandExecutor`.
+- Resolve the PMD collision between `destructiveExecutor` and `destructiveExecutor()` in `LoreItemsAdministrationCommandExecutor`, updating the `LoreItemsCommandExecutor` call site.
+- Rerun exact-head GitHub Actions and Codacy after implementation and final coordination updates.
+- Perform the complete package harsh review and reconcile all reviews and threads.
+- Mark PR #13 ready, prepare the prospective COMPLETE transition, unlock only WP-03, normally merge, and verify live `main`.
 
 ## Precise blocker
 
-No external dependency blocks the package. The same package remains PARTIAL because two confirmed exact-head static-analysis findings must be fixed before publication and normal merge.
+No external dependency blocks the package. The package is actively resumed on the same canonical branch to resolve the two confirmed static-analysis findings and complete publication.
 
 ## Exact next action
 
-Resume PR #13 at the current branch head, rename the two colliding identifiers without suppressions, run exact-head Actions/Codacy to green, then perform the committed COMPLETE transition and normal merge. Do not begin WP-03 in the same session.
+Apply the two naming fixes without suppressions, inspect the exact diff, and verify exact-head Actions and Codacy before the final state transition.
