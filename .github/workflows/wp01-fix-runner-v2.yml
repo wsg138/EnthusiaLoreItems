@@ -1,0 +1,68 @@
+name: Apply WP-01 review remediation v2
+
+on:
+  push:
+    branches:
+      - agent/wp-01-editor-template-management
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Normalize and execute guarded patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          test_path = Path(
+              'application/src/test/java/net/enthusia/loreitems/application/'
+              'PersistingTemplateRevisionRolloutUseCaseTest.java')
+          source = test_path.read_text()
+          old_line = '            return TemplateRevisionRolloutStore.super.startConfirmed(confirmed);'
+          replacement = '''            return start(
+                      confirmed.newRevision(),
+                      confirmed.expectedCurrentRevision(),
+                      confirmed.auditEvent(),
+                      confirmed.initialBatchLimit());'''
+          if old_line in source:
+              test_path.write_text(source.replace(old_line, replacement, 1))
+
+          workflow = Path('.github/workflows/wp01-fix-final-complexity.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          body = workflow.split(marker, 1)[1].split('\n          PY', 1)[0]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in body.splitlines())
+          guard = "    if count != 1:\n        raise SystemExit(f'{path_name}: expected one guarded match, found {count}')"
+          tolerant = "    if count == 0 and new in source:\n        return\n    if count != 1:\n        raise SystemExit(f'{path_name}: expected one guarded match, found {count}')"
+          if guard not in script:
+              raise SystemExit('guarded replacement function was not found')
+          Path('/tmp/wp01-fix.py').write_text(script.replace(guard, tolerant, 1))
+          PY
+          python3 /tmp/wp01-fix.py
+      - name: Run focused regression tests
+        run: >-
+          ./gradlew --no-daemon
+          :application:test --tests net.enthusia.loreitems.application.PersistingTemplateRevisionRolloutUseCaseTest
+          :adapters-paper:test --tests net.enthusia.loreitems.paper.LoreItemsCommandCompletionTest
+          --tests net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorkerTest
+      - name: Run full verification
+        run: ./gradlew --no-daemon clean check
+      - name: Commit verified remediation
+        shell: bash
+        run: |
+          rm -f .github/workflows/wp01-fix-final-complexity.yml
+          rm -f .github/workflows/wp01-fix-runner-v2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: resolve WP-01 review findings'
+          git push origin HEAD:agent/wp-01-editor-template-management
