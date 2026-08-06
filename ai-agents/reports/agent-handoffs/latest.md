@@ -7,68 +7,42 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## Active package claim
 
 - Package: WP-02 — destructive administration
-- Status: `PARTIAL`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Session starting head: `9b3a622e4b1b1ae27bc74fde5ee191fe5d40875b`
-- Verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
+- Resumed from exact branch head: `f6726c23380d9fbe1c18a35eaed9354b6944af1c`
+- Last exact-head verified implementation: `b9729a2735c737ea625e2d20277bd109132f624a`
 
-## Completed section
+## Completed acceptance criteria
 
-The durable core and destructive-first Paper execution are implemented and exact-head green:
+- Durable idempotent exact-removal, purge, and full-delete operation core with target snapshotting, V5 migration, audit, restart recovery, parent pause/resume, evidence-gated review transitions, terminal completion, deleted-definition exclusion, minimal marker retention, and late-copy scheduling.
+- Reload-safe canonical location evidence and verified destructive-first physical removal across player and Ender inventories, loaded inventories, nested shulkers and bundles, dropped items, item/glow frames, item displays, and armor-stand equipment.
+- Bounded natural-access execution with no force loads, Paper-thread mutation, asynchronous persistence, exact-reference verification, changed-item preservation, expired-claim recovery, shutdown fencing, and fallback to the existing template-update path when no destructive work exists.
+- Focused domain, SQLite, Paper, migration, recovery, and physical-divergence tests completed through the last green implementation head.
 
-- reload-safe canonical location evidence for inventory, entity, and nested references;
-- verified root and nested physical removal without forced loads;
-- support through the existing natural-access scanner for player/ender inventories, loaded inventories, nested shulkers/bundles, dropped items, frames, displays, and armor stands;
-- durable preparation before main-thread mutation and durable completion or evidence review afterward;
-- destructive work takes priority, while candidates with no destructive target continue through the unchanged template-update path;
-- shared bounded recovery and shutdown fencing;
-- automatic SQLite destructive-store activation without coupling Paper to SQLite;
-- focused Paper tests for removal, divergence review, and destructive-first ordering.
+## Remaining acceptance criteria
 
-## Exact-head verification
+- Privileged remove, purge, and full-delete command flows with operation-specific preview and fixed confirmation sessions.
+- Paginated operation/target inspection, queue metrics, parent pause/resume, evidence inspection and allowed review resolutions, audit/history presentation, and matching GUI actions.
+- Permissions, messages, tab completion, worker wakeups, reload/restart/session cleanup, duplicate/malformed-evidence administration, and operator documentation.
+- Broader command, GUI, lifecycle, recovery, failure-injection, regression, pagination, and bounded-work tests required by the complete WP-02 contract.
+- Full-package harsh review, all confirmed fixes, final exact-head Actions/Codacy, requested-change and review-thread reconciliation, prospective queue/state completion update, normal merge, and post-merge live-main verification.
 
-- Green implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
-- GitHub Actions run: `31082380710`
-- Gradle verification: passed
-- Repository tooling: passed
-- Differential complexity: passed
-- Exact-head Codacy: passed
-- CodeRabbit: passed
-- Submitted PR reviews: none
-- Open review threads: none
+## Tests and exact results
 
-## Harsh-review findings fixed
+- Last verified implementation head: `b9729a2735c737ea625e2d20277bd109132f624a`
+- GitHub Actions run `31082380710`: success.
+- Gradle verification, repository tooling, differential complexity, exact-head Codacy, and CodeRabbit: passed at that head.
+- The resume checkpoint itself changes coordination documentation only; prior verification becomes stale for final completion and will be rerun after implementation.
+- No live Paper/Leaf server behavior is claimed.
 
-- Corrected nested-record constructor visibility after the first compile gate.
-- Refactored physical-removal verification after the complexity gate found an oversized method.
-- Added a shutdown fence before fallback template preparation.
-- Replaced nullable optional-capability wiring with explicit `Optional` handling after Codacy review.
-- Removed the unnecessary MockBukkit server field flagged by Codacy.
-- Physical divergence now preserves the changed item and requires evidence review rather than deleting it.
+## Known findings
 
-## Remaining package criteria
-
-- Privileged remove, purge, and full-delete command flows with operation-specific preview and confirmation sessions.
-- Paginated operation and target administration, metrics display, pause/resume, and evidence-gated review commands.
-- GUI actions for the same administration functions.
-- Required permissions, messages, completion, audit/history presentation, and documentation.
-- Command, GUI, reload/restart, duplicate/malformed-evidence, and broader recovery tests.
-- Full-package harsh review, final exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
-
-## Precise blocker
-
-No external dependency blocks WP-02. Useful verified work is committed, but the complete package contract is not finished; therefore the same branch and draft PR remain the durable lock.
-
-## Program counts
-
-- Completed packages: 1 of 6
-- Remaining packages: 5 of 6
-- Weighted progress: 20%
-- WP-02: PARTIAL
-- WP-03 through WP-06: BLOCKED
+- No verified external blocker.
+- Operator administration remains absent, so the three destructive workflows are not yet end-to-end complete from the supported admin interface.
+- Current PR has no submitted requested-changes review and no unresolved review thread at the last checkpoint; live state must be rechecked after implementation.
 
 ## Exact next action
 
-Resume WP-02 on the same branch and PR. Implement the privileged destructive-administration command executor against `DestructiveAdministrationUseCase`, including fixed confirmation sessions, operation/target pages, pause/resume/review controls, and worker wakeups. Then wire matching GUI actions.
+Implement the privileged destructive command executor against `DestructiveAdministrationUseCase`, including bounded previews, operation-specific confirmation sessions, accepted/resumed-operation worker wakeups, operation/target pages, pause/resume/review controls, permissions, messages, completion, and lifecycle cleanup. Then wire the matching GUI actions without creating another package.
