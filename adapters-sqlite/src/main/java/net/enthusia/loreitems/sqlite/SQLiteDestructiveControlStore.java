@@ -228,9 +228,11 @@ final class SQLiteDestructiveControlStore {
     }
 
     private static DestructiveEffectState targetEffect(ReviewResolution resolution) {
-        return resolution == ReviewResolution.MARK_VERIFIED_REMOVED
-                ? DestructiveEffectState.REMOVED_OBSERVED
-                : DestructiveEffectState.UNKNOWN;
+        return switch (resolution) {
+            case REQUEUE_NO_SIDE_EFFECT, ABORT_NO_SIDE_EFFECT ->
+                    DestructiveEffectState.NONE_OBSERVED;
+            case MARK_VERIFIED_REMOVED -> DestructiveEffectState.REMOVED_OBSERVED;
+        };
     }
 
     private static String reviewAuditEvent(ReviewResolution resolution) {
@@ -373,13 +375,32 @@ final class SQLiteDestructiveControlStore {
     }
 
     static String escapeJson(String value) {
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\b", "\\b")
-                .replace("\f", "\\f")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            switch (character) {
+                case '"' -> escaped.append("\\\"");
+                case '\\' -> escaped.append("\\\\");
+                case '\b' -> escaped.append("\\b");
+                case '\f' -> escaped.append("\\f");
+                case '\n' -> escaped.append("\\n");
+                case '\r' -> escaped.append("\\r");
+                case '\t' -> escaped.append("\\t");
+                default -> appendJsonCharacter(escaped, character);
+            }
+        }
+        return escaped.toString();
+    }
+
+    private static void appendJsonCharacter(StringBuilder escaped, char character) {
+        if (character >= ' ') {
+            escaped.append(character);
+            return;
+        }
+        String hexadecimal = Integer.toHexString(character);
+        escaped.append("\\u");
+        escaped.append("0000", 0, 4 - hexadecimal.length());
+        escaped.append(hexadecimal);
     }
 
     private record TargetReviewSnapshot(

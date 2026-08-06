@@ -72,7 +72,7 @@ record PaperEntityTemplateUpdateReference(
             return Optional.empty();
         }
         ItemStack item = read(entity);
-        if (item.getType().isAir()) {
+        if (item == null || item.getType().isAir()) {
             return Optional.empty();
         }
         return Optional.of(new Resolved(entity, kind, equipmentSlot, item.clone()));
@@ -204,15 +204,14 @@ record PaperEntityTemplateUpdateReference(
             if (!usable(entity) || !kind.matches(entity)) {
                 return false;
             }
-            PaperEntityTemplateUpdateReference ref = reference();
-            if (ref == null) {
+            PaperEntityTemplateUpdateReference reference = reference();
+            ItemStack current = reference.read(entity);
+            if (current == null
+                    || !PaperItemFingerprint.of(current)
+                            .equals(PaperItemFingerprint.of(originalItem))) {
                 return false;
             }
-            ItemStack current = ref.read(entity);
-            if (!PaperItemFingerprint.of(current).equals(PaperItemFingerprint.of(originalItem))) {
-                return false;
-            }
-            ref.remove(entity);
+            reference.remove(entity);
             return true;
         }
 
@@ -221,12 +220,8 @@ record PaperEntityTemplateUpdateReference(
             if (!usable(entity) || !kind.matches(entity)) {
                 return null;
             }
-            PaperEntityTemplateUpdateReference ref = reference();
-            if (ref == null) {
-                return null;
-            }
-            ItemStack stored = ref.read(entity);
-            return stored.getType().isAir() ? null : stored.clone();
+            ItemStack stored = reference().read(entity);
+            return stored == null || stored.getType().isAir() ? null : stored.clone();
         }
 
         @Override
