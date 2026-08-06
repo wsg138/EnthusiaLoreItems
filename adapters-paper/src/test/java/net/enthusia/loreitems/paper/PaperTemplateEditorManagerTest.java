@@ -10,6 +10,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
@@ -32,6 +34,7 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +52,8 @@ class PaperTemplateEditorManagerTest {
     private ServerMock server;
     private Plugin plugin;
     private PlayerMock player;
+    private PermissionAttachment auditPermission;
+    private PermissionAttachment editPermission;
     private RecordingUseCase useCase;
     private AtomicInteger rolloutWakes;
     private PaperTemplateEditorManager manager;
@@ -59,9 +64,11 @@ class PaperTemplateEditorManagerTest {
         server = MockBukkit.mock();
         plugin = MockBukkit.createMockPlugin();
         player = server.addPlayer();
-        player.addAttachment(
-                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
-        player.addAttachment(plugin, PaperTemplateEditorManager.EDIT_PERMISSION, true);
+        auditPermission = player.addAttachment(plugin);
+        auditPermission.setPermission(
+                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
+        editPermission = player.addAttachment(plugin);
+        editPermission.setPermission(PaperTemplateEditorManager.EDIT_PERMISSION, true);
         snapshot = snapshot(ItemStack.of(Material.PAPER));
         useCase = new RecordingUseCase(snapshot);
         server.getServicesManager().register(
@@ -234,8 +241,8 @@ class PaperTemplateEditorManagerTest {
 
     @Test
     void editOnlyAdministratorCanUseTheManagementGui() {
-        player.addAttachment(
-                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, false);
+        auditPermission.setPermission(
+                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, false);
 
         manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
         click(PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
@@ -249,8 +256,73 @@ class PaperTemplateEditorManagerTest {
     }
 
     @Test
+    void rejectsDuplicateAndOverCapacityEditorSessions() {
+        openEditor();
+        manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
+        click(PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
+        assertEquals(1, manager.activeSessionCount());
+
+        for (int index = 1; index < 32; index++) {
+            PlayerMock additional = editorPlayer();
+            manager.openManagement(additional.getUniqueId(), snapshot.definition().id(), 1);
+            click(additional, PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
+        }
+        assertEquals(32, manager.activeSessionCount());
+
+        PlayerMock overflow = editorPlayer();
+        manager.openManagement(overflow.getUniqueId(), snapshot.definition().id(), 1);
+        click(overflow, PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
+        assertEquals(32, manager.activeSessionCount());
+    }
+
+    @Test
+    void timedOutManagementQueryReleasesItsPermit() throws InterruptedException {
+        server.getServicesManager().unregister(TemplateManagementUseCase.class, useCase);
+        AtomicInteger calls = new AtomicInteger();
+        CompletableFuture<Optional<TemplateManagementSnapshot>> hanging =
+                new CompletableFuture<>();
+        TemplateManagementUseCase timedUseCase = new TemplateManagementUseCase() {
+            @Override
+            public CompletionStage<Optional<TemplateManagementSnapshot>> findSnapshot(
+                    LoreDefinitionId definitionId) {
+                return calls.incrementAndGet() == 1
+                        ? hanging
+                        : CompletableFuture.completedFuture(Optional.empty());
+            }
+
+            @Override
+            public CompletionStage<TemplateRevisionStartResult> confirm(
+                    TemplateRevisionRolloutRequest request) {
+                return CompletableFuture.failedFuture(
+                        new AssertionError("confirmation must not run"));
+            }
+        };
+        server.getServicesManager().register(
+                TemplateManagementUseCase.class,
+                timedUseCase,
+                plugin,
+                ServicePriority.Normal);
+        CountDownLatch timedOut = new CountDownLatch(1);
+        PaperTemplateManagementLoader loader = new PaperTemplateManagementLoader(
+                plugin,
+                new PaperTemplateEditorRenderer(),
+                new PaperItemTemplateCodec(),
+                (playerId, operation, failure) -> timedOut.countDown(),
+                Runnable::run,
+                1,
+                10L,
+                TimeUnit.MILLISECONDS);
+
+        loader.open(player.getUniqueId(), snapshot.definition().id(), 1);
+        assertTrue(timedOut.await(2L, TimeUnit.SECONDS));
+        loader.open(player.getUniqueId(), snapshot.definition().id(), 1);
+
+        assertEquals(2, calls.get());
+    }
+
+    @Test
     void permissionAndDegradedServicePathsDoNotOpenDrafts() {
-        player.addAttachment(plugin, PaperTemplateEditorManager.EDIT_PERMISSION, false);
+        editPermission.setPermission(PaperTemplateEditorManager.EDIT_PERMISSION, false);
         manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
         click(PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
         assertEquals(0, manager.activeSessionCount());
@@ -270,9 +342,21 @@ class PaperTemplateEditorManagerTest {
                 manager.sessionState(player.getUniqueId()));
     }
 
+    private PlayerMock editorPlayer() {
+        PlayerMock additional = server.addPlayer();
+        additional.addAttachment(
+                plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
+        additional.addAttachment(plugin, PaperTemplateEditorManager.EDIT_PERMISSION, true);
+        return additional;
+    }
+
     private void click(int rawSlot) {
+        click(player, rawSlot);
+    }
+
+    private void click(PlayerMock clickingPlayer, int rawSlot) {
         InventoryClickEvent event = new InventoryClickEvent(
-                player.getOpenInventory(),
+                clickingPlayer.getOpenInventory(),
                 InventoryType.SlotType.CONTAINER,
                 rawSlot,
                 ClickType.LEFT,
