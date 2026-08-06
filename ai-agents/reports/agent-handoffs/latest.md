@@ -7,12 +7,12 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## Active package claim
 
 - Package: WP-02 — destructive administration
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
 - Initial claim checkpoint: `2612d40607916414f06d4d6a46aef3d887bafc89`
-- Current green implementation head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
+- Last exact-head green implementation checkpoint: `00071255cf34221876cf041fe2c0dda487fc317b`
 
 ## Completed section
 
@@ -30,7 +30,8 @@ The durable destructive-operation core is implemented and exact-head green:
 
 ## Exact-head verification
 
-- Head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
+- Green implementation head: `2e6bedfb8bcbc949739ea2ff7b514edbc1b1bf34`
+- Checkpoint commit containing coordination evidence: `00071255cf34221876cf041fe2c0dda487fc317b`
 - GitHub Actions run: `31077567338`
 - Gradle verification: passed
 - Repository tooling: passed
@@ -56,14 +57,18 @@ The durable destructive-operation core is implemented and exact-head green:
 - Privileged commands and GUI actions for operation-specific previews/confirmations, operation and target pages, metrics, pause/resume, and evidence review resolution.
 - Permissions, messages, completion, audit/history, documentation, restart/reload tests, Paper/command/GUI tests, full harsh review, final exact-head CI/Codacy, review resolution, normal merge, and live-main verification.
 
+## Precise blocker
+
+No external dependency blocks WP-02. The remaining Paper and operator-administration sections were not completed and verified in this session. Unverified Paper edits were discarded by restoring the claimed branch to the last exact green checkpoint before this PARTIAL bookkeeping.
+
 ## Program counts
 
 - Completed packages: 1 of 6
 - Remaining packages: 5 of 6
 - Weighted progress: 20%
-- WP-02: IN_PROGRESS
+- WP-02: PARTIAL
 - WP-03 through WP-06: BLOCKED
 
 ## Exact next action
 
-Extend the existing reload-safe Paper references with location evidence and verified removal, then add a destructive-first coordinator that sends non-target candidates into the unchanged template-update coordinator.
+Resume WP-02 on the same branch and PR. Extend the existing reload-safe Paper references with canonical location evidence and verified removal, then add a destructive-first coordinator that sends non-target candidates into the unchanged template-update coordinator.
