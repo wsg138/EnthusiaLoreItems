@@ -19,7 +19,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
-import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperDestructiveRemovalOperatorTest {
@@ -30,7 +29,6 @@ class PaperDestructiveRemovalOperatorTest {
     private static final LoreItemIdentity IDENTITY =
             new LoreItemIdentity(DEFINITION_ID, INSTANCE_ID, new TemplateRevision(3L));
 
-    private ServerMock server;
     private PlayerMock player;
     private Plugin plugin;
     private PaperItemIdentityCodec identityCodec;
@@ -38,8 +36,8 @@ class PaperDestructiveRemovalOperatorTest {
 
     @BeforeEach
     void setUp() {
-        server = MockBukkit.mock();
-        player = server.addPlayer();
+        MockBukkit.mock();
+        player = MockBukkit.getMock().addPlayer();
         plugin = MockBukkit.createMockPlugin();
         identityCodec = new PaperItemIdentityCodec();
         operator = new PaperDestructiveRemovalOperator(identityCodec);
