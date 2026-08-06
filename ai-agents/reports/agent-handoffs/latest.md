@@ -7,12 +7,12 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 ## Active package claim
 
 - Package: WP-02 — destructive administration
-- Status: `VERIFYING`
+- Status: `BLOCKED`
 - Canonical branch: `agent/wp-02-destructive-administration`
 - Draft pull request: #13, `WP-02: complete destructive administration`
 - Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
 - Resume starting branch head: `956f8c9a433d2819bbec16f072f7a44149fbbbad`
-- Harsh-review implementation candidate: `3cef33dc245061e4d023f4ce55b879e4bb7385e6`
+- Harsh-review checkpoint before blocker record: `d2e34d2de3ebede3f38e196b3ab5e7b32ec00982`
 
 ## Completed acceptance criteria
 
@@ -33,27 +33,36 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 
 Earlier branch repairs retained confirmation registry bounds and concurrency, dedicated locking, command/test literal cleanup, and renderer allocation cleanup.
 
-## Tests and exact results
+## Verified external blocker
 
-- Exact head `da1bff45a82df8f5b0e855720c6eada7e1b5d016`: GitHub Actions run `31116258795` succeeded; Codacy check `92666693317` succeeded with zero annotations.
-- Exact implementation candidate `3cef33dc245061e4d023f4ce55b879e4bb7385e6`: Codacy check `92668084949` succeeded with zero annotations.
-- Exact implementation candidate Actions run `31116665464` remained in progress at runner setup when this checkpoint was prepared; it is not claimed as passing.
-- Submitted reviews: none at checkpoint preparation.
-- Requested changes: none at checkpoint preparation.
-- Unresolved review threads: none at checkpoint preparation.
+GitHub Status opened an unresolved Actions degraded-performance incident at `2026-08-06T15:22:00Z`.
+
+- Exact head `3cef33dc245061e4d023f4ce55b879e4bb7385e6`, run `31116665464`: failed solely in `Set up job`; no checkout, repository build, or job log occurred.
+- Exact head `d2e34d2de3ebede3f38e196b3ab5e7b32ec00982`, run `31117144848`: remained stuck in `Set up job` when the blocker checkpoint was prepared.
+- Exact head `d2e34d2de3ebede3f38e196b3ab5e7b32ec00982`, Codacy check `92669719848`: succeeded with zero annotations.
+- Earlier exact head `da1bff45a82df8f5b0e855720c6eada7e1b5d016`: GitHub Actions run `31116258795` and Codacy check `92666693317` both succeeded.
+
+This is a verified external dependency preventing the required exact-head GitHub Actions gate. It is not a repository build failure and does not justify a new package.
+
+## Review state
+
+- PR #13 remains draft because exact-head Actions has not passed.
+- Submitted reviews: none before blocker checkpoint.
+- Requested changes: none before blocker checkpoint.
+- Unresolved review threads: none before blocker checkpoint.
 - No live Paper/Leaf server behavior is claimed.
 
 ## Remaining acceptance criteria
 
-- Obtain successful exact-head GitHub Actions and Codacy for the verification checkpoint commit.
+- After official GitHub Actions recovery, verify or rerun exact-head Actions on the unchanged package branch and reconfirm Codacy.
 - Mark PR #13 ready for review and reconcile every submitted review, requested change, and unresolved thread.
 - Commit the prospective COMPLETE transition, unlock only WP-03 as READY, update counts to 2 of 6 and weighted progress to 40%, and rerun exact-head gates.
 - Normally merge PR #13 and verify the merge commit, live `main`, committed queue/state/handoff, and post-merge CI.
 
 ## Precise blocker
 
-No verified external dependency blocks the package. The only pending gate at checkpoint preparation is the exact-head GitHub Actions result and subsequent review/publication workflow.
+An unresolved GitHub-hosted Actions incident prevents the required workflow from completing even runner setup. GitHub Actions is the only missing external gate; the package implementation, harsh review, and exact-head Codacy are complete.
 
 ## Exact next action
 
-Verify exact-head Actions and Codacy for the checkpoint commit, repair any same-package failure, then mark PR #13 ready and reconcile review state before the final COMPLETE transition.
+When GitHub Status confirms Actions recovery, resume WP-02 on `agent/wp-02-destructive-administration` and draft PR #13, verify or rerun exact-head CI, then continue directly through ready-for-review, review reconciliation, COMPLETE coordination, normal merge, and live-main verification. Do not select WP-03.
