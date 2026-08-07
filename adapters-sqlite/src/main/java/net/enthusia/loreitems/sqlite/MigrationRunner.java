@@ -30,7 +30,11 @@ public final class MigrationRunner {
             new Migration(
                     5,
                     "destructive administration",
-                    "db/migration/V5__destructive_administration.sql"));
+                    "db/migration/V5__destructive_administration.sql"),
+            new Migration(
+                    6,
+                    "mass distribution recipient states",
+                    "db/migration/V6__mass_distribution_recipient_states.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
