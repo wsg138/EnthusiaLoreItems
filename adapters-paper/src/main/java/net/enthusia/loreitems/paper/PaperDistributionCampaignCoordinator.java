@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +30,8 @@ public final class PaperDistributionCampaignCoordinator {
     private final PaperGroupFileCatalog groupCatalog;
     private final Function<DefinitionKey, CompletionStage<Optional<LoreDefinition>>> definitionLookup;
     private final DistributionCampaignStartRepository startRepository;
+    private final Function<String, Optional<UUID>> cachedIdentityLookup;
+    private final Executor serverExecutor;
     private final Executor blockingExecutor;
     private final Clock clock;
     private final Supplier<UUID> campaignIds;
@@ -41,6 +45,26 @@ public final class PaperDistributionCampaignCoordinator {
                 groupCatalog,
                 Objects.requireNonNull(definitionRepository, "definitionRepository")::findActiveByKey,
                 startRepository,
+                ignored -> Optional.empty(),
+                Runnable::run,
+                blockingExecutor,
+                Clock.systemUTC(),
+                UUID::randomUUID);
+    }
+
+    public PaperDistributionCampaignCoordinator(
+            PaperGroupFileCatalog groupCatalog,
+            DefinitionRepository definitionRepository,
+            DistributionCampaignStartRepository startRepository,
+            PaperCachedPlayerIdentityResolver identityResolver,
+            Executor serverExecutor,
+            Executor blockingExecutor) {
+        this(
+                groupCatalog,
+                Objects.requireNonNull(definitionRepository, "definitionRepository")::findActiveByKey,
+                startRepository,
+                Objects.requireNonNull(identityResolver, "identityResolver")::resolve,
+                serverExecutor,
                 blockingExecutor,
                 Clock.systemUTC(),
                 UUID::randomUUID);
@@ -53,9 +77,31 @@ public final class PaperDistributionCampaignCoordinator {
             Executor blockingExecutor,
             Clock clock,
             Supplier<UUID> campaignIds) {
+        this(
+                groupCatalog,
+                definitionLookup,
+                startRepository,
+                ignored -> Optional.empty(),
+                Runnable::run,
+                blockingExecutor,
+                clock,
+                campaignIds);
+    }
+
+    PaperDistributionCampaignCoordinator(
+            PaperGroupFileCatalog groupCatalog,
+            Function<DefinitionKey, CompletionStage<Optional<LoreDefinition>>> definitionLookup,
+            DistributionCampaignStartRepository startRepository,
+            Function<String, Optional<UUID>> cachedIdentityLookup,
+            Executor serverExecutor,
+            Executor blockingExecutor,
+            Clock clock,
+            Supplier<UUID> campaignIds) {
         this.groupCatalog = Objects.requireNonNull(groupCatalog, "groupCatalog");
         this.definitionLookup = Objects.requireNonNull(definitionLookup, "definitionLookup");
         this.startRepository = Objects.requireNonNull(startRepository, "startRepository");
+        this.cachedIdentityLookup = Objects.requireNonNull(cachedIdentityLookup, "cachedIdentityLookup");
+        this.serverExecutor = Objects.requireNonNull(serverExecutor, "serverExecutor");
         this.blockingExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.campaignIds = Objects.requireNonNull(campaignIds, "campaignIds");
@@ -68,10 +114,15 @@ public final class PaperDistributionCampaignCoordinator {
             String actorId) {
         Objects.requireNonNull(sourceName, "sourceName");
         Objects.requireNonNull(definitionKey, "definitionKey");
-        return inspectAsync(sourceName).thenCompose(groupFile -> definitionLookup
-                .apply(definitionKey)
-                .thenApply(definition -> definition.map(selected ->
-                        buildPreview(groupFile, selected, actorType, actorId))));
+        return inspectAsync(sourceName).thenCompose(groupFile -> resolveCachedIdentities(groupFile)
+                .thenCompose(cachedIdentities -> definitionLookup
+                        .apply(definitionKey)
+                        .thenApply(definition -> definition.map(selected -> buildPreview(
+                                groupFile,
+                                selected,
+                                cachedIdentities,
+                                actorType,
+                                actorId)))));
     }
 
     public CompletionStage<DistributionCampaignConfirmationResult> confirm(
@@ -90,6 +141,7 @@ public final class PaperDistributionCampaignCoordinator {
     private DistributionCampaignPreview buildPreview(
             GroupFileDefinition groupFile,
             LoreDefinition definition,
+            Map<Integer, UUID> cachedIdentities,
             String actorType,
             String actorId) {
         if (!definition.active()) {
@@ -108,7 +160,8 @@ public final class PaperDistributionCampaignCoordinator {
                 now,
                 now,
                 null);
-        List<CampaignRecipient> recipients = snapshotRecipients(groupFile, campaignId, now);
+        List<CampaignRecipient> recipients = snapshotRecipients(
+                groupFile, cachedIdentities, campaignId, now);
         DistributionCampaignStartRequest request = new DistributionCampaignStartRequest(
                 campaign,
                 recipients,
@@ -118,11 +171,18 @@ public final class PaperDistributionCampaignCoordinator {
     }
 
     private static List<CampaignRecipient> snapshotRecipients(
-            GroupFileDefinition groupFile, UUID campaignId, long now) {
+            GroupFileDefinition groupFile,
+            Map<Integer, UUID> cachedIdentities,
+            UUID campaignId,
+            long now) {
         List<CampaignRecipient> recipients = new ArrayList<>(groupFile.recipients().size());
         for (int index = 0; index < groupFile.recipients().size(); index++) {
             GroupFileRecipient sourceRecipient = groupFile.recipients().get(index);
-            if (sourceRecipient.explicitPlayerId() == null) {
+            UUID playerId = sourceRecipient.explicitPlayerId();
+            if (playerId == null) {
+                playerId = cachedIdentities.get(index);
+            }
+            if (playerId == null) {
                 recipients.add(CampaignRecipient.unresolvedName(
                         campaignId,
                         index,
@@ -132,7 +192,7 @@ public final class PaperDistributionCampaignCoordinator {
                 recipients.add(CampaignRecipient.knownPlayer(
                         campaignId,
                         index,
-                        sourceRecipient.explicitPlayerId(),
+                        playerId,
                         sourceRecipient.originalValue(),
                         now));
             }
@@ -148,6 +208,20 @@ public final class PaperDistributionCampaignCoordinator {
                 throw new CompletionException(exception);
             }
         }, blockingExecutor);
+    }
+
+    private CompletionStage<Map<Integer, UUID>> resolveCachedIdentities(GroupFileDefinition groupFile) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<Integer, UUID> resolved = new HashMap<>();
+            for (int index = 0; index < groupFile.recipients().size(); index++) {
+                GroupFileRecipient recipient = groupFile.recipients().get(index);
+                if (recipient.explicitPlayerId() == null) {
+                    cachedIdentityLookup.apply(recipient.originalValue())
+                            .ifPresent(playerId -> resolved.put(index, playerId));
+                }
+            }
+            return Map.copyOf(resolved);
+        }, serverExecutor);
     }
 
     private CompletionStage<Boolean> sourceStillMatches(DistributionCampaignPreview preview) {
