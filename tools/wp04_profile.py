@@ -13,7 +13,6 @@ import json
 import math
 import os
 import platform
-import random
 import sqlite3
 import tempfile
 import time
@@ -30,6 +29,7 @@ RECIPIENTS_PER_CAMPAIGN = 2_000
 ADMIN_QUERIES = 100
 QUEUE_CAPACITY = 4_096
 MAIN_THREAD_BUDGET = 256
+RECIPIENT_STATES = ("RESOLVED", "OFFLINE", "FULL", "UNRESOLVED")
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -52,8 +52,7 @@ def distribution(values: list[float]) -> dict[str, float]:
 def timed(cursor: sqlite3.Cursor, sql: str, params=()) -> tuple[list[tuple], float]:
     started = time.perf_counter_ns()
     rows = cursor.execute(sql, params).fetchall()
-    elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-    return rows, elapsed_ms
+    return rows, (time.perf_counter_ns() - started) / 1_000_000.0
 
 
 def digest_dataset() -> str:
@@ -93,41 +92,32 @@ def setup_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def recipient_state(campaign: int, recipient: int) -> str:
+    value = (SEED + campaign * RECIPIENTS_PER_CAMPAIGN + recipient * 17) % len(RECIPIENT_STATES)
+    return RECIPIENT_STATES[value]
+
+
+def measure_insert(cursor: sqlite3.Cursor, connection: sqlite3.Connection, sql: str, rows) -> float:
+    started = time.perf_counter_ns()
+    cursor.executemany(sql, rows)
+    connection.commit()
+    return (time.perf_counter_ns() - started) / 1_000_000.0
+
+
 def populate(connection: sqlite3.Connection) -> list[float]:
-    rng = random.Random(SEED)
-    db_latencies: list[float] = []
     cursor = connection.cursor()
-
-    rows = [
-        (index, index % PLAYERS, index % SCOPES, "ACTIVE")
-        for index in range(TRACKED_INSTANCES)
+    instances = ((i, i % PLAYERS, i % SCOPES, "ACTIVE") for i in range(TRACKED_INSTANCES))
+    mutations = ((i, ("UPDATE", "REMOVE", "DELIVER")[i % 3], "PENDING") for i in range(PENDING_MUTATIONS))
+    recipients = (
+        (campaign, recipient, recipient_state(campaign, recipient))
+        for campaign in range(CAMPAIGNS)
+        for recipient in range(RECIPIENTS_PER_CAMPAIGN)
+    )
+    return [
+        measure_insert(cursor, connection, "INSERT INTO instances VALUES (?, ?, ?, ?)", instances),
+        measure_insert(cursor, connection, "INSERT INTO mutations VALUES (?, ?, ?)", mutations),
+        measure_insert(cursor, connection, "INSERT INTO recipients VALUES (?, ?, ?)", recipients),
     ]
-    started = time.perf_counter_ns()
-    cursor.executemany("INSERT INTO instances VALUES (?, ?, ?, ?)", rows)
-    connection.commit()
-    db_latencies.append((time.perf_counter_ns() - started) / 1_000_000.0)
-
-    mutation_kinds = ("UPDATE", "REMOVE", "DELIVER")
-    rows = [
-        (index, mutation_kinds[index % len(mutation_kinds)], "PENDING")
-        for index in range(PENDING_MUTATIONS)
-    ]
-    started = time.perf_counter_ns()
-    cursor.executemany("INSERT INTO mutations VALUES (?, ?, ?)", rows)
-    connection.commit()
-    db_latencies.append((time.perf_counter_ns() - started) / 1_000_000.0)
-
-    states = ("RESOLVED", "OFFLINE", "FULL", "UNRESOLVED")
-    rows = []
-    for campaign in range(CAMPAIGNS):
-        for recipient in range(RECIPIENTS_PER_CAMPAIGN):
-            state = states[rng.randrange(len(states))]
-            rows.append((campaign, recipient, state))
-    started = time.perf_counter_ns()
-    cursor.executemany("INSERT INTO recipients VALUES (?, ?, ?)", rows)
-    connection.commit()
-    db_latencies.append((time.perf_counter_ns() - started) / 1_000_000.0)
-    return db_latencies
 
 
 def profile_main_thread_snapshots() -> tuple[list[float], int]:
@@ -137,7 +127,6 @@ def profile_main_thread_snapshots() -> tuple[list[float], int]:
     for offset in range(0, len(nested_sample), MAIN_THREAD_BUDGET):
         started = time.perf_counter_ns()
         batch = nested_sample[offset : offset + MAIN_THREAD_BUDGET]
-        # Snapshot work is CPU-only and bounded; no filesystem/SQLite work is performed here.
         _ = tuple((scope, instance, (scope ^ instance) & 0xFFFF) for scope, instance in batch)
         durations.append((time.perf_counter_ns() - started) / 1_000_000.0)
         processed += len(batch)
@@ -149,11 +138,10 @@ def profile_queries(path: Path) -> list[float]:
         connection = sqlite3.connect(path, timeout=5.0)
         try:
             cursor = connection.cursor()
-            page = index % 20
             started = time.perf_counter_ns()
             cursor.execute(
                 "SELECT id, player_id, scope_id FROM instances ORDER BY id LIMIT 50 OFFSET ?",
-                (page * 50,),
+                ((index % 20) * 50,),
             ).fetchall()
             return (time.perf_counter_ns() - started) / 1_000_000.0
         finally:
@@ -161,6 +149,27 @@ def profile_queries(path: Path) -> list[float]:
 
     with ThreadPoolExecutor(max_workers=16) as executor:
         return list(executor.map(query, range(ADMIN_QUERIES)))
+
+
+def profile_database(path: Path) -> list[float]:
+    connection = setup_database(path)
+    latencies = populate(connection)
+    cursor = connection.cursor()
+    for player in range(PLAYERS):
+        _, elapsed = timed(cursor, "SELECT COUNT(*) FROM instances WHERE player_id = ?", (player,))
+        latencies.append(elapsed)
+    for campaign in range(CAMPAIGNS):
+        _, elapsed = timed(
+            cursor,
+            "SELECT state, COUNT(*) FROM recipients WHERE campaign_id = ? GROUP BY state",
+            (campaign,),
+        )
+        latencies.append(elapsed)
+    _, elapsed = timed(cursor, "SELECT COUNT(*) FROM mutations WHERE state = 'PENDING'")
+    latencies.append(elapsed)
+    connection.close()
+    latencies.extend(profile_queries(path))
+    return latencies
 
 
 def verify_source_boundaries(repo: Path) -> dict[str, bool]:
@@ -174,41 +183,22 @@ def verify_source_boundaries(repo: Path) -> dict[str, bool]:
     }
 
 
-def run(repo: Path) -> dict:
-    started_all = time.perf_counter_ns()
-    with tempfile.TemporaryDirectory(prefix="loreitems-wp04-") as temp:
-        db_path = Path(temp) / "profile.db"
-        connection = setup_database(db_path)
-        db_latencies = populate(connection)
-        cursor = connection.cursor()
+def scenario_counts() -> dict[str, int]:
+    return {
+        "onlinePlayers": PLAYERS,
+        "trackedInstances": TRACKED_INSTANCES,
+        "loadedContainerDisplayScopes": SCOPES,
+        "pendingMixedMutations": PENDING_MUTATIONS,
+        "activeCampaigns": CAMPAIGNS,
+        "recipientsPerCampaign": RECIPIENTS_PER_CAMPAIGN,
+        "simultaneousAdministrativeQueries": ADMIN_QUERIES,
+    }
 
-        for player in range(PLAYERS):
-            _, elapsed = timed(cursor, "SELECT COUNT(*) FROM instances WHERE player_id = ?", (player,))
-            db_latencies.append(elapsed)
-        for campaign in range(CAMPAIGNS):
-            _, elapsed = timed(
-                cursor,
-                "SELECT state, COUNT(*) FROM recipients WHERE campaign_id = ? GROUP BY state",
-                (campaign,),
-            )
-            db_latencies.append(elapsed)
-        _, mutation_elapsed = timed(cursor, "SELECT COUNT(*) FROM mutations WHERE state = 'PENDING'")
-        db_latencies.append(mutation_elapsed)
-        connection.close()
 
-        query_latencies = profile_queries(db_path)
-        db_latencies.extend(query_latencies)
-        main_thread, scopes_processed = profile_main_thread_snapshots()
-
-    elapsed_s = (time.perf_counter_ns() - started_all) / 1_000_000_000.0
+def build_result(repo: Path, elapsed_s: float, db_latencies: list[float], main_thread: list[float], scopes_processed: int) -> dict:
     db_stats = distribution(db_latencies)
     main_stats = distribution(main_thread)
     queue_high_water = min(QUEUE_CAPACITY, PENDING_MUTATIONS)
-    thresholds = {
-        "maxMainThreadTaskMs": 50.0,
-        "maxP99MainThreadTaskMs": 10.0,
-        "maxQueueDepth": QUEUE_CAPACITY,
-    }
     checks = {
         "mainThreadMaxWithin50Ms": main_stats["maxMs"] <= 50.0,
         "mainThreadP99Within10Ms": main_stats["p99Ms"] <= 10.0,
@@ -217,51 +207,53 @@ def run(repo: Path) -> dict:
         "allFixedScenarioCountsPresent": True,
     }
     checks.update(verify_source_boundaries(repo))
-    passed = all(checks.values())
     return {
         "schemaVersion": 1,
         "profile": "WP-04 fixed RC scenarios",
-        "passed": passed,
+        "passed": all(checks.values()),
         "datasetDigest": digest_dataset(),
-        "environment": {
-            "commit": os.environ.get("PROFILE_COMMIT", os.environ.get("GITHUB_SHA", "local")),
-            "python": platform.python_version(),
-            "os": platform.platform(),
-            "sqlite": sqlite3.sqlite_version,
-        },
-        "configuration": {
-            "seed": SEED,
-            "queueCapacity": QUEUE_CAPACITY,
-            "mainThreadBudgetPerTask": MAIN_THREAD_BUDGET,
-        },
-        "scenarios": {
-            "onlinePlayers": PLAYERS,
-            "trackedInstances": TRACKED_INSTANCES,
-            "loadedContainerDisplayScopes": SCOPES,
-            "pendingMixedMutations": PENDING_MUTATIONS,
-            "activeCampaigns": CAMPAIGNS,
-            "recipientsPerCampaign": RECIPIENTS_PER_CAMPAIGN,
-            "simultaneousAdministrativeQueries": ADMIN_QUERIES,
-        },
-        "metrics": {
-            "elapsedSeconds": round(elapsed_s, 6),
-            "throughputRecordsPerSecond": round(
-                (TRACKED_INSTANCES + PENDING_MUTATIONS + CAMPAIGNS * RECIPIENTS_PER_CAMPAIGN) / max(elapsed_s, 1e-9),
-                3,
-            ),
-            "queueHighWaterMark": queue_high_water,
-            "databaseLatency": db_stats,
-            "mainThreadTaskDuration": main_stats,
-            "databaseSamples": len(db_latencies),
-            "mainThreadSamples": len(main_thread),
-        },
-        "thresholds": thresholds,
+        "environment": environment(),
+        "configuration": {"seed": SEED, "queueCapacity": QUEUE_CAPACITY, "mainThreadBudgetPerTask": MAIN_THREAD_BUDGET},
+        "scenarios": scenario_counts(),
+        "metrics": metrics(elapsed_s, queue_high_water, db_stats, main_stats, db_latencies, main_thread),
+        "thresholds": {"maxMainThreadTaskMs": 50.0, "maxP99MainThreadTaskMs": 10.0, "maxQueueDepth": QUEUE_CAPACITY},
         "checks": checks,
         "notes": [
             "This automated profile is not live Paper/Leaf acceptance; WP-05 owns live-server validation.",
             "SQLite/filesystem work is profiled off the snapshot-style bounded main-thread path.",
         ],
     }
+
+
+def environment() -> dict[str, str]:
+    return {
+        "commit": os.environ.get("PROFILE_COMMIT", os.environ.get("GITHUB_SHA", "local")),
+        "python": platform.python_version(),
+        "os": platform.platform(),
+        "sqlite": sqlite3.sqlite_version,
+    }
+
+
+def metrics(elapsed_s, queue_high_water, db_stats, main_stats, db_latencies, main_thread) -> dict:
+    total_records = TRACKED_INSTANCES + PENDING_MUTATIONS + CAMPAIGNS * RECIPIENTS_PER_CAMPAIGN
+    return {
+        "elapsedSeconds": round(elapsed_s, 6),
+        "throughputRecordsPerSecond": round(total_records / max(elapsed_s, 1e-9), 3),
+        "queueHighWaterMark": queue_high_water,
+        "databaseLatency": db_stats,
+        "mainThreadTaskDuration": main_stats,
+        "databaseSamples": len(db_latencies),
+        "mainThreadSamples": len(main_thread),
+    }
+
+
+def run(repo: Path) -> dict:
+    started = time.perf_counter_ns()
+    with tempfile.TemporaryDirectory(prefix="loreitems-wp04-") as temp:
+        db_latencies = profile_database(Path(temp) / "profile.db")
+        main_thread, scopes_processed = profile_main_thread_snapshots()
+    elapsed_s = (time.perf_counter_ns() - started) / 1_000_000_000.0
+    return build_result(repo, elapsed_s, db_latencies, main_thread, scopes_processed)
 
 
 def main() -> int:
