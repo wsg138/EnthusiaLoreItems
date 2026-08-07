@@ -40,7 +40,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("workflows:\n      - CI", release)
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
-        self.assertIn("TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
+        self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
         self.assertIn("gh run download", release)
         self.assertIn("wp04-verification-${TARGET_SHA}", release)
         self.assertIn('ref="refs/tags/${RC_TAG}"', release)
@@ -61,6 +61,14 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "EnthusiaLoreItems-test-reports.tar.gz",
         ]:
             self.assertIn(asset, release)
+
+    def test_rc_workflow_recovers_only_a_verified_partial_tag(self):
+        release = (ROOT / ".github/workflows/release-rc.yml").read_text()
+        self.assertIn("compare/${TAG_SHA}...main", release)
+        self.assertIn("head_sha=${TAG_SHA}&event=push&status=success", release)
+        self.assertIn('.name == "CI" and .head_branch == "main"', release)
+        self.assertIn("tag_exists=true", release)
+        self.assertIn("steps.state.outputs.tag_exists != 'true'", release)
 
     def test_profile_harness_declares_every_fixed_scenario(self):
         profile = (ROOT / "tools/wp04_profile.py").read_text()
