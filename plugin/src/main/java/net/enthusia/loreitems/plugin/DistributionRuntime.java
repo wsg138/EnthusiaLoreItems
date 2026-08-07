@@ -11,6 +11,9 @@ import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
 import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
 import net.enthusia.loreitems.application.DistributionDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
+import net.enthusia.loreitems.application.MetricsDistributionCampaignAdministrationUseCase;
+import net.enthusia.loreitems.application.MetricsDistributionDeliveryExecutionUseCase;
+import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PersistingDistributionCampaignAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingDistributionDeliveryExecutionUseCase;
 import net.enthusia.loreitems.paper.DistributionCampaignCommandExecutor;
@@ -57,6 +60,7 @@ final class DistributionRuntime implements AutoCloseable {
         Objects.requireNonNull(storage, "storage");
         Objects.requireNonNull(configuration, "configuration");
         Executor workerExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        MetricsPort metrics = storage.metrics();
 
         Clock clock = Clock.systemUTC();
         groupCatalog = new PaperGroupFileCatalog(plugin.getDataFolder().toPath());
@@ -64,19 +68,24 @@ final class DistributionRuntime implements AutoCloseable {
                 new SQLiteDistributionCampaignRepository(storage);
         SQLiteDistributionRecipientRepository recipients =
                 new SQLiteDistributionRecipientRepository(storage);
-        administration = new PersistingDistributionCampaignAdministrationUseCase(
-                campaigns,
-                recipients,
-                new SQLiteDistributionReviewRepository(storage),
-                new SQLiteDistributionCampaignControlRepository(storage),
-                clock);
+        DistributionCampaignAdministrationUseCase persistedAdministration =
+                new PersistingDistributionCampaignAdministrationUseCase(
+                        campaigns,
+                        recipients,
+                        new SQLiteDistributionReviewRepository(storage),
+                        new SQLiteDistributionCampaignControlRepository(storage),
+                        clock);
+        administration = new MetricsDistributionCampaignAdministrationUseCase(
+                persistedAdministration, metrics);
         PaperDistributionMarkerReconciler markerReconciler =
                 new PaperDistributionMarkerReconciler(groupCatalog, campaigns, workerExecutor);
-        DistributionDeliveryExecutionUseCase delivery =
+        DistributionDeliveryExecutionUseCase persistedDelivery =
                 new PersistingDistributionDeliveryExecutionUseCase(
                         new SQLiteCancellableDistributionDeliveryRepository(storage),
                         clock,
                         Duration.ofSeconds(configuration.deliveryClaimLeaseSeconds()));
+        DistributionDeliveryExecutionUseCase delivery =
+                new MetricsDistributionDeliveryExecutionUseCase(persistedDelivery, metrics);
         deliveryWorker = new PaperDistributionDeliveryWorker(
                 plugin,
                 delivery,
