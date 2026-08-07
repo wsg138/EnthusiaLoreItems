@@ -74,6 +74,10 @@ public final class SQLiteStorageRuntime {
         return executor.queueDepth();
     }
 
+    public MetricsPort metrics() {
+        return metrics;
+    }
+
     public boolean close(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
         storageState.set(StorageState.STOPPING);

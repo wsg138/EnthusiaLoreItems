@@ -51,8 +51,8 @@ final class SQLiteDistributionRecipientSupport {
     }
 
     private static void validateInitialState(CampaignRecipient recipient) {
-        if (recipient.state() != CampaignRecipientState.PENDING_NAME
-                && recipient.state() != CampaignRecipientState.PENDING_OFFLINE) {
+        if (recipient.state() != CampaignRecipientState.UNRESOLVED
+                && recipient.state() != CampaignRecipientState.QUEUED_OFFLINE) {
             throw new IllegalArgumentException(
                     "Initial recipients must be unresolved names or UUID-bound offline recipients");
         }
@@ -131,7 +131,7 @@ final class SQLiteDistributionRecipientSupport {
         List<CampaignRecipient> candidates = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 selectColumns() + " WHERE campaign_id = ? "
-                        + "AND state IN ('PENDING_OFFLINE', 'PENDING_SPACE') "
+                        + "AND state IN ('QUEUED_OFFLINE', 'QUEUED_INVENTORY_FULL') "
                         + "AND player_id IS NOT NULL "
                         + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
                         + CAMPAIGN_EXISTS_PREFIX
@@ -167,7 +167,7 @@ final class SQLiteDistributionRecipientSupport {
             List<CampaignRecipient> candidates) throws SQLException {
         List<CampaignRecipient> claimed = new ArrayList<>(candidates.size());
         try (PreparedStatement update = connection.prepareStatement(
-                "UPDATE distribution_recipients SET state = 'RESERVED', claim_token = ?, "
+                "UPDATE distribution_recipients SET state = 'RESERVED_IN_FLIGHT', claim_token = ?, "
                         + "claim_expires_at = ?, attempt_count = attempt_count + 1, "
                         + CLEAR_NEXT_ATTEMPT
                         + RECIPIENT_KEY_PREDICATE
@@ -210,7 +210,7 @@ final class SQLiteDistributionRecipientSupport {
                 candidate.snapshotIndex(),
                 candidate.originalValue(),
                 candidate.playerId(),
-                CampaignRecipientState.RESERVED,
+                CampaignRecipientState.RESERVED_IN_FLIGHT,
                 candidate.instanceId(),
                 claimToken,
                 expiresAt,

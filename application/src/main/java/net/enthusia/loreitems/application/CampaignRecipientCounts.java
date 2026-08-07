@@ -1,41 +1,58 @@
 package net.enthusia.loreitems.application;
 
 public record CampaignRecipientCounts(
-        long pendingName,
-        long pendingOffline,
-        long pendingSpace,
-        long reserved,
+        long unresolved,
+        long queuedOffline,
+        long queuedInventoryFull,
+        long reservedInFlight,
+        long reviewRequired,
         long delivered,
-        long cancelled,
-        long reviewRequired) {
+        long cancelled) {
     private static final long MIN_COUNT = 0L;
 
     public CampaignRecipientCounts {
-        requireNonNegative(pendingName, "pendingName");
-        requireNonNegative(pendingOffline, "pendingOffline");
-        requireNonNegative(pendingSpace, "pendingSpace");
-        requireNonNegative(reserved, "reserved");
+        requireNonNegative(unresolved, "unresolved");
+        requireNonNegative(queuedOffline, "queuedOffline");
+        requireNonNegative(queuedInventoryFull, "queuedInventoryFull");
+        requireNonNegative(reservedInFlight, "reservedInFlight");
+        requireNonNegative(reviewRequired, "reviewRequired");
         requireNonNegative(delivered, "delivered");
         requireNonNegative(cancelled, "cancelled");
-        requireNonNegative(reviewRequired, "reviewRequired");
     }
 
     public long total() {
         return Math.addExact(
                 Math.addExact(
-                        Math.addExact(pendingName, pendingOffline),
-                        Math.addExact(pendingSpace, reserved)),
+                        Math.addExact(unresolved, queuedOffline),
+                        Math.addExact(queuedInventoryFull, reservedInFlight)),
                 Math.addExact(
-                        Math.addExact(delivered, cancelled),
-                        reviewRequired));
+                        Math.addExact(reviewRequired, delivered),
+                        cancelled));
     }
 
     public long remaining() {
         return Math.addExact(
-                Math.addExact(pendingName, pendingOffline),
+                Math.addExact(unresolved, queuedOffline),
                 Math.addExact(
-                        Math.addExact(pendingSpace, reserved),
+                        Math.addExact(queuedInventoryFull, reservedInFlight),
                         reviewRequired));
+    }
+
+    /** Compatibility accessors for callers using the foundation names. */
+    public long pendingName() {
+        return unresolved;
+    }
+
+    public long pendingOffline() {
+        return queuedOffline;
+    }
+
+    public long pendingSpace() {
+        return queuedInventoryFull;
+    }
+
+    public long reserved() {
+        return reservedInFlight;
     }
 
     private static void requireNonNegative(long value, String name) {

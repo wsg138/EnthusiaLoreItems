@@ -1,83 +1,68 @@
 # Workspace state
 
 ## Snapshot warning
-
-This file is a committed coordination snapshot. Live GitHub remains authoritative. Resolve conflicts using this order: live GitHub state; the selected package contract; workflow documents; requirements; architecture; implementation plan; then state or handoff records.
-
-The COMPLETE and READY states below are prospective until PR #13 is normally merged and the resulting live `main` is verified.
+Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; selected package contract; workflow docs; requirements; architecture; implementation plan; state/handoffs.
 
 ## Publication state
-
 - Repository: `wsg138/EnthusiaLoreItems`
-- Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
-- Completing package: WP-02 — destructive administration
-- Status: `COMPLETE` prospectively
-- Canonical branch: `agent/wp-02-destructive-administration`
-- Ready pull request: #13, `WP-02: complete destructive administration`
-- Verified implementation head: `98d58bd76c69939159a351bd3407c108a3015227`
-- Exact next package after authoritative completion: WP-03 — one-use mass distributions
+- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
+- Completed package: WP-03 — one-use mass distributions
+- Status: `COMPLETE` (prospective pre-merge state; merge/post-merge verification still required)
+- Canonical branch: `agent/wp-03-mass-distributions`
+- Pull request: #14, `WP-03: complete one-use mass distributions`
+- Worker starting head: `10cb131e93c4758cfe9f1e174e1400cb8d0b5ffc`
+- Substantive independent-review head: `b31be671905ad71ed7ab114de074d9d547517335`
+- Exact green remediation checkpoint: `f71c056748541d31a23f78807aab73acdd5630bd`
+- Exact green VERIFYING checkpoint: `cce46ffe0f030b2d5490a2542b73b4709647e823`
+- VERIFYING Actions run: `31173515497`
+- VERIFYING external Codacy check: `92850542953`, success with zero annotations
+- Prospective completion checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-03-complete-premerge.md`
+- Exact next package: WP-04 — automated production hardening and release candidate (`READY` only; do not begin it in this chat)
 
-## Recovered exact-head verification
-
-GitHub Actions was not waived. After the hosted-runner incident was resolved, run `31137614006` executed successfully for exact implementation head `98d58bd76c69939159a351bd3407c108a3015227`:
-
-- runner allocation and checkout: success;
-- Java 21 setup: success;
-- Gradle 8.14.3 setup: success;
-- `gradle --no-daemon clean check`: success;
-- repository-tool dependency installation and tests: success;
-- new-code complexity verification: success;
-- exact-head Codacy verification: success.
-
-External Codacy check `92740655340` also succeeded for that exact implementation head with zero annotations. The test failure exposed after runner recovery was repaired in commit `98d58bd76c69939159a351bd3407c108a3015227`: empty `ItemDisplay` stacks are treated as AIR/absent without fingerprint serialization.
+## Live reconciliation
+- Live `main` remained `d77ec61032e5583783694ae349f785495cbf8f31` through the final pre-completion concurrency check.
+- PR #14 remains the single canonical WP-03 lock, open, non-draft, and mergeable.
+- CodeRabbit completed the required substantive review across all 90 changed PR files (run `fc10c8bf-f61f-4009-bde2-54620c4792d7`).
+- All 17 inline review threads are resolved and no review is in `CHANGES_REQUESTED` state.
+- The exact VERIFYING head passed all required automated gates before this completion transition.
 
 ## Package status
-
 | Package | Weight | Status | Reason |
 |---|---:|---|---|
 | WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
-| WP-02 | 20% | COMPLETE | Prospective final state in PR #13; normal merge and live-main verification remain |
-| WP-03 | 20% | READY | Available only after WP-02 is authoritative on live `main` and in a separate worker/chat |
-| WP-04 | 15% | BLOCKED | WP-03 is not COMPLETE |
-| WP-05 | 15% | BLOCKED | WP-04 release candidate is not verified |
-| WP-06 | 10% | BLOCKED | WP-05 production release is not verified |
+| WP-02 | 20% | COMPLETE | PR #13 normally merged and live `main` verified |
+| WP-03 | 20% | COMPLETE | All package acceptance/review/verification gates passed; normal merge and post-merge verification remain |
+| WP-04 | 15% | READY | Exact next package unlocked by WP-03 completion; not started |
+| WP-05 | 15% | BLOCKED | WP-04 release candidate not verified |
+| WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
-## Counts and weighted progress
-
-- Fixed package count: 6
-- Completed packages: 2 of 6
-- Remaining packages: 4 of 6
-- Weighted progress: `40 / 100 = 40%`
-
-These values become authoritative only after PR #13 is normally merged and live `main` is verified.
+## Progress
+- Fixed packages: 6
+- Completed: 3 of 6
+- Remaining: 3 of 6
+- Weighted progress: `60 / 100 = 60%`
 
 ## Completed acceptance criteria
+- Complete bounded source lifecycle, immutable DB-first campaign snapshot, source replay fencing, Java/Floodgate/UUID identity, durable unresolved-name binding, exactly-once delivery, no overflow drops, exact seven-state counts, lifecycle controls, restart/recovery, marker repair, WP-02 recovery integration, metrics/audit/permissions/messages, degraded/reload/shutdown behavior, and focused Paper/SQLite/end-to-end/restart tests.
+- Full-package author harsh review completed and all confirmed findings fixed.
+- Required independent review completed and every actionable finding/thread reconciled on the same branch.
+- Confirmed independent/static fixes include cancellation audit validation, bounded cancelled-claim draining, shutdown-safe completions, defensive player binding, fail-closed completion scheduling, dedicated bounded distribution executor, explicit recovery-service availability, exact historical claim evidence, orphan recovery-temp bounds, recovery-command complexity, formatter complexity, and binding-worker static analysis.
 
-- Durable, reboot-safe, idempotent exact removal, purge, and full-delete operation state with fixed target snapshots.
-- Incremental bounded destructive execution through the natural-access scanner without force loads or background Paper access.
-- Exact-reference, revision, location, and fingerprint verification before physical deletion, with changed or ambiguous evidence routed to review.
-- Privileged preview/confirm flows, bounded confirmation sessions, worker wakeups, pagination, metrics, pause/resume, review controls, GUI actions, permissions, messages, completion, and lifecycle cleanup.
-- Tracking, audit, age, error, retry, lease, operation, and target evidence presentation.
-- Focused domain, SQLite, migration, Paper removal, command confirmation, GUI, recovery, divergence, pause-fence, unknown-outcome, stale-confirmation, overflow, JSON-escaping, aggregate-count, and empty-item-display tests.
-- Operator recovery documentation, GitHub-backed checkpoints, independent full-package harsh review, and final author-side harsh review.
+## Tests and verification
+- `f71c056748541d31a23f78807aab73acdd5630bd`: Actions `31173262374` succeeded for full Gradle verification, repository tooling, new-code complexity, workflow exact-head Codacy; external Codacy succeeded with zero annotations.
+- `cce46ffe0f030b2d5490a2542b73b4709647e823`: Actions `31173515497` succeeded for full Gradle verification, repository tooling, new-code complexity, workflow exact-head Codacy; external Codacy check `92850542953` succeeded with zero annotations.
+- No local test result is claimed because this runtime cannot resolve GitHub dependencies for a dependency-capable checkout.
+- This prospective completion commit changes the SHA, so it must receive one final exact-head Actions/Codacy pass before merge.
 
-## Review reconciliation
+## Remaining acceptance criteria
+1. Verify the exact prospective-completion SHA with Actions and external Codacy.
+2. Reconfirm branch/PR/main concurrency and clean review state.
+3. Normally merge PR #14 with a merge commit.
+4. Verify live `main`, committed COMPLETE/READY queue state, and required post-merge checks.
+5. Stop without beginning WP-04.
 
-- PR #13 is ready for review.
-- The earlier CodeRabbit review posted seven actionable threads; all were fixed and resolved.
-- The incremental CodeRabbit review on implementation head `98d58bd76c69939159a351bd3407c108a3015227` completed with status success and posted two coordination-record findings.
-- This publication sequence aligns the queue, workspace state, detailed report, and latest handoff and restores the complete conflict-resolution authority order.
-- No submitted review is in `CHANGES_REQUESTED` state.
-
-## Remaining finalization
-
-1. Verify GitHub Actions and Codacy for the final records-only branch head produced by this publication sequence.
-2. Resolve the two addressed coordination review threads and reconfirm no requested changes or unresolved threads remain.
-3. Update the PR body with truthful final exact-head evidence.
-4. Merge PR #13 with GitHub's normal merge-commit method.
-5. Verify the resulting merge commit, live `main`, committed queue/state/handoff, and post-merge CI/Codacy.
-6. Stop without claiming or beginning WP-03.
+## Blocker
+None.
 
 ## Exact next action
-
-Finish this records publication sequence, inspect its exact-head gates, reconcile review state, normally merge PR #13, verify live `main`, and stop.
+Hold the prospective-completion SHA stable, obtain final exact-head Actions/external Codacy, then normally merge PR #14 and verify live `main`. Do not begin WP-04.

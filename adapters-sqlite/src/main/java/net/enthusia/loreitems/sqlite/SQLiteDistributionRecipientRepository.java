@@ -5,9 +5,7 @@ import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.M
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.NOW_ARGUMENT;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.RECIPIENT_KEY_ARGUMENT;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.SINGLE_UPDATED_ROW;
-import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.claimPending;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.count;
-import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.insertBatch;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.normalizeClaimToken;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.readPage;
 import static net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientSupport.readRecipient;
@@ -41,7 +39,7 @@ public final class SQLiteDistributionRecipientRepository
     private static final String RECIPIENT_KEY_PREDICATE =
             "WHERE campaign_id = ? AND recipient_key = ? ";
     private static final String RESERVED_CLAIM_PREDICATE =
-            "AND state = 'RESERVED' AND claim_token = ? ";
+            "AND state = 'RESERVED_IN_FLIGHT' AND claim_token = ? ";
     private static final String CAMPAIGN_EXISTS_PREFIX =
             "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign ";
     private static final String CAMPAIGN_CORRELATION =
@@ -144,7 +142,7 @@ public final class SQLiteDistributionRecipientRepository
         }
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " WHERE recipient_key = ? AND state = 'PENDING_NAME' "
+                    selectColumns() + " WHERE recipient_key = ? AND state = 'UNRESOLVED' "
                             + "ORDER BY updated_at, campaign_id LIMIT ? OFFSET ?")) {
                 statement.setString(1, recipientKey.value());
                 statement.setInt(2, request.limit() + 1);
@@ -155,7 +153,7 @@ public final class SQLiteDistributionRecipientRepository
     }
 
     @Override
-    @SuppressWarnings("PMD.UseConcurrentHashMap") // Method-local EnumMap is confined to one database task.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     public CompletionStage<CampaignRecipientCounts> countByState(UUID campaignId) {
         Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         return storage.execute(connection -> {
@@ -168,19 +166,20 @@ public final class SQLiteDistributionRecipientRepository
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
                         counts.put(
-                                CampaignRecipientState.valueOf(resultSet.getString(SQLiteDistributionRecipientSupport.STATE_COLUMN)),
+                                CampaignRecipientState.valueOf(resultSet.getString(
+                                        SQLiteDistributionRecipientSupport.STATE_COLUMN)),
                                 resultSet.getLong("state_count"));
                     }
                 }
             }
             return new CampaignRecipientCounts(
-                    count(counts, CampaignRecipientState.PENDING_NAME),
-                    count(counts, CampaignRecipientState.PENDING_OFFLINE),
-                    count(counts, CampaignRecipientState.PENDING_SPACE),
-                    count(counts, CampaignRecipientState.RESERVED),
+                    count(counts, CampaignRecipientState.UNRESOLVED),
+                    count(counts, CampaignRecipientState.QUEUED_OFFLINE),
+                    count(counts, CampaignRecipientState.QUEUED_INVENTORY_FULL),
+                    count(counts, CampaignRecipientState.RESERVED_IN_FLIGHT),
+                    count(counts, CampaignRecipientState.REVIEW_REQUIRED),
                     count(counts, CampaignRecipientState.DELIVERED),
-                    count(counts, CampaignRecipientState.CANCELLED),
-                    count(counts, CampaignRecipientState.REVIEW_REQUIRED));
+                    count(counts, CampaignRecipientState.CANCELLED));
         });
     }
 
@@ -201,9 +200,9 @@ public final class SQLiteDistributionRecipientRepository
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE distribution_recipients SET player_id = ?, "
-                            + "state = 'PENDING_OFFLINE', updated_at = ? "
+                            + "state = 'QUEUED_OFFLINE', updated_at = ? "
                             + RECIPIENT_KEY_PREDICATE
-                            + "AND state = 'PENDING_NAME' AND player_id IS NULL "
+                            + "AND state = 'UNRESOLVED' AND player_id IS NULL "
                             + "AND updated_at <= ? "
                             + CAMPAIGN_EXISTS_PREFIX
                             + CAMPAIGN_CORRELATION
@@ -267,7 +266,7 @@ public final class SQLiteDistributionRecipientRepository
         Objects.requireNonNull(targetPendingState, "targetPendingState");
         Objects.requireNonNull(now, NOW_ARGUMENT);
         Objects.requireNonNull(nextAttemptAt, "nextAttemptAt");
-        CampaignRecipientState.RESERVED.transitionTo(targetPendingState);
+        CampaignRecipientState.RESERVED_IN_FLIGHT.transitionTo(targetPendingState);
         if (!targetPendingState.claimable()) {
             throw new IllegalArgumentException(
                     "Released campaign claims must return to an offline or full-inventory state");
@@ -399,7 +398,7 @@ public final class SQLiteDistributionRecipientRepository
                             + "claim_token = NULL, claim_expires_at = NULL, "
                             + CLEAR_NEXT_ATTEMPT
                             + "WHERE rowid IN (SELECT rowid FROM distribution_recipients "
-                            + "WHERE state = 'RESERVED' AND claim_expires_at <= ? "
+                            + "WHERE state = 'RESERVED_IN_FLIGHT' AND claim_expires_at <= ? "
                             + "ORDER BY claim_expires_at, campaign_id, snapshot_index LIMIT ?)")) {
                 statement.setLong(1, nowMillis);
                 statement.setLong(2, nowMillis);
@@ -408,5 +407,4 @@ public final class SQLiteDistributionRecipientRepository
             }
         });
     }
-
 }

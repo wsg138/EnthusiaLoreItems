@@ -71,7 +71,7 @@ public record CampaignRecipient(
                 snapshotIndex,
                 originalValue,
                 null,
-                CampaignRecipientState.PENDING_NAME,
+                CampaignRecipientState.UNRESOLVED,
                 null,
                 null,
                 null,
@@ -93,7 +93,7 @@ public record CampaignRecipient(
                 snapshotIndex,
                 originalValue,
                 playerId,
-                CampaignRecipientState.PENDING_OFFLINE,
+                CampaignRecipientState.QUEUED_OFFLINE,
                 null,
                 null,
                 null,
@@ -127,31 +127,39 @@ public record CampaignRecipient(
             Long nextAttemptAtEpochMillis,
             Long deliveredAtEpochMillis) {
         switch (state) {
-            case PENDING_NAME -> {
+            case UNRESOLVED -> {
                 if (!recipientKey.unresolvedNameKey() || playerId != null) {
                     throw new IllegalArgumentException(
-                            "PENDING_NAME requires an unresolved name and no player UUID");
+                            "UNRESOLVED requires an unresolved name and no player UUID");
                 }
                 requireNoInstanceOrDelivery(state, instanceId, deliveredAtEpochMillis);
                 requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
                 if (nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
-                            "PENDING_NAME must not have a delivery retry timestamp");
+                            "UNRESOLVED must not have a delivery retry timestamp");
                 }
             }
-            case PENDING_OFFLINE, PENDING_SPACE -> {
+            case QUEUED_OFFLINE, QUEUED_INVENTORY_FULL -> {
                 requirePlayer(state, playerId);
                 requireNoInstanceOrDelivery(state, instanceId, deliveredAtEpochMillis);
                 requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
             }
-            case RESERVED -> {
+            case RESERVED_IN_FLIGHT -> {
                 requirePlayer(state, playerId);
                 if (claimToken == null || claimExpiresAtEpochMillis == null) {
-                    throw new IllegalArgumentException("RESERVED recipient requires a live claim");
+                    throw new IllegalArgumentException(
+                            "RESERVED_IN_FLIGHT recipient requires a live claim");
                 }
                 if (deliveredAtEpochMillis != null || nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
-                            "RESERVED recipient must not be delivered or retry-scheduled");
+                            "RESERVED_IN_FLIGHT recipient must not be delivered or retry-scheduled");
+                }
+            }
+            case REVIEW_REQUIRED -> {
+                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
+                if (deliveredAtEpochMillis != null || nextAttemptAtEpochMillis != null) {
+                    throw new IllegalArgumentException(
+                            "REVIEW_REQUIRED recipient must not claim delivery or retry state");
                 }
             }
             case DELIVERED -> {
@@ -172,13 +180,6 @@ public record CampaignRecipient(
                 if (nextAttemptAtEpochMillis != null) {
                     throw new IllegalArgumentException(
                             "CANCELLED recipient must not have a retry timestamp");
-                }
-            }
-            case REVIEW_REQUIRED -> {
-                requireNoClaim(state, claimToken, claimExpiresAtEpochMillis);
-                if (deliveredAtEpochMillis != null || nextAttemptAtEpochMillis != null) {
-                    throw new IllegalArgumentException(
-                            "REVIEW_REQUIRED recipient must not claim delivery or retry state");
                 }
             }
             default -> throw new IllegalStateException("Unhandled recipient state");

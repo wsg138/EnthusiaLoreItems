@@ -9,6 +9,9 @@ commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
     usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|remove|purge|delete|operations|targets|destructive-metrics|pause-operation|resume-operation|resolve-removal ...
+  loredistribution:
+    description: Validates, starts, inspects, and controls one-use lore-item distribution campaigns.
+    usage: /loredistribution reload|inspect|preview|confirm|campaigns|status|recipients|pause|resume|cancel|reconcile ...
 permissions:
   enthusia.loreitems.admin.create:
     description: Creates a lore definition from the held item.
@@ -42,4 +45,13 @@ permissions:
     default: op
   enthusia.loreitems.admin.destructive.review:
     description: Resolves destructive targets that require evidence review.
+    default: op
+  enthusia.loreitems.admin.distribution.inspect:
+    description: Reloads, validates, and inspects mass distribution sources and campaign status.
+    default: op
+  enthusia.loreitems.admin.distribution.start:
+    description: Previews and explicitly confirms one-use mass distribution campaigns.
+    default: op
+  enthusia.loreitems.admin.distribution.control:
+    description: Pauses, resumes, cancels, and reconciles mass distribution campaigns.
     default: op

@@ -9,6 +9,7 @@ import net.enthusia.loreitems.application.DirectDeliveryRecord;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PendingMutationRecord;
+import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
 import net.enthusia.loreitems.domain.InstanceObservation;
@@ -61,31 +62,113 @@ final class LoreItemsAdministrationFormatter {
     }
 
     static List<String> recoveryLines(LoreItemsAdministrationUseCase.RecoveryPage page) {
+        Page<CampaignRecipient> emptyCampaignReview = new Page<>(
+                List.of(),
+                page.deliveries().offset(),
+                page.deliveries().limit(),
+                false);
+        return recoveryLines(page, emptyCampaignReview, true);
+    }
+
+    static List<String> recoveryLines(
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews) {
+        return recoveryLines(page, campaignReviews, true);
+    }
+
+    static List<String> recoveryLines(
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
         List<String> lines = new ArrayList<>();
-        lines.add("Nonterminal lore-item recovery work — page "
+        lines.add("Nonterminal lore-item recovery and review work — page "
                 + pageNumber(page.deliveries()));
-        if (page.deliveries().items().isEmpty() && page.mutations().items().isEmpty()) {
-            lines.add("No nonterminal delivery or mutation records were found.");
+        appendCampaignReviewAvailability(lines, campaignReviewAvailable);
+        if (hasNoRecoveryRecords(page, campaignReviews)) {
+            appendNoRecoveryRecords(lines, campaignReviewAvailable);
             return lines;
         }
-        for (DirectDeliveryRecord delivery : page.deliveries().items()) {
+        appendDeliveryRecovery(lines, page.deliveries());
+        appendMutationRecovery(lines, page.mutations());
+        appendCampaignRecovery(lines, campaignReviews, campaignReviewAvailable);
+        appendRecoveryFooter(lines, page, campaignReviews, campaignReviewAvailable);
+        return lines;
+    }
+
+    private static void appendCampaignReviewAvailability(
+            List<String> lines, boolean campaignReviewAvailable) {
+        if (!campaignReviewAvailable) {
+            lines.add("Campaign review data is unavailable because mass distribution administration "
+                    + "is not active.");
+        }
+    }
+
+    private static boolean hasNoRecoveryRecords(
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews) {
+        return page.deliveries().items().isEmpty()
+                && page.mutations().items().isEmpty()
+                && campaignReviews.items().isEmpty();
+    }
+
+    private static void appendNoRecoveryRecords(
+            List<String> lines, boolean campaignReviewAvailable) {
+        lines.add(campaignReviewAvailable
+                ? "No nonterminal delivery, mutation, or campaign review records were found."
+                : "No nonterminal delivery or mutation records were found.");
+    }
+
+    private static void appendCampaignRecovery(
+            List<String> lines,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
+        if (campaignReviewAvailable) {
+            appendCampaignReviews(lines, campaignReviews);
+        }
+    }
+
+    private static void appendRecoveryFooter(
+            List<String> lines,
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
+        if (page.hasMore() || (campaignReviewAvailable && campaignReviews.hasMore())) {
+            lines.add("More recovery or review records are available on the next page.");
+        }
+    }
+
+    private static void appendDeliveryRecovery(
+            List<String> lines, Page<DirectDeliveryRecord> deliveries) {
+        for (DirectDeliveryRecord delivery : deliveries.items()) {
             lines.add("DELIVERY " + delivery.state().name()
                     + " delivery=" + delivery.deliveryId()
                     + " instance=" + delivery.instanceId().value()
                     + " player=" + delivery.playerId()
                     + " attempts=" + delivery.attemptCount());
         }
-        for (PendingMutationRecord mutation : page.mutations().items()) {
+    }
+
+    private static void appendMutationRecovery(
+            List<String> lines, Page<PendingMutationRecord> mutations) {
+        for (PendingMutationRecord mutation : mutations.items()) {
             lines.add("MUTATION " + mutation.state().name()
                     + " type=" + mutation.mutationType()
                     + " mutation=" + mutation.mutationId()
                     + " instance=" + nullableInstance(mutation)
                     + " attempts=" + mutation.attemptCount());
         }
-        if (page.hasMore()) {
-            lines.add("More recovery records are available on the next page.");
+    }
+
+    private static void appendCampaignReviews(
+            List<String> lines, Page<CampaignRecipient> campaignReviews) {
+        for (CampaignRecipient recipient : campaignReviews.items()) {
+            lines.add("CAMPAIGN_REVIEW " + recipient.state().name()
+                    + " campaign=" + recipient.campaignId()
+                    + " recipient=" + recipient.originalValue()
+                    + " player=" + nullablePlayer(recipient)
+                    + " instance=" + nullableCampaignInstance(recipient)
+                    + " attempts=" + recipient.attemptCount());
         }
-        return lines;
     }
 
     private static void appendObservationLines(
@@ -165,6 +248,16 @@ final class LoreItemsAdministrationFormatter {
         return mutation.instanceId() == null
                 ? "none"
                 : mutation.instanceId().value().toString();
+    }
+
+    private static String nullablePlayer(CampaignRecipient recipient) {
+        return recipient.playerId() == null ? "none" : recipient.playerId().toString();
+    }
+
+    private static String nullableCampaignInstance(CampaignRecipient recipient) {
+        return recipient.instanceId() == null
+                ? "none"
+                : recipient.instanceId().value().toString();
     }
 
     private static String summarize(String value) {

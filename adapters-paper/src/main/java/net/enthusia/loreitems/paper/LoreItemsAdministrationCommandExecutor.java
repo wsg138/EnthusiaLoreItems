@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,9 +15,11 @@ import java.util.function.IntSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
+import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
 import net.enthusia.loreitems.domain.InstanceObservation;
@@ -348,31 +351,57 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             finishQuery(actor);
             return;
         }
-        CompletionStage<LoreItemsAdministrationUseCase.RecoveryPage> stage;
+        CompletionStage<RecoveryView> stage;
         try {
-            stage = Objects.requireNonNull(
-                    useCase.listRecovery(request),
-                    "recovery query stage");
+            stage = submitRecoveryView(useCase, request);
         } catch (RuntimeException exception) {
             finishQuery(actor);
             handleFailure(actor, "recovery work", exception);
             return;
         }
-        stage.whenComplete((page, failure) -> {
+        stage.whenComplete((view, failure) -> {
             finishQuery(actor);
             if (failure != null) {
                 handleFailure(actor, "recovery work", failure);
                 return;
             }
-            if (page == null) {
+            if (view == null) {
                 handleFailure(
                         actor,
                         "recovery work",
-                        new IllegalStateException("Recovery query returned no page"));
+                        new IllegalStateException("Recovery query returned no view"));
                 return;
             }
-            notifyActor(actor, LoreItemsAdministrationFormatter.recoveryLines(page));
+            notifyActor(
+                    actor,
+                    LoreItemsAdministrationFormatter.recoveryLines(
+                            view.recovery(),
+                            view.campaignReviews(),
+                            view.distributionAvailable()));
         });
+    }
+
+    private CompletionStage<RecoveryView> submitRecoveryView(
+            LoreItemsAdministrationUseCase useCase, PageRequest request) {
+        CompletionStage<LoreItemsAdministrationUseCase.RecoveryPage> recovery =
+                Objects.requireNonNull(useCase.listRecovery(request), "recovery query stage");
+        DistributionCampaignAdministrationUseCase distribution = plugin.getServer()
+                .getServicesManager()
+                .load(DistributionCampaignAdministrationUseCase.class);
+        boolean distributionAvailable = distribution != null;
+        CompletionStage<Page<CampaignRecipient>> campaignReviews = !distributionAvailable
+                ? CompletableFuture.completedFuture(emptyCampaignPage(request))
+                : Objects.requireNonNull(
+                        distribution.listReviewRequired(request),
+                        "campaign review query stage");
+        return recovery.thenCombine(
+                campaignReviews,
+                (recoveryPage, reviews) -> new RecoveryView(
+                        recoveryPage, reviews, distributionAvailable));
+    }
+
+    private static Page<CampaignRecipient> emptyCampaignPage(PageRequest request) {
+        return new Page<>(List.of(), request.offset(), request.limit(), false);
     }
 
     private PageRequest parsePage(
@@ -481,6 +510,11 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private record StateEvidence(
             Optional<InstanceCurrentState> currentState,
             Page<InstanceObservation> observations) {}
+
+    private record RecoveryView(
+            LoreItemsAdministrationUseCase.RecoveryPage recovery,
+            Page<CampaignRecipient> campaignReviews,
+            boolean distributionAvailable) {}
 
     public void closeEditorSessions(String reason) {
         destructiveExecutor.clearConfirmations();
