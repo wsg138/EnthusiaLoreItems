@@ -353,23 +353,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         }
         CompletionStage<RecoveryView> stage;
         try {
-            CompletionStage<LoreItemsAdministrationUseCase.RecoveryPage> recovery =
-                    Objects.requireNonNull(
-                            useCase.listRecovery(request),
-                            "recovery query stage");
-            DistributionCampaignAdministrationUseCase distribution = plugin.getServer()
-                    .getServicesManager()
-                    .load(DistributionCampaignAdministrationUseCase.class);
-            boolean distributionAvailable = distribution != null;
-            CompletionStage<Page<CampaignRecipient>> campaignReviews = !distributionAvailable
-                    ? CompletableFuture.completedFuture(emptyCampaignPage(request))
-                    : Objects.requireNonNull(
-                            distribution.listReviewRequired(request),
-                            "campaign review query stage");
-            stage = recovery.thenCombine(
-                    campaignReviews,
-                    (recoveryPage, reviews) -> new RecoveryView(
-                            recoveryPage, reviews, distributionAvailable));
+            stage = submitRecoveryView(useCase, request);
         } catch (RuntimeException exception) {
             finishQuery(actor);
             handleFailure(actor, "recovery work", exception);
@@ -395,6 +379,25 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
                             view.campaignReviews(),
                             view.distributionAvailable()));
         });
+    }
+
+    private CompletionStage<RecoveryView> submitRecoveryView(
+            LoreItemsAdministrationUseCase useCase, PageRequest request) {
+        CompletionStage<LoreItemsAdministrationUseCase.RecoveryPage> recovery =
+                Objects.requireNonNull(useCase.listRecovery(request), "recovery query stage");
+        DistributionCampaignAdministrationUseCase distribution = plugin.getServer()
+                .getServicesManager()
+                .load(DistributionCampaignAdministrationUseCase.class);
+        boolean distributionAvailable = distribution != null;
+        CompletionStage<Page<CampaignRecipient>> campaignReviews = !distributionAvailable
+                ? CompletableFuture.completedFuture(emptyCampaignPage(request))
+                : Objects.requireNonNull(
+                        distribution.listReviewRequired(request),
+                        "campaign review query stage");
+        return recovery.thenCombine(
+                campaignReviews,
+                (recoveryPage, reviews) -> new RecoveryView(
+                        recoveryPage, reviews, distributionAvailable));
     }
 
     private static Page<CampaignRecipient> emptyCampaignPage(PageRequest request) {
