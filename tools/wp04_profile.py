@@ -15,7 +15,6 @@ import os
 import platform
 import random
 import sqlite3
-import statistics
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -225,7 +224,7 @@ def run(repo: Path) -> dict:
         "passed": passed,
         "datasetDigest": digest_dataset(),
         "environment": {
-            "commit": os.environ.get("GITHUB_SHA", "local"),
+            "commit": os.environ.get("PROFILE_COMMIT", os.environ.get("GITHUB_SHA", "local")),
             "python": platform.python_version(),
             "os": platform.platform(),
             "sqlite": sqlite3.sqlite_version,
