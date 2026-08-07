@@ -83,27 +83,58 @@ final class LoreItemsAdministrationFormatter {
         List<String> lines = new ArrayList<>();
         lines.add("Nonterminal lore-item recovery and review work — page "
                 + pageNumber(page.deliveries()));
-        if (!campaignReviewAvailable) {
-            lines.add("Campaign review data is unavailable because mass distribution administration "
-                    + "is not active.");
-        }
-        if (page.deliveries().items().isEmpty()
-                && page.mutations().items().isEmpty()
-                && campaignReviews.items().isEmpty()) {
-            lines.add(campaignReviewAvailable
-                    ? "No nonterminal delivery, mutation, or campaign review records were found."
-                    : "No nonterminal delivery or mutation records were found.");
+        appendCampaignReviewAvailability(lines, campaignReviewAvailable);
+        if (hasNoRecoveryRecords(page, campaignReviews)) {
+            appendNoRecoveryRecords(lines, campaignReviewAvailable);
             return lines;
         }
         appendDeliveryRecovery(lines, page.deliveries());
         appendMutationRecovery(lines, page.mutations());
+        appendCampaignRecovery(lines, campaignReviews, campaignReviewAvailable);
+        appendRecoveryFooter(lines, page, campaignReviews, campaignReviewAvailable);
+        return lines;
+    }
+
+    private static void appendCampaignReviewAvailability(
+            List<String> lines, boolean campaignReviewAvailable) {
+        if (!campaignReviewAvailable) {
+            lines.add("Campaign review data is unavailable because mass distribution administration "
+                    + "is not active.");
+        }
+    }
+
+    private static boolean hasNoRecoveryRecords(
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews) {
+        return page.deliveries().items().isEmpty()
+                && page.mutations().items().isEmpty()
+                && campaignReviews.items().isEmpty();
+    }
+
+    private static void appendNoRecoveryRecords(
+            List<String> lines, boolean campaignReviewAvailable) {
+        lines.add(campaignReviewAvailable
+                ? "No nonterminal delivery, mutation, or campaign review records were found."
+                : "No nonterminal delivery or mutation records were found.");
+    }
+
+    private static void appendCampaignRecovery(
+            List<String> lines,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
         if (campaignReviewAvailable) {
             appendCampaignReviews(lines, campaignReviews);
         }
+    }
+
+    private static void appendRecoveryFooter(
+            List<String> lines,
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
         if (page.hasMore() || (campaignReviewAvailable && campaignReviews.hasMore())) {
             lines.add("More recovery or review records are available on the next page.");
         }
-        return lines;
     }
 
     private static void appendDeliveryRecovery(
