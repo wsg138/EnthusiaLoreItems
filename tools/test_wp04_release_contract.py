@@ -1,4 +1,3 @@
-import json
 import unittest
 from pathlib import Path
 
@@ -33,12 +32,15 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         for relative in required_tests:
             self.assertTrue((ROOT / relative).is_file(), relative)
 
-    def test_rc_workflows_are_pinned_to_candidate_version_and_exact_tag(self):
+    def test_rc_workflow_waits_for_verified_main_and_targets_that_commit(self):
         properties = (ROOT / "gradle.properties").read_text()
         release = (ROOT / ".github/workflows/release-rc.yml").read_text()
         self.assertIn("releaseVersion=1.0.0-rc.1", properties)
-        self.assertIn("v1.0.0-rc.1", release)
-        self.assertIn("--target \"$GITHUB_SHA\"", release)
+        self.assertIn("workflows:\n      - CI", release)
+        self.assertIn("head_branch == 'main'", release)
+        self.assertIn("TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
+        self.assertIn("git tag \"${RC_TAG}\" \"${TARGET_SHA}\"", release)
+        self.assertIn("--target \"${TARGET_SHA}\"", release)
         self.assertIn("--prerelease", release)
         self.assertIn("normalized-entry-manifest.txt", release)
         self.assertIn("EnthusiaLoreItems.jar.sha256", release)
