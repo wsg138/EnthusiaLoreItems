@@ -17,7 +17,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -31,6 +31,12 @@ jobs:
           gradle-version: "8.14.3"
       - name: Verify
         run: gradle --no-daemon clean check
+      - name: Preserve test reports
+        if: always()
+        run: |
+          mkdir -p /tmp/loreitems-test-reports
+          find . -path '*/build/test-results/*' -type f -exec cp --parents '{}' /tmp/loreitems-test-reports/ \; || true
+          find . -path '*/build/reports/tests/*' -type f -exec cp --parents '{}' /tmp/loreitems-test-reports/ \; || true
       - name: Install repository tooling dependencies
         run: python3 -m pip install --disable-pip-version-check -r tools/requirements.txt
       - name: Verify repository tooling
@@ -51,3 +57,42 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 tools/check_codacy.py
+      - name: Run deterministic WP-04 profile
+        run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
+      - name: Build and validate first RC artifact
+        run: |
+          gradle --no-daemon :plugin:shadowJar
+          gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
+          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
+          test -n "$JAR"
+          mkdir -p /tmp/rc-first
+          cp "$JAR" /tmp/rc-first/EnthusiaLoreItems.jar
+          python3 tools/prepare_rc_artifacts.py \
+            --jar /tmp/rc-first/EnthusiaLoreItems.jar \
+            --dependencies /tmp/gradle-dependencies.txt \
+            --output-dir /tmp/rc-first
+      - name: Rebuild RC from clean state and verify reproducibility
+        run: |
+          gradle --no-daemon clean :plugin:shadowJar
+          gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
+          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
+          test -n "$JAR"
+          mkdir -p /tmp/rc-second
+          cp "$JAR" /tmp/rc-second/EnthusiaLoreItems.jar
+          python3 tools/prepare_rc_artifacts.py \
+            --jar /tmp/rc-second/EnthusiaLoreItems.jar \
+            --dependencies /tmp/gradle-dependencies-second.txt \
+            --output-dir /tmp/rc-second
+          diff -u /tmp/rc-first/normalized-entry-manifest.txt /tmp/rc-second/normalized-entry-manifest.txt
+          diff -u /tmp/rc-first/EnthusiaLoreItems.jar.sha256 /tmp/rc-second/EnthusiaLoreItems.jar.sha256
+      - name: Upload WP-04 verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp04-verification-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            /tmp/wp04-profile.json
+            /tmp/rc-first/
+            /tmp/loreitems-test-reports/
