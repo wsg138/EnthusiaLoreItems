@@ -34,10 +34,10 @@ class SQLiteDirectDeliveryFailureMatrixTest {
         try (SQLiteFailureInjectionHarness harness = new SQLiteFailureInjectionHarness(database)) {
             seedDefinition(harness.runtime(), "before-intent");
             ExternalDeliveryCommand command = command("before-intent", "before-intent-op");
-            SQLiteDirectDeliveryRepository repository = repository(harness);
+            SQLiteDirectDeliveryRepository beforeRestart = repository(harness);
             harness.arm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_INSTANCE_INSERT);
 
-            assertThrows(CompletionException.class, () -> repository
+            assertThrows(CompletionException.class, () -> beforeRestart
                     .acceptExternal(command, Instant.ofEpochMilli(1_000L))
                     .toCompletableFuture()
                     .join());
@@ -47,8 +47,8 @@ class SQLiteDirectDeliveryFailureMatrixTest {
 
             harness.restart();
             harness.disarm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_INSTANCE_INSERT);
-            repository = repository(harness);
-            ExternalDeliveryAcceptance accepted = repository
+            SQLiteDirectDeliveryRepository afterRestart = repository(harness);
+            ExternalDeliveryAcceptance accepted = afterRestart
                     .acceptExternal(command, Instant.ofEpochMilli(2_000L))
                     .toCompletableFuture()
                     .join();
@@ -152,13 +152,13 @@ class SQLiteDirectDeliveryFailureMatrixTest {
         Path database = temporaryDirectory.resolve("verification-failure.db");
         try (SQLiteFailureInjectionHarness harness = new SQLiteFailureInjectionHarness(database)) {
             seedDefinition(harness.runtime(), "verification-failure");
-            SQLiteDirectDeliveryRepository repository = repository(harness);
-            repository.acceptExternal(
+            SQLiteDirectDeliveryRepository beforeRestart = repository(harness);
+            beforeRestart.acceptExternal(
                             command("verification-failure", "verification-op"),
                             Instant.ofEpochMilli(1_000L))
                     .toCompletableFuture()
                     .join();
-            PreparedDirectDelivery delivery = repository
+            PreparedDirectDelivery delivery = beforeRestart
                     .claimPreparedPending(
                             "verification-worker",
                             Instant.ofEpochMilli(2_000L),
@@ -170,7 +170,7 @@ class SQLiteDirectDeliveryFailureMatrixTest {
                     .getFirst();
             harness.arm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_AUDIT_INSERT);
 
-            assertThrows(CompletionException.class, () -> repository
+            assertThrows(CompletionException.class, () -> beforeRestart
                     .completeClaimed(
                             delivery,
                             4,
@@ -178,7 +178,7 @@ class SQLiteDirectDeliveryFailureMatrixTest {
                             Instant.ofEpochMilli(2_005L))
                     .toCompletableFuture()
                     .join());
-            Page<DirectDeliveryRecord> afterFailure = repository
+            Page<DirectDeliveryRecord> afterFailure = beforeRestart
                     .listNonTerminal(PageRequest.first(10))
                     .toCompletableFuture()
                     .join();
@@ -189,12 +189,12 @@ class SQLiteDirectDeliveryFailureMatrixTest {
 
             harness.restart();
             harness.disarm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_AUDIT_INSERT);
-            repository = repository(harness);
-            assertEquals(1, repository
+            SQLiteDirectDeliveryRepository afterRestart = repository(harness);
+            assertEquals(1, afterRestart
                     .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 10)
                     .toCompletableFuture()
                     .join());
-            Page<DirectDeliveryRecord> recovered = repository
+            Page<DirectDeliveryRecord> recovered = afterRestart
                     .listNonTerminal(PageRequest.first(10))
                     .toCompletableFuture()
                     .join();
