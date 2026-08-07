@@ -22,11 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
       RC_TAG: v1.0.0-rc.1
-      CI_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
-      - name: Check whether RC is already published
+      - name: Resolve publication state
         id: state
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,22 +35,33 @@ jobs:
             echo "released=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RC_TAG}" >/dev/null 2>&1; then
-            echo "RC tag exists without a release; refusing an ambiguous partial publication." >&2
-            exit 1
+
+          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RC_TAG}" --jq '.object.sha' 2>/dev/null || true)"
+          if [ -n "${TAG_SHA}" ]; then
+            COMPARE_STATUS="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TAG_SHA}...main" --jq '.status')"
+            test "${COMPARE_STATUS}" = "ahead" -o "${COMPARE_STATUS}" = "identical"
+            RECOVERY_RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TAG_SHA}&event=push&status=success&per_page=20" \
+              --jq '.workflow_runs[] | select(.name == "CI" and .head_branch == "main") | .id' | head -n 1)"
+            test -n "${RECOVERY_RUN_ID}"
+            echo "target_sha=${TAG_SHA}" >> "${GITHUB_OUTPUT}"
+            echo "ci_run_id=${RECOVERY_RUN_ID}" >> "${GITHUB_OUTPUT}"
+            echo "tag_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "released=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
-          echo "released=false" >> "${GITHUB_OUTPUT}"
-      - name: Verify successful CI head is still main
-        if: steps.state.outputs.released != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
+
           MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          test "${TARGET_SHA}" = "${MAIN_SHA}"
+          test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"
+          echo "target_sha=${EVENT_TARGET_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "ci_run_id=${EVENT_CI_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          echo "tag_exists=false" >> "${GITHUB_OUTPUT}"
+          echo "released=false" >> "${GITHUB_OUTPUT}"
       - name: Download exact CI verification artifact
         if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          CI_RUN_ID: ${{ steps.state.outputs.ci_run_id }}
         run: |
           mkdir -p /tmp/evidence
           gh run download "${CI_RUN_ID}" \
@@ -59,6 +70,8 @@ jobs:
             --dir /tmp/evidence
       - name: Validate immutable RC evidence
         if: steps.state.outputs.released != 'true'
+        env:
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           test -f "${BUNDLE}/EnthusiaLoreItems.jar"
@@ -75,9 +88,10 @@ jobs:
             "${BUNDLE}/wp04-profile.json" >/dev/null
           unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0-rc.1' >/dev/null
       - name: Create exact RC tag
-        if: steps.state.outputs.released != 'true'
+        if: steps.state.outputs.released != 'true' && steps.state.outputs.tag_exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${RC_TAG}" \
@@ -86,11 +100,11 @@ jobs:
         if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           gh release create "${RC_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --verify-tag \
             --target "${TARGET_SHA}" \
             --prerelease \
             --title "EnthusiaLoreItems 1.0.0-rc.1" \
