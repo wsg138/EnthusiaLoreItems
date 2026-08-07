@@ -1,0 +1,295 @@
+name: WP-05 Ops Acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-ops-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acc-ops-001:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      RC_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0-rc.1/EnthusiaLoreItems.jar
+      RC_SHA256: 3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Prepare exact RC server environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wp05-ops/server/plugins /tmp/wp05-ops/evidence
+          cd /tmp/wp05-ops/server
+
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$RC_URL" -o /tmp/wp05-ops/EnthusiaLoreItems.jar
+          echo "$RC_SHA256  /tmp/wp05-ops/EnthusiaLoreItems.jar" | sha256sum -c -
+
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/Geyser-Spigot.jar
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/floodgate-spigot.jar
+          curl -fsSL -A "$USER_AGENT" \
+            https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest \
+            -o /tmp/wp05-ops/evidence/viaversion-release.json
+          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05-ops/evidence/viaversion-release.json)"
+          test -n "$VV_URL"
+          curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+
+          sha256sum paper.jar plugins/Geyser-Spigot.jar plugins/floodgate-spigot.jar plugins/ViaVersion.jar /tmp/wp05-ops/EnthusiaLoreItems.jar \
+            > /tmp/wp05-ops/evidence/artifact-sha256.txt
+          java -version 2> /tmp/wp05-ops/evidence/java-version.txt
+          printf 'eula=true\n' > eula.txt
+      - name: Build public API probe plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wp05-probe/src/main/java/net/enthusia/loreitems/acceptance /tmp/wp05-probe/src/main/resources
+          cat > /tmp/wp05-probe/settings.gradle.kts <<'EOF'
+          rootProject.name = "wp05-acceptance-probe"
+          EOF
+          cat > /tmp/wp05-probe/build.gradle.kts <<'EOF'
+          plugins { java }
+          repositories { maven("https://repo.papermc.io/repository/maven-public/") }
+          dependencies {
+              compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+              compileOnly(files("/tmp/wp05-ops/EnthusiaLoreItems.jar"))
+          }
+          java { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }
+          EOF
+          cat > /tmp/wp05-probe/src/main/resources/plugin.yml <<'EOF'
+          name: Wp05AcceptanceProbe
+          version: '1.0'
+          main: net.enthusia.loreitems.acceptance.Wp05AcceptanceProbe
+          api-version: '1.21'
+          depend: [EnthusiaLoreItems]
+          EOF
+          cat > /tmp/wp05-probe/src/main/java/net/enthusia/loreitems/acceptance/Wp05AcceptanceProbe.java <<'EOF'
+          package net.enthusia.loreitems.acceptance;
+
+          import java.util.UUID;
+          import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
+          import org.bukkit.plugin.RegisteredServiceProvider;
+          import org.bukkit.plugin.java.JavaPlugin;
+
+          public final class Wp05AcceptanceProbe extends JavaPlugin {
+              @Override
+              public void onEnable() {
+                  getServer().getScheduler().runTaskLater(this, this::probe, 80L);
+              }
+
+              private void probe() {
+                  RegisteredServiceProvider<LoreItemsServiceV1> registration =
+                          getServer().getServicesManager().getRegistration(LoreItemsServiceV1.class);
+                  if (registration == null) {
+                      getLogger().severe("WP05_PROBE no_service_registration");
+                      return;
+                  }
+                  registration.getProvider().queueDelivery(
+                          "acc_ops_001_missing_definition",
+                          UUID.fromString("11111111-1111-4111-8111-111111111111"),
+                          "acc-ops-001-probe")
+                      .whenComplete((result, failure) -> {
+                          if (failure != null) {
+                              getLogger().severe("WP05_PROBE failure=" + failure.getClass().getName()
+                                      + ":" + failure.getMessage());
+                              return;
+                          }
+                          getLogger().info("WP05_PROBE status=" + result.status()
+                                  + " operation=" + result.externalOperationId()
+                                  + " detail=" + result.detail());
+                      });
+              }
+          }
+          EOF
+          cd /tmp/wp05-probe
+          gradle --no-daemon jar
+          PROBE_JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' | head -n 1)"
+          test -n "$PROBE_JAR"
+          cp "$PROBE_JAR" /tmp/wp05-ops/Wp05AcceptanceProbe.jar
+          sha256sum /tmp/wp05-ops/Wp05AcceptanceProbe.jar > /tmp/wp05-ops/evidence/probe-sha256.txt
+      - name: Generate and pin Geyser Floodgate config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-ops/server
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-ops/evidence/prep-server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do
+            if grep -q 'Done (' /tmp/wp05-ops/evidence/prep-server.log; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/wp05-ops/evidence/prep-server.log; exit 1; fi
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-ops/evidence/prep-server.log
+          echo 'stop' >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('plugins/Geyser-Spigot/config.yml')
+          text = path.read_text(encoding='utf-8')
+          updated, count = re.subn(r'(?m)^(\s*auth-type:\s*).+$', r'\1floodgate', text, count=1)
+          if count != 1:
+              raise SystemExit('Could not locate Geyser auth-type setting')
+          path.write_text(updated, encoding='utf-8')
+          PY
+          grep -Eq '^\s*auth-type:\s*floodgate\s*$' plugins/Geyser-Spigot/config.yml
+          cp plugins/Geyser-Spigot/config.yml /tmp/wp05-ops/evidence/geyser-config.yml
+          cp /tmp/wp05-ops/EnthusiaLoreItems.jar plugins/EnthusiaLoreItems.jar
+          cp /tmp/wp05-ops/Wp05AcceptanceProbe.jar plugins/Wp05AcceptanceProbe.jar
+      - name: Execute degraded startup and API rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-ops/server
+          START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "$START_UTC" > /tmp/wp05-ops/evidence/start-utc.txt
+
+          mkdir -p plugins/EnthusiaLoreItems/loreitems.db
+          find plugins/EnthusiaLoreItems -maxdepth 2 -printf '%y %p\n' | sort > /tmp/wp05-ops/evidence/degraded-pre-state.txt
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-ops/evidence/degraded-server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do
+            if grep -q 'Done (' /tmp/wp05-ops/evidence/degraded-server.log; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/wp05-ops/evidence/degraded-server.log; exit 1; fi
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-ops/evidence/degraded-server.log
+          for _ in $(seq 1 60); do
+            if grep -q 'WP05_PROBE status=SERVICE_UNAVAILABLE' /tmp/wp05-ops/evidence/degraded-server.log; then break; fi
+            sleep 1
+          done
+          grep -q 'LoreItems entered degraded read-only mode:' /tmp/wp05-ops/evidence/degraded-server.log
+          grep -q 'WP05_PROBE status=SERVICE_UNAVAILABLE' /tmp/wp05-ops/evidence/degraded-server.log
+          ! grep -q 'Durable storage is active;' /tmp/wp05-ops/evidence/degraded-server.log
+          test -d plugins/EnthusiaLoreItems/loreitems.db
+
+          echo 'execute if entity @e[type=item] run say ACC_OPS_001_DEGRADED_ITEM_PRESENT' >&3
+          sleep 3
+          echo 'stop' >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+
+          find plugins/EnthusiaLoreItems -maxdepth 2 -printf '%y %p\n' | sort > /tmp/wp05-ops/evidence/degraded-post-state.txt
+          ! grep -q 'ACC_OPS_001_DEGRADED_ITEM_PRESENT' /tmp/wp05-ops/evidence/degraded-server.log
+      - name: Restore healthy storage and verify recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-ops/server
+          rm -rf plugins/EnthusiaLoreItems/loreitems.db
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-ops/evidence/healthy-server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do
+            if grep -q 'Done (' /tmp/wp05-ops/evidence/healthy-server.log; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/wp05-ops/evidence/healthy-server.log; exit 1; fi
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-ops/evidence/healthy-server.log
+          for _ in $(seq 1 60); do
+            if grep -q 'WP05_PROBE status=UNKNOWN_DEFINITION' /tmp/wp05-ops/evidence/healthy-server.log; then break; fi
+            sleep 1
+          done
+          grep -q 'Durable storage is active;' /tmp/wp05-ops/evidence/healthy-server.log
+          grep -q 'WP05_PROBE status=UNKNOWN_DEFINITION' /tmp/wp05-ops/evidence/healthy-server.log
+
+          echo 'execute if entity @e[type=item] run say ACC_OPS_001_HEALTHY_ITEM_PRESENT' >&3
+          sleep 3
+          echo 'stop' >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+
+          test -f plugins/EnthusiaLoreItems/loreitems.db
+          ! grep -q 'ACC_OPS_001_HEALTHY_ITEM_PRESENT' /tmp/wp05-ops/evidence/healthy-server.log
+          cp plugins/EnthusiaLoreItems/config.yml /tmp/wp05-ops/evidence/loreitems-config.yml
+          sha256sum plugins/EnthusiaLoreItems/config.yml plugins/Geyser-Spigot/config.yml plugins/EnthusiaLoreItems/loreitems.db \
+            > /tmp/wp05-ops/evidence/final-sha256.txt
+
+          python3 - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+          db = Path('plugins/EnthusiaLoreItems/loreitems.db')
+          con = sqlite3.connect(db)
+          tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+          counts = {t: con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] for t in tables}
+          evidence = {
+              'journal_mode': con.execute('PRAGMA journal_mode').fetchone()[0],
+              'integrity_check': [r[0] for r in con.execute('PRAGMA integrity_check')],
+              'foreign_key_check': [list(r) for r in con.execute('PRAGMA foreign_key_check')],
+              'table_counts': counts,
+          }
+          con.close()
+          Path('/tmp/wp05-ops/evidence/healthy-database.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          if str(evidence['journal_mode']).lower() != 'wal' or evidence['integrity_check'] != ['ok'] or evidence['foreign_key_check']:
+              raise SystemExit('Healthy recovery database integrity failed')
+          if counts.get('lore_definitions', 0) != 0 or counts.get('lore_instances', 0) != 0 or counts.get('external_delivery_requests', 0) != 0:
+              raise SystemExit('Probe created unintended durable work')
+          PY
+
+          END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "$END_UTC" > /tmp/wp05-ops/evidence/end-utc.txt
+          cat > /tmp/wp05-ops/evidence/case-metadata.txt <<EOF
+          case_id=ACC-OPS-001
+          result=PASS
+          start_utc=$START_UTC
+          end_utc=$END_UTC
+          source_commit=${{ github.event.pull_request.head.sha || github.sha }}
+          release_tag=v1.0.0-rc.1
+          rc_sha256=$RC_SHA256
+          induced_condition=loreitems.db path replaced with directory before degraded boot
+          degraded_api_outcome=SERVICE_UNAVAILABLE
+          recovered_api_outcome=UNKNOWN_DEFINITION
+          test_accounts=none-required-public-service-probe-used
+          cleanup=normal-stop-and-disposable-runner-teardown
+          rollback=remove-invalid-db-directory-and-restart-from-pinned-exact-rc
+          EOF
+      - name: Upload ACC-OPS-001 raw evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-acc-ops-001-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 90
+          path: /tmp/wp05-ops/evidence/
