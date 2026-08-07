@@ -1,0 +1,211 @@
+name: WP-05 Bedrock Floodgate Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-bedrock-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  floodgate-delivery-diagnostic:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      RC_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0-rc.1/EnthusiaLoreItems.jar
+      RC_SHA256: 3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Prepare exact RC and protocol clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wp05-bedrock/server/plugins /tmp/wp05-bedrock/evidence /tmp/wp05-bedrock/java /tmp/wp05-bedrock/bedrock
+          cd /tmp/wp05-bedrock/server
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$RC_URL" -o plugins/EnthusiaLoreItems.jar
+          echo "$RC_SHA256  plugins/EnthusiaLoreItems.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot -o plugins/Geyser-Spigot.jar
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot -o plugins/floodgate-spigot.jar
+          curl -fsSL -A "$USER_AGENT" https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest -o /tmp/wp05-bedrock/evidence/viaversion-release.json
+          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05-bedrock/evidence/viaversion-release.json)"
+          test -n "$VV_URL"
+          curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 Bedrock diagnostic
+          EOF
+          sha256sum paper.jar plugins/*.jar > /tmp/wp05-bedrock/evidence/artifact-sha256.txt
+
+          cd /tmp/wp05-bedrock/java
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >/tmp/wp05-bedrock/evidence/npm-java-install.log 2>&1
+          cat > java.js <<'EOF'
+          const mineflayer = require('mineflayer')
+          const fs = require('fs')
+          const bot = mineflayer.createBot({ host:'127.0.0.1', port:25565, username:'Wp05JavaSetup', version:'1.21.11', auth:'offline' })
+          const sleep = ms => new Promise(r => setTimeout(r, ms))
+          let messages=[]
+          bot.on('message', m => { const t=m.toString(); messages.push(t); fs.appendFileSync('/tmp/wp05-bedrock/evidence/java-bot.log', `${new Date().toISOString()} ${t}\n`) })
+          async function waitMessage(s) { for(let i=0;i<200;i++){ if(messages.some(m=>m.includes(s))) return; await sleep(100) } throw new Error('missing '+s) }
+          bot.once('spawn', async()=>{
+            try {
+              fs.writeFileSync('/tmp/wp05-bedrock/java-ready', bot.player.uuid+'\n')
+              while(!fs.existsSync('/tmp/wp05-bedrock/java-go')) await sleep(100)
+              for(let i=0;i<100;i++){ const sword=bot.inventory.items().find(x=>x.name==='diamond_sword'); if(sword){ if(sword.slot>=36&&sword.slot<=44) bot.setQuickBarSlot(sword.slot-36); await sleep(300); if(bot.heldItem?.name==='diamond_sword') break } await sleep(100) }
+              if(bot.heldItem?.name!=='diamond_sword') throw new Error('no held sword')
+              bot.chat('/loreitems create acc_bedrock_diag Bedrock Diagnostic')
+              await waitMessage("Created lore definition 'acc_bedrock_diag' from the held item.")
+              fs.writeFileSync('/tmp/wp05-bedrock/java-done','ok\n')
+              bot.quit('setup complete')
+            } catch(e){ fs.appendFileSync('/tmp/wp05-bedrock/evidence/java-bot.log', `FAIL ${e.stack||e}\n`); fs.writeFileSync('/tmp/wp05-bedrock/java-done','fail\n'); bot.quit('failed'); process.exitCode=1 }
+          })
+          EOF
+
+          cd /tmp/wp05-bedrock/bedrock
+          npm init -y >/dev/null
+          npm install --save-exact bedrock-protocol@3.56.1 >/tmp/wp05-bedrock/evidence/npm-bedrock-install.log 2>&1
+          npm list --depth=0 > /tmp/wp05-bedrock/evidence/npm-bedrock-list.txt
+          cat > bedrock.js <<'EOF'
+          const bedrock = require('bedrock-protocol')
+          const fs = require('fs')
+          const client = bedrock.createClient({ host:'127.0.0.1', port:19132, username:'Wp05BedrockBot', offline:true, version:'1.26.20', connectTimeout:20000 })
+          const log = line => { console.log(line); fs.appendFileSync('/tmp/wp05-bedrock/evidence/bedrock-bot.log', `${new Date().toISOString()} ${line}\n`) }
+          client.on('status', status => log(`STATUS ${JSON.stringify(status)}`))
+          client.on('join', () => log(`JOIN username=${client.username} profile=${JSON.stringify(client.profile||{})}`))
+          client.on('text', p => log(`TEXT ${JSON.stringify(p)}`))
+          client.on('command_output', p => log(`COMMAND_OUTPUT ${JSON.stringify(p)}`))
+          client.on('kick', p => log(`KICK ${JSON.stringify(p)}`))
+          client.on('error', e => log(`ERROR ${e.stack||e}`))
+          client.on('close', () => log('CLOSE'))
+          client.on('spawn', async()=>{
+            try {
+              log(`SPAWN entityId=${String(client.entityId||'')}`)
+              fs.writeFileSync('/tmp/wp05-bedrock/bedrock-ready','ready\n')
+              while(!fs.existsSync('/tmp/wp05-bedrock/bedrock-go')) await new Promise(r=>setTimeout(r,100))
+              const uuid = client.profile?.uuid || '00000000-0000-0000-0000-000000000000'
+              client.queue('command_request', { command:'/loreitems audit', origin:{ type:'player', uuid, request_id:'' }, internal:false })
+              await new Promise(r=>setTimeout(r,7000))
+              fs.writeFileSync('/tmp/wp05-bedrock/bedrock-done','ok\n')
+              client.close()
+            } catch(e){ log(`FAIL ${e.stack||e}`); fs.writeFileSync('/tmp/wp05-bedrock/bedrock-done','fail\n'); client.close(); process.exitCode=1 }
+          })
+          setTimeout(()=>{ if(!fs.existsSync('/tmp/wp05-bedrock/bedrock-ready')){ log('FAIL spawn timeout'); process.exitCode=1; client.close() } }, 45000)
+          EOF
+      - name: Generate Geyser and Floodgate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-bedrock/server
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-bedrock/evidence/prep-server.log 2>&1 &
+          PID=$!
+          for _ in $(seq 1 240); do grep -q 'Done (' /tmp/wp05-bedrock/evidence/prep-server.log && break; kill -0 "$PID" 2>/dev/null || { cat /tmp/wp05-bedrock/evidence/prep-server.log; exit 1; }; sleep 1; done
+          grep -q 'Done (' /tmp/wp05-bedrock/evidence/prep-server.log
+          echo stop >&3; wait "$PID"; exec 3>&-; rm -f server.stdin
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          g=Path('plugins/Geyser-Spigot/config.yml'); t=g.read_text()
+          t,n=re.subn(r'(?m)^(\s*auth-type:\s*).+$',r'\1floodgate',t,count=1); assert n==1
+          t,n=re.subn(r'(?m)^(\s*validate-bedrock-login:\s*).+$',r'\1false',t,count=1); assert n==1
+          g.write_text(t)
+          f=Path('plugins/floodgate/config.yml'); s=f.read_text()
+          s,n=re.subn(r'(?m)^(\s*username-prefix:\s*).+$',r'\1"*"',s,count=1); assert n==1
+          f.write_text(s)
+          PY
+          grep -Eq '^\s*auth-type:\s*floodgate\s*$' plugins/Geyser-Spigot/config.yml
+          grep -Eq '^\s*validate-bedrock-login:\s*false\s*$' plugins/Geyser-Spigot/config.yml
+          grep -Eq '^\s*username-prefix:\s*"\*"\s*$' plugins/floodgate/config.yml
+          cp plugins/Geyser-Spigot/config.yml /tmp/wp05-bedrock/evidence/geyser-config.yml
+          cp plugins/floodgate/config.yml /tmp/wp05-bedrock/evidence/floodgate-config.yml
+      - name: Run Bedrock Floodgate delivery diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-bedrock/server
+          START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "$START_UTC" > /tmp/wp05-bedrock/evidence/start-utc.txt
+          rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-bedrock/evidence/server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do grep -q 'Done (' /tmp/wp05-bedrock/evidence/server.log && break; kill -0 "$SERVER_PID" 2>/dev/null || { cat /tmp/wp05-bedrock/evidence/server.log; exit 1; }; sleep 1; done
+          grep -q 'Done (' /tmp/wp05-bedrock/evidence/server.log
+
+          (cd /tmp/wp05-bedrock/java && node java.js) > /tmp/wp05-bedrock/evidence/java-stdout.log 2>&1 & JAVA_PID=$!
+          for _ in $(seq 1 90); do test -f /tmp/wp05-bedrock/java-ready && break; kill -0 "$JAVA_PID" 2>/dev/null || { cat /tmp/wp05-bedrock/evidence/java-stdout.log; exit 1; }; sleep 1; done
+          test -f /tmp/wp05-bedrock/java-ready
+          echo 'op Wp05JavaSetup' >&3
+          echo 'give Wp05JavaSetup minecraft:diamond_sword 1' >&3
+          sleep 2; touch /tmp/wp05-bedrock/java-go
+          for _ in $(seq 1 90); do test -f /tmp/wp05-bedrock/java-done && break; sleep 1; done
+          grep -qx ok /tmp/wp05-bedrock/java-done; wait "$JAVA_PID"
+
+          (cd /tmp/wp05-bedrock/bedrock && node bedrock.js) > /tmp/wp05-bedrock/evidence/bedrock-stdout.log 2>&1 & BEDROCK_PID=$!
+          for _ in $(seq 1 70); do test -f /tmp/wp05-bedrock/bedrock-ready && break; kill -0 "$BEDROCK_PID" 2>/dev/null || { cat /tmp/wp05-bedrock/evidence/bedrock-stdout.log; cat /tmp/wp05-bedrock/evidence/server.log; exit 1; }; sleep 1; done
+          test -f /tmp/wp05-bedrock/bedrock-ready
+          grep -F '*Wp05BedrockBot joined the game' /tmp/wp05-bedrock/evidence/server.log
+          echo 'op *Wp05BedrockBot' >&3
+          echo 'loreitems give acc_bedrock_diag *Wp05BedrockBot' >&3
+          sleep 8
+          touch /tmp/wp05-bedrock/bedrock-go
+          for _ in $(seq 1 90); do test -f /tmp/wp05-bedrock/bedrock-done && break; sleep 1; done
+          grep -qx ok /tmp/wp05-bedrock/bedrock-done
+          wait "$BEDROCK_PID"
+          sleep 2
+          echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin
+
+          python3 - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          con=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db'); con.row_factory=sqlite3.Row
+          rows=[dict(r) for r in con.execute('SELECT d.delivery_id,d.player_id,d.state,i.definition_id,i.lifecycle_state FROM direct_deliveries d JOIN lore_instances i ON i.instance_id=d.instance_id ORDER BY d.created_at')]
+          defs=[dict(r) for r in con.execute('SELECT definition_id,lookup_key,display_name,deleted_at FROM lore_definitions')]
+          ev={'definitions':defs,'deliveries':rows,'instances':con.execute('SELECT COUNT(*) FROM lore_instances').fetchone()[0],'integrity':[r[0] for r in con.execute('PRAGMA integrity_check')],'foreign_keys':[list(r) for r in con.execute('PRAGMA foreign_key_check')]}
+          con.close(); Path('/tmp/wp05-bedrock/evidence/database.json').write_text(json.dumps(ev,indent=2,sort_keys=True)+'\n')
+          if len(defs)!=1 or defs[0]['lookup_key']!='acc_bedrock_diag': raise SystemExit('definition setup failed')
+          if len(rows)!=1 or rows[0]['state']!='COMPLETED': raise SystemExit(f'Bedrock delivery was not completed: {rows}')
+          if ev['instances']!=1 or ev['integrity']!=['ok'] or ev['foreign_keys']: raise SystemExit('Bedrock diagnostic durable accounting/integrity failed')
+          PY
+          END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "$END_UTC" > /tmp/wp05-bedrock/evidence/end-utc.txt
+          cat > /tmp/wp05-bedrock/evidence/diagnostic-metadata.txt <<EOF
+          diagnostic=BEDROCK_FLOODGATE_PREFIX_DELIVERY
+          acceptance_credit=NONE
+          reason=Bedrock protocol client used offline/Xbox-disabled authentication and Geyser validate-bedrock-login=false
+          source_commit=${{ github.event.pull_request.head.sha || github.sha }}
+          exact_rc_sha256=$RC_SHA256
+          bedrock_client=bedrock-protocol-3.56.1 version-1.26.20 offline=true
+          expected_server_name=*Wp05BedrockBot
+          start_utc=$START_UTC
+          end_utc=$END_UTC
+          EOF
+      - name: Upload Bedrock diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-bedrock-diagnostic-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/wp05-bedrock/evidence/
