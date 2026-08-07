@@ -344,7 +344,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             net.enthusia.loreitems.domain.LocationDescriptor location,
             TrackingObservationUseCase.Presence presence,
             TrackingObservationUseCase.EvidenceMode mode) {
-        private DebounceKey {
+        DebounceKey {
             Objects.requireNonNull(identity, "identity");
             Objects.requireNonNull(location, "location");
             Objects.requireNonNull(presence, "presence");
