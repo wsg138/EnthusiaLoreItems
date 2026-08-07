@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -13,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -212,7 +212,7 @@ public final class PaperDistributionCampaignCoordinator {
 
     private CompletionStage<Map<Integer, UUID>> resolveCachedIdentities(GroupFileDefinition groupFile) {
         return CompletableFuture.supplyAsync(() -> {
-            Map<Integer, UUID> resolved = new HashMap<>();
+            Map<Integer, UUID> resolved = new ConcurrentHashMap<>();
             for (int index = 0; index < groupFile.recipients().size(); index++) {
                 GroupFileRecipient recipient = groupFile.recipients().get(index);
                 if (recipient.explicitPlayerId() == null) {
