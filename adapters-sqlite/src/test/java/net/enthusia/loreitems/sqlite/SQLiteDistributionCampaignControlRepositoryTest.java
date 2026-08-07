@@ -62,9 +62,9 @@ class SQLiteDistributionCampaignControlRepositoryTest {
             assertEquals(DistributionCampaignState.CANCELLED, campaignState(runtime, campaignId));
             assertEquals(
                     List.of(
-                            "DISTRIBUTION_CAMPAIGN_STARTED",
+                            "DISTRIBUTION_CAMPAIGN_CANCELLED",
                             "DISTRIBUTION_CAMPAIGN_PAUSED",
-                            "DISTRIBUTION_CAMPAIGN_CANCELLED"),
+                            "DISTRIBUTION_CAMPAIGN_STARTED"),
                     auditTypes(runtime, campaignId));
         } finally {
             runtime.close(Duration.ofSeconds(5));
