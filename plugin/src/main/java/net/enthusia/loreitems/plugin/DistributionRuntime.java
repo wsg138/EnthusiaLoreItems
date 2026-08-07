@@ -22,21 +22,24 @@ import net.enthusia.loreitems.paper.PaperDistributionMarkerReconciler;
 import net.enthusia.loreitems.paper.PaperDistributionMarkerRecoveryWorker;
 import net.enthusia.loreitems.paper.PaperDistributionRecipientBindingWorker;
 import net.enthusia.loreitems.paper.PaperGroupFileCatalog;
-import net.enthusia.loreitems.sqlite.SQLiteAuditRepository;
 import net.enthusia.loreitems.sqlite.SQLiteCancellableDistributionDeliveryRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDefinitionRepository;
+import net.enthusia.loreitems.sqlite.SQLiteDistributionCampaignControlRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDistributionCampaignRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDistributionCampaignStartRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDistributionRecipientRepository;
+import net.enthusia.loreitems.sqlite.SQLiteDistributionReviewRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Owns all WP-03 campaign runtime components and their bounded lifecycle. */
 final class DistributionRuntime implements AutoCloseable {
     private final JavaPlugin plugin;
     private final PaperGroupFileCatalog groupCatalog;
+    private final DistributionCampaignAdministrationUseCase administration;
     private final PaperDistributionDeliveryWorker deliveryWorker;
     private final PaperDistributionRecipientBindingWorker bindingWorker;
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
@@ -61,12 +64,12 @@ final class DistributionRuntime implements AutoCloseable {
                 new SQLiteDistributionCampaignRepository(storage);
         SQLiteDistributionRecipientRepository recipients =
                 new SQLiteDistributionRecipientRepository(storage);
-        DistributionCampaignAdministrationUseCase administration =
-                new PersistingDistributionCampaignAdministrationUseCase(
-                        campaigns,
-                        recipients,
-                        new SQLiteAuditRepository(storage),
-                        clock);
+        administration = new PersistingDistributionCampaignAdministrationUseCase(
+                campaigns,
+                recipients,
+                new SQLiteDistributionReviewRepository(storage),
+                new SQLiteDistributionCampaignControlRepository(storage),
+                clock);
         PaperDistributionMarkerReconciler markerReconciler =
                 new PaperDistributionMarkerReconciler(groupCatalog, campaigns, workerExecutor);
         DistributionDeliveryExecutionUseCase delivery =
@@ -127,6 +130,11 @@ final class DistributionRuntime implements AutoCloseable {
                 plugin.getCommand("loredistribution"),
                 "plugin.yml must declare the loredistribution command");
         try {
+            plugin.getServer().getServicesManager().register(
+                    DistributionCampaignAdministrationUseCase.class,
+                    administration,
+                    plugin,
+                    ServicePriority.Normal);
             command.setExecutor(commandExecutor);
             command.setTabCompleter(commandExecutor);
             deliveryWorker.start();
@@ -162,6 +170,12 @@ final class DistributionRuntime implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        if (!started) {
+            closeQuietly(commandExecutor, "distribution command executor");
+            return;
+        }
+        plugin.getServer().getServicesManager().unregister(
+                DistributionCampaignAdministrationUseCase.class, administration);
         closeQuietly(markerWorker, "distribution marker worker");
         closeQuietly(bindingWorker, "distribution identity-binding worker");
         closeQuietly(deliveryWorker, "distribution delivery worker");
