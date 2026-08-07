@@ -121,9 +121,13 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
             return;
         }
         advancePeriodicOnlineScan();
-        while (inFlight < mutationBudgetPerTick && !pending.isEmpty()) {
+        int dispatched = 0;
+        while (dispatched < mutationBudgetPerTick
+                && inFlight < mutationBudgetPerTick
+                && !pending.isEmpty()) {
             IdentityCandidate candidate = pending.removeFirst();
             inFlight++;
+            dispatched++;
             submitBinding(candidate);
         }
     }
