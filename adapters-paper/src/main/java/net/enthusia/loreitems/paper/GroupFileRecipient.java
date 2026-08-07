@@ -9,6 +9,15 @@ public record GroupFileRecipient(
         CampaignRecipientKey recipientKey,
         UUID explicitPlayerId) {
     private static final int UUID_TEXT_LENGTH = 36;
+    private static final int UUID_FIRST_SEPARATOR = 8;
+    private static final int UUID_SECOND_SEPARATOR = 13;
+    private static final int UUID_THIRD_SEPARATOR = 18;
+    private static final int UUID_FOURTH_SEPARATOR = 23;
+    private static final char UUID_SEPARATOR = '-';
+    private static final int FORWARD_SLASH = '/';
+    private static final int BACKSLASH = '\\';
+    private static final int MAX_PLAYER_NAME_LENGTH = 64;
+    private static final String BEDROCK_PREFIX = "*";
 
     public GroupFileRecipient {
         originalValue = CampaignRecipientKey.normalizeOriginalValue(originalValue);
@@ -47,24 +56,29 @@ public record GroupFileRecipient(
 
     private static boolean looksLikeMalformedUuid(String value) {
         return value.length() == UUID_TEXT_LENGTH
-                && value.charAt(8) == '-'
-                && value.charAt(13) == '-'
-                && value.charAt(18) == '-'
-                && value.charAt(23) == '-';
+                && value.charAt(UUID_FIRST_SEPARATOR) == UUID_SEPARATOR
+                && value.charAt(UUID_SECOND_SEPARATOR) == UUID_SEPARATOR
+                && value.charAt(UUID_THIRD_SEPARATOR) == UUID_SEPARATOR
+                && value.charAt(UUID_FOURTH_SEPARATOR) == UUID_SEPARATOR;
     }
 
     private static void validateName(String value) {
-        int start = value.startsWith("*") ? 1 : 0;
+        int start = value.startsWith(BEDROCK_PREFIX) ? BEDROCK_PREFIX.length() : 0;
         if (start == value.length()) {
             throw new IllegalArgumentException("player name must contain characters after '*'");
         }
         String name = value.substring(start);
-        if (name.length() > 64) {
+        if (name.length() > MAX_PLAYER_NAME_LENGTH) {
             throw new IllegalArgumentException("player name exceeds 64 characters");
         }
-        if (name.codePoints().anyMatch(codePoint ->
-                Character.isISOControl(codePoint) || codePoint == '/' || codePoint == '\\')) {
+        if (name.codePoints().anyMatch(GroupFileRecipient::unsupportedNameCodePoint)) {
             throw new IllegalArgumentException("player name contains unsupported characters");
         }
+    }
+
+    private static boolean unsupportedNameCodePoint(int codePoint) {
+        return Character.isISOControl(codePoint)
+                || codePoint == FORWARD_SLASH
+                || codePoint == BACKSLASH;
     }
 }

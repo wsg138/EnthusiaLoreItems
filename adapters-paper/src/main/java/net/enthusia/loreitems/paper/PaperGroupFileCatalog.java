@@ -127,10 +127,6 @@ public final class PaperGroupFileCatalog {
         return moveTerminal(originalSourceName, campaignId, cancelledDirectory, "cancelled");
     }
 
-    Path groupsDirectory() {
-        return groupsDirectory;
-    }
-
     private void inspectCandidate(
             Path safeRoot,
             Path candidate,
@@ -162,41 +158,63 @@ public final class PaperGroupFileCatalog {
     }
 
     private static GroupFileDefinition parse(String sourceName, Path source) throws IOException {
-        long size = Files.size(source);
-        if (size <= 0L || size > MAX_GROUP_FILE_BYTES) {
-            throw new IllegalArgumentException(
-                    "file size must be between 1 and " + MAX_GROUP_FILE_BYTES + " bytes");
-        }
+        validateFileSize(source);
         byte[] bytes = Files.readAllBytes(source);
-        YamlConfiguration yaml = new YamlConfiguration();
-        try {
-            yaml.loadFromString(new String(bytes, StandardCharsets.UTF_8));
-        } catch (InvalidConfigurationException exception) {
-            throw new IllegalArgumentException("malformed YAML: " + safeMessage(exception), exception);
-        }
-        Set<String> keys = yaml.getKeys(false);
-        Set<String> unsupported = new HashSet<>(keys);
-        unsupported.removeAll(SUPPORTED_KEYS);
-        if (!unsupported.isEmpty()) {
-            throw new IllegalArgumentException("unsupported top-level keys: " + unsupported);
-        }
-        Object displayValue = yaml.get("display-name");
-        if (!(displayValue instanceof String displayName) || displayName.isBlank()) {
-            throw new IllegalArgumentException("display-name must be a non-blank string");
-        }
-        Object playerValue = yaml.get("players");
-        if (!(playerValue instanceof List<?> playerList) || playerList.isEmpty()) {
-            throw new IllegalArgumentException("players must be a non-empty YAML list");
-        }
-        if (playerList.size() > MAX_RECIPIENTS) {
-            throw new IllegalArgumentException("players exceeds the bounded recipient limit");
-        }
+        YamlConfiguration yaml = loadYaml(bytes);
+        validateSupportedKeys(yaml);
+        String displayName = requireDisplayName(yaml);
+        List<?> playerList = requirePlayers(yaml);
         List<GroupFileRecipient> recipients = parseRecipients(playerList);
         return new GroupFileDefinition(
                 sourceName,
                 displayName,
                 fingerprint(sourceName, bytes),
                 recipients);
+    }
+
+    private static void validateFileSize(Path source) throws IOException {
+        long size = Files.size(source);
+        if (size <= 0L || size > MAX_GROUP_FILE_BYTES) {
+            throw new IllegalArgumentException(
+                    "file size must be between 1 and " + MAX_GROUP_FILE_BYTES + " bytes");
+        }
+    }
+
+    private static YamlConfiguration loadYaml(byte[] bytes) {
+        YamlConfiguration yaml = new YamlConfiguration();
+        try {
+            yaml.loadFromString(new String(bytes, StandardCharsets.UTF_8));
+            return yaml;
+        } catch (InvalidConfigurationException exception) {
+            throw new IllegalArgumentException("malformed YAML: " + safeMessage(exception), exception);
+        }
+    }
+
+    private static void validateSupportedKeys(YamlConfiguration yaml) {
+        Set<String> unsupported = new HashSet<>(yaml.getKeys(false));
+        unsupported.removeAll(SUPPORTED_KEYS);
+        if (!unsupported.isEmpty()) {
+            throw new IllegalArgumentException("unsupported top-level keys: " + unsupported);
+        }
+    }
+
+    private static String requireDisplayName(YamlConfiguration yaml) {
+        Object value = yaml.get("display-name");
+        if (!(value instanceof String displayName) || displayName.isBlank()) {
+            throw new IllegalArgumentException("display-name must be a non-blank string");
+        }
+        return displayName;
+    }
+
+    private static List<?> requirePlayers(YamlConfiguration yaml) {
+        Object value = yaml.get("players");
+        if (!(value instanceof List<?> players) || players.isEmpty()) {
+            throw new IllegalArgumentException("players must be a non-empty YAML list");
+        }
+        if (players.size() > MAX_RECIPIENTS) {
+            throw new IllegalArgumentException("players exceeds the bounded recipient limit");
+        }
+        return players;
     }
 
     private static List<GroupFileRecipient> parseRecipients(List<?> playerList) {
@@ -208,13 +226,7 @@ public final class PaperGroupFileCatalog {
                 throw new IllegalArgumentException(
                         "players[" + index + "] must be a string recipient");
             }
-            GroupFileRecipient recipient;
-            try {
-                recipient = GroupFileRecipient.parse(player);
-            } catch (IllegalArgumentException exception) {
-                throw new IllegalArgumentException(
-                        "players[" + index + "]: " + safeMessage(exception), exception);
-            }
+            GroupFileRecipient recipient = parseRecipient(index, player);
             if (!normalizedKeys.add(recipient.recipientKey().value())) {
                 throw new IllegalArgumentException(
                         "players[" + index + "] duplicates normalized recipient "
@@ -223,6 +235,15 @@ public final class PaperGroupFileCatalog {
             recipients.add(recipient);
         }
         return List.copyOf(recipients);
+    }
+
+    private static GroupFileRecipient parseRecipient(int index, String player) {
+        try {
+            return GroupFileRecipient.parse(player);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    "players[" + index + "]: " + safeMessage(exception), exception);
+        }
     }
 
     private Path secureRegularSource(String sourceName) throws IOException {
@@ -272,17 +293,53 @@ public final class PaperGroupFileCatalog {
     private static String validateSourceName(String sourceName) {
         Objects.requireNonNull(sourceName, "sourceName");
         String normalized = sourceName.strip();
-        if (normalized.isEmpty()
-                || !normalized.toLowerCase(Locale.ROOT).endsWith(YAML_SUFFIX)
-                || normalized.contains("/")
-                || normalized.contains("\\")
-                || normalized.equals(".")
-                || normalized.equals("..")
-                || !Path.of(normalized).getFileName().toString().equals(normalized)
-                || normalized.toLowerCase(Locale.ROOT).contains(ACTIVE_MARKER)) {
-            throw new IllegalArgumentException("Invalid group source name");
-        }
+        requireNonBlankSourceName(normalized);
+        requireYamlSuffix(normalized);
+        requireNoPathSeparators(normalized);
+        requireNoDotSegment(normalized);
+        requireSingleFileName(normalized);
+        requireNoActiveMarker(normalized);
         return normalized;
+    }
+
+    private static void requireNonBlankSourceName(String sourceName) {
+        if (sourceName.isEmpty()) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static void requireYamlSuffix(String sourceName) {
+        if (!sourceName.toLowerCase(Locale.ROOT).endsWith(YAML_SUFFIX)) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static void requireNoPathSeparators(String sourceName) {
+        if (sourceName.contains("/") || sourceName.contains("\\")) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static void requireNoDotSegment(String sourceName) {
+        if (sourceName.equals(".") || sourceName.equals("..")) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static void requireSingleFileName(String sourceName) {
+        if (!Path.of(sourceName).getFileName().toString().equals(sourceName)) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static void requireNoActiveMarker(String sourceName) {
+        if (sourceName.toLowerCase(Locale.ROOT).contains(ACTIVE_MARKER)) {
+            throw invalidSourceName();
+        }
+    }
+
+    private static IllegalArgumentException invalidSourceName() {
+        return new IllegalArgumentException("Invalid group source name");
     }
 
     private static String fingerprint(String sourceName, byte[] bytes) {

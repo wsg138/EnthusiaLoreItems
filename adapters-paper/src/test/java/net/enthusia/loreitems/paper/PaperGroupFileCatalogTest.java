@@ -9,12 +9,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.UUID;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class PaperGroupFileCatalogTest {
+    private static final String FIRST_SOURCE = "first.yml";
+
     @TempDir
     Path temporaryDirectory;
 
@@ -55,7 +58,7 @@ class PaperGroupFileCatalogTest {
                   - someplayer
                   - %s
                   - %s
-                """.formatted(uuid.toString().toUpperCase(), uuid));
+                """.formatted(uuid.toString().toUpperCase(Locale.ROOT), uuid));
         GroupFileCatalogSnapshot snapshot = new PaperGroupFileCatalog(temporaryDirectory).reload();
         assertTrue(snapshot.validFiles().isEmpty());
         assertEquals(1, snapshot.invalidFiles().size());
@@ -127,14 +130,14 @@ class PaperGroupFileCatalogTest {
     @Test
     void fingerprintChangesWithPathOrContent() throws Exception {
         String content = "display-name: Stable\nplayers:\n  - Player\n";
-        write("first.yml", content);
+        write(FIRST_SOURCE, content);
         write("second.yml", content);
         PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
-        String first = catalog.inspect("first.yml").sourceFingerprint();
+        String first = catalog.inspect(FIRST_SOURCE).sourceFingerprint();
         String second = catalog.inspect("second.yml").sourceFingerprint();
         assertFalse(first.equals(second));
-        write("first.yml", content + "# changed\n");
-        String changed = catalog.inspect("first.yml").sourceFingerprint();
+        write(FIRST_SOURCE, content + "# changed\n");
+        String changed = catalog.inspect(FIRST_SOURCE).sourceFingerprint();
         assertFalse(first.equals(changed));
     }
 
