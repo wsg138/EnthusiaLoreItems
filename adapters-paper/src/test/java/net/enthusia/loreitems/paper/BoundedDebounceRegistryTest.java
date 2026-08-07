@@ -47,14 +47,14 @@ class BoundedDebounceRegistryTest {
     }
 
     private static final class MutableClock extends Clock {
-        private Instant instant;
+        private Instant currentInstant;
 
-        private MutableClock(Instant instant) {
-            this.instant = instant;
+        private MutableClock(Instant currentInstant) {
+            this.currentInstant = currentInstant;
         }
 
         private void advance(Duration duration) {
-            instant = instant.plus(duration);
+            currentInstant = currentInstant.plus(duration);
         }
 
         @Override
@@ -72,7 +72,7 @@ class BoundedDebounceRegistryTest {
 
         @Override
         public Instant instant() {
-            return instant;
+            return currentInstant;
         }
     }
 }
