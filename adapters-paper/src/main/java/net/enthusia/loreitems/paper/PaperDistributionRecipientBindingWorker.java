@@ -267,7 +267,6 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         closed = true;
         if (task != null) {
             task.cancel();
-            task = null;
         }
         HandlerList.unregisterAll(this);
         onlineScan = Collections.emptyIterator();
