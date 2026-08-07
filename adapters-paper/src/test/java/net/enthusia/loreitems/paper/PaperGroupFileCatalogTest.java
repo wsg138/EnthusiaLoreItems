@@ -99,7 +99,8 @@ class PaperGroupFileCatalogTest {
         try {
             Files.createSymbolicLink(link, target);
         } catch (UnsupportedOperationException | IOException exception) {
-            Assumptions.abort("Symbolic links are unavailable in this test environment");
+            Assumptions.assumeTrue(false, "Symbolic links are unavailable in this test environment");
+            return;
         }
         GroupFileCatalogSnapshot withLink = catalog.reload();
         assertTrue(withLink.invalidFiles().stream()

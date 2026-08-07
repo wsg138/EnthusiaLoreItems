@@ -26,7 +26,6 @@ public final class SQLiteDistributionCampaignRepository
     private static final int SINGLE_UPDATED_ROW = 1;
     private static final long UNIX_EPOCH_MILLIS = 0L;
 
-
     private final SQLiteStorageRuntime storage;
 
     public SQLiteDistributionCampaignRepository(SQLiteStorageRuntime storage) {
@@ -165,7 +164,7 @@ public final class SQLiteDistributionCampaignRepository
                 statement.setString(4, expected.name());
                 statement.setLong(5, now);
             }
-            return statement.executeUpdate() == 1;
+            return statement.executeUpdate() == SINGLE_UPDATED_ROW;
         }
     }
 
@@ -193,7 +192,7 @@ public final class SQLiteDistributionCampaignRepository
                 "UPDATE distribution_recipients SET state = 'CANCELLED', "
                         + "claim_token = NULL, claim_expires_at = NULL, next_attempt_at = NULL, "
                         + "updated_at = ? WHERE campaign_id = ? "
-                        + "AND state IN ('PENDING_NAME', 'PENDING_OFFLINE', 'PENDING_SPACE') "
+                        + "AND state IN ('UNRESOLVED', 'QUEUED_OFFLINE', 'QUEUED_INVENTORY_FULL') "
                         + "AND updated_at <= ?")) {
             recipientUpdate.setLong(1, now);
             recipientUpdate.setString(2, campaignId.toString());

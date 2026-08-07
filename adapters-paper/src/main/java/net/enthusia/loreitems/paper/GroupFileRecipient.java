@@ -8,6 +8,8 @@ public record GroupFileRecipient(
         String originalValue,
         CampaignRecipientKey recipientKey,
         UUID explicitPlayerId) {
+    private static final int UUID_TEXT_LENGTH = 36;
+
     public GroupFileRecipient {
         originalValue = CampaignRecipientKey.normalizeOriginalValue(originalValue);
         Objects.requireNonNull(recipientKey, "recipientKey");
@@ -44,7 +46,11 @@ public record GroupFileRecipient(
     }
 
     private static boolean looksLikeMalformedUuid(String value) {
-        return value.indexOf('-') >= 0 && value.matches("(?i)[0-9a-f-]{20,40}");
+        return value.length() == UUID_TEXT_LENGTH
+                && value.charAt(8) == '-'
+                && value.charAt(13) == '-'
+                && value.charAt(18) == '-'
+                && value.charAt(23) == '-';
     }
 
     private static void validateName(String value) {
