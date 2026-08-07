@@ -31,6 +31,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
     private static final int MAX_QUEUE_CAPACITY = 4_096;
     private static final int MIN_POSITIVE_VALUE = 1;
     private static final int FIRST_CHARACTER_INDEX = 0;
+    private static final int FLOODGATE_PREFIX_LENGTH = 1;
     private static final long NO_TICKS_REMAINING = 0L;
     private static final long PERIODIC_SCAN_TICKS = 200L;
 
@@ -288,7 +289,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
             return normalized;
         }
         if (hasFloodgatePrefix) {
-            if (normalized.length() == 1) {
+            if (normalized.length() == FLOODGATE_PREFIX_LENGTH) {
                 throw new IllegalArgumentException(
                         "Floodgate currentName must contain a name after the '*' prefix");
             }
