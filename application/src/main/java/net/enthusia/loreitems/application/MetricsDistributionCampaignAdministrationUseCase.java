@@ -27,7 +27,10 @@ public final class MetricsDistributionCampaignAdministrationUseCase
 
     @Override
     public CompletionStage<Optional<DistributionCampaignStatus>> status(UUID campaignId) {
-        return delegate.status(campaignId);
+        return delegate.status(campaignId).thenApply(status -> {
+            status.ifPresent(this::recordRecipientStatus);
+            return status;
+        });
     }
 
     @Override
@@ -70,6 +73,13 @@ public final class MetricsDistributionCampaignAdministrationUseCase
             }
             return result;
         });
+    }
+
+    private void recordRecipientStatus(DistributionCampaignStatus status) {
+        CampaignRecipientCounts counts = status.recipientCounts();
+        metrics.setGauge("distribution.recipients.unresolved", counts.unresolved());
+        metrics.setGauge("distribution.recipients.review_required", counts.reviewRequired());
+        metrics.setGauge("distribution.recipients.remaining", counts.remaining());
     }
 
     private CompletionStage<Boolean> countTrue(CompletionStage<Boolean> stage, String metric) {
