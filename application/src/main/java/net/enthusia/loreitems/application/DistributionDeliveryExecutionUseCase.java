@@ -22,6 +22,10 @@ public interface DistributionDeliveryExecutionUseCase {
             CampaignRecipientState targetPendingState,
             Duration delay);
 
+    CompletionStage<Boolean> cancel(CampaignRecipient recipient);
+
+    CompletionStage<Boolean> cancel(PreparedDistributionDelivery delivery);
+
     CompletionStage<Boolean> complete(
             PreparedDistributionDelivery delivery,
             int inventorySlot,
