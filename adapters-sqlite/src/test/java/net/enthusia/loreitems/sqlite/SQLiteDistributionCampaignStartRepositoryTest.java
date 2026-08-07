@@ -53,38 +53,8 @@ class SQLiteDistributionCampaignStartRepositoryTest {
                             campaign, recipients, "PLAYER", "operator-1"))
                     .toCompletableFuture().join();
             assertEquals(DistributionCampaignStartResult.Status.STARTED, started.status());
-
-            DistributionCampaign stored = new SQLiteDistributionCampaignRepository(runtime)
-                    .findById(campaignId).toCompletableFuture().join().orElseThrow();
-            assertEquals(DistributionCampaignState.ACTIVE, stored.state());
-            assertEquals(new TemplateRevision(2L), stored.definitionRevision());
-            assertEquals(2L, new SQLiteDistributionRecipientRepository(runtime)
-                    .countByState(campaignId).toCompletableFuture().join().total());
-
-            List<AuditEventRecord> audit = new SQLiteAuditRepository(runtime)
-                    .listByAggregate(
-                            "DISTRIBUTION_CAMPAIGN", campaignId.toString(), PageRequest.first(10))
-                    .toCompletableFuture().join().items();
-            assertEquals(1, audit.size());
-            assertEquals("DISTRIBUTION_CAMPAIGN_STARTED", audit.getFirst().eventType());
-            assertEquals("operator-1", audit.getFirst().actorId());
-
-            UUID replayId = UUID.randomUUID();
-            DistributionCampaign replay = campaign(
-                    replayId, definitionId, 2L, "SHA256:ATOMIC-SOURCE");
-            DistributionCampaignStartResult replayed = starts.start(new DistributionCampaignStartRequest(
-                            replay,
-                            List.of(CampaignRecipient.unresolvedName(
-                                    replayId, 0, "OtherPlayer", CREATED_AT)),
-                            "PLAYER",
-                            "operator-2"))
-                    .toCompletableFuture().join();
-            assertEquals(
-                    DistributionCampaignStartResult.Status.SOURCE_ALREADY_USED,
-                    replayed.status());
-            assertEquals(campaignId, replayed.campaignId());
-            assertTrue(new SQLiteDistributionCampaignRepository(runtime)
-                    .findById(replayId).toCompletableFuture().join().isEmpty());
+            assertDurableStart(runtime, campaignId);
+            assertSourceReplayRefused(runtime, starts, definitionId, campaignId);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -114,6 +84,44 @@ class SQLiteDistributionCampaignStartRepositoryTest {
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static void assertDurableStart(SQLiteStorageRuntime runtime, UUID campaignId) {
+        DistributionCampaign stored = new SQLiteDistributionCampaignRepository(runtime)
+                .findById(campaignId).toCompletableFuture().join().orElseThrow();
+        assertEquals(DistributionCampaignState.ACTIVE, stored.state());
+        assertEquals(new TemplateRevision(2L), stored.definitionRevision());
+        assertEquals(2L, new SQLiteDistributionRecipientRepository(runtime)
+                .countByState(campaignId).toCompletableFuture().join().total());
+
+        List<AuditEventRecord> audit = new SQLiteAuditRepository(runtime)
+                .listByAggregate(
+                        "DISTRIBUTION_CAMPAIGN", campaignId.toString(), PageRequest.first(10))
+                .toCompletableFuture().join().items();
+        assertEquals(1, audit.size());
+        assertEquals("DISTRIBUTION_CAMPAIGN_STARTED", audit.getFirst().eventType());
+        assertEquals("operator-1", audit.getFirst().actorId());
+    }
+
+    private static void assertSourceReplayRefused(
+            SQLiteStorageRuntime runtime,
+            SQLiteDistributionCampaignStartRepository starts,
+            UUID definitionId,
+            UUID originalCampaignId) {
+        UUID replayId = UUID.randomUUID();
+        DistributionCampaign replay = campaign(
+                replayId, definitionId, 2L, "SHA256:ATOMIC-SOURCE");
+        DistributionCampaignStartResult replayed = starts.start(new DistributionCampaignStartRequest(
+                        replay,
+                        List.of(CampaignRecipient.unresolvedName(
+                                replayId, 0, "OtherPlayer", CREATED_AT)),
+                        "PLAYER",
+                        "operator-2"))
+                .toCompletableFuture().join();
+        assertEquals(DistributionCampaignStartResult.Status.SOURCE_ALREADY_USED, replayed.status());
+        assertEquals(originalCampaignId, replayed.campaignId());
+        assertTrue(new SQLiteDistributionCampaignRepository(runtime)
+                .findById(replayId).toCompletableFuture().join().isEmpty());
     }
 
     private static DistributionCampaign campaign(
