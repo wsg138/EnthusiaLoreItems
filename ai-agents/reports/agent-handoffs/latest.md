@@ -3,43 +3,56 @@
 ## Active package
 
 - Package: WP-03 — one-use mass distributions
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Canonical branch: `agent/wp-03-mass-distributions`
 - Draft pull request: #14, `WP-03: complete one-use mass distributions`
 - Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Latest verified implementation checkpoint: `bfe248c70c1cdbee4f88b62eb073445e745b8785`
+- Latest verified implementation checkpoint: `759896e5da61c46079a5e7c98154aa1852bc0f39`
 - Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
 ## Completed criteria
 
-- Startup reconciliation, automatic routing, durable branch claim, and draft PR establishment.
-- Exact WP-03 seven-state recipient domain/persistence model and V6 upgrade migration.
-- Safe group directory initialization, strict YAML/schema/identity validation, deterministic source fingerprinting, and active/completed/cancelled marker primitives.
-- Compatibility fixes for existing campaign cancellation and migration tests.
-- Initial Codacy findings fixed without broad suppression.
+- Reconciled stale coordination against live GitHub and established the single durable WP-03 branch/PR lock.
+- Implemented exact seven-state campaign-recipient domain/persistence semantics and V6 upgrade migration.
+- Implemented bounded, strict group YAML discovery/validation; Java/Floodgate-style/UUID parsing; original-value preservation; normalized duplicate detection; path/symlink defenses; deterministic source fingerprinting; and active/completed/cancelled marker primitives.
+- Added immutable campaign definition-revision snapshot persistence in V7.
+- Added validated application start request/result/port.
+- Added one-transaction SQLite campaign start that verifies the selected active revision, fences source replay, snapshots campaign/revision/recipients, records actor/audit data, and activates only after the full durable snapshot exists.
+- Added replay refusal and rollback-on-revision-drift coverage.
 
 ## Verification
 
-Exact implementation head `bfe248c70c1cdbee4f88b62eb073445e745b8785` passed CI run #863, including Gradle verification, repository tooling, new-code complexity, and the exact-head Codacy gate.
+- `bfe248c70c1cdbee4f88b62eb073445e745b8785`: CI run #863 passed Gradle verification, repository tooling, complexity, and exact-head Codacy for the filesystem/state-model section.
+- `759896e5da61c46079a5e7c98154aa1852bc0f39`: CI run #868 passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy for the atomic-start section.
+- PR #14 had no submitted reviews, requested changes, or unresolved review threads at the latest check.
+
+## Findings fixed
+
+- Foundation recipient-state names did not match WP-03.
+- Existing cancellation SQL referenced obsolete state names.
+- Migration-version tests were stale after V6/V7.
+- Malformed UUID-shaped recipient input could fall through as a name.
+- Initial parser/SQL-start/test Codacy findings were refactored until exact-head Codacy passed.
+- Definition revision drift between preview and durable start is now fail-closed and transactionally leaves no partial campaign.
 
 ## Remaining criteria
 
-The durable campaign snapshot/start transaction, pinned definition revision, source replay protection end-to-end, cached and late-join identity resolution, direct-delivery queue integration, exactly-once delivery state synchronization, offline/full-inventory/retry behavior, pause/resume/cancel/status/pagination, marker recovery/startup resume, reload/degraded/shutdown handling, metrics/permissions/messages/audit/docs, WP-02 queue/review integration, all remaining automated and end-to-end tests, full-package harsh review, final exact-head CI/Codacy, review reconciliation, normal merge, and live-main verification remain in WP-03.
+- Paper operator flow with reload/validation, paginated source inspection, active-definition selection, immutable preview and explicit confirmation.
+- DB-first post-start source marker move plus durable marker reconciliation on startup/reload/terminalization.
+- Cached/known-name resolution without network dependency and atomic late-join binding, including leading-`*` Bedrock names.
+- Pinned-revision integration with the existing hardened direct-delivery subsystem, durable instance linkage/idempotency, exactly-once physical insertion, recipient state synchronization, offline/full inventory, bounded retry/backpressure, wakeups, and crash-to-review recovery.
+- Persisted status/pagination/pause/resume/cancel/completion, WP-02 review/queue integration, metrics, messages, permissions, reload/degraded/shutdown handling, documentation, remaining tests and regressions.
+- Required full-package harsh review, every confirmed fix, final exact-head Actions/Codacy, later review reconciliation, normal merge, post-merge live-main verification, COMPLETE state, and unlocking only WP-04 READY.
 
-## Findings fixed so far
+## Blocker
 
-- Stale post-WP-02 coordination snapshot was reconciled against live GitHub.
-- Foundation recipient state names did not match WP-03.
-- Campaign cancellation referenced old recipient states.
-- Migration version test was stale after V6.
-- Malformed UUID-like recipients could be accepted as names.
-- Initial new-code Codacy maintainability findings were resolved.
+None. The package is PARTIAL, not BLOCKED. The environment lacked a usable local checkout because unauthenticated container DNS could not resolve GitHub, but authenticated GitHub tooling remained sufficient for the committed work.
 
 ## Queue state
 
 - WP-01: `COMPLETE`
 - WP-02: `COMPLETE`
-- WP-03: `IN_PROGRESS`
+- WP-03: `PARTIAL`
 - WP-04 through WP-06: `BLOCKED`
 - Completed packages: 2 of 6
 - Remaining packages: 4 of 6
@@ -47,4 +60,4 @@ The durable campaign snapshot/start transaction, pinned definition revision, sou
 
 ## Exact next action
 
-Implement pinned definition revision and the one-transaction durable campaign-start boundary before any filesystem marker move or physical delivery.
+Resume PR #14 at its current head. Implement a Paper-side campaign coordinator/operator flow that converts a validated group source plus explicitly selected active definition/revision into `DistributionCampaignStartRequest`; commit the DB-authoritative start first, then move or repair the active source marker from durable DB state. Continue the same WP-03 package from there; do not claim WP-04.
