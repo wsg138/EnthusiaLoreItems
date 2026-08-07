@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -86,10 +87,11 @@ def main() -> int:
         normalized_manifest(jar), encoding="utf-8"
     )
 
+    serial_seed = hashlib.sha256((digest + args.version).encode()).hexdigest()[:32]
     bom = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
-        "serialNumber": "urn:uuid:" + hashlib.sha256((digest + args.version).encode()).hexdigest()[:32],
+        "serialNumber": "urn:uuid:" + str(uuid.UUID(serial_seed)),
         "version": 1,
         "metadata": {
             "component": {
