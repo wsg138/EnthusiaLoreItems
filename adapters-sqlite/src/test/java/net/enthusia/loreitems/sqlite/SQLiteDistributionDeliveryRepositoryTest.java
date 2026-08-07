@@ -97,7 +97,7 @@ class SQLiteDistributionDeliveryRepositoryTest {
                     .toCompletableFuture().join().orElseThrow();
             assertEquals(CampaignRecipientState.QUEUED_INVENTORY_FULL, deferred.state());
             assertEquals(null, deferred.instanceId());
-            assertEquals(0L, countRows(runtime, "lore_instances", "instance_id", prepared.instanceId().value().toString()));
+            assertEquals(0L, countLoreInstanceRows(runtime, prepared.instanceId().value().toString()));
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -218,15 +218,13 @@ class SQLiteDistributionDeliveryRepositoryTest {
         }).toCompletableFuture().join();
     }
 
-    private static long countRows(
+    private static long countLoreInstanceRows(
             SQLiteStorageRuntime runtime,
-            String table,
-            String column,
-            String value) {
+            String instanceId) {
         return runtime.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT COUNT(*) AS count_value FROM " + table + " WHERE " + column + " = ?")) {
-                statement.setString(1, value);
+                    "SELECT COUNT(*) AS count_value FROM lore_instances WHERE instance_id = ?")) {
+                statement.setString(1, instanceId);
                 try (ResultSet resultSet = statement.executeQuery()) {
                     resultSet.next();
                     return resultSet.getLong("count_value");
