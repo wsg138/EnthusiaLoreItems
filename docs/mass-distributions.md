@@ -213,6 +213,9 @@ WP-03 records campaign counters and gauges through the same `MetricsPort` used b
 - `distribution.campaign.resumed`
 - `distribution.campaign.cancelled`
 - `distribution.campaign.last_cancelled_recipients`
+- `distribution.recipients.unresolved`
+- `distribution.recipients.review_required`
+- `distribution.recipients.remaining`
 - `distribution.review.last_page_size`
 
 The current foundation can use a no-op metrics backend; WP-03 does not create a parallel telemetry system.
