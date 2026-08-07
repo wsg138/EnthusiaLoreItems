@@ -9,20 +9,22 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 - Repository: `wsg138/EnthusiaLoreItems`
 - Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
 - Active package: WP-03 — one-use mass distributions
-- Status: `PARTIAL`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-03-mass-distributions`
 - Draft pull request: #14, `WP-03: complete one-use mass distributions`
 - Initial claim commit: `b544ddb3bdb24c6ca95cdd2867af6b90d987ee46`
+- Resume claim commit: `9e70e9c1f21955f1a93b3a23352fc586b70e6afc`
 - Latest verified implementation head: `759896e5da61c46079a5e7c98154aa1852bc0f39`
 - Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
-## Live reconciliation at claim
+## Live reconciliation at resume
 
-- WP-01 and WP-02 canonical branches are historical and contained in live `main`.
-- WP-02 PR #13 was normally merged at live-main commit `d77ec61032e5583783694ae349f785495cbf8f31`.
-- No unfinished WP-03/WP-04/WP-05/LoreItems-WP-06 canonical lock existed before this claim.
-- PR #14 and `agent/wp-03-mass-distributions` remain the single unfinished package lock.
-- No requested changes or unresolved PR review threads were present at the latest review-state check.
+- Live `main` is `d77ec61032e5583783694ae349f785495cbf8f31`, the normal merge of WP-02 PR #13.
+- The historical WP-02 canonical branch exists at `bf75efb1daedf376633091871bfee7a621d9642f` and is contained in live `main`; the retired WP-01 branch is deleted.
+- PR #14 and `agent/wp-03-mass-distributions` are the single unfinished LoreItems package lock; no WP-04+ fixed LoreItems package branch exists.
+- The separate EnthusiaTags repository has no fixed `agent/wp-*` branch, consistent with WP-06 remaining blocked.
+- No submitted reviews, requested changes, or unresolved PR review threads were present at the resume check.
+- Codacy's live PR summary reported zero new issues at resume. CodeRabbit skipped the draft PR and will be required at the review gate rather than treated as approval.
 
 ## Package status
 
@@ -30,7 +32,7 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 |---|---:|---|---|
 | WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
 | WP-02 | 20% | COMPLETE | PR #13 normally merged and live `main` verified |
-| WP-03 | 20% | PARTIAL | Useful implementation is committed and verified on canonical PR #14; package contract is not complete |
+| WP-03 | 20% | IN_PROGRESS | Canonical branch and draft PR #14 are the single resumed durable work lock |
 | WP-04 | 15% | BLOCKED | WP-03 is not COMPLETE |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate is not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release is not verified |
@@ -59,8 +61,9 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 - Filesystem/state implementation head `bfe248c70c1cdbee4f88b62eb073445e745b8785` passed CI run #863.
 - Latest implementation head `759896e5da61c46079a5e7c98154aa1852bc0f39` passed CI run #868: Gradle verification, repository tooling, new-code complexity, and exact-head Codacy all succeeded.
 - Focused tests cover group parsing/identity/duplicates/malformed input/traversal/symlinks/fingerprints/markers and atomic campaign start/revision pinning/audit/source replay/rollback on definition revision drift.
+- Exact-head checks for the resumed coordination commits are being refreshed while implementation continues.
 
-## Findings fixed in this session
+## Findings fixed so far
 
 - Stale post-WP-02 coordination state was reconciled against live GitHub.
 - Foundation recipient-state names differed from the WP-03 contract; migrated safely.
@@ -81,8 +84,8 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 
 ## Blocker
 
-None. This is `PARTIAL`, not `BLOCKED`. A local checkout was unavailable because the container could not resolve GitHub, but authenticated repository tooling remained fully usable and did not prevent useful work.
+None. The local container cannot resolve GitHub, but authenticated repository tooling remains fully usable and does not prevent durable work.
 
 ## Exact next action
 
-Resume PR #14 at its current head. Implement the Paper campaign coordinator/operator flow that converts a validated `GroupFileDefinition` plus explicitly selected active lore definition/revision into `DistributionCampaignStartRequest`, commits the DB-authoritative start first, then moves/repairs the active filesystem marker from durable campaign state. Do not start WP-04.
+Implement the Paper campaign coordinator/operator flow that converts a validated `GroupFileDefinition` plus explicitly selected active lore definition/revision into `DistributionCampaignStartRequest`, commits the DB-authoritative start first, then moves or repairs the active filesystem marker from durable campaign state. Continue on WP-03 only.
