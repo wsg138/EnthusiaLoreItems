@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -39,7 +41,11 @@ class SQLiteDistributionCampaignStartRepositoryTest {
             List<CampaignRecipient> recipients = List.of(
                     CampaignRecipient.unresolvedName(campaignId, 0, "JavaPlayer", CREATED_AT),
                     CampaignRecipient.knownPlayer(
-                            campaignId, 1, UUID.randomUUID(), "00000000-0000-0000-0000-000000000001", CREATED_AT));
+                            campaignId,
+                            1,
+                            UUID.randomUUID(),
+                            "00000000-0000-0000-0000-000000000001",
+                            CREATED_AT));
             SQLiteDistributionCampaignStartRepository starts =
                     new SQLiteDistributionCampaignStartRepository(runtime);
 
@@ -56,21 +62,26 @@ class SQLiteDistributionCampaignStartRepositoryTest {
                     .countByState(campaignId).toCompletableFuture().join().total());
 
             List<AuditEventRecord> audit = new SQLiteAuditRepository(runtime)
-                    .listByAggregate("DISTRIBUTION_CAMPAIGN", campaignId.toString(), PageRequest.first(10))
+                    .listByAggregate(
+                            "DISTRIBUTION_CAMPAIGN", campaignId.toString(), PageRequest.first(10))
                     .toCompletableFuture().join().items();
             assertEquals(1, audit.size());
             assertEquals("DISTRIBUTION_CAMPAIGN_STARTED", audit.getFirst().eventType());
             assertEquals("operator-1", audit.getFirst().actorId());
 
             UUID replayId = UUID.randomUUID();
-            DistributionCampaign replay = campaign(replayId, definitionId, 2L, "SHA256:ATOMIC-SOURCE");
+            DistributionCampaign replay = campaign(
+                    replayId, definitionId, 2L, "SHA256:ATOMIC-SOURCE");
             DistributionCampaignStartResult replayed = starts.start(new DistributionCampaignStartRequest(
                             replay,
-                            List.of(CampaignRecipient.unresolvedName(replayId, 0, "OtherPlayer", CREATED_AT)),
+                            List.of(CampaignRecipient.unresolvedName(
+                                    replayId, 0, "OtherPlayer", CREATED_AT)),
                             "PLAYER",
                             "operator-2"))
                     .toCompletableFuture().join();
-            assertEquals(DistributionCampaignStartResult.Status.SOURCE_ALREADY_USED, replayed.status());
+            assertEquals(
+                    DistributionCampaignStartResult.Status.SOURCE_ALREADY_USED,
+                    replayed.status());
             assertEquals(campaignId, replayed.campaignId());
             assertTrue(new SQLiteDistributionCampaignRepository(runtime)
                     .findById(replayId).toCompletableFuture().join().isEmpty());
@@ -85,7 +96,8 @@ class SQLiteDistributionCampaignStartRepositoryTest {
         try {
             UUID definitionId = seedDefinition(runtime, 2L);
             UUID campaignId = UUID.randomUUID();
-            DistributionCampaign campaign = campaign(campaignId, definitionId, 2L, "sha256:stale-preview");
+            DistributionCampaign campaign = campaign(
+                    campaignId, definitionId, 2L, "sha256:stale-preview");
             advanceDefinition(runtime, definitionId, 3L);
             SQLiteDistributionCampaignStartRepository starts =
                     new SQLiteDistributionCampaignStartRepository(runtime);
@@ -155,7 +167,7 @@ class SQLiteDistributionCampaignStartRepositoryTest {
     }
 
     private static void insertRevision(
-            java.sql.Connection connection, UUID definitionId, long revision) throws Exception {
+            Connection connection, UUID definitionId, long revision) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO lore_definition_revisions(definition_id, revision, codec_version, "
                         + "template_blob, created_at) VALUES (?, ?, 1, ?, ?)")) {

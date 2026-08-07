@@ -18,6 +18,7 @@ public final class SQLiteDistributionCampaignStartRepository
         implements DistributionCampaignStartRepository {
     private static final String AGGREGATE_TYPE = "DISTRIBUTION_CAMPAIGN";
     private static final String START_EVENT = "DISTRIBUTION_CAMPAIGN_STARTED";
+    private static final int SINGLE_UPDATED_ROW = 1;
 
     private final SQLiteStorageRuntime storage;
 
@@ -113,7 +114,7 @@ public final class SQLiteDistributionCampaignStartRepository
                         + "WHERE campaign_id = ? AND state = 'DRAFT' AND terminal_at IS NULL")) {
             statement.setLong(1, campaign.updatedAtEpochMillis());
             statement.setString(2, campaign.campaignId().toString());
-            if (statement.executeUpdate() != 1) {
+            if (statement.executeUpdate() != SINGLE_UPDATED_ROW) {
                 throw new SQLException("Failed to activate durable distribution campaign snapshot");
             }
         }

@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.CampaignRecipientKey;
 import net.enthusia.loreitems.domain.CampaignRecipientState;
@@ -38,25 +39,40 @@ public record DistributionCampaignStartRequest(
     private static void validateRecipients(
             DistributionCampaign campaign, List<CampaignRecipient> recipients) {
         Set<CampaignRecipientKey> keys = new HashSet<>();
-        Set<java.util.UUID> playerIds = new HashSet<>();
+        Set<UUID> playerIds = new HashSet<>();
         for (int index = 0; index < recipients.size(); index++) {
             CampaignRecipient recipient = Objects.requireNonNull(recipients.get(index), "recipient");
-            if (!recipient.campaignId().equals(campaign.campaignId())) {
-                throw new IllegalArgumentException("Recipient belongs to another campaign");
-            }
-            if (recipient.snapshotIndex() != index) {
-                throw new IllegalArgumentException("Recipient snapshot indexes must be contiguous from zero");
-            }
-            if (recipient.state() != CampaignRecipientState.UNRESOLVED
-                    && recipient.state() != CampaignRecipientState.QUEUED_OFFLINE) {
-                throw new IllegalArgumentException("Recipient snapshot contains mutable delivery state");
-            }
-            if (!keys.add(recipient.recipientKey())) {
-                throw new IllegalArgumentException("Recipient snapshot contains duplicate normalized keys");
-            }
-            if (recipient.playerId() != null && !playerIds.add(recipient.playerId())) {
-                throw new IllegalArgumentException("Recipient snapshot contains duplicate player UUIDs");
-            }
+            validateRecipient(campaign, recipient, index);
+            requireUniqueKey(keys, recipient);
+            requireUniquePlayerId(playerIds, recipient);
+        }
+    }
+
+    private static void validateRecipient(
+            DistributionCampaign campaign, CampaignRecipient recipient, int index) {
+        if (!recipient.campaignId().equals(campaign.campaignId())) {
+            throw new IllegalArgumentException("Recipient belongs to another campaign");
+        }
+        if (recipient.snapshotIndex() != index) {
+            throw new IllegalArgumentException("Recipient snapshot indexes must be contiguous from zero");
+        }
+        if (recipient.state() != CampaignRecipientState.UNRESOLVED
+                && recipient.state() != CampaignRecipientState.QUEUED_OFFLINE) {
+            throw new IllegalArgumentException("Recipient snapshot contains mutable delivery state");
+        }
+    }
+
+    private static void requireUniqueKey(
+            Set<CampaignRecipientKey> keys, CampaignRecipient recipient) {
+        if (!keys.add(recipient.recipientKey())) {
+            throw new IllegalArgumentException("Recipient snapshot contains duplicate normalized keys");
+        }
+    }
+
+    private static void requireUniquePlayerId(Set<UUID> playerIds, CampaignRecipient recipient) {
+        UUID playerId = recipient.playerId();
+        if (playerId != null && !playerIds.add(playerId)) {
+            throw new IllegalArgumentException("Recipient snapshot contains duplicate player UUIDs");
         }
     }
 
