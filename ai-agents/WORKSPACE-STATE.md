@@ -5,17 +5,19 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `BLOCKED`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Pull request: draft PR #18, `WP-05: complete live acceptance and release LoreItems`
 - Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`
 - Durable claim commit: `760f04f162b934d7a0f21ba8c354548aeb8cffbf`
-- IN_PROGRESS checkpoint: `5825c2ddc284300ec323a47d5d62b6bb9a8ac853`
+- Initial IN_PROGRESS checkpoint: `5825c2ddc284300ec323a47d5d62b6bb9a8ac853`
+- Prior blocker/review head: `ed869117dc449c0c96c824cf2668725ea711662b`
+- Resume handoff commit: `a88bc75c289209f2b855eca7e80f77b7515ca111`
 - Dependency satisfied by: verified WP-04 RC `v1.0.0-rc.1`
 - WP-04 implementation merge: `89399db2d92fd7197479a8803e920c02f5bec490`
 - WP-04 release-recovery merge: `e4b7968adea1357e7307815a5a5ef7f456f16ad1`
 - Exact RC JAR SHA-256: `3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`
-- Latest package handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-live-environment-blocker.md`
+- Latest package handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-resumed-actions-harness.md`
 
 ## Package status
 | Package | Weight | Status | Reason |
@@ -24,7 +26,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | WP-04 | 15% | COMPLETE | PR #15 and release-recovery PR #16 normally merged; post-merge CI and RC prerelease verified |
-| WP-05 | 15% | BLOCKED | contract-required designated live acceptance environment/test accounts are not accessible to this worker; no executed GitHub-backed matrix evidence exists |
+| WP-05 | 15% | IN_PROGRESS | resumed on PR #18 using GitHub-hosted disposable acceptance infrastructure; no live case credited until evidence is audited and committed |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
 ## Progress
@@ -58,7 +60,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Released JAR digest: `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 
 ## WP-05 completed acceptance criteria
-None. Package routing, claim, RC metadata verification, and external-dependency verification do not count as manual live acceptance.
+None yet. Package routing, claim, RC metadata verification, exact-head automated verification, blocker analysis, and resume infrastructure do not count as manual live acceptance.
 
 ## WP-05 remaining acceptance criteria
 - Execute every manual case in `docs/wp-05-manual-acceptance-matrix.md` against the exact RC with complete GitHub-backed evidence.
@@ -72,20 +74,19 @@ None. Package routing, claim, RC metadata verification, and external-dependency 
 ## Tests and verification
 - Pre-claim live `main` `476f9e5bbfa8155ab76b23bde0681ac35b92f177`: CI run `31215810485` successful; Release RC run `31215904779` successful.
 - GitHub prerelease `v1.0.0-rc.1` directly verified with target `89399db2d92fd7197479a8803e920c02f5bec490` and JAR digest `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
-- PR #18/head `5825c2ddc284300ec323a47d5d62b6bb9a8ac853` started Actions CI run `31216625563`; it was still in progress when the external blocker was confirmed and is superseded by later blocker/review-remediation commits.
-- No WP-05 manual case is claimed as run or PASS.
-- No local build result is claimed because this execution environment cannot reach GitHub for a dependency-capable checkout.
+- Prior blocker-review head `ed869117dc449c0c96c824cf2668725ea711662b`: CI run `31216903570` successful, including exact-head Codacy, profile, package validation, and reproducibility; external Codacy successful with no issues.
+- The exact RC was materialized from GitHub Actions evidence and locally re-hashed to the published digest.
+- No WP-05 live case is claimed PASS yet.
 
 ## Known findings
 - No competing unfinished canonical package lock exists.
-- No committed WP-05 executed-case evidence or WP-05 live-acceptance issue was found during repository reconciliation.
-- Harsh review of the first blocker checkpoint found unnecessary deletion/condensation of already-verified WP-04 history from state files; the review-remediation commit restores that durable evidence without changing WP-05 status or acceptance claims.
+- No committed pre-existing WP-05 executed-case evidence was found during initial reconciliation.
+- Harsh review of the first blocker checkpoint found unnecessary deletion/condensation of already-verified WP-04 history; it was fixed at `ed869117dc449c0c96c824cf2668725ea711662b`.
+- The local container still lacks ordinary outbound DNS, but GitHub-hosted runners provide a viable networked disposable acceptance environment for server-side cases.
+- Real Java/Bedrock player-session cases remain unclaimed until faithful live clients/accounts are established; they must not be replaced by unsupported console-only simulation.
 
-## External blocker
-WP-05 requires a designated Java 21 Paper/Leaf 1.21.11-compatible live acceptance server with Geyser/Floodgate and Java, Bedrock, offline, and never-joined test accounts. The available runtime exposes no remote-server/SSH/deployment tool, the repository contains no server-access handoff, repository/issue search contains no executed WP-05 matrix evidence, and plugin discovery found no matching installable remote-server connector. The physical, restart, Bedrock, backup/restore, rollback, saturation, and player-interaction cases therefore cannot be executed or honestly marked PASS from this worker.
-
-## Resume condition
-Make the designated acceptance environment and required test accounts operable by this worker, or commit durable exact-RC executed-case evidence that can be independently audited. Resume the same canonical branch and draft PR #18; do not create a new package or subdivision.
+## Current execution strategy
+Use GitHub Actions as the designated disposable acceptance server where the matrix can be faithfully executed. Begin with `ACC-ENV-001` on Java 21 + pinned Paper 1.21.11 build 116 + exact LoreItems RC + Geyser/Floodgate. Persist raw evidence as Actions artifacts, audit it, and commit the redacted evidence/index on the canonical branch. Expand the harness only within WP-05 and only when it preserves the actual behavior required by a case.
 
 ## Exact next action
-When the external dependency is available, re-reconcile live GitHub and PR #18, verify the exact RC digest again, execute `ACC-ENV-001`, commit its full evidence, and continue WP-05 only. Do not begin WP-06.
+Execute `ACC-ENV-001`, audit the resulting evidence against the matrix contract, and commit the case result. Continue WP-05 only; do not begin WP-06.
