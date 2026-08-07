@@ -17,6 +17,8 @@ public final class SQLiteDistributionCampaignControlRepository
         implements DistributionCampaignControlRepository {
     private static final String AGGREGATE_TYPE = "DISTRIBUTION_CAMPAIGN";
     private static final int SINGLE_ROW = 1;
+    private static final long PENDING_AUDIT_ID = 0L;
+    private static final long UNIX_EPOCH_MILLIS = 0L;
 
     private final SQLiteStorageRuntime storage;
 
@@ -173,7 +175,7 @@ public final class SQLiteDistributionCampaignControlRepository
         Objects.requireNonNull(event, "auditEvent");
         if (!AGGREGATE_TYPE.equals(event.aggregateType())
                 || !campaignId.toString().equals(event.aggregateId())
-                || event.auditId() != 0L
+                || event.auditId() != PENDING_AUDIT_ID
                 || event.occurredAtEpochMillis() != now.toEpochMilli()) {
             throw new IllegalArgumentException(
                     "Campaign control audit event does not match the atomic transition");
@@ -183,7 +185,7 @@ public final class SQLiteDistributionCampaignControlRepository
 
     private static long requireNonNegative(Instant now) {
         long value = now.toEpochMilli();
-        if (value < 0L) {
+        if (value < UNIX_EPOCH_MILLIS) {
             throw new IllegalArgumentException("now must not precede the Unix epoch");
         }
         return value;
