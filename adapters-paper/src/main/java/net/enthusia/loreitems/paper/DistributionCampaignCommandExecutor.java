@@ -70,22 +70,18 @@ public final class DistributionCampaignCommandExecutor
 
     public DistributionCampaignCommandExecutor(
             Plugin plugin,
-            PaperGroupFileCatalog groupCatalog,
-            PaperDistributionCampaignCoordinator coordinator,
-            DistributionCampaignAdministrationUseCase administration,
-            PaperDistributionMarkerReconciler markerReconciler,
-            DistributionCancellationFence cancellationFence,
-            Runnable markerWake,
-            Executor blockingExecutor,
+            DistributionCampaignCommandDependencies dependencies,
             int pageSize) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.groupCatalog = Objects.requireNonNull(groupCatalog, "groupCatalog");
-        this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
-        this.administration = Objects.requireNonNull(administration, "administration");
-        this.markerReconciler = Objects.requireNonNull(markerReconciler, "markerReconciler");
-        this.cancellationFence = Objects.requireNonNull(cancellationFence, "cancellationFence");
-        this.markerWake = Objects.requireNonNull(markerWake, "markerWake");
-        this.blockingExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        DistributionCampaignCommandDependencies required =
+                Objects.requireNonNull(dependencies, "dependencies");
+        groupCatalog = required.groupCatalog();
+        coordinator = required.coordinator();
+        administration = required.administration();
+        markerReconciler = required.markerReconciler();
+        cancellationFence = required.cancellationFence();
+        markerWake = required.markerWake();
+        blockingExecutor = required.blockingExecutor();
         if (pageSize < 1 || pageSize > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("pageSize is outside the supported bounded range");
         }
