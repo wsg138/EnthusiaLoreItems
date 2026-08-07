@@ -1,12 +1,28 @@
-import random
+import hashlib
 import unittest
 
 SEEDS = (0xE17001, 0xE17002, 0xE17003, 0xE17004)
 STEPS_PER_SEED = 2_000
+ACTIONS = ("intent", "claim", "apply", "verify", "restart", "retry")
+TRANSITIONS = {
+    ("NONE", "intent"): "PENDING",
+    ("PENDING", "claim"): "CLAIMED",
+    ("PENDING", "retry"): "CLAIMED",
+    ("CLAIMED", "apply"): "APPLIED_UNVERIFIED",
+    ("APPLIED_UNVERIFIED", "verify"): "TERMINAL",
+    ("CLAIMED", "restart"): "REVIEW_REQUIRED",
+    ("APPLIED_UNVERIFIED", "restart"): "REVIEW_REQUIRED",
+}
+
+
+def deterministic_action(seed, step):
+    payload = f"{seed}:{step}".encode("ascii")
+    value = int.from_bytes(hashlib.sha256(payload).digest()[:4], "big")
+    return ACTIONS[value % len(ACTIONS)]
 
 
 class DurableRecoveryModel:
-    """Stateful oracle for the invariants exercised by the concrete SQLite failure matrices."""
+    """Stateful oracle for invariants exercised by the concrete SQLite failure matrices."""
 
     def __init__(self):
         self.state = "NONE"
@@ -14,24 +30,15 @@ class DurableRecoveryModel:
         self.review_required = False
 
     def step(self, action):
-        if action == "intent" and self.state == "NONE":
-            self.state = "PENDING"
-        elif action == "claim" and self.state == "PENDING":
-            self.state = "CLAIMED"
-        elif action == "apply" and self.state == "CLAIMED":
+        previous = self.state
+        self.state = TRANSITIONS.get((previous, action), previous)
+        if previous == "CLAIMED" and action == "apply":
             self.physical_applies += 1
-            self.state = "APPLIED_UNVERIFIED"
-        elif action == "verify" and self.state == "APPLIED_UNVERIFIED":
-            self.state = "TERMINAL"
-        elif action == "restart":
-            if self.state in {"CLAIMED", "APPLIED_UNVERIFIED"}:
-                self.state = "REVIEW_REQUIRED"
-                self.review_required = True
-        elif action == "retry":
-            if self.state == "PENDING":
-                self.state = "CLAIMED"
-            # REVIEW_REQUIRED and TERMINAL deliberately never repeat a physical side effect.
+        if self.state == "REVIEW_REQUIRED":
+            self.review_required = True
+        self.assert_invariants()
 
+    def assert_invariants(self):
         if self.physical_applies > 1:
             raise AssertionError("ambiguous/terminal work repeated a physical side effect")
         if self.state == "REVIEW_REQUIRED" and not self.review_required:
@@ -40,13 +47,11 @@ class DurableRecoveryModel:
 
 class Wp04RandomizedRecoveryTest(unittest.TestCase):
     def test_fixed_seed_stateful_recovery_never_guesses_after_ambiguity(self):
-        actions = ("intent", "claim", "apply", "verify", "restart", "retry")
         for seed in SEEDS:
-            rng = random.Random(seed)
             model = DurableRecoveryModel()
             try:
-                for _ in range(STEPS_PER_SEED):
-                    model.step(rng.choice(actions))
+                for step in range(STEPS_PER_SEED):
+                    model.step(deterministic_action(seed, step))
             except AssertionError as error:
                 self.fail(f"WP-04 randomized recovery seed {seed:#x} failed: {error}")
 
