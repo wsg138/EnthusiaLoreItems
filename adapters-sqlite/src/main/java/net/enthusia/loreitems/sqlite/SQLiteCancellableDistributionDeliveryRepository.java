@@ -36,6 +36,7 @@ public final class SQLiteCancellableDistributionDeliveryRepository
         implements DistributionDeliveryRepository {
     private static final String QUEUED_SOURCE = "campaign-delivery-queued";
     private static final String REVIEW_EVENT = "DISTRIBUTION_RECIPIENT_REVIEW_REQUIRED";
+    private static final String NOW_ARGUMENT = "now";
     private static final int MIN_LIMIT = 1;
 
     private final SQLiteStorageRuntime storage;
@@ -80,7 +81,8 @@ public final class SQLiteCancellableDistributionDeliveryRepository
     public CompletionStage<Boolean> cancelClaimed(
             CampaignRecipient recipient, Instant now) {
         requireUnpreparedClaim(recipient);
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         return storage.execute(connection -> cancelClaimed(connection, recipient, nowMillis));
     }
 
@@ -88,7 +90,8 @@ public final class SQLiteCancellableDistributionDeliveryRepository
     public CompletionStage<Boolean> cancelPrepared(
             PreparedDistributionDelivery delivery, Instant now) {
         Objects.requireNonNull(delivery, "delivery");
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> cancelPrepared(transaction, delivery, nowMillis)));
@@ -122,7 +125,8 @@ public final class SQLiteCancellableDistributionDeliveryRepository
 
     @Override
     public CompletionStage<Integer> recoverExpiredClaims(Instant now, int limit) {
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         requireLimit(limit);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                         connection,
