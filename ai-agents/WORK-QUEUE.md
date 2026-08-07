@@ -7,20 +7,20 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 |---:|---|---:|---|---|
 | 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | merged/verified |
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
-| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | all package gates passed; normal merge/post-merge verification remain |
-| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | READY | WP-03 COMPLETE; exact next package, not started |
+| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
+| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | IN_PROGRESS | draft PR #15; direct-delivery failure/restart and V1–V7 migration gates verified; remaining hardening gates in progress |
 | 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | BLOCKED | WP-04 release candidate |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
 
-## WP-03 prospective completion checkpoint
-- Branch: `agent/wp-03-mass-distributions`
-- PR: #14
-- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Worker starting head: `10cb131e93c4758cfe9f1e174e1400cb8d0b5ffc`
-- Independent review: CodeRabbit run `fc10c8bf-f61f-4009-bde2-54620c4792d7`; all 17 inline threads resolved; no requested changes.
-- Exact green VERIFYING head: `cce46ffe0f030b2d5490a2542b73b4709647e823`.
-- Verification: Actions `31173515497` success for full Gradle verification, repository tooling, new-code complexity, and workflow Codacy; external Codacy `92850542953` success with zero annotations.
-- Remaining work is only exact-head verification of this prospective-completion state, normal merge, and live-main/post-merge verification.
+## WP-04 durable checkpoint
+- Branch: `agent/wp-04-production-hardening`
+- Draft PR: #15
+- Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
+- Latest verified implementation head: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
+- Completed coherent sections: operator/recovery docs; WP-05 acceptance matrix; direct/API-delivery crash/restart failure group; every V1–V7 migration/upgrade and interrupted-migration recovery gate.
+- Exact-head evidence: Actions run `31182331548` passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy; CodeRabbit combined status is successful.
+- Harsh findings fixed on the same package: Java lambda capture compilation; overlong failure-matrix tests; Codacy harness naming/null lifecycle; migration fixture duplicate literals/version literal. No broad suppressions.
 - Blocker: none.
 
 ## Progress
@@ -29,4 +29,4 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - Weighted progress: 60%
 
 ## Exact next action
-Verify the exact prospective-completion SHA. If green and concurrency/review state remains clean, normally merge PR #14, verify live `main` and post-merge checks, then stop. WP-04 is READY but must not be started in this chat.
+Implement deterministic saturation/backpressure verification for every bounded-work surface named by WP-04, then commit the section and continue WP-04 only. Do not start WP-05.

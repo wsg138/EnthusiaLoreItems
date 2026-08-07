@@ -3,36 +3,23 @@
 ## Snapshot warning
 Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; selected package contract; workflow docs; requirements; architecture; implementation plan; state/handoffs.
 
-## Publication state
-- Repository: `wsg138/EnthusiaLoreItems`
-- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Completed package: WP-03 — one-use mass distributions
-- Status: `COMPLETE` (prospective pre-merge state; merge/post-merge verification still required)
-- Canonical branch: `agent/wp-03-mass-distributions`
-- Pull request: #14, `WP-03: complete one-use mass distributions`
-- Worker starting head: `10cb131e93c4758cfe9f1e174e1400cb8d0b5ffc`
-- Substantive independent-review head: `b31be671905ad71ed7ab114de074d9d547517335`
-- Exact green remediation checkpoint: `f71c056748541d31a23f78807aab73acdd5630bd`
-- Exact green VERIFYING checkpoint: `cce46ffe0f030b2d5490a2542b73b4709647e823`
-- VERIFYING Actions run: `31173515497`
-- VERIFYING external Codacy check: `92850542953`, success with zero annotations
-- Prospective completion checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-03-complete-premerge.md`
-- Exact next package: WP-04 — automated production hardening and release candidate (`READY` only; do not begin it in this chat)
-
-## Live reconciliation
-- Live `main` remained `d77ec61032e5583783694ae349f785495cbf8f31` through the final pre-completion concurrency check.
-- PR #14 remains the single canonical WP-03 lock, open, non-draft, and mergeable.
-- CodeRabbit completed the required substantive review across all 90 changed PR files (run `fc10c8bf-f61f-4009-bde2-54620c4792d7`).
-- All 17 inline review threads are resolved and no review is in `CHANGES_REQUESTED` state.
-- The exact VERIFYING head passed all required automated gates before this completion transition.
+## Active package
+- Package: WP-04 — automated production hardening and release candidate
+- Status: `IN_PROGRESS`
+- Canonical branch: `agent/wp-04-production-hardening`
+- Pull request: draft PR #15
+- Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
+- Latest verified implementation head: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
+- Latest coherent-section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-failure-and-migration-gates.md`
 
 ## Package status
 | Package | Weight | Status | Reason |
 |---|---:|---|---|
-| WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
-| WP-02 | 20% | COMPLETE | PR #13 normally merged and live `main` verified |
-| WP-03 | 20% | COMPLETE | All package acceptance/review/verification gates passed; normal merge and post-merge verification remain |
-| WP-04 | 15% | READY | Exact next package unlocked by WP-03 completion; not started |
+| WP-01 | 20% | COMPLETE | normally merged and verified |
+| WP-02 | 20% | COMPLETE | normally merged and verified |
+| WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
+| WP-04 | 15% | IN_PROGRESS | draft PR #15; direct-delivery crash matrix and V1–V7 migration matrix verified; remaining hardening gates in progress |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
@@ -42,27 +29,39 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Remaining: 3 of 6
 - Weighted progress: `60 / 100 = 60%`
 
-## Completed acceptance criteria
-- Complete bounded source lifecycle, immutable DB-first campaign snapshot, source replay fencing, Java/Floodgate/UUID identity, durable unresolved-name binding, exactly-once delivery, no overflow drops, exact seven-state counts, lifecycle controls, restart/recovery, marker repair, WP-02 recovery integration, metrics/audit/permissions/messages, degraded/reload/shutdown behavior, and focused Paper/SQLite/end-to-end/restart tests.
-- Full-package author harsh review completed and all confirmed findings fixed.
-- Required independent review completed and every actionable finding/thread reconciled on the same branch.
-- Confirmed independent/static fixes include cancellation audit validation, bounded cancelled-claim draining, shutdown-safe completions, defensive player binding, fail-closed completion scheduling, dedicated bounded distribution executor, explicit recovery-service availability, exact historical claim evidence, orphan recovery-temp bounds, recovery-command complexity, formatter complexity, and binding-worker static analysis.
-
-## Tests and verification
-- `f71c056748541d31a23f78807aab73acdd5630bd`: Actions `31173262374` succeeded for full Gradle verification, repository tooling, new-code complexity, workflow exact-head Codacy; external Codacy succeeded with zero annotations.
-- `cce46ffe0f030b2d5490a2542b73b4709647e823`: Actions `31173515497` succeeded for full Gradle verification, repository tooling, new-code complexity, workflow exact-head Codacy; external Codacy check `92850542953` succeeded with zero annotations.
-- No local test result is claimed because this runtime cannot resolve GitHub dependencies for a dependency-capable checkout.
-- This prospective completion commit changes the SHA, so it must receive one final exact-head Actions/Codacy pass before merge.
+## Completed acceptance criteria / coherent sections
+- Startup/live-GitHub reconciliation and durable WP-04 resume on the canonical draft PR.
+- Operator/recovery/backup/restore/rollback/incident documentation at `docs/operator-guide.md`.
+- Executable WP-05 manual acceptance matrix at `docs/wp-05-manual-acceptance-matrix.md`.
+- Reusable test-only SQLite failure-injection/restart harness plus direct/API-delivery crash-boundary coverage: pre-intent rollback, durable-intent replay, expired claimed work after restart, verification-commit rollback/review recovery, terminal replay, and Paper-side physical-insert/durable-completion ambiguity escalation to review.
+- Every committed SQLite schema V1 through V7 is constructed through the production migration runner, populated with durable identity/audit/pending/deleted-marker/campaign state, upgraded to current schema, and checked for preservation, integrity, foreign keys, WAL, busy timeout, and required indexes.
+- Interrupted V7 migration is forced after partial DDL/data-copy work, verified to roll back, then retried successfully.
 
 ## Remaining acceptance criteria
-1. Verify the exact prospective-completion SHA with Actions and external Codacy.
-2. Reconfirm branch/PR/main concurrency and clean review state.
-3. Normally merge PR #14 with a merge commit.
-4. Verify live `main`, committed COMPLETE/READY queue state, and required post-merge checks.
-5. Stop without beginning WP-04.
+- Complete deterministic crash/restart matrix for every other durable state machine and reload/shutdown boundaries, plus fixed-seed randomized recovery.
+- Saturation/backpressure tests for every required queue/executor/cache/retry/result surface.
+- Reload/shutdown lifecycle automation.
+- Stable versioned Bukkit API finalization/tests/docs and source/binary compatibility verification.
+- Fixed-scenario performance/profile harness and committed threshold evidence.
+- Static-analysis/complexity remediation across all newly added work without broad suppressions.
+- RC version/artifact/SBOM/dependency manifest/checksum/reproducibility/package smoke/release workflow/release notes.
+- Full-package harsh and independent review, all confirmed fixes, exact-head CI/Codacy, zero unresolved review state.
+- Normal merge, post-merge `main` verification, and `v1.0.0-rc.1` prerelease/assets verified against merge SHA.
+
+## Tests and verification
+- Exact head `d42684074788ebfbf9dbfaef6111a03254f99bdd`: GitHub Actions CI run `31182331548` completed `success`.
+- Its `verify` job passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
+- Combined commit status includes CodeRabbit `success`.
+- Earlier exact-head CI exposed and the branch fixed: Java lambda capture compilation, two >50-NLOC test methods, four Codacy harness naming/nullability findings, and three migration-fixture duplicate-literal/version findings. No broad suppression was added.
+- No local build result is claimed because this runtime cannot resolve GitHub for a dependency-capable checkout.
+- No live Paper/Leaf acceptance is claimed; WP-05 remains responsible for live acceptance.
+
+## Known findings
+- No competing unfinished canonical package lock exists.
+- No production item-loss/duplication defect has been confirmed in the completed direct-delivery failure group; ambiguous post-physical-apply persistence failure is explicitly escalated to review.
 
 ## Blocker
-None.
+None. WP-04 remains `IN_PROGRESS`.
 
 ## Exact next action
-Hold the prospective-completion SHA stable, obtain final exact-head Actions/external Codacy, then normally merge PR #14 and verify live `main`. Do not begin WP-04.
+Inventory and verify every bounded-work surface named by WP-04, add deterministic saturation/backpressure tests for capacity, rejection/defer behavior, bounded retries/results/metrics, and commit that coherent section on draft PR #15. Do not start WP-05.

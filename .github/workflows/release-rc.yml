@@ -1,0 +1,104 @@
+name: Release RC
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      RC_TAG: v1.0.0-rc.1
+      CI_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Check whether RC is already published
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${RC_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "released=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RC_TAG}" >/dev/null 2>&1; then
+            echo "RC tag exists without a release; refusing an ambiguous partial publication." >&2
+            exit 1
+          fi
+          echo "released=false" >> "${GITHUB_OUTPUT}"
+      - name: Verify successful CI head is still main
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${TARGET_SHA}" = "${MAIN_SHA}"
+      - name: Download exact CI verification artifact
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/evidence
+          gh run download "${CI_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "wp04-verification-${TARGET_SHA}" \
+            --dir /tmp/evidence
+      - name: Validate immutable RC evidence
+        if: steps.state.outputs.released != 'true'
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          test -f "${BUNDLE}/EnthusiaLoreItems.jar"
+          test -f "${BUNDLE}/EnthusiaLoreItems.jar.sha256"
+          test -f "${BUNDLE}/bom.cyclonedx.json"
+          test -f "${BUNDLE}/gradle-dependencies.txt"
+          test -f "${BUNDLE}/normalized-entry-manifest.txt"
+          test -f "${BUNDLE}/wp04-profile.json"
+          test -f "${BUNDLE}/EnthusiaLoreItems-test-reports.tar.gz"
+          test -f "${BUNDLE}/release-notes.md"
+          (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
+          jq -e --arg target "${TARGET_SHA}" \
+            '.passed == true and .environment.commit == $target' \
+            "${BUNDLE}/wp04-profile.json" >/dev/null
+          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0-rc.1' >/dev/null
+      - name: Create exact RC tag
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RC_TAG}" \
+            -f sha="${TARGET_SHA}" >/dev/null
+      - name: Publish GitHub prerelease from verified CI bundle
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          gh release create "${RC_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --target "${TARGET_SHA}" \
+            --prerelease \
+            --title "EnthusiaLoreItems 1.0.0-rc.1" \
+            --notes-file "${BUNDLE}/release-notes.md" \
+            "${BUNDLE}/EnthusiaLoreItems.jar" \
+            "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
+            "${BUNDLE}/bom.cyclonedx.json" \
+            "${BUNDLE}/gradle-dependencies.txt" \
+            "${BUNDLE}/normalized-entry-manifest.txt" \
+            "${BUNDLE}/wp04-profile.json" \
+            "${BUNDLE}/EnthusiaLoreItems-test-reports.tar.gz"

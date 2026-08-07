@@ -21,13 +21,24 @@ public final class MigrationRunner {
             new Migration(5, "destructive administration", "db/migration/V5__destructive_administration.sql"),
             new Migration(6, "mass distribution recipient states", "db/migration/V6__mass_distribution_recipient_states.sql"),
             new Migration(7, "mass distribution revision snapshot", "db/migration/V7__mass_distribution_revision_snapshot.sql"));
+    private static final int LATEST_SCHEMA_VERSION = MIGRATIONS.getLast().version();
 
     public void migrate(Connection connection) throws SQLException {
+        migrateThrough(connection, LATEST_SCHEMA_VERSION);
+    }
+
+    void migrateThrough(Connection connection, int targetVersion) throws SQLException {
+        if (targetVersion < 1 || targetVersion > LATEST_SCHEMA_VERSION) {
+            throw new IllegalArgumentException("Unsupported schema version: " + targetVersion);
+        }
         ensureHistoryTable(connection);
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
         try {
             for (Migration migration : MIGRATIONS) {
+                if (migration.version() > targetVersion) {
+                    break;
+                }
                 applyIfMissing(connection, migration);
             }
         } catch (SQLException | RuntimeException exception) {

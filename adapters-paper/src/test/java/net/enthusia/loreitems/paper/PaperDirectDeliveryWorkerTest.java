@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -15,12 +16,15 @@ import net.enthusia.loreitems.application.PreparedDirectDelivery;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
+import org.bukkit.Material;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
+import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperDirectDeliveryWorkerTest {
     private ServerMock server;
@@ -62,6 +66,32 @@ class PaperDirectDeliveryWorkerTest {
     }
 
     @Test
+    void durableCompletionFailureAfterPhysicalApplyMovesClaimToReview() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        PlayerMock player = server.addPlayer();
+        EncodedItemTemplate encoded = new PaperItemTemplateCodec()
+                .encode(ItemStack.of(Material.DIAMOND));
+        useCase.claimedPage = page(delivery(player.getUniqueId(), encoded));
+        useCase.failComplete = true;
+        Plugin plugin = MockBukkit.createMockPlugin();
+        worker = new PaperDirectDeliveryWorker(
+                plugin,
+                useCase,
+                new PaperDirectDeliveryOperator(),
+                8,
+                4);
+
+        worker.start();
+        server.getScheduler().performOneTick();
+        server.getScheduler().performOneTick();
+
+        assertEquals(1, useCase.completeCalls);
+        assertFalse(player.getInventory().isEmpty());
+        assertTrue(useCase.reviewCalled);
+        assertTrue(useCase.reviewReason.contains("item was inserted"));
+    }
+
+    @Test
     void nullClaimPageReleasesTheWorkerForTheNextBoundedPoll() {
         RecordingUseCase useCase = new RecordingUseCase();
         useCase.returnNullClaimPage = true;
@@ -88,6 +118,12 @@ class PaperDirectDeliveryWorkerTest {
     }
 
     private static PreparedDirectDelivery delivery(UUID playerId) {
+        return delivery(playerId, new EncodedItemTemplate(1, new byte[] {1}));
+    }
+
+    private static PreparedDirectDelivery delivery(
+            UUID playerId,
+            EncodedItemTemplate template) {
         return new PreparedDirectDelivery(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 new LoreInstanceId(UUID.fromString(
@@ -96,7 +132,7 @@ class PaperDirectDeliveryWorkerTest {
                         "33333333-3333-3333-3333-333333333333")),
                 playerId,
                 new TemplateRevision(1),
-                new EncodedItemTemplate(1, new byte[] {1}),
+                template,
                 "delivery-key",
                 "claim-token",
                 2_000L,
@@ -111,9 +147,11 @@ class PaperDirectDeliveryWorkerTest {
                 new Page<>(List.of(), 0, 4, false);
         private boolean returnNullClaimPage;
         private boolean throwOnDefer;
+        private boolean failComplete;
         private boolean reviewCalled;
         private String reviewReason;
         private int claimCalls;
+        private int completeCalls;
 
         @Override
         public CompletionStage<Integer> recoverExpiredClaims(int limit) {
@@ -144,6 +182,11 @@ class PaperDirectDeliveryWorkerTest {
                 PreparedDirectDelivery delivery,
                 int inventorySlot,
                 String afterFingerprint) {
+            completeCalls++;
+            if (failComplete) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("simulated crash after Paper apply"));
+            }
             return CompletableFuture.completedFuture(true);
         }
 
