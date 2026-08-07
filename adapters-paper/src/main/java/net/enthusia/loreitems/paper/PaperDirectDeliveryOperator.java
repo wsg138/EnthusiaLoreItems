@@ -4,9 +4,13 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.UUID;
+import net.enthusia.loreitems.application.EncodedItemTemplate;
 import net.enthusia.loreitems.application.ItemCodecException;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PreparedDirectDelivery;
+import net.enthusia.loreitems.application.PreparedDistributionDelivery;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -30,11 +34,40 @@ public final class PaperDirectDeliveryOperator {
     }
 
     public ApplyResult apply(Player player, PreparedDirectDelivery delivery) {
-        Objects.requireNonNull(player, "player");
         Objects.requireNonNull(delivery, "delivery");
-        if (!player.getUniqueId().equals(delivery.playerId())) {
+        return apply(
+                player,
+                delivery.playerId(),
+                delivery.identity(),
+                delivery.template());
+    }
+
+    public ApplyResult apply(Player player, PreparedDistributionDelivery delivery) {
+        Objects.requireNonNull(delivery, "delivery");
+        return apply(
+                player,
+                delivery.playerId(),
+                delivery.identity(),
+                delivery.template());
+    }
+
+    public boolean hasStorageSpace(Player player) {
+        Objects.requireNonNull(player, "player");
+        return firstEmptyStorageSlot(player.getInventory()) >= 0;
+    }
+
+    private ApplyResult apply(
+            Player player,
+            UUID targetPlayerId,
+            LoreItemIdentity identity,
+            EncodedItemTemplate template) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(targetPlayerId, "targetPlayerId");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(template, "template");
+        if (!player.getUniqueId().equals(targetPlayerId)) {
             return ApplyResult.reviewRequired(
-                    "The claimed direct delivery belongs to another player.");
+                    "The claimed delivery belongs to another player.");
         }
         PlayerInventory inventory = player.getInventory();
         int emptySlot = firstEmptyStorageSlot(inventory);
@@ -42,14 +75,14 @@ public final class PaperDirectDeliveryOperator {
             return ApplyResult.noSpace();
         }
         try {
-            ItemStack template = templateCodec.decode(delivery.template());
-            ItemStack tracked = identityCodec.writeIdentity(template, delivery.identity());
+            ItemStack decoded = templateCodec.decode(template);
+            ItemStack tracked = identityCodec.writeIdentity(decoded, identity);
             inventory.setItem(emptySlot, tracked);
             ItemStack stored = inventory.getItem(emptySlot);
-            if (!verifiedIdentity(stored, delivery)) {
+            if (!verifiedIdentity(stored, identity)) {
                 inventory.setItem(emptySlot, null);
                 return ApplyResult.reviewRequired(
-                        "Paper did not retain the expected direct-delivery identity in storage slot "
+                        "Paper did not retain the expected delivery identity in storage slot "
                                 + emptySlot + "; the unverified insertion was removed.");
             }
             return ApplyResult.applied(
@@ -59,7 +92,7 @@ public final class PaperDirectDeliveryOperator {
             return ApplyResult.reviewRequired(safeDetail(exception));
         } catch (RuntimeException exception) {
             return ApplyResult.reviewRequired(
-                    "Paper failed while inserting or verifying the direct delivery: "
+                    "Paper failed while inserting or verifying the delivery: "
                             + exception.getClass().getSimpleName());
         }
     }
@@ -75,9 +108,7 @@ public final class PaperDirectDeliveryOperator {
         return -1;
     }
 
-    private boolean verifiedIdentity(
-            ItemStack item,
-            PreparedDirectDelivery delivery) {
+    private boolean verifiedIdentity(ItemStack item, LoreItemIdentity expectedIdentity) {
         if (item == null
                 || item.getAmount() != SINGLE_ITEM_AMOUNT
                 || item.getMaxStackSize() != SINGLE_ITEM_AMOUNT) {
@@ -85,7 +116,7 @@ public final class PaperDirectDeliveryOperator {
         }
         ItemIdentityReadResult result = identityCodec.readIdentity(item);
         return result instanceof ItemIdentityReadResult.Tracked tracked
-                && delivery.identity().equals(tracked.identity());
+                && expectedIdentity.equals(tracked.identity());
     }
 
     private static String fingerprint(ItemStack item) {
