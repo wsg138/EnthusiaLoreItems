@@ -1,9 +1,7 @@
 package net.enthusia.loreitems.paper;
 
-import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -30,7 +28,6 @@ public final class PaperDistributionDeliveryWorker
         implements Listener, DistributionCancellationFence, AutoCloseable {
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long POLL_INTERVAL_TICKS = 100L;
-    private static final Duration RETRY_DELAY = Duration.ofSeconds(30);
 
     private final Plugin plugin;
     private final DistributionDeliveryExecutionUseCase useCase;
@@ -38,6 +35,7 @@ public final class PaperDistributionDeliveryWorker
     private final int claimLimit;
     private final AtomicBoolean claimInFlight = new AtomicBoolean();
     private final PaperDistributionCancellationGate cancellationGate;
+    private final PaperDistributionDeliveryOutcomeHandler outcomes;
 
     private volatile boolean closed;
     private BukkitTask pollTask;
@@ -57,6 +55,7 @@ public final class PaperDistributionDeliveryWorker
         }
         claimLimit = Math.min(deliveryClaimBatchSize, mutationBudgetPerTick);
         cancellationGate = new PaperDistributionCancellationGate(claimLimit);
+        outcomes = new PaperDistributionDeliveryOutcomeHandler(plugin, useCase, () -> closed);
     }
 
     /**
@@ -102,7 +101,7 @@ public final class PaperDistributionDeliveryWorker
     @Override
     public void committed(UUID campaignId) {
         requirePrimaryThread();
-        cancellationGate.committed(campaignId, this::cancel, this::cancel);
+        cancellationGate.committed(campaignId, outcomes::cancel, outcomes::cancel);
         requestRun();
     }
 
@@ -126,12 +125,12 @@ public final class PaperDistributionDeliveryWorker
                     useCase.wakePlayer(playerId, claimLimit),
                     "campaign-delivery wakeup stage");
         } catch (RuntimeException exception) {
-            logFailure("Could not submit campaign-delivery wakeup.", exception);
+            outcomes.logFailure("Could not submit campaign-delivery wakeup.", exception);
             return;
         }
         wakeup.whenComplete((ignored, throwable) -> {
             if (throwable != null) {
-                logFailure(
+                outcomes.logFailure(
                         "Could not wake campaign deliveries for a player.",
                         throwable);
                 return;
@@ -172,7 +171,7 @@ public final class PaperDistributionDeliveryWorker
                     .whenComplete((page, throwable) -> {
                         if (throwable != null) {
                             claimInFlight.set(false);
-                            logFailure(
+                            outcomes.logFailure(
                                     "Could not recover or claim campaign deliveries.",
                                     throwable);
                             return;
@@ -183,7 +182,7 @@ public final class PaperDistributionDeliveryWorker
                     });
         } catch (RuntimeException exception) {
             claimInFlight.set(false);
-            logFailure(
+            outcomes.logFailure(
                     "Could not submit campaign-delivery claim work.", exception);
         }
     }
@@ -212,11 +211,11 @@ public final class PaperDistributionDeliveryWorker
         }
         Player player = plugin.getServer().getPlayer(recipient.playerId());
         if (player == null || !player.isOnline()) {
-            defer(recipient, CampaignRecipientState.QUEUED_OFFLINE);
+            outcomes.defer(recipient, CampaignRecipientState.QUEUED_OFFLINE);
             return;
         }
         if (!operator.hasStorageSpace(player)) {
-            defer(recipient, CampaignRecipientState.QUEUED_INVENTORY_FULL);
+            outcomes.defer(recipient, CampaignRecipientState.QUEUED_INVENTORY_FULL);
             return;
         }
         prepare(recipient);
@@ -226,7 +225,7 @@ public final class PaperDistributionDeliveryWorker
         return switch (cancellationGate.intercept(recipient)) {
             case PROCESS -> false;
             case CANCEL -> {
-                cancel(recipient);
+                outcomes.cancel(recipient);
                 yield true;
             }
             case HELD -> true;
@@ -246,7 +245,7 @@ public final class PaperDistributionDeliveryWorker
                     useCase.prepare(recipient),
                     "campaign-delivery preparation stage");
         } catch (RuntimeException exception) {
-            requireReview(
+            outcomes.requireReview(
                     recipient,
                     "The durable campaign instance reservation could not be submitted.",
                     exception);
@@ -254,14 +253,14 @@ public final class PaperDistributionDeliveryWorker
         }
         preparation.whenComplete((prepared, throwable) -> {
             if (throwable != null) {
-                requireReview(
+                outcomes.requireReview(
                         recipient,
                         "The durable campaign instance reservation failed.",
                         throwable);
                 return;
             }
             if (prepared == null || prepared.isEmpty()) {
-                requireReview(
+                outcomes.requireReview(
                         recipient,
                         "The campaign recipient claim changed before instance preparation.",
                         null);
@@ -269,7 +268,7 @@ public final class PaperDistributionDeliveryWorker
             }
             PreparedDistributionDelivery delivery = prepared.orElseThrow();
             if (!scheduleMain(() -> processPrepared(delivery))) {
-                requireReview(
+                outcomes.requireReview(
                         delivery,
                         "The server stopped before the prepared campaign delivery could be applied.",
                         null);
@@ -283,18 +282,18 @@ public final class PaperDistributionDeliveryWorker
         }
         Player player = plugin.getServer().getPlayer(delivery.playerId());
         if (player == null || !player.isOnline()) {
-            defer(delivery, CampaignRecipientState.QUEUED_OFFLINE);
+            outcomes.defer(delivery, CampaignRecipientState.QUEUED_OFFLINE);
             return;
         }
         PaperDirectDeliveryOperator.ApplyResult result = operator.apply(player, delivery);
-        handleApplyResult(delivery, result);
+        outcomes.handleApplyResult(delivery, result);
     }
 
     private boolean interceptPrepared(PreparedDistributionDelivery delivery) {
         return switch (cancellationGate.intercept(delivery)) {
             case PROCESS -> false;
             case CANCEL -> {
-                cancel(delivery);
+                outcomes.cancel(delivery);
                 yield true;
             }
             case HELD -> true;
@@ -305,213 +304,6 @@ public final class PaperDistributionDeliveryWorker
                 yield true;
             }
         };
-    }
-
-    private void handleApplyResult(
-            PreparedDistributionDelivery delivery,
-            PaperDirectDeliveryOperator.ApplyResult result) {
-        switch (result.status()) {
-            case APPLIED -> complete(delivery, result);
-            case NO_SPACE ->
-                    defer(delivery, CampaignRecipientState.QUEUED_INVENTORY_FULL);
-            case REVIEW_REQUIRED -> requireReview(delivery, result.detail(), null);
-            default -> requireReview(
-                    delivery,
-                    "The campaign delivery operator returned an unsupported result state.",
-                    null);
-        }
-    }
-
-    private void defer(
-            CampaignRecipient recipient,
-            CampaignRecipientState target) {
-        try {
-            useCase.defer(recipient, target, RETRY_DELAY)
-                    .whenComplete((deferred, throwable) -> {
-                        if (throwable != null || !Boolean.TRUE.equals(deferred)) {
-                            requireReview(
-                                    recipient,
-                                    "The campaign recipient could not be safely deferred.",
-                                    throwable);
-                        }
-                    });
-        } catch (RuntimeException exception) {
-            requireReview(
-                    recipient,
-                    "The campaign recipient deferral could not be submitted.",
-                    exception);
-        }
-    }
-
-    private void defer(
-            PreparedDistributionDelivery delivery,
-            CampaignRecipientState target) {
-        try {
-            useCase.defer(delivery, target, RETRY_DELAY)
-                    .whenComplete((deferred, throwable) -> {
-                        if (throwable != null || !Boolean.TRUE.equals(deferred)) {
-                            requireReview(
-                                    delivery,
-                                    "The unused prepared campaign instance could not be safely deferred.",
-                                    throwable);
-                        }
-                    });
-        } catch (RuntimeException exception) {
-            requireReview(
-                    delivery,
-                    "The prepared campaign deferral could not be submitted.",
-                    exception);
-        }
-    }
-
-    private void cancel(CampaignRecipient recipient) {
-        try {
-            useCase.cancel(recipient).whenComplete((cancelled, throwable) -> {
-                if (throwable != null || !Boolean.TRUE.equals(cancelled)) {
-                    logUnsafeCancellation(
-                            recipient.campaignId(),
-                            recipient.recipientKey().value(),
-                            throwable);
-                }
-            });
-        } catch (RuntimeException exception) {
-            logUnsafeCancellation(
-                    recipient.campaignId(),
-                    recipient.recipientKey().value(),
-                    exception);
-        }
-    }
-
-    private void cancel(PreparedDistributionDelivery delivery) {
-        try {
-            useCase.cancel(delivery).whenComplete((cancelled, throwable) -> {
-                if (throwable != null || !Boolean.TRUE.equals(cancelled)) {
-                    requireReview(
-                            delivery,
-                            "The cancelled campaign's unused prepared delivery "
-                                    + "could not be safely discarded.",
-                            throwable);
-                }
-            });
-        } catch (RuntimeException exception) {
-            requireReview(
-                    delivery,
-                    "The cancelled campaign's prepared delivery cancellation "
-                            + "could not be submitted.",
-                    exception);
-        }
-    }
-
-    private void complete(
-            PreparedDistributionDelivery delivery,
-            PaperDirectDeliveryOperator.ApplyResult result) {
-        try {
-            useCase.complete(
-                            delivery,
-                            Objects.requireNonNull(
-                                    result.inventorySlot(), "inventorySlot"),
-                            Objects.requireNonNull(
-                                    result.afterFingerprint(), "afterFingerprint"))
-                    .whenComplete((completed, throwable) -> {
-                        if (throwable != null || !Boolean.TRUE.equals(completed)) {
-                            requireReview(
-                                    delivery,
-                                    "The item was inserted but campaign completion "
-                                            + "could not be persisted.",
-                                    throwable);
-                        } else {
-                            notifyPlayer(
-                                    delivery.playerId(),
-                                    "A lore-item campaign reward was delivered to your inventory.");
-                        }
-                    });
-        } catch (RuntimeException exception) {
-            requireReview(
-                    delivery,
-                    "The item was inserted but campaign completion could not be submitted.",
-                    exception);
-        }
-    }
-
-    private void requireReview(
-            CampaignRecipient recipient,
-            String reason,
-            Throwable precedingFailure) {
-        if (precedingFailure != null) {
-            logFailure(
-                    "Campaign recipient entered review after an operational failure.",
-                    precedingFailure);
-        }
-        try {
-            useCase.requireReview(recipient, reason).whenComplete((reviewed, throwable) -> {
-                if (throwable != null) {
-                    logFailure(
-                            "Could not persist campaign-recipient review state.",
-                            throwable);
-                } else if (!Boolean.TRUE.equals(reviewed)) {
-                    plugin.getLogger().severe(
-                            "Campaign recipient could not reach a safe durable state: "
-                                    + recipient.campaignId() + '/'
-                                    + recipient.recipientKey().value());
-                }
-            });
-        } catch (RuntimeException exception) {
-            logFailure(
-                    "Could not submit campaign-recipient review persistence.",
-                    exception);
-        }
-    }
-
-    private void requireReview(
-            PreparedDistributionDelivery delivery,
-            String reason,
-            Throwable precedingFailure) {
-        if (precedingFailure != null) {
-            logFailure(
-                    "Prepared campaign delivery entered review after an operational failure.",
-                    precedingFailure);
-        }
-        try {
-            useCase.requireReview(delivery, reason).whenComplete((reviewed, throwable) -> {
-                if (throwable != null) {
-                    logFailure(
-                            "Could not persist prepared campaign-delivery review state.",
-                            throwable);
-                } else if (!Boolean.TRUE.equals(reviewed)) {
-                    plugin.getLogger().severe(
-                            "Prepared campaign delivery could not reach a safe durable state: "
-                                    + delivery.campaignId() + '/'
-                                    + delivery.recipientKey().value());
-                }
-            });
-        } catch (RuntimeException exception) {
-            logFailure(
-                    "Could not submit prepared campaign-delivery review persistence.",
-                    exception);
-        }
-    }
-
-    private void logUnsafeCancellation(
-            UUID campaignId,
-            String recipientKey,
-            Throwable throwable) {
-        String message = "A cancelled campaign claim could not be terminalized immediately: "
-                + campaignId + '/' + recipientKey
-                + ". No physical insertion occurred; bounded expiry recovery will retry.";
-        if (throwable == null) {
-            plugin.getLogger().warning(message);
-        } else {
-            plugin.getLogger().log(Level.WARNING, message, unwrap(throwable));
-        }
-    }
-
-    private void notifyPlayer(UUID playerId, String message) {
-        scheduleMain(() -> {
-            Player player = plugin.getServer().getPlayer(playerId);
-            if (player != null) {
-                player.sendMessage(message);
-            }
-        });
     }
 
     private boolean scheduleMain(Runnable task) {
@@ -528,18 +320,6 @@ public final class PaperDistributionDeliveryWorker
                     exception);
             return false;
         }
-    }
-
-    private void logFailure(String message, Throwable throwable) {
-        plugin.getLogger().log(Level.SEVERE, message, unwrap(throwable));
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof CompletionException exception
-                && exception.getCause() != null) {
-            return exception.getCause();
-        }
-        return throwable;
     }
 
     private static void requirePrimaryThread() {
