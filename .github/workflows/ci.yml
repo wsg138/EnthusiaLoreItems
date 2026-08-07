@@ -74,6 +74,12 @@ jobs:
             --jar /tmp/rc-first/EnthusiaLoreItems.jar \
             --dependencies /tmp/gradle-dependencies.txt \
             --output-dir /tmp/rc-first
+      - name: Add immutable release evidence
+        run: |
+          test -d /tmp/loreitems-test-reports
+          tar -C /tmp/loreitems-test-reports -czf /tmp/rc-first/EnthusiaLoreItems-test-reports.tar.gz .
+          cp docs/releases/v1.0.0-rc.1.md /tmp/rc-first/release-notes.md
+          cp /tmp/wp04-profile.json /tmp/rc-first/wp04-profile.json
       - name: Rebuild RC from clean state and verify reproducibility
         run: |
           gradle --no-daemon clean :plugin:shadowJar
@@ -96,6 +102,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           path: |
-            /tmp/wp04-profile.json
             /tmp/rc-first/
             /tmp/loreitems-test-reports/
