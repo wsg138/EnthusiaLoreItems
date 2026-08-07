@@ -1,0 +1,389 @@
+name: WP-05 Java Protocol Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-java-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-delivery-diagnostic:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      RC_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0-rc.1/EnthusiaLoreItems.jar
+      RC_SHA256: 3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Prepare exact RC diagnostic server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wp05-java/server/plugins /tmp/wp05-java/evidence /tmp/wp05-java/bot
+          cd /tmp/wp05-java/server
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$RC_URL" -o plugins/EnthusiaLoreItems.jar
+          echo "$RC_SHA256  plugins/EnthusiaLoreItems.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/Geyser-Spigot.jar
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/floodgate-spigot.jar
+          curl -fsSL -A "$USER_AGENT" https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest \
+            -o /tmp/wp05-java/evidence/viaversion-release.json
+          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05-java/evidence/viaversion-release.json)"
+          test -n "$VV_URL"
+          curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 Java diagnostic
+          EOF
+          printf 'eula=true\n' > eula.txt
+          sha256sum paper.jar plugins/*.jar > /tmp/wp05-java/evidence/artifact-sha256.txt
+          java -version 2> /tmp/wp05-java/evidence/java-version.txt
+      - name: Install Mineflayer 1.21.11 diagnostic client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-java/bot
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >/tmp/wp05-java/evidence/npm-install.log 2>&1
+          npm list --depth=0 > /tmp/wp05-java/evidence/npm-list.txt
+          cat > bot.js <<'EOF'
+          const mineflayer = require('mineflayer')
+          const fs = require('fs')
+          const path = require('path')
+
+          const mode = process.env.MODE || 'initial'
+          const root = '/tmp/wp05-java'
+          const evidence = path.join(root, 'evidence')
+          const ready = path.join(root, `bot-${mode}.ready`)
+          const go = path.join(root, `bot-${mode}.go`)
+          const done = path.join(root, `bot-${mode}.done`)
+          const log = path.join(evidence, `bot-${mode}.log`)
+          const commandLog = path.join(evidence, `bot-${mode}-commands.log`)
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+          const write = line => {
+            fs.appendFileSync(log, `${new Date().toISOString()} ${line}\n`)
+            console.log(line)
+          }
+
+          let messages = []
+          const bot = mineflayer.createBot({
+            host: '127.0.0.1',
+            port: 25565,
+            username: 'Wp05JavaBot',
+            version: '1.21.11',
+            auth: 'offline'
+          })
+
+          bot.on('message', message => {
+            const text = message.toString()
+            messages.push(text)
+            write(`CHAT ${text}`)
+          })
+          bot.on('kicked', reason => write(`KICKED ${String(reason)}`))
+          bot.on('error', error => write(`ERROR ${error.stack || error}`))
+          bot.on('end', reason => write(`END ${reason}`))
+
+          async function waitForMessage(fragment, timeoutMs = 20000) {
+            const start = Date.now()
+            while (Date.now() - start < timeoutMs) {
+              if (messages.some(message => message.includes(fragment))) return
+              await sleep(100)
+            }
+            throw new Error(`Timed out waiting for chat fragment: ${fragment}`)
+          }
+
+          async function waitForFile(file, timeoutMs = 20000) {
+            const start = Date.now()
+            while (Date.now() - start < timeoutMs) {
+              if (fs.existsSync(file)) return
+              await sleep(100)
+            }
+            throw new Error(`Timed out waiting for file: ${file}`)
+          }
+
+          async function runCommand(command, expected) {
+            fs.appendFileSync(commandLog, `${command}\n`)
+            bot.chat(command)
+            if (expected) await waitForMessage(expected)
+            await sleep(500)
+          }
+
+          async function selectDiamondSword() {
+            const start = Date.now()
+            while (Date.now() - start < 15000) {
+              const sword = bot.inventory.items().find(item => item.name === 'diamond_sword')
+              if (sword) {
+                if (sword.slot >= 36 && sword.slot <= 44) {
+                  bot.setQuickBarSlot(sword.slot - 36)
+                  await sleep(500)
+                }
+                if (bot.heldItem && bot.heldItem.name === 'diamond_sword') return
+              }
+              await sleep(200)
+            }
+            throw new Error('Diagnostic bot never held the supplied diamond sword')
+          }
+
+          bot.once('spawn', async () => {
+            try {
+              write(`SPAWN uuid=${bot.player.uuid} username=${bot.username} mode=${mode}`)
+              fs.writeFileSync(ready, `${bot.player.uuid}\n`)
+              await waitForFile(go)
+              if (mode === 'initial') {
+                await selectDiamondSword()
+                write(`HELD_BEFORE_CREATE ${JSON.stringify(bot.heldItem)}`)
+                await runCommand('/loreitems create acc_diag_core Diagnostic Core', "Created lore definition 'acc_diag_core' from the held item.")
+                await runCommand('/loreitems adopt acc_diag_core', "Adopted the held item into lore definition 'acc_diag_core'.")
+                await runCommand('/loreitems give acc_diag_core', 'Lore item queued. It will deliver when the player is online with inventory space.')
+                await sleep(5000)
+                const swords = bot.inventory.items().filter(item => item.name === 'diamond_sword')
+                write(`SWORD_COUNT_AFTER_ONLINE_GIVE ${swords.length}`)
+                if (swords.length < 2) throw new Error(`Expected at least 2 diamond swords after online give, saw ${swords.length}`)
+              } else {
+                await sleep(7000)
+                const swords = bot.inventory.items().filter(item => item.name === 'diamond_sword')
+                write(`SWORD_COUNT_${mode.toUpperCase()} ${swords.length}`)
+                if (mode === 'recovery' && swords.length < 3) {
+                  throw new Error(`Expected at least 3 diamond swords after offline delivery recovery, saw ${swords.length}`)
+                }
+                if (mode === 'replay' && swords.length !== 3) {
+                  throw new Error(`Expected exactly 3 diamond swords after replay restart, saw ${swords.length}`)
+                }
+              }
+              fs.writeFileSync(done, 'ok\n')
+              bot.quit('diagnostic complete')
+            } catch (error) {
+              write(`FAIL ${error.stack || error}`)
+              fs.writeFileSync(done, `failure: ${error.message}\n`)
+              bot.quit('diagnostic failure')
+              process.exitCode = 1
+            }
+          })
+          EOF
+      - name: Generate Geyser config and install exact RC
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-java/server
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-java/evidence/prep-server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do
+            if grep -q 'Done (' /tmp/wp05-java/evidence/prep-server.log; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/wp05-java/evidence/prep-server.log; exit 1; fi
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-java/evidence/prep-server.log
+          echo 'stop' >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('plugins/Geyser-Spigot/config.yml')
+          text = path.read_text(encoding='utf-8')
+          updated, count = re.subn(r'(?m)^(\s*auth-type:\s*).+$', r'\1floodgate', text, count=1)
+          if count != 1:
+              raise SystemExit('Could not locate Geyser auth-type setting')
+          path.write_text(updated, encoding='utf-8')
+          PY
+          grep -Eq '^\s*auth-type:\s*floodgate\s*$' plugins/Geyser-Spigot/config.yml
+      - name: Run Java core and restart diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-java/server
+
+          start_server() {
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > "$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 240); do
+              if grep -q 'Done (' "$log"; then return 0; fi
+              if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat "$log"; return 1; fi
+              sleep 1
+            done
+            cat "$log"
+            return 1
+          }
+          stop_server() {
+            echo 'stop' >&3
+            wait "$SERVER_PID"
+            exec 3>&-
+            rm -f server.stdin
+          }
+          run_bot() {
+            local mode="$1"
+            rm -f "/tmp/wp05-java/bot-${mode}.ready" "/tmp/wp05-java/bot-${mode}.go" "/tmp/wp05-java/bot-${mode}.done"
+            (cd /tmp/wp05-java/bot && MODE="$mode" node bot.js) > "/tmp/wp05-java/evidence/bot-${mode}-stdout.log" 2>&1 &
+            BOT_PID=$!
+            for _ in $(seq 1 120); do
+              test -f "/tmp/wp05-java/bot-${mode}.ready" && return 0
+              kill -0 "$BOT_PID" 2>/dev/null || { cat "/tmp/wp05-java/evidence/bot-${mode}-stdout.log"; return 1; }
+              sleep 1
+            done
+            return 1
+          }
+          finish_bot() {
+            local mode="$1"
+            for _ in $(seq 1 120); do
+              if test -f "/tmp/wp05-java/bot-${mode}.done"; then break; fi
+              kill -0 "$BOT_PID" 2>/dev/null || break
+              sleep 1
+            done
+            cat "/tmp/wp05-java/bot-${mode}.done"
+            grep -qx 'ok' "/tmp/wp05-java/bot-${mode}.done"
+            wait "$BOT_PID"
+          }
+
+          START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "$START_UTC" > /tmp/wp05-java/evidence/start-utc.txt
+
+          start_server /tmp/wp05-java/evidence/server-initial.log
+          run_bot initial
+          echo 'op Wp05JavaBot' >&3
+          echo 'give Wp05JavaBot minecraft:diamond_sword 1' >&3
+          sleep 2
+          touch /tmp/wp05-java/bot-initial.go
+          finish_bot initial
+          sleep 2
+
+          echo 'loreitems give acc_diag_core Wp05JavaBot' >&3
+          sleep 3
+          stop_server
+
+          python3 - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          db = Path('plugins/EnthusiaLoreItems/loreitems.db')
+          con = sqlite3.connect(db)
+          con.row_factory = sqlite3.Row
+          evidence = {
+              'definitions': [dict(r) for r in con.execute('SELECT definition_id, lookup_key, display_name, current_revision, lifecycle_state FROM lore_definitions')],
+              'instances': [dict(r) for r in con.execute('SELECT instance_id, definition_id, applied_revision, desired_revision, lifecycle_state FROM lore_instances ORDER BY created_at, instance_id')],
+              'deliveries': [dict(r) for r in con.execute('SELECT delivery_id, instance_id, player_id, state, attempt_count FROM direct_deliveries ORDER BY created_at, delivery_id')],
+              'integrity': [r[0] for r in con.execute('PRAGMA integrity_check')],
+              'foreign_keys': [list(r) for r in con.execute('PRAGMA foreign_key_check')]
+          }
+          con.close()
+          Path('/tmp/wp05-java/evidence/pre-restart-db.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          if len(evidence['definitions']) != 1 or evidence['definitions'][0]['lookup_key'] != 'acc_diag_core':
+              raise SystemExit('Expected exactly one diagnostic definition')
+          if len(evidence['instances']) != 3:
+              raise SystemExit(f"Expected 3 instances after adopt+online+offline give, got {len(evidence['instances'])}")
+          states = sorted(d['state'] for d in evidence['deliveries'])
+          if states != ['COMPLETED', 'PENDING']:
+              raise SystemExit(f'Expected one completed and one pending delivery, got {states}')
+          if evidence['integrity'] != ['ok'] or evidence['foreign_keys']:
+              raise SystemExit('Database integrity failure before restart')
+          PY
+
+          start_server /tmp/wp05-java/evidence/server-recovery.log
+          run_bot recovery
+          sleep 2
+          touch /tmp/wp05-java/bot-recovery.go
+          finish_bot recovery
+          sleep 2
+          stop_server
+
+          python3 - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          db = Path('plugins/EnthusiaLoreItems/loreitems.db')
+          con = sqlite3.connect(db)
+          con.row_factory = sqlite3.Row
+          evidence = {
+              'instance_count': con.execute('SELECT COUNT(*) FROM lore_instances').fetchone()[0],
+              'deliveries': [dict(r) for r in con.execute('SELECT delivery_id, instance_id, player_id, state, attempt_count FROM direct_deliveries ORDER BY created_at, delivery_id')],
+              'integrity': [r[0] for r in con.execute('PRAGMA integrity_check')],
+              'foreign_keys': [list(r) for r in con.execute('PRAGMA foreign_key_check')]
+          }
+          con.close()
+          Path('/tmp/wp05-java/evidence/post-recovery-db.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          if evidence['instance_count'] != 3 or [d['state'] for d in evidence['deliveries']] != ['COMPLETED', 'COMPLETED']:
+              raise SystemExit('Offline delivery did not recover exactly once')
+          PY
+
+          start_server /tmp/wp05-java/evidence/server-replay.log
+          run_bot replay
+          sleep 2
+          touch /tmp/wp05-java/bot-replay.go
+          finish_bot replay
+          sleep 2
+          stop_server
+
+          python3 - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          db = Path('plugins/EnthusiaLoreItems/loreitems.db')
+          con = sqlite3.connect(db)
+          con.row_factory = sqlite3.Row
+          evidence = {
+              'instance_count': con.execute('SELECT COUNT(*) FROM lore_instances').fetchone()[0],
+              'delivery_count': con.execute('SELECT COUNT(*) FROM direct_deliveries').fetchone()[0],
+              'completed_deliveries': con.execute("SELECT COUNT(*) FROM direct_deliveries WHERE state='COMPLETED'").fetchone()[0],
+              'review_deliveries': con.execute("SELECT COUNT(*) FROM direct_deliveries WHERE state='REVIEW_REQUIRED'").fetchone()[0],
+              'integrity': [r[0] for r in con.execute('PRAGMA integrity_check')],
+              'foreign_keys': [list(r) for r in con.execute('PRAGMA foreign_key_check')]
+          }
+          con.close()
+          Path('/tmp/wp05-java/evidence/post-replay-db.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          if evidence['instance_count'] != 3 or evidence['delivery_count'] != 2 or evidence['completed_deliveries'] != 2 or evidence['review_deliveries'] != 0:
+              raise SystemExit('Replay restart changed durable delivery accounting')
+          if evidence['integrity'] != ['ok'] or evidence['foreign_keys']:
+              raise SystemExit('Database integrity failure after replay')
+          PY
+
+          END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "$END_UTC" > /tmp/wp05-java/evidence/end-utc.txt
+          sha256sum plugins/EnthusiaLoreItems/loreitems.db plugins/EnthusiaLoreItems/config.yml plugins/Geyser-Spigot/config.yml \
+            > /tmp/wp05-java/evidence/final-sha256.txt
+          cat > /tmp/wp05-java/evidence/diagnostic-metadata.txt <<EOF
+          diagnostic=JAVA_PROTOCOL_CORE_DELIVERY
+          acceptance_credit=NONE
+          reason=offline-authenticated Java client does not satisfy production identity acceptance
+          start_utc=$START_UTC
+          end_utc=$END_UTC
+          source_commit=${{ github.event.pull_request.head.sha || github.sha }}
+          exact_rc_sha256=$RC_SHA256
+          client=mineflayer-4.35.0 protocol-1.21.11 auth-offline
+          EOF
+      - name: Upload Java diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-java-diagnostic-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/wp05-java/evidence/
