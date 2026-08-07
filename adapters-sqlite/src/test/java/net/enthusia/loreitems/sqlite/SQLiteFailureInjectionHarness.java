@@ -21,52 +21,53 @@ final class SQLiteFailureInjectionHarness implements AutoCloseable {
                         + "BEGIN SELECT RAISE(ABORT, 'wp04 during verification commit'); END",
                 "DROP TRIGGER IF EXISTS wp04_fail_before_audit");
 
-        private final String installSql;
-        private final String removeSql;
+        private final String installStatement;
+        private final String removeStatement;
 
-        FailurePoint(String installSql, String removeSql) {
-            this.installSql = installSql;
-            this.removeSql = removeSql;
+        FailurePoint(String installStatement, String removeStatement) {
+            this.installStatement = installStatement;
+            this.removeStatement = removeStatement;
         }
 
-        String installSql() {
-            return installSql;
+        String sqlToInstall() {
+            return installStatement;
         }
 
-        String removeSql() {
-            return removeSql;
+        String sqlToRemove() {
+            return removeStatement;
         }
     }
 
     private final Path database;
-    private SQLiteStorageRuntime runtime;
+    private SQLiteStorageRuntime activeRuntime;
+    private boolean closed;
 
     SQLiteFailureInjectionHarness(Path database) {
         this.database = Objects.requireNonNull(database, "database");
-        runtime = start(database);
+        activeRuntime = start(database);
     }
 
     SQLiteStorageRuntime runtime() {
-        SQLiteStorageRuntime active = runtime;
-        if (active == null) {
+        if (closed) {
             throw new IllegalStateException("Failure-injection runtime is closed");
         }
-        return active;
+        return activeRuntime;
     }
 
     void arm(FailurePoint point) {
         Objects.requireNonNull(point, "point");
-        executeTriggerSql(point.installSql());
+        executeTriggerSql(point.sqlToInstall());
     }
 
     void disarm(FailurePoint point) {
         Objects.requireNonNull(point, "point");
-        executeTriggerSql(point.removeSql());
+        executeTriggerSql(point.sqlToRemove());
     }
 
     void restart() {
-        closeRuntime();
-        runtime = start(database);
+        ensureOpen();
+        activeRuntime.close(CLOSE_TIMEOUT);
+        activeRuntime = start(database);
     }
 
     private void executeTriggerSql(String sql) {
@@ -97,16 +98,17 @@ final class SQLiteFailureInjectionHarness implements AutoCloseable {
         return started;
     }
 
-    private void closeRuntime() {
-        SQLiteStorageRuntime active = runtime;
-        runtime = null;
-        if (active != null) {
-            active.close(CLOSE_TIMEOUT);
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("Failure-injection runtime is closed");
         }
     }
 
     @Override
     public void close() {
-        closeRuntime();
+        if (!closed) {
+            activeRuntime.close(CLOSE_TIMEOUT);
+            closed = true;
+        }
     }
 }
