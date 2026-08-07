@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class PaperTemplateUpdateBacklogTest {
@@ -60,10 +60,9 @@ class PaperTemplateUpdateBacklogTest {
     }
 
     private static List<PaperInventoryReference> references(int count) {
-        List<PaperInventoryReference> references = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-            references.add(new PaperInventoryReference.PlayerMain(new UUID(0L, index + 1L)));
-        }
-        return List.copyOf(references);
+        return IntStream.range(0, count)
+                .mapToObj(index -> (PaperInventoryReference)
+                        new PaperInventoryReference.PlayerMain(new UUID(0L, index + 1L)))
+                .toList();
     }
 }
