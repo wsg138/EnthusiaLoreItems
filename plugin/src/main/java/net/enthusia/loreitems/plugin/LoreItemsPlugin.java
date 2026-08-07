@@ -526,11 +526,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         try {
             distribution.activate();
         } catch (Exception exception) {
-            synchronized (lifecycleLock) {
-                if (distributionRuntime == distribution) {
-                    distributionRuntime = null;
-                }
-            }
+            closeQuietly(distribution, "mass distribution runtime");
             getLogger().log(
                     java.util.logging.Level.SEVERE,
                     "Could not initialize mass distribution directories; disabling LoreItems.",
