@@ -134,8 +134,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     void enqueueIdentity(UUID playerId, String currentName, boolean floodgate) {
         requirePrimaryThread();
-        String normalizedName = normalizeName(currentName);
-        String lookupName = floodgate ? '*' + normalizedName : normalizedName;
+        String lookupName = normalizeLookupName(currentName, floodgate);
         IdentityCandidate candidate = new IdentityCandidate(
                 Objects.requireNonNull(playerId, "playerId"), lookupName);
         if (scheduled.contains(candidate)) {
@@ -274,13 +273,28 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         scheduled.clear();
     }
 
-    private static String normalizeName(String currentName) {
+    private static String normalizeLookupName(String currentName, boolean floodgate) {
         Objects.requireNonNull(currentName, "currentName");
         String normalized = currentName.strip();
-        if (normalized.isEmpty() || normalized.charAt(FIRST_CHARACTER_INDEX) == '*') {
-            throw new IllegalArgumentException("currentName must be an unprefixed non-blank player name");
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("currentName must be non-blank");
         }
-        return normalized;
+        boolean hasFloodgatePrefix = normalized.charAt(FIRST_CHARACTER_INDEX) == '*';
+        if (!floodgate) {
+            if (hasFloodgatePrefix) {
+                throw new IllegalArgumentException(
+                        "non-Floodgate currentName must not use the Floodgate '*' prefix");
+            }
+            return normalized;
+        }
+        if (hasFloodgatePrefix) {
+            if (normalized.length() == 1) {
+                throw new IllegalArgumentException(
+                        "Floodgate currentName must contain a name after the '*' prefix");
+            }
+            return normalized;
+        }
+        return '*' + normalized;
     }
 
     private static void requirePrimaryThread() {
