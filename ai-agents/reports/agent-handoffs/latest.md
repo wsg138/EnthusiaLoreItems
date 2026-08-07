@@ -9,8 +9,7 @@
 - Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
 - Current takeover based on exact observed branch head: `6d60f2f700436633bcd030b3e871d47799413eed`
 - Atomic takeover lock commit: `12b4303fa11961872b6e0f70b7bc134c956b2dbb`
-- Latest verified implementation checkpoint: `759896e5da61c46079a5e7c98154aa1852bc0f39`
-- Latest inherited implementation head pending verification: `6d60f2f700436633bcd030b3e871d47799413eed`
+- Latest verified implementation checkpoint: `9e2d3500f6352ca3a8d733f992c9b0ef0b2f587d`
 - Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
 ## Completed criteria
@@ -22,14 +21,15 @@
 - Added validated application start request/result/port.
 - Added one-transaction SQLite campaign start that verifies the selected active revision, fences source replay, snapshots campaign/revision/recipients, records actor/audit data, and activates only after the full durable snapshot exists.
 - Added replay refusal and rollback-on-revision-drift coverage.
-- Inherited unverified Paper-side work now includes campaign preview/confirmation coordination, DB-first marker reconciliation primitives, cache-only name resolution, and bounded late-join name-binding application logic. These remain pending verification before being counted as satisfied acceptance criteria.
+- Verified Paper-side immutable preview/confirmation coordination, DB-first active marker move with repair-required outcome, paginated DB-authoritative marker reconciliation, cache-only player identity resolution without network lookup, cached-name snapshot binding, and bounded late-join name-binding application logic.
 
 ## Verification
 
 - `bfe248c70c1cdbee4f88b62eb073445e745b8785`: CI run #863 passed Gradle verification, repository tooling, complexity, and exact-head Codacy for the filesystem/state-model section.
 - `759896e5da61c46079a5e7c98154aa1852bc0f39`: CI run #868 passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy for the atomic-start section.
-- Exact-head verification for inherited implementation through `6d60f2f700436633bcd030b3e871d47799413eed` is pending.
-- PR #14 had no submitted reviews, requested changes, or unresolved review threads at the latest pre-takeover check. This evidence will be refreshed for the final package head.
+- `35b25936160a2ae7b4dff2fba432c57d9caff890`: CI run #886 exposed a real inherited compile defect in cached identity resolution before later gates could run.
+- `9e2d3500f6352ca3a8d733f992c9b0ef0b2f587d`: CI run #888 passed the complete repository workflow after fixing the captured mutable loop index; external Codacy check `92759265753` succeeded with zero annotations.
+- PR #14 had no submitted reviews, requested changes, or unresolved review threads at the latest check. This evidence will be refreshed for the final package head.
 
 ## Findings fixed
 
@@ -38,20 +38,19 @@
 - Migration-version tests were stale after V6/V7.
 - Malformed UUID-shaped recipient input could fall through as a name.
 - Initial parser/SQL-start/test Codacy findings were refactored until exact-head Codacy passed.
-- Definition revision drift between preview and durable start is now fail-closed and transactionally leaves no partial campaign.
+- Definition revision drift between preview and durable start is fail-closed and transactionally leaves no partial campaign.
+- Inherited `PaperDistributionCampaignCoordinator` captured a mutable loop index in a lambda and could not compile; the index is now copied to an effectively-final value before the callback.
 
 ## Remaining criteria
 
-- Verify and finish Paper operator flow with reload/validation, paginated source inspection, active-definition selection, immutable preview and explicit confirmation.
-- Verify and finish DB-first post-start source marker move plus durable marker reconciliation on startup/reload/terminalization.
-- Verify cached/known-name resolution without network dependency and atomic late-join binding, including leading-`*` Bedrock names; add persistence and Paper wiring/tests as needed.
-- Pinned-revision integration with the existing hardened direct-delivery subsystem, durable instance linkage/idempotency, exactly-once physical insertion, recipient state synchronization, offline/full inventory, bounded retry/backpressure, wakeups, and crash-to-review recovery.
+- Finish runtime wiring for group reload/validation, paginated source inspection, active-definition selection, preview/explicit confirmation, marker reconciliation, and late-join binding.
+- Pinned-revision integration with the existing hardened delivery path, durable instance linkage/idempotency, exactly-once physical insertion, recipient state synchronization, offline/full inventory, bounded retry/backpressure, join/inventory wakeups, and crash-to-review recovery.
 - Persisted status/pagination/pause/resume/cancel/completion, WP-02 review/queue integration, metrics, messages, permissions, reload/degraded/shutdown handling, documentation, remaining tests and regressions.
-- Required full-package harsh review, every confirmed fix, final exact-head Actions/Codacy, later review reconciliation, normal merge, post-merge live-main verification, COMPLETE state, and unlocking only WP-04 READY.
+- Required full-package harsh review, every confirmed fix, final exact-head Actions/Codacy, review reconciliation, normal merge, post-merge live-main verification, COMPLETE state, and unlocking only WP-04 READY.
 
 ## Blocker
 
-None. The package is IN_PROGRESS, not BLOCKED. A previous claimant stopped while implementation commits were still arriving; this worker took over only after the canonical head stabilized and a non-force fast-forward lock from exact head `6d60f2f700436633bcd030b3e871d47799413eed` succeeded.
+None. The package is IN_PROGRESS, not BLOCKED.
 
 ## Queue state
 
@@ -65,4 +64,4 @@ None. The package is IN_PROGRESS, not BLOCKED. A previous claimant stopped while
 
 ## Exact next action
 
-Verify the inherited identity-binding and marker-reconciliation series, repair any test/architecture defects, then continue the same WP-03 package into durable exactly-once campaign delivery integration without beginning WP-04.
+Implement the pinned-revision durable campaign delivery path so recipient reservation and instance creation commit before Paper insertion, then wire bounded processing/wakeups and exact terminal synchronization without beginning WP-04.
