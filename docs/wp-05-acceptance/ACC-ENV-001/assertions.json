@@ -1,0 +1,14 @@
+{
+  "direct_delivery_worker": true,
+  "floodgate_loaded": true,
+  "foreign_key_check_clean": true,
+  "geyser_loaded": true,
+  "integrity_ok": true,
+  "loreitems_read_write": true,
+  "no_item_entity_marker": true,
+  "paper_started": true,
+  "viaversion_loaded": true,
+  "wal": true,
+  "zero_definitions": true,
+  "zero_instances": true
+}

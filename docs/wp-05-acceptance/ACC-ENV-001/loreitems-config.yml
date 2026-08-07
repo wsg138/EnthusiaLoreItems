@@ -1,0 +1,13 @@
+# Startup-only storage settings require a server restart when changed.
+database-busy-timeout-millis: 5000
+database-queue-capacity: 256
+database-shutdown-timeout-seconds: 10
+
+# Reloadable bounded work settings.
+delivery-claim-batch-size: 32
+delivery-claim-lease-seconds: 30
+duplicate-warning-interval-seconds: 300
+default-page-size: 45
+max-page-size: 100
+mutation-budget-per-tick: 16
+shared-containers-allowed: false
