@@ -1,0 +1,201 @@
+name: WP-05 Floodgate Fix Regression
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-floodgate-fix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prefixed-player-join:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Build fixed PR-head plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
+          FIXED_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)"
+          test -n "$FIXED_JAR"
+          mkdir -p /tmp/wp05-floodgate/server/plugins /tmp/wp05-floodgate/evidence /tmp/wp05-floodgate/client
+          cp "$FIXED_JAR" /tmp/wp05-floodgate/server/plugins/EnthusiaLoreItems.jar
+          sha256sum "$FIXED_JAR" > /tmp/wp05-floodgate/evidence/fixed-plugin-sha256.txt
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > /tmp/wp05-floodgate/evidence/source-head.txt
+      - name: Prepare Paper Geyser Floodgate environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-floodgate/server
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot -o plugins/Geyser-Spigot.jar
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot -o plugins/floodgate-spigot.jar
+          curl -fsSL -A "$USER_AGENT" https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest -o /tmp/wp05-floodgate/evidence/viaversion-release.json
+          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05-floodgate/evidence/viaversion-release.json)"
+          test -n "$VV_URL"
+          curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 Floodgate fix regression
+          EOF
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-floodgate/evidence/prep.log 2>&1 &
+          PID=$!
+          for _ in $(seq 1 240); do
+            grep -q 'Done (' /tmp/wp05-floodgate/evidence/prep.log && break
+            kill -0 "$PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/prep.log; exit 1; }
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-floodgate/evidence/prep.log
+          echo stop >&3
+          wait "$PID"
+          exec 3>&-
+          rm -f server.stdin
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          geyser = Path('plugins/Geyser-Spigot/config.yml')
+          text = geyser.read_text(encoding='utf-8')
+          text, count = re.subn(r'(?m)^(\s*auth-type:\s*).+$', r'\1floodgate', text, count=1)
+          assert count == 1
+          text, count = re.subn(r'(?m)^(\s*validate-bedrock-login:\s*).+$', r'\1false', text, count=1)
+          assert count == 1
+          geyser.write_text(text, encoding='utf-8')
+
+          floodgate = Path('plugins/floodgate/config.yml')
+          text = floodgate.read_text(encoding='utf-8')
+          text, count = re.subn(r'(?m)^(\s*username-prefix:\s*).+$', r'\1"*"', text, count=1)
+          assert count == 1
+          floodgate.write_text(text, encoding='utf-8')
+          PY
+          cp plugins/Geyser-Spigot/config.yml /tmp/wp05-floodgate/evidence/geyser-config.yml
+          cp plugins/floodgate/config.yml /tmp/wp05-floodgate/evidence/floodgate-config.yml
+          sha256sum paper.jar plugins/*.jar > /tmp/wp05-floodgate/evidence/artifact-sha256.txt
+      - name: Install Bedrock protocol client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-floodgate/client
+          npm init -y >/dev/null
+          npm install --save-exact bedrock-protocol@3.56.1 >/tmp/wp05-floodgate/evidence/npm-install.log 2>&1
+          npm list --depth=0 > /tmp/wp05-floodgate/evidence/npm-list.txt
+          cat > client.js <<'EOF'
+          const bedrock = require('bedrock-protocol')
+          const fs = require('fs')
+          const client = bedrock.createClient({
+            host: '127.0.0.1',
+            port: 19132,
+            username: 'Wp05BedrockBot',
+            offline: true,
+            version: '1.26.20',
+            connectTimeout: 20000
+          })
+          const log = line => {
+            fs.appendFileSync('/tmp/wp05-floodgate/evidence/client.log', `${new Date().toISOString()} ${line}\n`)
+            console.log(line)
+          }
+          client.on('join', () => log(`JOIN ${JSON.stringify(client.profile || {})}`))
+          client.on('text', packet => log(`TEXT ${JSON.stringify(packet)}`))
+          client.on('kick', packet => log(`KICK ${JSON.stringify(packet)}`))
+          client.on('error', error => log(`ERROR ${error.stack || error}`))
+          client.on('spawn', async () => {
+            log('SPAWN')
+            fs.writeFileSync('/tmp/wp05-floodgate/client-ready', 'ready\n')
+            await new Promise(resolve => setTimeout(resolve, 12000))
+            fs.writeFileSync('/tmp/wp05-floodgate/client-done', 'ok\n')
+            client.close()
+          })
+          setTimeout(() => {
+            if (!fs.existsSync('/tmp/wp05-floodgate/client-ready')) {
+              log('FAIL spawn timeout')
+              process.exitCode = 1
+              client.close()
+            }
+          }, 45000)
+          EOF
+      - name: Verify real prefixed Floodgate join no longer rejects binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-floodgate/server
+          START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s\n' "$START_UTC" > /tmp/wp05-floodgate/evidence/start-utc.txt
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-floodgate/evidence/server.log 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 240); do
+            grep -q 'Done (' /tmp/wp05-floodgate/evidence/server.log && break
+            kill -0 "$SERVER_PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/server.log; exit 1; }
+            sleep 1
+          done
+          grep -q 'Done (' /tmp/wp05-floodgate/evidence/server.log
+          grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' /tmp/wp05-floodgate/evidence/server.log
+
+          (cd /tmp/wp05-floodgate/client && node client.js) > /tmp/wp05-floodgate/evidence/client-stdout.log 2>&1 &
+          CLIENT_PID=$!
+          for _ in $(seq 1 70); do
+            test -f /tmp/wp05-floodgate/client-ready && break
+            kill -0 "$CLIENT_PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/client-stdout.log; cat /tmp/wp05-floodgate/evidence/server.log; exit 1; }
+            sleep 1
+          done
+          test -f /tmp/wp05-floodgate/client-ready
+          grep -F '*Wp05BedrockBot joined the game' /tmp/wp05-floodgate/evidence/server.log
+
+          for _ in $(seq 1 30); do
+            test -f /tmp/wp05-floodgate/client-done && break
+            sleep 1
+          done
+          grep -qx ok /tmp/wp05-floodgate/client-done
+          wait "$CLIENT_PID"
+          sleep 2
+
+          if grep -F "Skipping distribution identity binding for unsupported player name '*Wp05BedrockBot'" /tmp/wp05-floodgate/evidence/server.log; then
+            echo 'Regression: real Floodgate prefixed name was still rejected.' >&2
+            exit 1
+          fi
+
+          echo stop >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+          END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s\n' "$END_UTC" > /tmp/wp05-floodgate/evidence/end-utc.txt
+      - name: Upload Floodgate regression evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-floodgate-fix-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/wp05-floodgate/evidence/
