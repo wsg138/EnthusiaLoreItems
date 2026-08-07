@@ -9,7 +9,7 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | IN_PROGRESS | resumed on draft PR #18 using GitHub-hosted disposable acceptance infrastructure; no live case is credited until its evidence is audited and committed |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | IN_PROGRESS | draft PR #18; `ACC-ENV-001` and `ACC-OPS-001` have audited committed PASS evidence; remaining matrix work continues in the same package |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
 
 ## WP-04 completion record
@@ -34,13 +34,16 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - External-environment blocker checkpoint: `354ca51fc37e195aa6aebf7360947cf4ec4ed2a4`; harsh-review remediation head: `ed869117dc449c0c96c824cf2668725ea711662b`.
 - Resume checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-resumed-actions-harness.md`.
 - Exact RC under test: `v1.0.0-rc.1`, JAR SHA-256 `3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
-- The old remote-server blocker is partially bypassed through GitHub-hosted disposable acceptance infrastructure. Real Java/Bedrock player-session cases remain unclaimed until faithful clients/accounts are established.
-- Completed WP-05 acceptance criteria: none at this resume checkpoint.
+- Audited `ACC-ENV-001` PASS evidence commit: `be8a3a4832dc6a78e918b39963a946731c22f624`; run `31217633117`.
+- Audited `ACC-OPS-001` PASS evidence commit: `7a1a2a63a50cfe16905955e59d8f7fdcce035a59`; corrected run `31218811889`.
+- The first `ACC-OPS-001` run `31218454541` was a harness failure, not a plugin defect: the harness incorrectly rejected the intentionally durable `UNKNOWN_DEFINITION` idempotency record. The corrected assertion requires that record with `delivery_id=null` while requiring zero definitions, instances, and direct deliveries.
+- Remaining real Java/Bedrock player-session cases are not claimed by the GitHub-hosted server-only harness. No offline-mode bot, direct database edit, or console-only substitute will be treated as acceptance evidence for those cases.
 
 ## Progress
 - Completed: 4/6
 - Remaining: 2/6
 - Weighted progress: 75%
+- WP-05 case evidence completed so far: 2 audited PASS cases; no package weight is awarded until the full WP-05 contract completes.
 
 ## Exact next action
-Execute and audit `ACC-ENV-001` against the exact RC on the GitHub-hosted disposable Paper 1.21.11 acceptance server. Keep all other WP-05 cases in the same branch/PR and do not begin WP-06.
+Continue WP-05 only. Determine whether faithful authenticated Java and Bedrock/Floodgate client sessions can be established against the disposable acceptance server without weakening the matrix. If not, record that external account/session dependency after exhausting other faithful case paths. Do not begin WP-06.

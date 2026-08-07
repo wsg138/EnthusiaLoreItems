@@ -13,11 +13,12 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Initial IN_PROGRESS checkpoint: `5825c2ddc284300ec323a47d5d62b6bb9a8ac853`
 - Prior blocker/review head: `ed869117dc449c0c96c824cf2668725ea711662b`
 - Resume handoff commit: `a88bc75c289209f2b855eca7e80f77b7515ca111`
+- Latest audited evidence head before this checkpoint: `7a1a2a63a50cfe16905955e59d8f7fdcce035a59`
 - Dependency satisfied by: verified WP-04 RC `v1.0.0-rc.1`
 - WP-04 implementation merge: `89399db2d92fd7197479a8803e920c02f5bec490`
 - WP-04 release-recovery merge: `e4b7968adea1357e7307815a5a5ef7f456f16ad1`
 - Exact RC JAR SHA-256: `3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`
-- Latest package handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-resumed-actions-harness.md`
+- Latest package handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-live-baselines.md`
 
 ## Package status
 | Package | Weight | Status | Reason |
@@ -26,7 +27,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | WP-04 | 15% | COMPLETE | PR #15 and release-recovery PR #16 normally merged; post-merge CI and RC prerelease verified |
-| WP-05 | 15% | IN_PROGRESS | resumed on PR #18 using GitHub-hosted disposable acceptance infrastructure; no live case credited until evidence is audited and committed |
+| WP-05 | 15% | IN_PROGRESS | exact RC live baselines `ACC-ENV-001` and `ACC-OPS-001` audited PASS; remaining full matrix still required |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
 ## Progress
@@ -34,6 +35,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Completed: 4 of 6
 - Remaining: 2 of 6
 - Weighted progress: `75 / 100 = 75%`
+- WP-05 accepted case count so far: 2. Partial case completion does not award package weight.
 
 ## WP-04 completed acceptance evidence
 - Deterministic SQLite failure-injection/restart coverage exists for direct/API delivery crash boundaries, with fixed-seed stateful recovery coverage guarding no duplicate physical side effects after ambiguous or terminal outcomes.
@@ -60,11 +62,12 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Released JAR digest: `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 
 ## WP-05 completed acceptance criteria
-None yet. Package routing, claim, RC metadata verification, exact-head automated verification, blocker analysis, and resume infrastructure do not count as manual live acceptance.
+- `ACC-ENV-001` — PASS against exact RC. Durable evidence: `docs/wp-05-acceptance/ACC-ENV-001/`; evidence commit `be8a3a4832dc6a78e918b39963a946731c22f624`; run `31217633117`.
+- `ACC-OPS-001` — PASS against exact RC. Durable evidence: `docs/wp-05-acceptance/ACC-OPS-001/`; evidence commit `7a1a2a63a50cfe16905955e59d8f7fdcce035a59`; corrected run `31218811889`.
 
 ## WP-05 remaining acceptance criteria
-- Execute every manual case in `docs/wp-05-manual-acceptance-matrix.md` against the exact RC with complete GitHub-backed evidence.
-- Fix and regression-test every confirmed defect in this same package.
+- Every other case in `docs/wp-05-manual-acceptance-matrix.md` remains uncredited.
+- Fix and regression-test every confirmed implementation defect in this same package.
 - Repeat the entire matrix against the exact final WP-05 JAR with every case PASS.
 - Re-run full automated WP-04 CI/profile/migration/package/static-analysis gates on the final head.
 - Complete independent code review and separate evidence audit with no requested changes or unresolved threads.
@@ -73,20 +76,19 @@ None yet. Package routing, claim, RC metadata verification, exact-head automated
 
 ## Tests and verification
 - Pre-claim live `main` `476f9e5bbfa8155ab76b23bde0681ac35b92f177`: CI run `31215810485` successful; Release RC run `31215904779` successful.
-- GitHub prerelease `v1.0.0-rc.1` directly verified with target `89399db2d92fd7197479a8803e920c02f5bec490` and JAR digest `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 - Prior blocker-review head `ed869117dc449c0c96c824cf2668725ea711662b`: CI run `31216903570` successful, including exact-head Codacy, profile, package validation, and reproducibility; external Codacy successful with no issues.
-- The exact RC was materialized from GitHub Actions evidence and locally re-hashed to the published digest.
-- No WP-05 live case is claimed PASS yet.
+- `ACC-ENV-001`: Paper 1.21.11 build 116 + Java 21 + Geyser/Floodgate/ViaVersion + exact RC; WAL/integrity/FK/schema/baseline/clean-stop evidence audited PASS.
+- `ACC-OPS-001`: exact RC degraded read-only failure injection through invalid SQLite path; public V1 consumer received `SERVICE_UNAVAILABLE`; healthy restart returned `UNKNOWN_DEFINITION`; WAL/integrity/FK clean; zero definitions/instances/direct deliveries; audited PASS.
 
-## Known findings
-- No competing unfinished canonical package lock exists.
-- No committed pre-existing WP-05 executed-case evidence was found during initial reconciliation.
-- Harsh review of the first blocker checkpoint found unnecessary deletion/condensation of already-verified WP-04 history; it was fixed at `ed869117dc449c0c96c824cf2668725ea711662b`.
-- The local container still lacks ordinary outbound DNS, but GitHub-hosted runners provide a viable networked disposable acceptance environment for server-side cases.
-- Real Java/Bedrock player-session cases remain unclaimed until faithful live clients/accounts are established; they must not be replaced by unsupported console-only simulation.
+## Findings
+- No LoreItems implementation defect has been confirmed by the two accepted cases.
+- Acceptance-harness defect: first `ACC-OPS-001` run `31218454541` incorrectly required zero `external_delivery_requests`. Production behavior intentionally persists `UNKNOWN_DEFINITION` outcomes for idempotency. Corrected by `c00271761e60446f4611706f6b70f3d00ccfde03`; corrected run passed.
+- Earlier checkpoint-quality finding: initial blocker-state edits condensed WP-04 history; fixed at `ed869117dc449c0c96c824cf2668725ea711662b`.
+- The local container still lacks ordinary outbound DNS. GitHub-hosted runners successfully provide a disposable networked Paper acceptance environment for server-only cases.
+- No accessible authenticated Java/Microsoft or Bedrock/Xbox test-account credentials were found in the repository or available connectors. Real player-session cases must not be replaced by offline-mode bots, direct DB edits, or console-only simulation when the matrix requires actual identity/physical player behavior.
 
 ## Current execution strategy
-Use GitHub Actions as the designated disposable acceptance server where the matrix can be faithfully executed. Begin with `ACC-ENV-001` on Java 21 + pinned Paper 1.21.11 build 116 + exact LoreItems RC + Geyser/Floodgate. Persist raw evidence as Actions artifacts, audit it, and commit the redacted evidence/index on the canonical branch. Expand the harness only within WP-05 and only when it preserves the actual behavior required by a case.
+Keep using the exact RC and GitHub-hosted disposable server for cases whose behavior can be faithfully exercised without a player. Separately investigate whether authenticated Java and Bedrock/Floodgate client sessions can be established without weakening the matrix. Use non-authenticated network bots only as diagnostic defect-finding tools if useful; they do not count as acceptance evidence.
 
 ## Exact next action
-Execute `ACC-ENV-001`, audit the resulting evidence against the matrix contract, and commit the case result. Continue WP-05 only; do not begin WP-06.
+Continue WP-05 only. Establish a faithful path for the required Java and Bedrock player sessions or exhaust remaining server-only cases. If an external authenticated-account/session dependency is then the sole barrier to further required work, record it precisely on this same branch/PR. Do not begin WP-06.
