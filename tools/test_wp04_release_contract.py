@@ -32,19 +32,35 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         for relative in required_tests:
             self.assertTrue((ROOT / relative).is_file(), relative)
 
-    def test_rc_workflow_waits_for_verified_main_and_targets_that_commit(self):
+    def test_rc_workflow_consumes_only_verified_main_ci_artifacts(self):
         properties = (ROOT / "gradle.properties").read_text()
         release = (ROOT / ".github/workflows/release-rc.yml").read_text()
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("releaseVersion=1.0.0-rc.1", properties)
         self.assertIn("workflows:\n      - CI", release)
+        self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
         self.assertIn("TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
-        self.assertIn("git tag \"${RC_TAG}\" \"${TARGET_SHA}\"", release)
+        self.assertIn("gh run download", release)
+        self.assertIn("wp04-verification-${TARGET_SHA}", release)
+        self.assertIn('ref="refs/tags/${RC_TAG}"', release)
+        self.assertIn('sha="${TARGET_SHA}"', release)
         self.assertIn("--target \"${TARGET_SHA}\"", release)
         self.assertIn("--prerelease", release)
-        self.assertIn("normalized-entry-manifest.txt", release)
-        self.assertIn("EnthusiaLoreItems.jar.sha256", release)
-        self.assertIn("bom.cyclonedx.json", release)
+        self.assertNotIn("actions/checkout", release)
+        self.assertNotIn("gradle --no-daemon", release)
+        self.assertIn("EnthusiaLoreItems-test-reports.tar.gz", ci)
+        self.assertIn("release-notes.md", ci)
+        for asset in [
+            "EnthusiaLoreItems.jar",
+            "EnthusiaLoreItems.jar.sha256",
+            "bom.cyclonedx.json",
+            "gradle-dependencies.txt",
+            "normalized-entry-manifest.txt",
+            "wp04-profile.json",
+            "EnthusiaLoreItems-test-reports.tar.gz",
+        ]:
+            self.assertIn(asset, release)
 
     def test_profile_harness_declares_every_fixed_scenario(self):
         profile = (ROOT / "tools/wp04_profile.py").read_text()
