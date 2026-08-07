@@ -80,6 +80,20 @@ public final class PersistingDistributionDeliveryExecutionUseCase
     }
 
     @Override
+    public CompletionStage<Boolean> cancel(CampaignRecipient recipient) {
+        return repository.cancelClaimed(
+                Objects.requireNonNull(recipient, "recipient"),
+                clock.instant());
+    }
+
+    @Override
+    public CompletionStage<Boolean> cancel(PreparedDistributionDelivery delivery) {
+        return repository.cancelPrepared(
+                Objects.requireNonNull(delivery, "delivery"),
+                clock.instant());
+    }
+
+    @Override
     public CompletionStage<Boolean> complete(
             PreparedDistributionDelivery delivery,
             int inventorySlot,
