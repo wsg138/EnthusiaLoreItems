@@ -31,6 +31,9 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 
+// The repository deliberately keeps the delivery transaction graph together so every state
+// transition can be reviewed against the same exactly-once persistence invariants.
+@SuppressWarnings("PMD.ExcessiveClassLength")
 public final class SQLiteDistributionDeliveryRepository
         implements DistributionDeliveryRepository {
     private static final String AGGREGATE_TYPE = "DISTRIBUTION_CAMPAIGN";
@@ -40,10 +43,27 @@ public final class SQLiteDistributionDeliveryRepository
     private static final String PREPARED_EVENT = "DISTRIBUTION_RECIPIENT_PREPARED";
     private static final String DELIVERED_EVENT = "DISTRIBUTION_RECIPIENT_DELIVERED";
     private static final String REVIEW_EVENT = "DISTRIBUTION_RECIPIENT_REVIEW_REQUIRED";
+    private static final String NOW_ARGUMENT = "now";
+    private static final String NEXT_ATTEMPT_ARGUMENT = "nextAttemptAt";
+    private static final String REVIEWED_AT_ARGUMENT = "reviewedAt";
+    private static final String ACTIVE_CAMPAIGN_EXISTS_SQL =
+            "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign ";
+    private static final String CLEAR_CLAIM_SQL =
+            "claim_token = NULL, claim_expires_at = NULL, ";
+    private static final String CLEAR_RETRY_SQL =
+            "next_attempt_at = NULL, updated_at = ? ";
+    private static final String RECIPIENT_PREDICATE_SQL =
+            "WHERE campaign_id = ? AND recipient_key = ? ";
+    private static final String RESERVED_INSTANCE_PREDICATE_SQL =
+            "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? ";
+    private static final String QUEUED_LOCATION_PREDICATE_SQL =
+            "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? ";
     private static final int SINGLE_ROW = 1;
+    private static final int MIN_LIMIT = 1;
     private static final int MIN_SLOT = 0;
     private static final int MAX_SLOT = 35;
     private static final int MAX_REVIEW_REASON = 4_096;
+    private static final int JSON_CONTROL_CHARACTER_LIMIT = 0x20;
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
     private final SQLiteStorageRuntime storage;
@@ -59,7 +79,8 @@ public final class SQLiteDistributionDeliveryRepository
             Duration lease,
             int limit) {
         String token = SQLiteDistributionRecipientSupport.normalizeClaimToken(claimToken);
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         Objects.requireNonNull(lease, "lease");
         requireLimit(limit);
         long leaseMillis = lease.toMillis();
@@ -77,7 +98,8 @@ public final class SQLiteDistributionDeliveryRepository
             CampaignRecipient recipient,
             Instant now) {
         requireClaimedRecipient(recipient);
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> prepareClaimed(transaction, recipient, nowMillis)));
@@ -91,9 +113,11 @@ public final class SQLiteDistributionDeliveryRepository
             Instant nextAttemptAt) {
         requireClaimedRecipient(recipient);
         requirePendingTarget(targetPendingState);
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         long nextMillis = requireNonNegative(
-                Objects.requireNonNull(nextAttemptAt, "nextAttemptAt"), "nextAttemptAt");
+                Objects.requireNonNull(nextAttemptAt, NEXT_ATTEMPT_ARGUMENT),
+                NEXT_ATTEMPT_ARGUMENT);
         if (nextMillis < nowMillis) {
             throw new IllegalArgumentException("nextAttemptAt must not precede now");
         }
@@ -109,9 +133,11 @@ public final class SQLiteDistributionDeliveryRepository
             Instant nextAttemptAt) {
         Objects.requireNonNull(delivery, "delivery");
         requirePendingTarget(targetPendingState);
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         long nextMillis = requireNonNegative(
-                Objects.requireNonNull(nextAttemptAt, "nextAttemptAt"), "nextAttemptAt");
+                Objects.requireNonNull(nextAttemptAt, NEXT_ATTEMPT_ARGUMENT),
+                NEXT_ATTEMPT_ARGUMENT);
         if (nextMillis < nowMillis) {
             throw new IllegalArgumentException("nextAttemptAt must not precede now");
         }
@@ -146,7 +172,8 @@ public final class SQLiteDistributionDeliveryRepository
         requireClaimedRecipient(recipient);
         String normalizedReason = requireReason(reason);
         long reviewedMillis = requireNonNegative(
-                Objects.requireNonNull(reviewedAt, "reviewedAt"), "reviewedAt");
+                Objects.requireNonNull(reviewedAt, REVIEWED_AT_ARGUMENT),
+                REVIEWED_AT_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> moveClaimedToReview(
@@ -161,7 +188,8 @@ public final class SQLiteDistributionDeliveryRepository
         Objects.requireNonNull(delivery, "delivery");
         String normalizedReason = requireReason(reason);
         long reviewedMillis = requireNonNegative(
-                Objects.requireNonNull(reviewedAt, "reviewedAt"), "reviewedAt");
+                Objects.requireNonNull(reviewedAt, REVIEWED_AT_ARGUMENT),
+                REVIEWED_AT_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> movePreparedToReview(
@@ -171,7 +199,8 @@ public final class SQLiteDistributionDeliveryRepository
     @Override
     public CompletionStage<Integer> wakePlayer(UUID playerId, Instant now, int limit) {
         Objects.requireNonNull(playerId, "playerId");
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         requireLimit(limit);
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -198,7 +227,8 @@ public final class SQLiteDistributionDeliveryRepository
 
     @Override
     public CompletionStage<Integer> recoverExpiredClaims(Instant now, int limit) {
-        long nowMillis = requireNonNegative(Objects.requireNonNull(now, "now"), "now");
+        long nowMillis = requireNonNegative(
+                Objects.requireNonNull(now, NOW_ARGUMENT), NOW_ARGUMENT);
         requireLimit(limit);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
@@ -211,6 +241,16 @@ public final class SQLiteDistributionDeliveryRepository
             long now,
             long expiresAt,
             int limit) throws SQLException {
+        CandidatePage candidatePage = loadClaimCandidates(connection, now, limit);
+        List<CampaignRecipient> claimed = claimCandidates(
+                connection, candidatePage.candidates(), claimToken, now, expiresAt);
+        return new Page<>(claimed, 0, limit, candidatePage.hasMore());
+    }
+
+    private static CandidatePage loadClaimCandidates(
+            Connection connection,
+            long now,
+            int limit) throws SQLException {
         List<CampaignRecipient> candidates = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 selectColumns() + " recipient WHERE recipient.state IN "
@@ -218,7 +258,7 @@ public final class SQLiteDistributionDeliveryRepository
                         + "AND recipient.player_id IS NOT NULL "
                         + "AND (recipient.next_attempt_at IS NULL "
                         + "OR recipient.next_attempt_at <= ?) "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
+                        + ACTIVE_CAMPAIGN_EXISTS_SQL
                         + "WHERE campaign.campaign_id = recipient.campaign_id "
                         + "AND campaign.state = 'ACTIVE') "
                         + "ORDER BY recipient.updated_at, recipient.campaign_id, "
@@ -236,16 +276,25 @@ public final class SQLiteDistributionDeliveryRepository
         if (hasMore) {
             candidates.remove(candidates.size() - 1);
         }
+        return new CandidatePage(candidates, hasMore);
+    }
+
+    private static List<CampaignRecipient> claimCandidates(
+            Connection connection,
+            List<CampaignRecipient> candidates,
+            String claimToken,
+            long now,
+            long expiresAt) throws SQLException {
         List<CampaignRecipient> claimed = new ArrayList<>(candidates.size());
         try (PreparedStatement update = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'RESERVED_IN_FLIGHT', "
                         + "claim_token = ?, claim_expires_at = ?, "
                         + "attempt_count = attempt_count + 1, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? AND state = ? "
-                        + "AND instance_id IS NULL "
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
+                        + "AND state = ? AND instance_id IS NULL "
                         + "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
+                        + ACTIVE_CAMPAIGN_EXISTS_SQL
                         + "WHERE campaign.campaign_id = "
                         + "distribution_recipients.campaign_id "
                         + "AND campaign.state = 'ACTIVE')")) {
@@ -262,7 +311,7 @@ public final class SQLiteDistributionDeliveryRepository
                 }
             }
         }
-        return new Page<>(claimed, 0, limit, hasMore);
+        return claimed;
     }
 
     private static CampaignRecipient reserved(
@@ -444,7 +493,7 @@ public final class SQLiteDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET instance_id = ?, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND player_id = ? "
                         + "AND instance_id IS NULL AND claim_token = ? "
                         + "AND claim_expires_at > ?")) {
@@ -466,12 +515,13 @@ public final class SQLiteDistributionDeliveryRepository
             long now,
             long nextAttemptAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE distribution_recipients SET state = ?, claim_token = NULL, "
-                        + "claim_expires_at = NULL, next_attempt_at = ?, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                "UPDATE distribution_recipients SET state = ?, "
+                        + CLEAR_CLAIM_SQL
+                        + "next_attempt_at = ?, updated_at = ? "
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id IS NULL "
                         + "AND claim_token = ? AND claim_expires_at > ? "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
+                        + ACTIVE_CAMPAIGN_EXISTS_SQL
                         + "WHERE campaign.campaign_id = "
                         + "distribution_recipients.campaign_id "
                         + "AND campaign.state IN ('ACTIVE', 'PAUSED'))")) {
@@ -519,12 +569,12 @@ public final class SQLiteDistributionDeliveryRepository
             long nextAttemptAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = ?, instance_id = NULL, "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
+                        + CLEAR_CLAIM_SQL
                         + "next_attempt_at = ?, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
-                        + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
+                        + RECIPIENT_PREDICATE_SQL
+                        + RESERVED_INSTANCE_PREDICATE_SQL
                         + "AND claim_token = ? AND claim_expires_at > ? "
-                        + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
+                        + ACTIVE_CAMPAIGN_EXISTS_SQL
                         + "WHERE campaign.campaign_id = "
                         + "distribution_recipients.campaign_id "
                         + "AND campaign.state IN ('ACTIVE', 'PAUSED'))")) {
@@ -670,7 +720,7 @@ public final class SQLiteDistributionDeliveryRepository
                         + "container_path = ?, last_observation_id = ?, "
                         + "state_revision = state_revision + 1, updated_at = ? "
                         + "WHERE instance_id = ? AND state = 'CONFIRMED_NOW' "
-                        + "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? "
+                        + QUEUED_LOCATION_PREDICATE_SQL
                         + "AND container_path = ? AND state_revision = 1")) {
             statement.setString(1, delivery.playerId().toString());
             statement.setString(2, inventoryPath(inventorySlot));
@@ -693,10 +743,10 @@ public final class SQLiteDistributionDeliveryRepository
             long completedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'DELIVERED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
+                        + CLEAR_CLAIM_SQL
                         + "next_attempt_at = NULL, delivered_at = ?, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
-                        + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
+                        + RECIPIENT_PREDICATE_SQL
+                        + RESERVED_INSTANCE_PREDICATE_SQL
                         + "AND player_id = ? AND claim_token = ? "
                         + "AND claim_expires_at > ?")) {
             statement.setLong(1, completedAt);
@@ -737,9 +787,9 @@ public final class SQLiteDistributionDeliveryRepository
             long reviewedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id IS NULL "
                         + "AND claim_token = ?")) {
             statement.setLong(1, reviewedAt);
@@ -767,10 +817,10 @@ public final class SQLiteDistributionDeliveryRepository
             long reviewedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
-                        + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
+                        + RESERVED_INSTANCE_PREDICATE_SQL
                         + "AND claim_token = ?")) {
             statement.setLong(1, reviewedAt);
             statement.setString(2, delivery.campaignId().toString());
@@ -802,7 +852,7 @@ public final class SQLiteDistributionDeliveryRepository
                         + "container_path = NULL, last_observation_id = NULL, "
                         + "state_revision = state_revision + 1, updated_at = ? "
                         + "WHERE instance_id = ? AND state = 'CONFIRMED_NOW' "
-                        + "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? "
+                        + QUEUED_LOCATION_PREDICATE_SQL
                         + "AND container_path = ?")) {
             statement.setLong(1, reviewedAt);
             statement.setString(2, delivery.instanceId().value().toString());
@@ -813,6 +863,8 @@ public final class SQLiteDistributionDeliveryRepository
         }
     }
 
+    // This is a bounded LIMIT query. Each row must become an independent immutable recovery value.
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private static int recoverExpiredClaims(
             Connection connection,
             long now,
@@ -856,9 +908,9 @@ public final class SQLiteDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'QUEUED_OFFLINE', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
+                        + CLEAR_CLAIM_SQL
                         + "next_attempt_at = ?, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id IS NULL "
                         + "AND claim_token = ? AND claim_expires_at <= ?")) {
             statement.setLong(1, now);
@@ -877,10 +929,10 @@ public final class SQLiteDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
-                        + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
+                        + RESERVED_INSTANCE_PREDICATE_SQL
                         + "AND claim_token = ? AND claim_expires_at <= ?")) {
             statement.setLong(1, now);
             statement.setString(2, claim.campaignId().toString());
@@ -916,7 +968,7 @@ public final class SQLiteDistributionDeliveryRepository
                         + "container_path = NULL, last_observation_id = NULL, "
                         + "state_revision = state_revision + 1, updated_at = ? "
                         + "WHERE instance_id = ? AND state = 'CONFIRMED_NOW' "
-                        + "AND location_type = 'QUEUED_DELIVERY' AND location_key = ? "
+                        + QUEUED_LOCATION_PREDICATE_SQL
                         + "AND container_path = ?")) {
             statement.setLong(1, now);
             statement.setString(2, claim.instanceId().value().toString());
@@ -965,7 +1017,7 @@ public final class SQLiteDistributionDeliveryRepository
     }
 
     private static void requireLimit(int limit) {
-        if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
+        if (limit < MIN_LIMIT || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("limit is outside bounded page limits");
         }
     }
@@ -1024,7 +1076,7 @@ public final class SQLiteDistributionDeliveryRepository
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < JSON_CONTROL_CHARACTER_LIMIT) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);
@@ -1033,6 +1085,12 @@ public final class SQLiteDistributionDeliveryRepository
             }
         }
         return escaped.toString();
+    }
+
+    private record CandidatePage(List<CampaignRecipient> candidates, boolean hasMore) {
+        private CandidatePage {
+            candidates = List.copyOf(candidates);
+        }
     }
 
     private record PreparationSource(
