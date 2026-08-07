@@ -38,20 +38,20 @@ public record CampaignRecipientCounts(
                         reviewRequired));
     }
 
-    /** Compatibility accessors for callers compiled against the foundation names. */
-    @Deprecated public long pendingName() {
+    /** Compatibility accessors for callers using the foundation names. */
+    public long pendingName() {
         return unresolved;
     }
 
-    @Deprecated public long pendingOffline() {
+    public long pendingOffline() {
         return queuedOffline;
     }
 
-    @Deprecated public long pendingSpace() {
+    public long pendingSpace() {
         return queuedInventoryFull;
     }
 
-    @Deprecated public long reserved() {
+    public long reserved() {
         return reservedInFlight;
     }
 

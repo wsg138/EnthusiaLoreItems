@@ -14,10 +14,10 @@ public enum CampaignRecipientState {
     CANCELLED;
 
     /** Compatibility aliases for the pre-WP-03 foundation API. */
-    @Deprecated public static final CampaignRecipientState PENDING_NAME = UNRESOLVED;
-    @Deprecated public static final CampaignRecipientState PENDING_OFFLINE = QUEUED_OFFLINE;
-    @Deprecated public static final CampaignRecipientState PENDING_SPACE = QUEUED_INVENTORY_FULL;
-    @Deprecated public static final CampaignRecipientState RESERVED = RESERVED_IN_FLIGHT;
+    public static final CampaignRecipientState PENDING_NAME = UNRESOLVED;
+    public static final CampaignRecipientState PENDING_OFFLINE = QUEUED_OFFLINE;
+    public static final CampaignRecipientState PENDING_SPACE = QUEUED_INVENTORY_FULL;
+    public static final CampaignRecipientState RESERVED = RESERVED_IN_FLIGHT;
 
     public boolean terminal() {
         return this == DELIVERED || this == CANCELLED;
