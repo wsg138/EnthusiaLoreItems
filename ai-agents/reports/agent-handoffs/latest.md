@@ -1,9 +1,5 @@
 # Latest agent handoff
 
-## Purpose
-
-This is the current GitHub-backed handoff for the fixed remaining-work program. Resolve conflicts using this authority order: live GitHub state; the selected package contract; workflow documents; requirements; architecture; implementation plan; then state or handoff records.
-
 ## Active package
 
 - Package: WP-03 — one-use mass distributions
@@ -11,34 +7,33 @@ This is the current GitHub-backed handoff for the fixed remaining-work program. 
 - Canonical branch: `agent/wp-03-mass-distributions`
 - Draft pull request: #14, `WP-03: complete one-use mass distributions`
 - Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Initial claim commit: `b544ddb3bdb24c6ca95cdd2867af6b90d987ee46`
-- Exact next package after authoritative completion: WP-04 — automated production hardening and release candidate
+- Latest verified implementation checkpoint: `bfe248c70c1cdbee4f88b62eb073445e745b8785`
+- Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
-## Reconciliation evidence
+## Completed criteria
 
-- Live `main` is the normal WP-02 merge commit `d77ec61032e5583783694ae349f785495cbf8f31`.
-- WP-02 head `a372372cf13fd22f1b7136b67c25c604af9d5275` is contained in that merge and is historical, not an unfinished lock.
-- WP-01 is also historical and complete.
-- Before the WP-03 claim there were no open/draft LoreItems PRs, no WP-03/WP-04/WP-05/LoreItems-WP-06 canonical branches, and no open EnthusiaTags PR or WP-06 integration branch.
-- PR #14 and `agent/wp-03-mass-distributions` are therefore the single durable active package lock.
+- Startup reconciliation, automatic routing, durable branch claim, and draft PR establishment.
+- Exact WP-03 seven-state recipient domain/persistence model and V6 upgrade migration.
+- Safe group directory initialization, strict YAML/schema/identity validation, deterministic source fingerprinting, and active/completed/cancelled marker primitives.
+- Compatibility fixes for existing campaign cancellation and migration tests.
+- Initial Codacy findings fixed without broad suppression.
 
-## Completed acceptance criteria
+## Verification
 
-- Startup reconciliation across live `main`, recent merges, open PRs, canonical branches, WP-06 cross-repository lock, committed queue/state/handoff, and all six package contracts.
-- WP-02 dependency verified complete from live merge evidence rather than stale prospective text.
-- WP-03 selected automatically as the first eligible `READY` package.
-- Canonical WP-03 branch created from exact live `main`.
-- Draft PR #14 created with the exact contract title and complete package checklist.
+Exact implementation head `bfe248c70c1cdbee4f88b62eb073445e745b8785` passed CI run #863, including Gradle verification, repository tooling, new-code complexity, and the exact-head Codacy gate.
 
-## Remaining acceptance criteria
+## Remaining criteria
 
-Every WP-03 requirement remains, including group-directory initialization; safe YAML discovery and validation; one-use source fingerprinting; immutable durable campaign/recipient snapshot; marker lifecycle and repair; Java/Floodgate/UUID identity handling; unresolved name binding; durable exactly-once physical delivery; offline/full-inventory handling; pause/resume/cancel; exact mutually exclusive counts; queue/review integration; metrics; degraded/reload/shutdown behavior; documentation; all mandated automated tests; regressions; full-package harsh review; exact-head Actions and Codacy; no requested changes or unresolved threads; normal merge; and post-merge live-main verification.
+The durable campaign snapshot/start transaction, pinned definition revision, source replay protection end-to-end, cached and late-join identity resolution, direct-delivery queue integration, exactly-once delivery state synchronization, offline/full-inventory/retry behavior, pause/resume/cancel/status/pagination, marker recovery/startup resume, reload/degraded/shutdown handling, metrics/permissions/messages/audit/docs, WP-02 queue/review integration, all remaining automated and end-to-end tests, full-package harsh review, final exact-head CI/Codacy, review reconciliation, normal merge, and live-main verification remain in WP-03.
 
-## Tests and findings
+## Findings fixed so far
 
-- Tests run: none yet; only coordination/claim state has changed.
-- Known findings: live-main WP-02 coordination text was stale after PR #13 merged. Live GitHub correctly promotes WP-03 to the active package.
-- Blocker: none.
+- Stale post-WP-02 coordination snapshot was reconciled against live GitHub.
+- Foundation recipient state names did not match WP-03.
+- Campaign cancellation referenced old recipient states.
+- Migration version test was stale after V6.
+- Malformed UUID-like recipients could be accepted as names.
+- Initial new-code Codacy maintainability findings were resolved.
 
 ## Queue state
 
@@ -52,4 +47,4 @@ Every WP-03 requirement remains, including group-directory initialization; safe 
 
 ## Exact next action
 
-Inspect and reuse the existing campaign persistence/application foundations, then implement the complete WP-03 contract on PR #14. Commit GitHub-backed checkpoints after each major coherent section and keep all findings in this same package.
+Implement pinned definition revision and the one-transaction durable campaign-start boundary before any filesystem marker move or physical delivery.
