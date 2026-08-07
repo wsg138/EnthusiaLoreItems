@@ -5,11 +5,12 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-04 — automated production hardening and release candidate
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Canonical branch: `agent/wp-04-production-hardening`
-- Pull request: draft PR to be created immediately from this claim commit
+- Pull request: draft PR #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
-- Checkpointed implementation/evidence head: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Durable claim commit: `3413b3304779518a2913a1d372bef61bd8115a2f`
+- Checkpointed implementation/evidence head: `6b7c50d9cc1e7d5b5c3db8b41966b806595838d6`
 - WP-03 post-merge verification: merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`; GitHub Actions check `verify` run `31174065679` completed successfully.
 
 ## Package status
@@ -18,7 +19,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-01 | 20% | COMPLETE | normally merged and verified |
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge SHA and post-merge Actions verified |
-| WP-04 | 15% | IN_PROGRESS | canonical branch claimed from verified live `main` |
+| WP-04 | 15% | PARTIAL | operator/recovery docs and executable WP-05 matrix committed on canonical PR; automated hardening/release gates remain |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
@@ -28,25 +29,37 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Remaining: 3 of 6
 - Weighted progress: `60 / 100 = 60%`
 
-## Completed acceptance criteria
-- Startup reconciliation completed against live GitHub, including `main`, open PRs, canonical package branches, recent merge history, WP-06 auxiliary branches, and WP-03 post-merge check state.
-- All six package contracts plus requirements, architecture, implementation plan, workflow rules, queue/state, and latest handoff were read before claim.
+## Completed acceptance criteria / coherent sections
+- Startup reconciliation completed against live GitHub and WP-04 was durably claimed on draft PR #15.
 - WP-04 dependency on WP-03 is verified complete on live GitHub.
-- Canonical WP-04 branch was atomically created from live `main` SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`.
+- Operator documentation is committed at `docs/operator-guide.md`, covering installation/upgrade, configuration, permissions/commands, metrics/backlog interpretation, backups, WAL-aware online backup constraints, restore, integrity/degraded recovery, queue/review recovery, deleted markers, campaign marker repair, staged deployment, rollback, and incident collection.
+- The executable WP-05 manual acceptance specification is committed at `docs/wp-05-manual-acceptance-matrix.md` with unique case IDs, prerequisites, exact steps, expected durable/database/physical results, evidence, cleanup, rollback, regression subset, and exact-final-jar gate.
+- Durable checkpoint handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`.
 
 ## Remaining acceptance criteria
-All WP-04 functional, failure-injection, saturation, migration, reload/shutdown, stable API, performance/profile, static-analysis, operator documentation, WP-05 matrix, packaging/reproducibility, independent review, exact-head CI/Codacy, normal merge, post-merge verification, and `v1.0.0-rc.1` prerelease criteria remain.
+- Deterministic failure-injection/restart harness and complete state-machine failure matrix.
+- Queue saturation/backpressure tests for all required queues/executors/caches/retries and bounded results.
+- Every historical schema migration/upgrade path, interrupted migration rollback, integrity/WAL/index verification.
+- Reload/shutdown lifecycle automation.
+- Stable versioned Bukkit API finalization/tests/docs plus source/binary compatibility verification.
+- Fixed-scenario performance/profile harness and committed threshold evidence.
+- Static-analysis/complexity remediation without broad suppressions.
+- RC version/artifact/reproducibility/package smoke/release workflow and release notes.
+- Full-package harsh and independent review, confirmed fixes, exact-head CI/Codacy, zero unresolved review state.
+- Normal merge, post-merge `main` verification, and `v1.0.0-rc.1` prerelease/assets verified against the merge SHA.
 
 ## Tests and verification
-- No implementation tests have been run yet for WP-04.
-- Dependency verification: merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b` has GitHub Actions `verify` success (run `31174065679`).
-- No local build result is claimed; this runtime has no outbound GitHub network and no mounted checkout.
+- No local build result is claimed; this runtime has no mounted dependency-capable checkout.
+- GitHub Actions CI run `31179217336` was triggered on exact documentation/matrix head `c9784b744271384aac32ea7e145f38df1476cd49` and was still in progress when the durable handoff was written.
+- WP-03 dependency remains verified by Actions run `31174065679` on merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`.
+- No live Paper/Leaf behavior is claimed; that remains WP-05.
 
 ## Known findings
-None yet; implementation and harsh review have not begun.
+- Stale package metadata said PR creation was still pending after PR #15 already existed; corrected in this checkpoint.
+- No production-code defect was established during the operator-documentation/manual-matrix section.
 
 ## Blocker
-None.
+None. WP-04 is intentionally `PARTIAL`, not `BLOCKED`.
 
 ## Exact next action
-Create the exact draft PR from this claim commit, re-fetch branch/PR/head for concurrency, then inventory the current production-hardening/test/release surfaces and implement the full WP-04 contract on this branch only.
+Resume draft PR #15 on `agent/wp-04-production-hardening`, re-fetch exact head/check/review state, then implement the reusable deterministic failure-injection/restart harness and the first complete durable state-machine test group. Do not start WP-05.
