@@ -4,10 +4,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -25,6 +27,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 public final class PaperGroupFileCatalog {
     private static final String YAML_SUFFIX = ".yml";
     private static final String ACTIVE_MARKER = ".active-";
+    private static final String RECOVERY_TEMP_PREFIX = ".distribution-marker-recovery-";
     private static final Set<String> SUPPORTED_KEYS = Set.of("display-name", "players");
     private static final int MAX_GROUP_FILE_BYTES = 1_048_576;
     private static final int MAX_RECIPIENTS = 100_000;
@@ -72,7 +75,11 @@ public final class PaperGroupFileCatalog {
                             "groups directory exceeds the bounded entry limit of "
                                     + maxDirectoryEntries);
                 }
-                String name = candidate.getFileName().toString();
+                Path fileName = candidate.getFileName();
+                if (fileName == null) {
+                    continue;
+                }
+                String name = fileName.toString();
                 if (!isDiscoverableName(name)) {
                     continue;
                 }
@@ -110,8 +117,7 @@ public final class PaperGroupFileCatalog {
         if (!actualFingerprint.equals(definition.sourceFingerprint())) {
             throw new IOException("Group source changed after validation; durable campaign remains authoritative");
         }
-        String stem = safeName.substring(0, safeName.length() - YAML_SUFFIX.length());
-        Path target = groupsDirectory.resolve(stem + ACTIVE_MARKER + campaignId + YAML_SUFFIX);
+        Path target = activeMarkerPath(safeName, campaignId);
         return moveNoReplace(source, target);
     }
 
@@ -120,20 +126,22 @@ public final class PaperGroupFileCatalog {
             String expectedFingerprint,
             UUID campaignId) throws IOException {
         String safeName = validateSourceName(originalSourceName);
-        String stem = safeName.substring(0, safeName.length() - YAML_SUFFIX.length());
-        Path target = groupsDirectory.resolve(stem + ACTIVE_MARKER + campaignId + YAML_SUFFIX);
-        if (Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+        Objects.requireNonNull(expectedFingerprint, "expectedFingerprint");
+        Objects.requireNonNull(campaignId, "campaignId");
+        initializeDirectories();
+        Path target = activeMarkerPath(safeName, campaignId);
+        if (safeRegularFile(target)) {
             return target;
         }
+        rejectUnsafeExistingMarker(target);
         Path source = groupsDirectory.resolve(safeName);
-        if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isSymbolicLink(source)) {
+        if (safeRegularFile(source)) {
             byte[] bytes = Files.readAllBytes(source);
             if (fingerprint(safeName, bytes).equals(expectedFingerprint)) {
                 return moveNoReplace(source, target);
             }
         }
-        return target;
+        return synthesizeRecoveryMarker(target, safeName, expectedFingerprint, campaignId);
     }
 
     public Path moveToCompleted(String originalSourceName, UUID campaignId) throws IOException {
@@ -160,7 +168,8 @@ public final class PaperGroupFileCatalog {
                 diagnostics.add("source is not readable");
             } else {
                 Path real = candidate.toRealPath(LinkOption.NOFOLLOW_LINKS);
-                if (!real.getParent().equals(safeRoot)) {
+                Path parent = real.getParent();
+                if (parent == null || !parent.equals(safeRoot)) {
                     diagnostics.add("source escapes the groups directory");
                 } else {
                     valid.add(parse(name, real));
@@ -267,11 +276,50 @@ public final class PaperGroupFileCatalog {
         Path safeRoot = groupsDirectory.toRealPath(LinkOption.NOFOLLOW_LINKS);
         Path source = groupsDirectory.resolve(sourceName).normalize();
         if (Files.isSymbolicLink(source)
-                || !Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
-                || !source.toRealPath(LinkOption.NOFOLLOW_LINKS).getParent().equals(safeRoot)) {
+                || !Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Group source is no longer a safe regular file");
+        }
+        Path realParent = source.toRealPath(LinkOption.NOFOLLOW_LINKS).getParent();
+        if (realParent == null || !realParent.equals(safeRoot)) {
             throw new IOException("Group source is no longer a safe regular file");
         }
         return source;
+    }
+
+    private Path synthesizeRecoveryMarker(
+            Path target,
+            String sourceName,
+            String sourceFingerprint,
+            UUID campaignId) throws IOException {
+        Path temporary = Files.createTempFile(
+                groupsDirectory, RECOVERY_TEMP_PREFIX, ".tmp");
+        try {
+            Files.writeString(
+                    temporary,
+                    recoveryMarkerContent(sourceName, sourceFingerprint, campaignId),
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE);
+            try {
+                return moveNoReplace(temporary, target);
+            } catch (FileAlreadyExistsException exception) {
+                if (safeRegularFile(target)) {
+                    return target;
+                }
+                throw exception;
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static String recoveryMarkerContent(
+            String sourceName, String sourceFingerprint, UUID campaignId) {
+        return "# Recovered by EnthusiaLoreItems from durable campaign state.\n"
+                + "# This operator marker is not a reusable distribution source.\n"
+                + "campaign-id: " + campaignId + '\n'
+                + "source-name: " + sourceName + '\n'
+                + "source-fingerprint: " + sourceFingerprint + '\n';
     }
 
     private Path moveTerminal(
@@ -280,18 +328,36 @@ public final class PaperGroupFileCatalog {
             Path terminalDirectory,
             String suffix) throws IOException {
         String safeName = validateSourceName(originalSourceName);
+        Path active = activeMarkerPath(safeName, campaignId);
         String stem = safeName.substring(0, safeName.length() - YAML_SUFFIX.length());
-        Path active = groupsDirectory.resolve(stem + ACTIVE_MARKER + campaignId + YAML_SUFFIX);
         Path target = terminalDirectory.resolve(
                 stem + "." + suffix + "-" + campaignId + YAML_SUFFIX);
         Files.createDirectories(terminalDirectory);
-        if (Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+        if (safeRegularFile(target)) {
             return target;
         }
-        if (!Files.isRegularFile(active, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(active)) {
+        rejectUnsafeExistingMarker(target);
+        if (!safeRegularFile(active)) {
+            rejectUnsafeExistingMarker(active);
             return target;
         }
         return moveNoReplace(active, target);
+    }
+
+    private Path activeMarkerPath(String safeName, UUID campaignId) {
+        String stem = safeName.substring(0, safeName.length() - YAML_SUFFIX.length());
+        return groupsDirectory.resolve(stem + ACTIVE_MARKER + campaignId + YAML_SUFFIX);
+    }
+
+    private static boolean safeRegularFile(Path path) {
+        return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isSymbolicLink(path);
+    }
+
+    private static void rejectUnsafeExistingMarker(Path path) throws IOException {
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !safeRegularFile(path)) {
+            throw new IOException("Campaign marker path exists but is not a safe regular file");
+        }
     }
 
     private static Path moveNoReplace(Path source, Path target) throws IOException {
@@ -344,7 +410,8 @@ public final class PaperGroupFileCatalog {
     }
 
     private static void requireSingleFileName(String sourceName) {
-        if (!Path.of(sourceName).getFileName().toString().equals(sourceName)) {
+        Path fileName = Path.of(sourceName).getFileName();
+        if (fileName == null || !fileName.toString().equals(sourceName)) {
             throw invalidSourceName();
         }
     }
