@@ -25,6 +25,14 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 public final class SQLiteCancellableDistributionDeliveryRepository
         implements DistributionDeliveryRepository {
     private static final int SINGLE_ROW = 1;
+    private static final int MIN_LIMIT = 1;
+    private static final int JSON_CONTROL_CHARACTER_LIMIT = 0x20;
+    private static final String CLEAR_CLAIM_SQL =
+            "claim_token = NULL, claim_expires_at = NULL, ";
+    private static final String CLEAR_RETRY_SQL =
+            "next_attempt_at = NULL, updated_at = ? ";
+    private static final String RECIPIENT_PREDICATE_SQL =
+            "WHERE campaign_id = ? AND recipient_key = ? ";
     private static final String QUEUED_SOURCE = "campaign-delivery-queued";
     private static final String AGGREGATE_TYPE = "DISTRIBUTION_CAMPAIGN";
     private static final String SYSTEM_ACTOR = "SYSTEM";
@@ -81,9 +89,9 @@ public final class SQLiteCancellableDistributionDeliveryRepository
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE distribution_recipients SET state = 'CANCELLED', "
-                            + "claim_token = NULL, claim_expires_at = NULL, "
-                            + "next_attempt_at = NULL, updated_at = ? "
-                            + "WHERE campaign_id = ? AND recipient_key = ? "
+                            + CLEAR_CLAIM_SQL
+                            + CLEAR_RETRY_SQL
+                            + RECIPIENT_PREDICATE_SQL
                             + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id IS NULL "
                             + "AND claim_token = ? "
                             + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
@@ -165,9 +173,9 @@ public final class SQLiteCancellableDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'CANCELLED', instance_id = NULL, "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
                         + "AND claim_token = ? "
                         + "AND EXISTS (SELECT 1 FROM distribution_campaigns campaign "
@@ -228,6 +236,9 @@ public final class SQLiteCancellableDistributionDeliveryRepository
         }
     }
 
+    // Each result row is a distinct durable claim snapshot, so row materialization necessarily
+    // creates independent immutable value objects inside this bounded LIMIT query.
+    @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private static int recoverCancelledClaims(
             Connection connection,
             long now,
@@ -275,9 +286,9 @@ public final class SQLiteCancellableDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'CANCELLED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id IS NULL "
                         + "AND claim_token = ? AND claim_expires_at <= ?")) {
             statement.setLong(1, now);
@@ -295,9 +306,9 @@ public final class SQLiteCancellableDistributionDeliveryRepository
             long now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE distribution_recipients SET state = 'REVIEW_REQUIRED', "
-                        + "claim_token = NULL, claim_expires_at = NULL, "
-                        + "next_attempt_at = NULL, updated_at = ? "
-                        + "WHERE campaign_id = ? AND recipient_key = ? "
+                        + CLEAR_CLAIM_SQL
+                        + CLEAR_RETRY_SQL
+                        + RECIPIENT_PREDICATE_SQL
                         + "AND state = 'RESERVED_IN_FLIGHT' AND instance_id = ? "
                         + "AND claim_token = ? AND claim_expires_at <= ?")) {
             statement.setLong(1, now);
@@ -365,7 +376,7 @@ public final class SQLiteCancellableDistributionDeliveryRepository
     }
 
     private static void requireLimit(int limit) {
-        if (limit < 1 || limit > PageRequest.MAX_LIMIT) {
+        if (limit < MIN_LIMIT || limit > PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException(
                     "limit is outside bounded page limits");
         }
@@ -401,7 +412,7 @@ public final class SQLiteCancellableDistributionDeliveryRepository
                 case '\r' -> escaped.append("\\r");
                 case '\t' -> escaped.append("\\t");
                 default -> {
-                    if (character < 0x20) {
+                    if (character < JSON_CONTROL_CHARACTER_LIMIT) {
                         escaped.append(String.format("\\u%04x", (int) character));
                     } else {
                         escaped.append(character);
