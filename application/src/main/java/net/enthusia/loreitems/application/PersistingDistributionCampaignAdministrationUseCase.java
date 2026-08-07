@@ -15,6 +15,7 @@ import net.enthusia.loreitems.domain.DistributionCampaignState;
 public final class PersistingDistributionCampaignAdministrationUseCase
         implements DistributionCampaignAdministrationUseCase {
     private static final String AGGREGATE_TYPE = "DISTRIBUTION_CAMPAIGN";
+    private static final String CAMPAIGN_ID_ARGUMENT = "campaignId";
     private static final String PAUSED_EVENT = "DISTRIBUTION_CAMPAIGN_PAUSED";
     private static final String RESUMED_EVENT = "DISTRIBUTION_CAMPAIGN_RESUMED";
     private static final String CANCELLED_EVENT = "DISTRIBUTION_CAMPAIGN_CANCELLED";
@@ -42,7 +43,7 @@ public final class PersistingDistributionCampaignAdministrationUseCase
 
     @Override
     public CompletionStage<Optional<DistributionCampaignStatus>> status(UUID campaignId) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         return campaigns.findById(campaignId).thenCompose(campaign -> {
             if (campaign.isEmpty()) {
                 return CompletableFuture.completedFuture(Optional.empty());
@@ -58,7 +59,7 @@ public final class PersistingDistributionCampaignAdministrationUseCase
             UUID campaignId,
             CampaignRecipientState state,
             PageRequest request) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         Objects.requireNonNull(request, "request");
         return state == null
                 ? recipients.listByCampaign(campaignId, request)
@@ -98,7 +99,7 @@ public final class PersistingDistributionCampaignAdministrationUseCase
             UUID campaignId,
             String actorType,
             String actorId) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         String normalizedActorType = requireActorType(actorType);
         String normalizedActorId = requireActorId(actorId);
         Instant now = clock.instant();
@@ -133,7 +134,7 @@ public final class PersistingDistributionCampaignAdministrationUseCase
             String eventType,
             String actorType,
             String actorId) {
-        Objects.requireNonNull(campaignId, "campaignId");
+        Objects.requireNonNull(campaignId, CAMPAIGN_ID_ARGUMENT);
         String normalizedActorType = requireActorType(actorType);
         String normalizedActorId = requireActorId(actorId);
         Instant now = clock.instant();
