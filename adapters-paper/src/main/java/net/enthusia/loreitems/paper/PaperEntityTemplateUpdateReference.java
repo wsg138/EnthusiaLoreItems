@@ -72,7 +72,7 @@ record PaperEntityTemplateUpdateReference(
             return Optional.empty();
         }
         ItemStack item = read(entity);
-        if (item == null || item.getType().isAir()) {
+        if (item.getType().isAir()) {
             return Optional.empty();
         }
         return Optional.of(new Resolved(entity, kind, equipmentSlot, item.clone()));
@@ -206,7 +206,7 @@ record PaperEntityTemplateUpdateReference(
             }
             PaperEntityTemplateUpdateReference reference = reference();
             ItemStack current = reference.read(entity);
-            if (current == null
+            if (current.getType().isAir()
                     || !PaperItemFingerprint.of(current)
                             .equals(PaperItemFingerprint.of(originalItem))) {
                 return false;
@@ -221,7 +221,7 @@ record PaperEntityTemplateUpdateReference(
                 return null;
             }
             ItemStack stored = reference().read(entity);
-            return stored == null || stored.getType().isAir() ? null : stored.clone();
+            return stored.getType().isAir() ? null : stored.clone();
         }
 
         @Override
