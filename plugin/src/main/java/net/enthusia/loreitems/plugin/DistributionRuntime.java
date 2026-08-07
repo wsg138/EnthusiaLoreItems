@@ -1,7 +1,6 @@
 package net.enthusia.loreitems.plugin;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
@@ -42,7 +41,6 @@ final class DistributionRuntime implements AutoCloseable {
     private final PaperDistributionRecipientBindingWorker bindingWorker;
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
     private final DistributionCampaignCommandExecutor commandExecutor;
-    private final Executor blockingExecutor;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private volatile boolean started;
@@ -55,7 +53,7 @@ final class DistributionRuntime implements AutoCloseable {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(storage, "storage");
         Objects.requireNonNull(configuration, "configuration");
-        this.blockingExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        Executor workerExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
 
         Clock clock = Clock.systemUTC();
         groupCatalog = new PaperGroupFileCatalog(plugin.getDataFolder().toPath());
@@ -70,7 +68,7 @@ final class DistributionRuntime implements AutoCloseable {
                         new SQLiteAuditRepository(storage),
                         clock);
         PaperDistributionMarkerReconciler markerReconciler =
-                new PaperDistributionMarkerReconciler(groupCatalog, campaigns, blockingExecutor);
+                new PaperDistributionMarkerReconciler(groupCatalog, campaigns, workerExecutor);
         DistributionDeliveryExecutionUseCase delivery =
                 new PersistingDistributionDeliveryExecutionUseCase(
                         new SQLiteCancellableDistributionDeliveryRepository(storage),
@@ -98,8 +96,8 @@ final class DistributionRuntime implements AutoCloseable {
                         new SQLiteDefinitionRepository(storage),
                         new SQLiteDistributionCampaignStartRepository(storage),
                         new PaperCachedPlayerIdentityResolver(),
-                        this::executeOnMain,
-                        blockingExecutor);
+                        workerExecutor,
+                        workerExecutor);
         commandExecutor = new DistributionCampaignCommandExecutor(
                 plugin,
                 groupCatalog,
@@ -108,7 +106,7 @@ final class DistributionRuntime implements AutoCloseable {
                 markerReconciler,
                 deliveryWorker,
                 markerWorker::wake,
-                blockingExecutor,
+                workerExecutor,
                 configuration.defaultPageSize());
     }
 
