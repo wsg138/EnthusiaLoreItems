@@ -18,7 +18,6 @@ import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.sh
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -54,6 +54,8 @@ public final class DistributionCampaignCommandExecutor
             "enthusia.loreitems.admin.distribution.control";
 
     private static final int MAX_PENDING_PREVIEWS = 64;
+    private static final int TOP_LEVEL_TAB_ARGUMENT_COUNT = 1;
+    private static final int RECIPIENT_STATE_TAB_ARGUMENT_COUNT = 3;
 
     private final Plugin plugin;
     private final PaperGroupFileCatalog groupCatalog;
@@ -64,7 +66,7 @@ public final class DistributionCampaignCommandExecutor
     private final Runnable markerWake;
     private final Executor blockingExecutor;
     private final int pageSize;
-    private final Map<PreviewKey, DistributionCampaignPreview> previews = new LinkedHashMap<>();
+    private final Map<PreviewKey, DistributionCampaignPreview> previews = new ConcurrentHashMap<>();
 
     private boolean closed;
 
@@ -334,8 +336,10 @@ public final class DistributionCampaignCommandExecutor
 
     private void storePreview(Actor actor, DistributionCampaignPreview preview) {
         if (previews.size() >= MAX_PENDING_PREVIEWS) {
-            PreviewKey oldest = previews.keySet().iterator().next();
-            previews.remove(oldest);
+            PreviewKey evictionCandidate = previews.keySet().stream().findAny().orElse(null);
+            if (evictionCandidate != null) {
+                previews.remove(evictionCandidate);
+            }
         }
         previews.put(new PreviewKey(actor.id(), preview.campaignId()), preview);
     }
@@ -387,7 +391,7 @@ public final class DistributionCampaignCommandExecutor
     @Override
     public List<String> onTabComplete(
             CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) {
+        if (args.length == TOP_LEVEL_TAB_ARGUMENT_COUNT) {
             List<String> values = new ArrayList<>();
             if (sender.hasPermission(INSPECT_PERMISSION)) {
                 Collections.addAll(
@@ -403,7 +407,8 @@ public final class DistributionCampaignCommandExecutor
             values.removeIf(value -> !value.startsWith(prefix));
             return values;
         }
-        if (args.length == 3 && "recipients".equalsIgnoreCase(args[0])) {
+        if (args.length == RECIPIENT_STATE_TAB_ARGUMENT_COUNT
+                && "recipients".equalsIgnoreCase(args[0])) {
             List<String> states = new ArrayList<>();
             states.add("all");
             for (CampaignRecipientState state : CampaignRecipientState.values()) {
