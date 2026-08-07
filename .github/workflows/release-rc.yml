@@ -1,91 +1,104 @@
 name: Release RC
 
 on:
-  push:
-    tags:
-      - v1.0.0-rc.1
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
 
 permissions:
+  actions: read
   contents: write
-  checks: read
 
 jobs:
   release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     env:
-      TARGET_SHA: ${{ github.sha }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
       RC_TAG: v1.0.0-rc.1
+      CI_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
-        with:
-          distribution: temurin
-          java-version: "21"
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
-        with:
-          gradle-version: "8.14.3"
-      - name: Verify tag points at main
+      - name: Check whether RC is already published
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${RC_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "released=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RC_TAG}" >/dev/null 2>&1; then
+            echo "RC tag exists without a release; refusing an ambiguous partial publication." >&2
+            exit 1
+          fi
+          echo "released=false" >> "${GITHUB_OUTPUT}"
+      - name: Verify successful CI head is still main
+        if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           test "${TARGET_SHA}" = "${MAIN_SHA}"
-      - name: Verify exact tagged source
-        run: gradle --no-daemon clean check
-      - name: Preserve test reports
-        run: |
-          mapfile -t REPORTS < <(find . \( -path '*/build/test-results/*' -o -path '*/build/reports/tests/*' \) -type f | sort)
-          test "${#REPORTS[@]}" -gt 0
-          tar -czf /tmp/EnthusiaLoreItems-test-reports.tar.gz "${REPORTS[@]}"
-      - name: Run deterministic WP-04 profile
-        env:
-          PROFILE_COMMIT: ${{ github.sha }}
-        run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
-      - name: Build first release artifact
-        run: |
-          gradle --no-daemon :plugin:shadowJar
-          gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
-          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$JAR"
-          mkdir -p /tmp/rc-first
-          cp "$JAR" /tmp/rc-first/EnthusiaLoreItems.jar
-          python3 tools/prepare_rc_artifacts.py \
-            --jar /tmp/rc-first/EnthusiaLoreItems.jar \
-            --dependencies /tmp/gradle-dependencies.txt \
-            --output-dir /tmp/rc-first
-      - name: Verify clean-build reproducibility
-        run: |
-          gradle --no-daemon clean :plugin:shadowJar
-          gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
-          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$JAR"
-          mkdir -p /tmp/rc-second
-          cp "$JAR" /tmp/rc-second/EnthusiaLoreItems.jar
-          python3 tools/prepare_rc_artifacts.py \
-            --jar /tmp/rc-second/EnthusiaLoreItems.jar \
-            --dependencies /tmp/gradle-dependencies-second.txt \
-            --output-dir /tmp/rc-second
-          diff -u /tmp/rc-first/normalized-entry-manifest.txt /tmp/rc-second/normalized-entry-manifest.txt
-          diff -u /tmp/rc-first/EnthusiaLoreItems.jar.sha256 /tmp/rc-second/EnthusiaLoreItems.jar.sha256
-      - name: Publish GitHub prerelease from verified tag
+      - name: Download exact CI verification artifact
+        if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p /tmp/evidence
+          gh run download "${CI_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "wp04-verification-${TARGET_SHA}" \
+            --dir /tmp/evidence
+      - name: Validate immutable RC evidence
+        if: steps.state.outputs.released != 'true'
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          test -f "${BUNDLE}/EnthusiaLoreItems.jar"
+          test -f "${BUNDLE}/EnthusiaLoreItems.jar.sha256"
+          test -f "${BUNDLE}/bom.cyclonedx.json"
+          test -f "${BUNDLE}/gradle-dependencies.txt"
+          test -f "${BUNDLE}/normalized-entry-manifest.txt"
+          test -f "${BUNDLE}/wp04-profile.json"
+          test -f "${BUNDLE}/EnthusiaLoreItems-test-reports.tar.gz"
+          test -f "${BUNDLE}/release-notes.md"
+          (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
+          jq -e --arg target "${TARGET_SHA}" \
+            '.passed == true and .environment.commit == $target' \
+            "${BUNDLE}/wp04-profile.json" >/dev/null
+          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0-rc.1' >/dev/null
+      - name: Create exact RC tag
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RC_TAG}" \
+            -f sha="${TARGET_SHA}" >/dev/null
+      - name: Publish GitHub prerelease from verified CI bundle
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
           gh release create "${RC_TAG}" \
-            --repo "$GITHUB_REPOSITORY" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
             --target "${TARGET_SHA}" \
             --prerelease \
             --title "EnthusiaLoreItems 1.0.0-rc.1" \
-            --notes-file docs/releases/v1.0.0-rc.1.md \
-            /tmp/rc-first/EnthusiaLoreItems.jar \
-            /tmp/rc-first/EnthusiaLoreItems.jar.sha256 \
-            /tmp/rc-first/bom.cyclonedx.json \
-            /tmp/rc-first/gradle-dependencies.txt \
-            /tmp/rc-first/normalized-entry-manifest.txt \
-            /tmp/wp04-profile.json \
-            /tmp/EnthusiaLoreItems-test-reports.tar.gz
+            --notes-file "${BUNDLE}/release-notes.md" \
+            "${BUNDLE}/EnthusiaLoreItems.jar" \
+            "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
+            "${BUNDLE}/bom.cyclonedx.json" \
+            "${BUNDLE}/gradle-dependencies.txt" \
+            "${BUNDLE}/normalized-entry-manifest.txt" \
+            "${BUNDLE}/wp04-profile.json" \
+            "${BUNDLE}/EnthusiaLoreItems-test-reports.tar.gz"
