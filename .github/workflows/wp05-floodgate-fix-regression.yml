@@ -29,11 +29,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
       - name: Build fixed PR-head plugin
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
+          gradle --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
           FIXED_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)"
           test -n "$FIXED_JAR"
           mkdir -p /tmp/wp05-floodgate/server/plugins /tmp/wp05-floodgate/evidence /tmp/wp05-floodgate/client
