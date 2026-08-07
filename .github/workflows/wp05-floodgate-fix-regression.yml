@@ -2,8 +2,7 @@ name: WP-05 Floodgate Fix Regression
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -32,6 +31,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.14.3"
+
       - name: Build fixed PR-head plugin
         shell: bash
         run: |
@@ -43,6 +43,7 @@ jobs:
           cp "$FIXED_JAR" /tmp/wp05-floodgate/server/plugins/EnthusiaLoreItems.jar
           sha256sum "$FIXED_JAR" > /tmp/wp05-floodgate/evidence/fixed-plugin-sha256.txt
           printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > /tmp/wp05-floodgate/evidence/source-head.txt
+
       - name: Prepare Paper Geyser Floodgate environment
         shell: bash
         run: |
@@ -71,12 +72,13 @@ jobs:
           exec 3<>server.stdin
           java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-floodgate/evidence/prep.log 2>&1 &
           PID=$!
+          ready=false
           for _ in $(seq 1 240); do
-            grep -q 'Done (' /tmp/wp05-floodgate/evidence/prep.log && break
+            if grep -q 'For help, type "help"' /tmp/wp05-floodgate/evidence/prep.log; then ready=true; break; fi
             kill -0 "$PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/prep.log; exit 1; }
             sleep 1
           done
-          grep -q 'Done (' /tmp/wp05-floodgate/evidence/prep.log
+          test "$ready" = true
           echo stop >&3
           wait "$PID"
           exec 3>&-
@@ -102,6 +104,7 @@ jobs:
           cp plugins/Geyser-Spigot/config.yml /tmp/wp05-floodgate/evidence/geyser-config.yml
           cp plugins/floodgate/config.yml /tmp/wp05-floodgate/evidence/floodgate-config.yml
           sha256sum paper.jar plugins/*.jar > /tmp/wp05-floodgate/evidence/artifact-sha256.txt
+
       - name: Install Bedrock protocol client
         shell: bash
         run: |
@@ -114,21 +117,19 @@ jobs:
           const bedrock = require('bedrock-protocol')
           const fs = require('fs')
           const client = bedrock.createClient({
-            host: '127.0.0.1',
-            port: 19132,
-            username: 'Wp05BedrockBot',
-            offline: true,
-            version: '1.26.20',
-            connectTimeout: 20000
+            host: '127.0.0.1', port: 19132, username: 'Wp05BedrockBot',
+            offline: true, version: '1.26.20', connectTimeout: 20000
           })
           const log = line => {
             fs.appendFileSync('/tmp/wp05-floodgate/evidence/client.log', `${new Date().toISOString()} ${line}\n`)
             console.log(line)
           }
+          client.on('status', packet => log(`STATUS ${JSON.stringify(packet)}`))
           client.on('join', () => log(`JOIN ${JSON.stringify(client.profile || {})}`))
           client.on('text', packet => log(`TEXT ${JSON.stringify(packet)}`))
           client.on('kick', packet => log(`KICK ${JSON.stringify(packet)}`))
           client.on('error', error => log(`ERROR ${error.stack || error}`))
+          client.on('close', () => log('CLOSE'))
           client.on('spawn', async () => {
             log('SPAWN')
             fs.writeFileSync('/tmp/wp05-floodgate/client-ready', 'ready\n')
@@ -144,6 +145,7 @@ jobs:
             }
           }, 45000)
           EOF
+
       - name: Verify real prefixed Floodgate join no longer rejects binding
         shell: bash
         run: |
@@ -157,19 +159,28 @@ jobs:
           exec 3<>server.stdin
           java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05-floodgate/evidence/server.log 2>&1 &
           SERVER_PID=$!
+          ready=false
           for _ in $(seq 1 240); do
-            grep -q 'Done (' /tmp/wp05-floodgate/evidence/server.log && break
+            if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' /tmp/wp05-floodgate/evidence/server.log \
+              && grep -q 'For help, type "help"' /tmp/wp05-floodgate/evidence/server.log; then
+              ready=true
+              break
+            fi
             kill -0 "$SERVER_PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/server.log; exit 1; }
             sleep 1
           done
-          grep -q 'Done (' /tmp/wp05-floodgate/evidence/server.log
-          grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' /tmp/wp05-floodgate/evidence/server.log
+          test "$ready" = true
 
           (cd /tmp/wp05-floodgate/client && node client.js) > /tmp/wp05-floodgate/evidence/client-stdout.log 2>&1 &
           CLIENT_PID=$!
           for _ in $(seq 1 70); do
             test -f /tmp/wp05-floodgate/client-ready && break
-            kill -0 "$CLIENT_PID" 2>/dev/null || { cat /tmp/wp05-floodgate/evidence/client-stdout.log; cat /tmp/wp05-floodgate/evidence/server.log; exit 1; }
+            if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
+              cat /tmp/wp05-floodgate/evidence/client-stdout.log || true
+              cat /tmp/wp05-floodgate/evidence/client.log || true
+              cat /tmp/wp05-floodgate/evidence/server.log
+              exit 1
+            fi
             sleep 1
           done
           test -f /tmp/wp05-floodgate/client-ready
@@ -194,6 +205,7 @@ jobs:
           rm -f server.stdin
           END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           printf '%s\n' "$END_UTC" > /tmp/wp05-floodgate/evidence/end-utc.txt
+
       - name: Upload Floodgate regression evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
