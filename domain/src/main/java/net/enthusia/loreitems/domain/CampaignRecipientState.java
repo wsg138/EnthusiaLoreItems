@@ -49,6 +49,7 @@ public enum CampaignRecipientState {
                     QUEUED_OFFLINE,
                     QUEUED_INVENTORY_FULL,
                     DELIVERED,
+                    CANCELLED,
                     REVIEW_REQUIRED);
             case REVIEW_REQUIRED -> EnumSet.of(QUEUED_OFFLINE, CANCELLED);
             case DELIVERED, CANCELLED -> Set.of();
