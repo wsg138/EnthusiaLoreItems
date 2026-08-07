@@ -28,18 +28,28 @@ public final class PaperGroupFileCatalog {
     private static final Set<String> SUPPORTED_KEYS = Set.of("display-name", "players");
     private static final int MAX_GROUP_FILE_BYTES = 1_048_576;
     private static final int MAX_RECIPIENTS = 100_000;
+    private static final int MAX_GROUP_DIRECTORY_ENTRIES = 10_000;
 
     private final Path groupsDirectory;
     private final Path completedDirectory;
     private final Path cancelledDirectory;
+    private final int maxDirectoryEntries;
 
     public PaperGroupFileCatalog(Path dataDirectory) {
+        this(dataDirectory, MAX_GROUP_DIRECTORY_ENTRIES);
+    }
+
+    PaperGroupFileCatalog(Path dataDirectory, int maxDirectoryEntries) {
         Path data = Objects.requireNonNull(dataDirectory, "dataDirectory")
                 .toAbsolutePath()
                 .normalize();
+        if (maxDirectoryEntries < 1 || maxDirectoryEntries > MAX_GROUP_DIRECTORY_ENTRIES) {
+            throw new IllegalArgumentException("maxDirectoryEntries is outside supported bounds");
+        }
         groupsDirectory = data.resolve("groups");
         completedDirectory = groupsDirectory.resolve("completed");
         cancelledDirectory = groupsDirectory.resolve("cancelled");
+        this.maxDirectoryEntries = maxDirectoryEntries;
     }
 
     public void initializeDirectories() throws IOException {
@@ -53,8 +63,15 @@ public final class PaperGroupFileCatalog {
         Path safeRoot = groupsDirectory.toRealPath(LinkOption.NOFOLLOW_LINKS);
         List<GroupFileDefinition> valid = new ArrayList<>();
         List<GroupFileValidationFailure> invalid = new ArrayList<>();
+        int inspectedEntries = 0;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupsDirectory)) {
             for (Path candidate : stream) {
+                inspectedEntries++;
+                if (inspectedEntries > maxDirectoryEntries) {
+                    throw new IOException(
+                            "groups directory exceeds the bounded entry limit of "
+                                    + maxDirectoryEntries);
+                }
                 String name = candidate.getFileName().toString();
                 if (!isDiscoverableName(name)) {
                     continue;
