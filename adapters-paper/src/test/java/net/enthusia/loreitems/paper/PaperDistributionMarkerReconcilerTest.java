@@ -88,19 +88,11 @@ class PaperDistributionMarkerReconcilerTest {
     }
 
     @Test
-    void reportsMissingSourceAndReturnsBoundedNextPage() {
+    void reconstructsMissingActiveMarkerFromDurableStateAndReturnsBoundedNextPage()
+            throws Exception {
         PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
-        DistributionCampaign missing = new DistributionCampaign(
-                UUID.randomUUID(),
-                "sha256:missing",
-                "missing.yml",
-                "Missing",
-                LoreDefinitionId.random(),
-                new TemplateRevision(1L),
-                DistributionCampaignState.ACTIVE,
-                NOW,
-                NOW,
-                null);
+        DistributionCampaign missing = campaignWithoutSource(
+                "missing.yml", DistributionCampaignState.ACTIVE);
         PageRequest request = PageRequest.first(1);
         PaperDistributionMarkerReconciler reconciler = new PaperDistributionMarkerReconciler(
                 catalog,
@@ -112,12 +104,36 @@ class PaperDistributionMarkerReconcilerTest {
                 .toCompletableFuture()
                 .join();
 
-        assertEquals(
-                DistributionMarkerReconciliationPage.Status.MISSING_SOURCE,
-                result.entries().getFirst().status());
+        DistributionMarkerReconciliationPage.Entry entry = result.entries().getFirst();
+        assertEquals(DistributionMarkerReconciliationPage.Status.RECONCILED, entry.status());
+        assertTrue(Files.isRegularFile(entry.markerPath()));
+        assertTrue(Files.readString(entry.markerPath()).contains(missing.campaignId().toString()));
         assertNotNull(result.nextPage());
         assertEquals(1, result.nextPage().offset());
         assertEquals(1, result.nextPage().limit());
+    }
+
+    @Test
+    void reconstructsTerminalMarkerWhenOriginalAndActiveFilesAreGone() throws Exception {
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
+        DistributionCampaign cancelled = campaignWithoutSource(
+                "lost.yml", DistributionCampaignState.CANCELLED);
+        PageRequest request = PageRequest.first(1);
+        PaperDistributionMarkerReconciler reconciler = new PaperDistributionMarkerReconciler(
+                catalog,
+                ignored -> CompletableFuture.completedFuture(new Page<>(
+                        List.of(cancelled), request.offset(), request.limit(), false)),
+                Runnable::run);
+
+        DistributionMarkerReconciliationPage result = reconciler.reconcile(request)
+                .toCompletableFuture()
+                .join();
+
+        DistributionMarkerReconciliationPage.Entry entry = result.entries().getFirst();
+        assertEquals(DistributionMarkerReconciliationPage.Status.RECONCILED, entry.status());
+        assertTrue(Files.isRegularFile(entry.markerPath()));
+        assertTrue(entry.markerPath().startsWith(temporaryDirectory.resolve("groups/cancelled")));
+        assertTrue(Files.readString(entry.markerPath()).contains(cancelled.campaignId().toString()));
     }
 
     private GroupFileDefinition writeAndInspect(
@@ -138,6 +154,22 @@ class PaperDistributionMarkerReconcilerTest {
                 source.sourceFingerprint(),
                 source.sourceName(),
                 source.displayName(),
+                LoreDefinitionId.random(),
+                new TemplateRevision(1L),
+                state,
+                NOW,
+                NOW,
+                terminalAt);
+    }
+
+    private static DistributionCampaign campaignWithoutSource(
+            String sourceName, DistributionCampaignState state) {
+        Long terminalAt = state.terminal() ? NOW : null;
+        return new DistributionCampaign(
+                UUID.randomUUID(),
+                "sha256:" + "a".repeat(64),
+                sourceName,
+                "Recovered",
                 LoreDefinitionId.random(),
                 new TemplateRevision(1L),
                 state,
