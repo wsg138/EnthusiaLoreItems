@@ -22,6 +22,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
@@ -58,6 +59,8 @@ jobs:
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 tools/check_codacy.py
       - name: Run deterministic WP-04 profile
+        env:
+          PROFILE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
       - name: Build and validate first RC artifact
         run: |
@@ -89,7 +92,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: wp04-verification-${{ github.sha }}
+          name: wp04-verification-${{ github.event.pull_request.head.sha || github.sha }}
           if-no-files-found: warn
           retention-days: 30
           path: |
