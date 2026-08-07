@@ -18,6 +18,7 @@ import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DistributionCampaign;
 import net.enthusia.loreitems.domain.DistributionCampaignState;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 
 public final class SQLiteDistributionCampaignRepository
         implements DistributionCampaignRepository {
@@ -39,23 +40,45 @@ public final class SQLiteDistributionCampaignRepository
                 || campaign.terminalAtEpochMillis() != null) {
             throw new IllegalArgumentException("A new distribution campaign must begin as DRAFT");
         }
-        return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO distribution_campaigns(campaign_id, source_fingerprint, "
-                            + "source_name, display_name, definition_id, state, created_at, "
-                            + "updated_at, terminal_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)")) {
-                statement.setString(1, campaign.campaignId().toString());
-                statement.setString(2, campaign.sourceFingerprint());
-                statement.setString(3, campaign.sourceName());
-                statement.setString(4, campaign.displayName());
-                statement.setString(5, campaign.definitionId().value().toString());
-                statement.setString(6, DistributionCampaignState.DRAFT.name());
-                statement.setLong(7, campaign.createdAtEpochMillis());
-                statement.setLong(8, campaign.updatedAtEpochMillis());
-                statement.executeUpdate();
-                return null;
-            }
-        });
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> {
+                    insertDraftInTransaction(transaction, campaign);
+                    insertRevisionSnapshotInTransaction(transaction, campaign);
+                    return null;
+                }));
+    }
+
+    static void insertDraftInTransaction(Connection connection, DistributionCampaign campaign)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO distribution_campaigns(campaign_id, source_fingerprint, "
+                        + "source_name, display_name, definition_id, state, created_at, "
+                        + "updated_at, terminal_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)")) {
+            statement.setString(1, campaign.campaignId().toString());
+            statement.setString(2, campaign.sourceFingerprint());
+            statement.setString(3, campaign.sourceName());
+            statement.setString(4, campaign.displayName());
+            statement.setString(5, campaign.definitionId().value().toString());
+            statement.setString(6, DistributionCampaignState.DRAFT.name());
+            statement.setLong(7, campaign.createdAtEpochMillis());
+            statement.setLong(8, campaign.updatedAtEpochMillis());
+            statement.executeUpdate();
+        }
+    }
+
+    static void insertRevisionSnapshotInTransaction(
+            Connection connection, DistributionCampaign campaign) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO distribution_campaign_revision_snapshots("
+                        + "campaign_id, definition_id, definition_revision, created_at) "
+                        + "VALUES (?, ?, ?, ?)")) {
+            statement.setString(1, campaign.campaignId().toString());
+            statement.setString(2, campaign.definitionId().value().toString());
+            statement.setLong(3, campaign.definitionRevision().value());
+            statement.setLong(4, campaign.createdAtEpochMillis());
+            statement.executeUpdate();
+        }
     }
 
     @Override
@@ -77,7 +100,8 @@ public final class SQLiteDistributionCampaignRepository
         return storage.execute(connection -> {
             List<DistributionCampaign> campaigns = new ArrayList<>();
             try (PreparedStatement statement = connection.prepareStatement(
-                    selectColumns() + " ORDER BY created_at DESC, campaign_id LIMIT ? OFFSET ?")) {
+                    selectColumns()
+                            + " ORDER BY campaign.created_at DESC, campaign.campaign_id LIMIT ? OFFSET ?")) {
                 statement.setInt(1, request.limit() + 1);
                 statement.setInt(2, request.offset());
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -124,8 +148,7 @@ public final class SQLiteDistributionCampaignRepository
         long nowMillis = requireNonNegative(now, NOW_ARGUMENT);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
                 connection,
-                transaction -> cancelInTransaction(
-                        transaction, campaignId, expected, nowMillis)));
+                transaction -> cancelInTransaction(transaction, campaignId, expected, nowMillis)));
     }
 
     private static boolean transitionStateInTransaction(
@@ -241,7 +264,7 @@ public final class SQLiteDistributionCampaignRepository
     private static Optional<DistributionCampaign> findCampaignById(
             Connection connection, UUID campaignId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                selectColumns() + " WHERE campaign_id = ?")) {
+                selectColumns() + " WHERE campaign.campaign_id = ?")) {
             statement.setString(1, campaignId.toString());
             return readOptionalCampaign(statement);
         }
@@ -250,7 +273,7 @@ public final class SQLiteDistributionCampaignRepository
     private static Optional<DistributionCampaign> findCampaignByFingerprint(
             Connection connection, String sourceFingerprint) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                selectColumns() + " WHERE source_fingerprint = ?")) {
+                selectColumns() + " WHERE campaign.source_fingerprint = ?")) {
             statement.setString(1, sourceFingerprint);
             return readOptionalCampaign(statement);
         }
@@ -259,16 +282,17 @@ public final class SQLiteDistributionCampaignRepository
     private static Optional<DistributionCampaign> readOptionalCampaign(
             PreparedStatement statement) throws SQLException {
         try (ResultSet resultSet = statement.executeQuery()) {
-            return resultSet.next()
-                    ? Optional.of(readCampaign(resultSet))
-                    : Optional.empty();
+            return resultSet.next() ? Optional.of(readCampaign(resultSet)) : Optional.empty();
         }
     }
 
     private static String selectColumns() {
-        return "SELECT campaign_id, source_fingerprint, source_name, display_name, "
-                + "definition_id, state, created_at, updated_at, terminal_at "
-                + "FROM distribution_campaigns";
+        return "SELECT campaign.campaign_id, campaign.source_fingerprint, campaign.source_name, "
+                + "campaign.display_name, campaign.definition_id, revision.definition_revision, "
+                + "campaign.state, campaign.created_at, campaign.updated_at, campaign.terminal_at "
+                + "FROM distribution_campaigns campaign "
+                + "JOIN distribution_campaign_revision_snapshots revision "
+                + "ON revision.campaign_id = campaign.campaign_id";
     }
 
     private static DistributionCampaign readCampaign(ResultSet resultSet) throws SQLException {
@@ -280,6 +304,7 @@ public final class SQLiteDistributionCampaignRepository
                 resultSet.getString("source_name"),
                 resultSet.getString("display_name"),
                 new LoreDefinitionId(UUID.fromString(resultSet.getString("definition_id"))),
+                new TemplateRevision(resultSet.getLong("definition_revision")),
                 DistributionCampaignState.valueOf(resultSet.getString("state")),
                 resultSet.getLong("created_at"),
                 resultSet.getLong("updated_at"),

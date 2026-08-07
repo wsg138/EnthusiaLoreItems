@@ -1,6 +1,5 @@
 package net.enthusia.loreitems.domain;
 
-import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -10,51 +9,75 @@ public record DistributionCampaign(
         String sourceName,
         String displayName,
         LoreDefinitionId definitionId,
+        TemplateRevision definitionRevision,
         DistributionCampaignState state,
         long createdAtEpochMillis,
         long updatedAtEpochMillis,
         Long terminalAtEpochMillis) {
-    public static final int MAX_SOURCE_FINGERPRINT_LENGTH = 256;
-    public static final int MAX_SOURCE_NAME_LENGTH = 256;
-    public static final int MAX_DISPLAY_NAME_LENGTH = 256;
+    private static final long MIN_TIMESTAMP = 0L;
+    private static final int MAX_SOURCE_FINGERPRINT_LENGTH = 256;
+    private static final int MAX_TEXT_LENGTH = 256;
 
     public DistributionCampaign {
         Objects.requireNonNull(campaignId, "campaignId");
         sourceFingerprint = normalizeSourceFingerprint(sourceFingerprint);
-        sourceName = normalizeRequired(sourceName, "sourceName", MAX_SOURCE_NAME_LENGTH);
-        displayName = normalizeRequired(displayName, "displayName", MAX_DISPLAY_NAME_LENGTH);
+        sourceName = normalizeText(sourceName, "sourceName");
+        displayName = normalizeText(displayName, "displayName");
         Objects.requireNonNull(definitionId, "definitionId");
+        Objects.requireNonNull(definitionRevision, "definitionRevision");
         Objects.requireNonNull(state, "state");
-        if (createdAtEpochMillis < 0L || updatedAtEpochMillis < createdAtEpochMillis) {
+        if (createdAtEpochMillis < MIN_TIMESTAMP || updatedAtEpochMillis < createdAtEpochMillis) {
             throw new IllegalArgumentException("Invalid campaign timestamps");
         }
-        if (state.terminal() != (terminalAtEpochMillis != null)) {
-            throw new IllegalArgumentException(
-                    "Terminal campaign state and terminal timestamp must agree");
+        if (terminalAtEpochMillis != null && terminalAtEpochMillis < updatedAtEpochMillis) {
+            throw new IllegalArgumentException("terminalAtEpochMillis must not precede update time");
         }
-        if (terminalAtEpochMillis != null
-                && terminalAtEpochMillis < updatedAtEpochMillis) {
-            throw new IllegalArgumentException(
-                    "Campaign terminal timestamp must not precede its update timestamp");
+        if (state.terminal() != (terminalAtEpochMillis != null)) {
+            throw new IllegalArgumentException("Campaign terminal timestamp does not match state");
         }
     }
 
-    public static String normalizeSourceFingerprint(String sourceFingerprint) {
-        String normalized = normalizeRequired(
+    /**
+     * Compatibility constructor for the pre-WP-03 foundation API. New campaign starts must pass
+     * the selected revision explicitly.
+     */
+    public DistributionCampaign(
+            UUID campaignId,
+            String sourceFingerprint,
+            String sourceName,
+            String displayName,
+            LoreDefinitionId definitionId,
+            DistributionCampaignState state,
+            long createdAtEpochMillis,
+            long updatedAtEpochMillis,
+            Long terminalAtEpochMillis) {
+        this(
+                campaignId,
                 sourceFingerprint,
-                "sourceFingerprint",
-                MAX_SOURCE_FINGERPRINT_LENGTH).toLowerCase(Locale.ROOT);
-        if (normalized.codePoints().anyMatch(Character::isWhitespace)) {
-            throw new IllegalArgumentException("Source fingerprint must not contain whitespace");
+                sourceName,
+                displayName,
+                definitionId,
+                new TemplateRevision(1L),
+                state,
+                createdAtEpochMillis,
+                updatedAtEpochMillis,
+                terminalAtEpochMillis);
+    }
+
+    public static String normalizeSourceFingerprint(String sourceFingerprint) {
+        Objects.requireNonNull(sourceFingerprint, "sourceFingerprint");
+        String normalized = sourceFingerprint.strip().toLowerCase(java.util.Locale.ROOT);
+        if (normalized.isEmpty() || normalized.length() > MAX_SOURCE_FINGERPRINT_LENGTH) {
+            throw new IllegalArgumentException("Invalid sourceFingerprint");
         }
         return normalized;
     }
 
-    private static String normalizeRequired(String value, String field, int maxLength) {
-        Objects.requireNonNull(value, field);
+    private static String normalizeText(String value, String name) {
+        Objects.requireNonNull(value, name);
         String normalized = value.strip();
-        if (normalized.isEmpty() || normalized.length() > maxLength) {
-            throw new IllegalArgumentException("Invalid " + field);
+        if (normalized.isEmpty() || normalized.length() > MAX_TEXT_LENGTH) {
+            throw new IllegalArgumentException("Invalid " + name);
         }
         return normalized;
     }

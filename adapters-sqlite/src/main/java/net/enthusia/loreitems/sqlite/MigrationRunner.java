@@ -15,26 +15,12 @@ public final class MigrationRunner {
     private static final String CREATE_TRIGGER = "CREATE TRIGGER";
     private static final List<Migration> MIGRATIONS = List.of(
             new Migration(1, "foundation", "db/migration/V1__foundation.sql"),
-            new Migration(
-                    2,
-                    "template revision rollout",
-                    "db/migration/V2__template_revision_rollout.sql"),
-            new Migration(
-                    3,
-                    "mutation queue controls",
-                    "db/migration/V3__mutation_queue_controls.sql"),
-            new Migration(
-                    4,
-                    "template editor confirmations",
-                    "db/migration/V4__template_editor_confirmations.sql"),
-            new Migration(
-                    5,
-                    "destructive administration",
-                    "db/migration/V5__destructive_administration.sql"),
-            new Migration(
-                    6,
-                    "mass distribution recipient states",
-                    "db/migration/V6__mass_distribution_recipient_states.sql"));
+            new Migration(2, "template revision rollout", "db/migration/V2__template_revision_rollout.sql"),
+            new Migration(3, "mutation queue controls", "db/migration/V3__mutation_queue_controls.sql"),
+            new Migration(4, "template editor confirmations", "db/migration/V4__template_editor_confirmations.sql"),
+            new Migration(5, "destructive administration", "db/migration/V5__destructive_administration.sql"),
+            new Migration(6, "mass distribution recipient states", "db/migration/V6__mass_distribution_recipient_states.sql"),
+            new Migration(7, "mass distribution revision snapshot", "db/migration/V7__mass_distribution_revision_snapshot.sql"));
 
     public void migrate(Connection connection) throws SQLException {
         ensureHistoryTable(connection);
@@ -124,7 +110,6 @@ public final class MigrationRunner {
     private static void executeScript(Connection connection, String script) throws SQLException {
         for (String statementText : splitStatements(script)) {
             try (Statement statement = connection.createStatement()) {
-                // SQL is loaded only from a versioned classpath migration resource.
                 statement.execute(statementText); // nosemgrep
             }
         }
@@ -162,8 +147,5 @@ public final class MigrationRunner {
         return List.copyOf(statements);
     }
 
-    private record Migration(
-            int version,
-            String description,
-            String resource) {}
+    private record Migration(int version, String description, String resource) {}
 }
