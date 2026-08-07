@@ -5,12 +5,14 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-04 — automated production hardening and release candidate
-- Status: `PARTIAL`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-04-production-hardening`
 - Pull request: draft PR #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
 - Durable claim commit: `3413b3304779518a2913a1d372bef61bd8115a2f`
-- Checkpointed implementation/evidence head: `6b7c50d9cc1e7d5b5c3db8b41966b806595838d6`
+- Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
+- Previous durable section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`
+- Resume checkpoint handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-resumed-failure-matrix.md`
 - WP-03 post-merge verification: merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`; GitHub Actions check `verify` run `31174065679` completed successfully.
 
 ## Package status
@@ -18,8 +20,8 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 |---|---:|---|---|
 | WP-01 | 20% | COMPLETE | normally merged and verified |
 | WP-02 | 20% | COMPLETE | normally merged and verified |
-| WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge SHA and post-merge Actions verified |
-| WP-04 | 15% | PARTIAL | operator/recovery docs and executable WP-05 matrix committed on canonical PR; automated hardening/release gates remain |
+| WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
+| WP-04 | 15% | IN_PROGRESS | canonical draft PR #15 resumed at exact head `43b4092e…`; implementing automated hardening gates |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
@@ -34,7 +36,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - WP-04 dependency on WP-03 is verified complete on live GitHub.
 - Operator documentation is committed at `docs/operator-guide.md`, covering installation/upgrade, configuration, permissions/commands, metrics/backlog interpretation, backups, WAL-aware online backup constraints, restore, integrity/degraded recovery, queue/review recovery, deleted markers, campaign marker repair, staged deployment, rollback, and incident collection.
 - The executable WP-05 manual acceptance specification is committed at `docs/wp-05-manual-acceptance-matrix.md` with unique case IDs, prerequisites, exact steps, expected durable/database/physical results, evidence, cleanup, rollback, regression subset, and exact-final-jar gate.
-- Durable checkpoint handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`.
+- Historical canonical branches WP-01 through WP-03 are confirmed contained in live `main`; WP-04 is the only unfinished canonical lock. WP-05/WP-06 LoreItems auxiliary branches and the EnthusiaTags WP-06 primary branch are absent.
 
 ## Remaining acceptance criteria
 - Deterministic failure-injection/restart harness and complete state-machine failure matrix.
@@ -49,17 +51,19 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Normal merge, post-merge `main` verification, and `v1.0.0-rc.1` prerelease/assets verified against the merge SHA.
 
 ## Tests and verification
-- No local build result is claimed; this runtime has no mounted dependency-capable checkout.
-- GitHub Actions CI run `31179217336` was triggered on exact documentation/matrix head `c9784b744271384aac32ea7e145f38df1476cd49` and was still in progress when the durable handoff was written.
-- WP-03 dependency remains verified by Actions run `31174065679` on merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`.
+- Exact resumed head `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`: GitHub Actions CI run `31179353021` completed `success`.
+- That run's `verify` job completed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy successfully.
+- Combined commit status includes CodeRabbit `success`.
+- PR #15 has no submitted reviews, no requested changes, and zero review threads at resume.
+- No local Gradle/build/test result is claimed because this runtime cannot resolve GitHub for a local checkout.
 - No live Paper/Leaf behavior is claimed; that remains WP-05.
 
 ## Known findings
-- Stale package metadata said PR creation was still pending after PR #15 already existed; corrected in this checkpoint.
-- No production-code defect was established during the operator-documentation/manual-matrix section.
+- No competing unfinished canonical package lock was found.
+- No production-code defect has yet been established during WP-04; automated hardening work remains incomplete.
 
 ## Blocker
-None. WP-04 is intentionally `PARTIAL`, not `BLOCKED`.
+None. WP-04 is actively resumed as `IN_PROGRESS`.
 
 ## Exact next action
-Resume draft PR #15 on `agent/wp-04-production-hardening`, re-fetch exact head/check/review state, then implement the reusable deterministic failure-injection/restart harness and the first complete durable state-machine test group. Do not start WP-05.
+Implement the reusable deterministic failure-injection/restart harness and the first complete durable state-machine failure group on draft PR #15, then commit the coherent section with exact test/check evidence. Do not start WP-05.
