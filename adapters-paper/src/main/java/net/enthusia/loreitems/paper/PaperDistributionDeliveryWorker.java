@@ -1,7 +1,6 @@
 package net.enthusia.loreitems.paper;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -12,7 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
 import net.enthusia.loreitems.application.DistributionDeliveryExecutionUseCase;
-import net.enthusia.loreitems.application.DistributionRecipientBindingBatch;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PreparedDistributionDelivery;
 import net.enthusia.loreitems.domain.CampaignRecipient;
@@ -36,7 +34,6 @@ public final class PaperDistributionDeliveryWorker implements Listener, AutoClos
 
     private final Plugin plugin;
     private final DistributionDeliveryExecutionUseCase useCase;
-    private final BindDistributionRecipientsUseCase nameBinder;
     private final PaperDirectDeliveryOperator operator;
     private final int claimLimit;
     private final AtomicBoolean claimInFlight = new AtomicBoolean();
@@ -48,18 +45,27 @@ public final class PaperDistributionDeliveryWorker implements Listener, AutoClos
     public PaperDistributionDeliveryWorker(
             Plugin plugin,
             DistributionDeliveryExecutionUseCase useCase,
-            BindDistributionRecipientsUseCase nameBinder,
             PaperDirectDeliveryOperator operator,
             int deliveryClaimBatchSize,
             int mutationBudgetPerTick) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
-        this.nameBinder = Objects.requireNonNull(nameBinder, "nameBinder");
         this.operator = Objects.requireNonNull(operator, "operator");
         if (deliveryClaimBatchSize < 1 || mutationBudgetPerTick < 1) {
             throw new IllegalArgumentException("Campaign delivery worker budgets must be positive");
         }
         claimLimit = Math.min(deliveryClaimBatchSize, mutationBudgetPerTick);
+    }
+
+    public PaperDistributionDeliveryWorker(
+            Plugin plugin,
+            DistributionDeliveryExecutionUseCase useCase,
+            BindDistributionRecipientsUseCase nameBinder,
+            PaperDirectDeliveryOperator operator,
+            int deliveryClaimBatchSize,
+            int mutationBudgetPerTick) {
+        this(plugin, useCase, operator, deliveryClaimBatchSize, mutationBudgetPerTick);
+        Objects.requireNonNull(nameBinder, "nameBinder");
     }
 
     public void start() {
@@ -108,8 +114,7 @@ public final class PaperDistributionDeliveryWorker implements Listener, AutoClos
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        bindJoinedName(player.getUniqueId(), player.getName());
+        wakePlayer(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
@@ -123,38 +128,6 @@ public final class PaperDistributionDeliveryWorker implements Listener, AutoClos
     @EventHandler
     public void onPlayerDrop(PlayerDropItemEvent event) {
         wakePlayer(event.getPlayer().getUniqueId());
-    }
-
-    private void bindJoinedName(UUID playerId, String currentName) {
-        if (closed) {
-            return;
-        }
-        CompletionStage<DistributionRecipientBindingBatch> binding;
-        try {
-            binding = Objects.requireNonNull(
-                    nameBinder.bindCurrentName(
-                            playerId,
-                            currentName,
-                            Instant.now(),
-                            claimLimit),
-                    "campaign name-binding stage");
-        } catch (RuntimeException exception) {
-            logFailure("Could not submit campaign name binding for a joined player.", exception);
-            wakePlayer(playerId);
-            return;
-        }
-        binding.whenComplete((result, throwable) -> {
-            if (throwable != null) {
-                logFailure("Could not bind a joined player to unresolved campaign recipients.", throwable);
-                wakePlayer(playerId);
-                return;
-            }
-            if (result != null && result.hasMore() && !closed) {
-                bindJoinedName(playerId, currentName);
-            } else {
-                wakePlayer(playerId);
-            }
-        });
     }
 
     private void requestRun() {
