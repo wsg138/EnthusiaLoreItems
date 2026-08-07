@@ -9,11 +9,9 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Canonical branch: `agent/wp-04-production-hardening`
 - Pull request: draft PR #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
-- Durable claim commit: `3413b3304779518a2913a1d372bef61bd8115a2f`
 - Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
-- Previous durable section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`
-- Resume checkpoint handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-resumed-failure-matrix.md`
-- WP-03 post-merge verification: merge SHA `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`; GitHub Actions check `verify` run `31174065679` completed successfully.
+- Latest verified implementation head: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
+- Latest coherent-section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-failure-and-migration-gates.md`
 
 ## Package status
 | Package | Weight | Status | Reason |
@@ -21,7 +19,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-01 | 20% | COMPLETE | normally merged and verified |
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
-| WP-04 | 15% | IN_PROGRESS | canonical draft PR #15 resumed at exact head `43b4092e…`; implementing automated hardening gates |
+| WP-04 | 15% | IN_PROGRESS | draft PR #15; direct-delivery crash matrix and V1–V7 migration matrix verified; remaining hardening gates in progress |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
@@ -32,38 +30,38 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Weighted progress: `60 / 100 = 60%`
 
 ## Completed acceptance criteria / coherent sections
-- Startup reconciliation completed against live GitHub and WP-04 was durably claimed on draft PR #15.
-- WP-04 dependency on WP-03 is verified complete on live GitHub.
-- Operator documentation is committed at `docs/operator-guide.md`, covering installation/upgrade, configuration, permissions/commands, metrics/backlog interpretation, backups, WAL-aware online backup constraints, restore, integrity/degraded recovery, queue/review recovery, deleted markers, campaign marker repair, staged deployment, rollback, and incident collection.
-- The executable WP-05 manual acceptance specification is committed at `docs/wp-05-manual-acceptance-matrix.md` with unique case IDs, prerequisites, exact steps, expected durable/database/physical results, evidence, cleanup, rollback, regression subset, and exact-final-jar gate.
-- Historical canonical branches WP-01 through WP-03 are confirmed contained in live `main`; WP-04 is the only unfinished canonical lock. WP-05/WP-06 LoreItems auxiliary branches and the EnthusiaTags WP-06 primary branch are absent.
+- Startup/live-GitHub reconciliation and durable WP-04 resume on the canonical draft PR.
+- Operator/recovery/backup/restore/rollback/incident documentation at `docs/operator-guide.md`.
+- Executable WP-05 manual acceptance matrix at `docs/wp-05-manual-acceptance-matrix.md`.
+- Reusable test-only SQLite failure-injection/restart harness plus direct/API-delivery crash-boundary coverage: pre-intent rollback, durable-intent replay, expired claimed work after restart, verification-commit rollback/review recovery, terminal replay, and Paper-side physical-insert/durable-completion ambiguity escalation to review.
+- Every committed SQLite schema V1 through V7 is constructed through the production migration runner, populated with durable identity/audit/pending/deleted-marker/campaign state, upgraded to current schema, and checked for preservation, integrity, foreign keys, WAL, busy timeout, and required indexes.
+- Interrupted V7 migration is forced after partial DDL/data-copy work, verified to roll back, then retried successfully.
 
 ## Remaining acceptance criteria
-- Deterministic failure-injection/restart harness and complete state-machine failure matrix.
-- Queue saturation/backpressure tests for all required queues/executors/caches/retries and bounded results.
-- Every historical schema migration/upgrade path, interrupted migration rollback, integrity/WAL/index verification.
+- Complete deterministic crash/restart matrix for every other durable state machine and reload/shutdown boundaries, plus fixed-seed randomized recovery.
+- Saturation/backpressure tests for every required queue/executor/cache/retry/result surface.
 - Reload/shutdown lifecycle automation.
-- Stable versioned Bukkit API finalization/tests/docs plus source/binary compatibility verification.
+- Stable versioned Bukkit API finalization/tests/docs and source/binary compatibility verification.
 - Fixed-scenario performance/profile harness and committed threshold evidence.
-- Static-analysis/complexity remediation without broad suppressions.
-- RC version/artifact/reproducibility/package smoke/release workflow and release notes.
-- Full-package harsh and independent review, confirmed fixes, exact-head CI/Codacy, zero unresolved review state.
-- Normal merge, post-merge `main` verification, and `v1.0.0-rc.1` prerelease/assets verified against the merge SHA.
+- Static-analysis/complexity remediation across all newly added work without broad suppressions.
+- RC version/artifact/SBOM/dependency manifest/checksum/reproducibility/package smoke/release workflow/release notes.
+- Full-package harsh and independent review, all confirmed fixes, exact-head CI/Codacy, zero unresolved review state.
+- Normal merge, post-merge `main` verification, and `v1.0.0-rc.1` prerelease/assets verified against merge SHA.
 
 ## Tests and verification
-- Exact resumed head `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`: GitHub Actions CI run `31179353021` completed `success`.
-- That run's `verify` job completed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy successfully.
+- Exact head `d42684074788ebfbf9dbfaef6111a03254f99bdd`: GitHub Actions CI run `31182331548` completed `success`.
+- Its `verify` job passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
 - Combined commit status includes CodeRabbit `success`.
-- PR #15 has no submitted reviews, no requested changes, and zero review threads at resume.
-- No local Gradle/build/test result is claimed because this runtime cannot resolve GitHub for a local checkout.
-- No live Paper/Leaf behavior is claimed; that remains WP-05.
+- Earlier exact-head CI exposed and the branch fixed: Java lambda capture compilation, two >50-NLOC test methods, four Codacy harness naming/nullability findings, and three migration-fixture duplicate-literal/version findings. No broad suppression was added.
+- No local build result is claimed because this runtime cannot resolve GitHub for a dependency-capable checkout.
+- No live Paper/Leaf acceptance is claimed; WP-05 remains responsible for live acceptance.
 
 ## Known findings
-- No competing unfinished canonical package lock was found.
-- No production-code defect has yet been established during WP-04; automated hardening work remains incomplete.
+- No competing unfinished canonical package lock exists.
+- No production item-loss/duplication defect has been confirmed in the completed direct-delivery failure group; ambiguous post-physical-apply persistence failure is explicitly escalated to review.
 
 ## Blocker
-None. WP-04 is actively resumed as `IN_PROGRESS`.
+None. WP-04 remains `IN_PROGRESS`.
 
 ## Exact next action
-Implement the reusable deterministic failure-injection/restart harness and the first complete durable state-machine failure group on draft PR #15, then commit the coherent section with exact test/check evidence. Do not start WP-05.
+Inventory and verify every bounded-work surface named by WP-04, add deterministic saturation/backpressure tests for capacity, rejection/defer behavior, bounded retries/results/metrics, and commit that coherent section on draft PR #15. Do not start WP-05.

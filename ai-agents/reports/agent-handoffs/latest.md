@@ -6,47 +6,46 @@
 - Branch: `agent/wp-04-production-hardening`
 - Draft PR: #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
-- Claim commit: `3413b3304779518a2913a1d372bef61bd8115a2f`
 - Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
-- Previous durable section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`
-- Resume checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-resumed-failure-matrix.md`
+- Latest verified implementation head: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
+- Coherent-section checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-failure-and-migration-gates.md`
 
 ## Reconciliation
-- Live `main` is `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`, the normal WP-03 merge commit.
-- Canonical WP-01, WP-02, and WP-03 branches are historical and fully contained in live `main`.
-- Draft PR #15 on `agent/wp-04-production-hardening` is the only unfinished canonical package lock.
-- No WP-05 LoreItems branch, WP-06 LoreItems auxiliary branch, or EnthusiaTags WP-06 primary branch exists.
-- PR #15 remained open, draft, mergeable, and exactly at `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34` immediately before resume.
+- Live `main` remains the verified WP-03 merge commit at the package start.
+- WP-04 draft PR #15 remains the only unfinished canonical package lock; no WP-05/WP-06 competing package branch exists.
 
-## Completed before this resume
-- Added `docs/operator-guide.md` with installation/upgrade/configuration/permissions, WAL-aware backups, restore, degraded/read-only recovery, queue/review recovery, deleted-marker handling, campaign-marker repair, staged deployment, rollback, and incident collection.
-- Added `docs/wp-05-manual-acceptance-matrix.md` with unique live case IDs, prerequisites, exact steps, expected physical and durable/database outcomes, evidence requirements, cleanup, rollback, defect-regression subset, and exact-final-jar release gate.
+## Completed coherent sections
+- Operator installation/upgrade/configuration, backup/restore, degraded recovery, queue/review recovery, rollback, and incident guidance.
+- Executable WP-05 live acceptance matrix with unique case IDs and exact evidence expectations.
+- Test-only SQLite failure-injection/restart harness and first complete direct/API-delivery durability group: pre-intent rollback; durable-intent replay; expired-claim restart recovery to review; verification-commit rollback/review; post-terminal replay; Paper-side post-insert durable-completion failure to review.
+- Every historical committed SQLite schema version V1–V7 now has a populated upgrade test through the production migration runner, preserving identity, observation/current-state, pending mutation, deleted marker, audit, campaign, and recipient data.
+- Migration gate verifies `integrity_check`, `foreign_key_check`, WAL, busy timeout, required indexes, and an interrupted V7 partial-DDL/data migration rollback followed by a successful retry.
 
-## Verification at resume
-- Exact head `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`: GitHub Actions CI run `31179353021` completed successfully.
-- The `verify` job passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
-- Combined commit status includes CodeRabbit `success`.
-- PR #15 has no submitted reviews, no requested changes, and zero review threads.
-- No local Gradle/build result is claimed because this runtime cannot resolve GitHub for a local checkout.
-- No live Paper/Leaf acceptance is claimed; that is WP-05.
+## Exact verification
+- Exact implementation head `d42684074788ebfbf9dbfaef6111a03254f99bdd`: GitHub Actions CI run `31182331548` completed successfully.
+- `verify` passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
+- CodeRabbit combined commit status is `success`.
+- No local build result is claimed because the runtime cannot resolve GitHub for a local dependency-capable checkout.
+
+## Harsh-review findings fixed
+- New failure-matrix test initially failed Java compilation because a reassigned repository was captured by a lambda; fixed by stable before/after-restart references.
+- Complexity gate rejected two >50-NLOC test methods; fixed by extracting focused verification/restart helpers without suppressions.
+- Codacy found harness field/method name collisions and nullable-runtime lifecycle smells; fixed with distinct names and explicit closed-state lifecycle.
+- Codacy found migration fixture repeated literals and an inline schema-version literal; fixed with named constants/helper logic without suppressions.
 
 ## Remaining
-- deterministic failure-injection/restart harness and complete durable state-machine matrix;
-- saturation/backpressure automation for every required queue/executor/cache/retry/result surface;
-- all historical schema migration/upgrade/interruption/integrity/WAL/index checks;
-- reload/shutdown automated lifecycle coverage;
-- stable versioned Bukkit API finalization, replay/reload/restart tests/docs, binary/source compatibility;
-- fixed-scenario performance/profile harness and committed threshold evidence;
-- static-analysis/complexity remediation;
-- RC version/artifact/reproducibility/package smoke/release workflow/release notes;
-- full-package harsh and independent review, all fixes, exact-head CI/Codacy and review resolution;
-- normal merge, post-merge `main` verification, and verified `v1.0.0-rc.1` prerelease/assets.
-
-## Findings
-No competing worker or production defect was established during reconciliation.
+- Complete deterministic crash/restart matrix for all other durable state machines and reload/shutdown points; fixed-seed randomized recovery.
+- Saturation/backpressure verification across all named bounded queues/executors/caches/retries/result surfaces.
+- Reload/shutdown lifecycle automation.
+- Stable versioned Bukkit API tests/docs plus source/binary compatibility verification.
+- Reproducible fixed-scenario performance/profile harness and committed threshold evidence.
+- Remaining static-analysis/complexity remediation as new work is added.
+- RC version/artifact, CycloneDX JSON SBOM, dependency manifest, checksum, reproducibility/package smoke, release workflow, release notes.
+- Full-package independent harsh review and all fixes; exact-head CI/Codacy and zero unresolved review state.
+- Normal merge, post-merge `main` verification, and verified `v1.0.0-rc.1` prerelease/assets.
 
 ## Blocker
-None. WP-04 is actively resumed as `IN_PROGRESS`.
+None. WP-04 remains `IN_PROGRESS`.
 
 ## Exact next action
-Implement the reusable deterministic failure-injection/restart harness and first complete durable state-machine test group. Keep all work on draft PR #15 and do not start WP-05.
+Inventory every bounded-work surface named by WP-04 and add deterministic saturation/backpressure tests for capacities, rejection/defer behavior, bounded retries/results, and metrics. Commit that coherent section on PR #15 and continue WP-04 only.
