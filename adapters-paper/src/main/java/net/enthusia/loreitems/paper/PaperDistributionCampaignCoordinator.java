@@ -216,8 +216,9 @@ public final class PaperDistributionCampaignCoordinator {
             for (int index = 0; index < groupFile.recipients().size(); index++) {
                 GroupFileRecipient recipient = groupFile.recipients().get(index);
                 if (recipient.explicitPlayerId() == null) {
+                    int recipientIndex = index;
                     cachedIdentityLookup.apply(recipient.originalValue())
-                            .ifPresent(playerId -> resolved.put(index, playerId));
+                            .ifPresent(playerId -> resolved.put(recipientIndex, playerId));
                 }
             }
             return Map.copyOf(resolved);
