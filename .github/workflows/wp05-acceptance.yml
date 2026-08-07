@@ -1,0 +1,282 @@
+name: WP-05 Acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acc-env-001:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      RC_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0-rc.1/EnthusiaLoreItems.jar
+      RC_SHA256: 3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Prepare pinned server and plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/wp05/server/plugins /tmp/wp05/evidence
+          cd /tmp/wp05/server
+
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest \
+            -o /tmp/wp05/evidence/geyser-build.json
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/Geyser-Spigot.jar
+
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest \
+            -o /tmp/wp05/evidence/floodgate-build.json
+          curl -fsSL -A "$USER_AGENT" \
+            https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot \
+            -o plugins/floodgate-spigot.jar
+
+          curl -fsSL -A "$USER_AGENT" \
+            https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest \
+            -o /tmp/wp05/evidence/viaversion-release.json
+          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05/evidence/viaversion-release.json)"
+          test -n "$VV_URL"
+          curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+
+          curl -fsSL -A "$USER_AGENT" "$RC_URL" -o /tmp/wp05/EnthusiaLoreItems.jar
+          echo "$RC_SHA256  /tmp/wp05/EnthusiaLoreItems.jar" | sha256sum -c -
+
+          sha256sum paper.jar plugins/Geyser-Spigot.jar plugins/floodgate-spigot.jar plugins/ViaVersion.jar /tmp/wp05/EnthusiaLoreItems.jar \
+            > /tmp/wp05/evidence/artifact-sha256.txt
+          java -version 2> /tmp/wp05/evidence/java-version.txt
+          unzip -p /tmp/wp05/EnthusiaLoreItems.jar plugin.yml > /tmp/wp05/evidence/loreitems-plugin.yml
+          printf 'eula=true\n' > eula.txt
+      - name: Prepare Geyser and Floodgate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05/server
+
+          start_server() {
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > "$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 240); do
+              if grep -q 'Done (' "$log"; then
+                return 0
+              fi
+              if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                cat "$log"
+                return 1
+              fi
+              sleep 1
+            done
+            cat "$log"
+            return 1
+          }
+
+          stop_server() {
+            echo 'stop' >&3
+            wait "$SERVER_PID"
+            exec 3>&-
+            rm -f server.stdin
+          }
+
+          start_server /tmp/wp05/evidence/prep-server.log
+          stop_server
+
+          test -f plugins/Geyser-Spigot/config.yml
+          cp plugins/Geyser-Spigot/config.yml /tmp/wp05/evidence/geyser-config-before.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('plugins/Geyser-Spigot/config.yml')
+          text = path.read_text(encoding='utf-8')
+          updated, count = re.subn(r'(?m)^(\s*auth-type:\s*).+$', r'\1floodgate', text, count=1)
+          if count != 1:
+              raise SystemExit('Could not locate Geyser auth-type setting')
+          path.write_text(updated, encoding='utf-8')
+          PY
+          grep -Eq '^\s*auth-type:\s*floodgate\s*$' plugins/Geyser-Spigot/config.yml
+          cp plugins/Geyser-Spigot/config.yml /tmp/wp05/evidence/geyser-config-acceptance.yml
+
+          cp /tmp/wp05/EnthusiaLoreItems.jar plugins/EnthusiaLoreItems.jar
+      - name: Execute ACC-ENV-001
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05/server
+          START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s\n' "$START_UTC" > /tmp/wp05/evidence/start-utc.txt
+
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui < server.stdin > /tmp/wp05/evidence/acceptance-server.log 2>&1 &
+          SERVER_PID=$!
+
+          ready=false
+          for _ in $(seq 1 240); do
+            if grep -q 'Done (' /tmp/wp05/evidence/acceptance-server.log; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat /tmp/wp05/evidence/acceptance-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          for _ in $(seq 1 60); do
+            if grep -q 'Durable storage is active;' /tmp/wp05/evidence/acceptance-server.log \
+              && grep -q 'Queued direct-delivery processing is active.' /tmp/wp05/evidence/acceptance-server.log; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q 'Durable storage is active;' /tmp/wp05/evidence/acceptance-server.log
+          grep -q 'Queued direct-delivery processing is active.' /tmp/wp05/evidence/acceptance-server.log
+
+          echo 'version' >&3
+          echo 'plugins' >&3
+          echo 'version EnthusiaLoreItems' >&3
+          echo 'version Geyser-Spigot' >&3
+          echo 'version floodgate' >&3
+          echo 'version ViaVersion' >&3
+          echo 'loreitems recovery' >&3
+          echo 'loreitems audit' >&3
+          echo 'loreitems destructive-metrics' >&3
+          echo 'loredistribution campaigns' >&3
+          echo 'execute if entity @e[type=item] run say ACC_ENV_ITEM_ENTITY_PRESENT' >&3
+          sleep 8
+
+          echo 'stop' >&3
+          wait "$SERVER_PID"
+          exec 3>&-
+          rm -f server.stdin
+
+          END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s\n' "$END_UTC" > /tmp/wp05/evidence/end-utc.txt
+
+          test -f plugins/EnthusiaLoreItems/config.yml
+          test -f plugins/EnthusiaLoreItems/loreitems.db
+          cp plugins/EnthusiaLoreItems/config.yml /tmp/wp05/evidence/loreitems-config.yml
+          sha256sum plugins/EnthusiaLoreItems/config.yml plugins/Geyser-Spigot/config.yml \
+            > /tmp/wp05/evidence/config-sha256.txt
+          sha256sum plugins/EnthusiaLoreItems/loreitems.db \
+            > /tmp/wp05/evidence/database-sha256.txt
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path('/tmp/wp05/server/plugins/EnthusiaLoreItems/loreitems.db')
+          connection = sqlite3.connect(db)
+          connection.row_factory = sqlite3.Row
+          tables = [row[0] for row in connection.execute(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+          )]
+          counts = {}
+          for table in tables:
+              counts[table] = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+          foreign_keys = {}
+          for table in tables:
+              rows = [dict(row) for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')]
+              if rows:
+                  foreign_keys[table] = rows
+          history = []
+          if 'schema_history' in tables:
+              history = [dict(row) for row in connection.execute('SELECT * FROM schema_history ORDER BY version')]
+          result = {
+              'database': str(db),
+              'sha256': hashlib.sha256(db.read_bytes()).hexdigest(),
+              'journal_mode': connection.execute('PRAGMA journal_mode').fetchone()[0],
+              'integrity_check': [row[0] for row in connection.execute('PRAGMA integrity_check')],
+              'foreign_key_check': [list(row) for row in connection.execute('PRAGMA foreign_key_check')],
+              'foreign_key_schema': foreign_keys,
+              'schema_history': history,
+              'table_counts': counts,
+          }
+          connection.close()
+          Path('/tmp/wp05/evidence/database-evidence.json').write_text(
+              json.dumps(result, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          log = Path('/tmp/wp05/evidence/acceptance-server.log').read_text(encoding='utf-8', errors='replace')
+          db = json.loads(Path('/tmp/wp05/evidence/database-evidence.json').read_text())
+          required = {
+              'paper_started': 'Done (' in log,
+              'loreitems_read_write': 'Durable storage is active;' in log,
+              'direct_delivery_worker': 'Queued direct-delivery processing is active.' in log,
+              'geyser_loaded': 'Geyser-Spigot' in log and ('Geyser' in log),
+              'floodgate_loaded': 'floodgate' in log.lower(),
+              'viaversion_loaded': 'ViaVersion' in log,
+              'wal': str(db['journal_mode']).lower() == 'wal',
+              'integrity_ok': db['integrity_check'] == ['ok'],
+              'foreign_key_check_clean': db['foreign_key_check'] == [],
+              'zero_instances': db['table_counts'].get('lore_instances', 0) == 0,
+              'zero_definitions': db['table_counts'].get('lore_definitions', 0) == 0,
+              'no_item_entity_marker': 'ACC_ENV_ITEM_ENTITY_PRESENT' not in log,
+          }
+          Path('/tmp/wp05/evidence/assertions.json').write_text(
+              json.dumps(required, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          failed = [name for name, value in required.items() if not value]
+          if failed:
+              raise SystemExit('ACC-ENV-001 failed assertions: ' + ', '.join(failed))
+          PY
+
+          cat > /tmp/wp05/evidence/case-metadata.txt <<EOF
+          case_id=ACC-ENV-001
+          result=PASS
+          start_utc=$START_UTC
+          end_utc=$END_UTC
+          source_commit=${{ github.event.pull_request.head.sha || github.sha }}
+          release_tag=v1.0.0-rc.1
+          rc_sha256=$RC_SHA256
+          paper_build=paper-1.21.11-116
+          paper_sha256=$PAPER_SHA256
+          test_accounts=none-required-for-environment-baseline
+          cleanup=clean-server-stop-and-disposable-runner-teardown
+          rollback=discard-disposable-runner-and-recreate-from-pinned-artifacts
+          EOF
+      - name: Upload ACC-ENV-001 raw evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-acc-env-001-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 90
+          path: /tmp/wp05/evidence/
