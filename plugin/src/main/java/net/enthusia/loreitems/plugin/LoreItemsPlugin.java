@@ -130,6 +130,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperAnomalyWarningWorker anomalyWarningWorker;
     private volatile PaperTemplateRevisionPlannerWorker templateRevisionPlannerWorker;
     private volatile LoreItemsAdministrationCommandExecutor administrationCommandExecutor;
+    private volatile DistributionRuntime distributionRuntime;
     private volatile boolean stopping;
 
     @Override
@@ -223,6 +224,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             voidLossDelegate.set(unavailableVoidLossUseCase());
             displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
         }
+        closeQuietly(distributionRuntime, "mass distribution runtime");
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
         closeQuietly(templateRevisionPlannerWorker, "template-revision planner");
@@ -422,11 +424,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     templateManagementUseCase,
                     rolloutUseCase,
                     loaded);
+            activateDistributionRuntime(runtime, loaded);
             getLogger().info(
                     "Durable storage is active; definition creation, adoption, protection, "
-                            + "display observations, and terminal void loss are available. "
-                            + "Delivery, recovery, anomaly, and administration components are "
-                            + "activating on the server thread.");
+                            + "display observations, terminal void loss, and mass distributions "
+                            + "are available. Delivery, recovery, anomaly, and administration "
+                            + "components are activating on the server thread.");
         }
     }
 
@@ -506,6 +509,41 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     java.util.logging.Level.SEVERE,
                     "Could not activate expired mutation recovery; writes remain unavailable.",
                     exception);
+        }
+    }
+
+    private void activateDistributionRuntime(
+            SQLiteStorageRuntime runtime, FoundationConfiguration loaded) {
+        DistributionRuntime distribution =
+                new DistributionRuntime(this, runtime, loaded, lifecycleExecutor);
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                closeQuietly(distribution, "mass distribution runtime");
+                return;
+            }
+            distributionRuntime = distribution;
+        }
+        try {
+            distribution.activate();
+        } catch (Exception exception) {
+            synchronized (lifecycleLock) {
+                if (distributionRuntime == distribution) {
+                    distributionRuntime = null;
+                }
+            }
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not initialize mass distribution directories; disabling LoreItems.",
+                    exception);
+            try {
+                getServer().getScheduler().runTask(
+                        this, () -> getServer().getPluginManager().disablePlugin(this));
+            } catch (RuntimeException schedulingFailure) {
+                getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not schedule LoreItems disable after distribution startup failure.",
+                        schedulingFailure);
+            }
         }
     }
 
