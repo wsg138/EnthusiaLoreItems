@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.IntStream;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
@@ -54,9 +55,7 @@ class PaperTemplateUpdateCoordinatorSaturationTest {
                 plugin, useCase, new PaperTemplateUpdateOperator(), 1);
         List<PaperTemplateUpdateScanner.Candidate> candidates = candidates(10);
 
-        for (int index = 0; index < 9; index++) {
-            assertTrue(coordinator.submit(candidates.get(index)));
-        }
+        candidates.subList(0, 9).forEach(candidate -> assertTrue(coordinator.submit(candidate)));
         assertFalse(coordinator.submit(candidates.get(9)));
         assertEquals(1, useCase.preparedIdentities.size());
 
@@ -65,19 +64,22 @@ class PaperTemplateUpdateCoordinatorSaturationTest {
     }
 
     private List<PaperTemplateUpdateScanner.Candidate> candidates(int count) {
-        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>(count);
         PaperInventoryReference inventory =
                 new PaperInventoryReference.PlayerMain(player.getUniqueId());
-        for (int index = 0; index < count; index++) {
-            LoreItemIdentity identity = new LoreItemIdentity(
-                    DEFINITION_ID,
-                    new LoreInstanceId(new UUID(0L, index + 1L)),
-                    new TemplateRevision(1L));
-            candidates.add(new PaperTemplateUpdateScanner.Candidate(
-                    identity,
-                    PaperTemplateUpdateItemReference.root(inventory, 0)));
-        }
-        return List.copyOf(candidates);
+        return IntStream.range(0, count)
+                .mapToObj(index -> candidate(inventory, index))
+                .toList();
+    }
+
+    private static PaperTemplateUpdateScanner.Candidate candidate(
+            PaperInventoryReference inventory, int index) {
+        LoreItemIdentity identity = new LoreItemIdentity(
+                DEFINITION_ID,
+                new LoreInstanceId(new UUID(0L, index + 1L)),
+                new TemplateRevision(1L));
+        return new PaperTemplateUpdateScanner.Candidate(
+                identity,
+                PaperTemplateUpdateItemReference.root(inventory, 0));
     }
 
     private static final class BlockingUseCase implements TemplateUpdateExecutionUseCase {
