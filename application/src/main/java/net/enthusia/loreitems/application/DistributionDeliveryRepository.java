@@ -31,6 +31,12 @@ public interface DistributionDeliveryRepository {
             Instant now,
             Instant nextAttemptAt);
 
+    CompletionStage<Boolean> cancelClaimed(CampaignRecipient recipient, Instant now);
+
+    CompletionStage<Boolean> cancelPrepared(
+            PreparedDistributionDelivery delivery,
+            Instant now);
+
     CompletionStage<Boolean> completePrepared(
             PreparedDistributionDelivery delivery,
             int inventorySlot,
