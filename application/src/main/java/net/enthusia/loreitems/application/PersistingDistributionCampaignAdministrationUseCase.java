@@ -22,17 +22,20 @@ public final class PersistingDistributionCampaignAdministrationUseCase
 
     private final DistributionCampaignRepository campaigns;
     private final DistributionRecipientRepository recipients;
-    private final AuditRepository audit;
+    private final DistributionReviewRepository review;
+    private final DistributionCampaignControlRepository controls;
     private final Clock clock;
 
     public PersistingDistributionCampaignAdministrationUseCase(
             DistributionCampaignRepository campaigns,
             DistributionRecipientRepository recipients,
-            AuditRepository audit,
+            DistributionReviewRepository review,
+            DistributionCampaignControlRepository controls,
             Clock clock) {
         this.campaigns = Objects.requireNonNull(campaigns, "campaigns");
         this.recipients = Objects.requireNonNull(recipients, "recipients");
-        this.audit = Objects.requireNonNull(audit, "audit");
+        this.review = Objects.requireNonNull(review, "review");
+        this.controls = Objects.requireNonNull(controls, "controls");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -64,6 +67,11 @@ public final class PersistingDistributionCampaignAdministrationUseCase
         return state == null
                 ? recipients.listByCampaign(campaignId, request)
                 : recipients.listByCampaignAndState(campaignId, state, request);
+    }
+
+    @Override
+    public CompletionStage<Page<CampaignRecipient>> listReviewRequired(PageRequest request) {
+        return review.listReviewRequired(Objects.requireNonNull(request, "request"));
     }
 
     @Override
@@ -104,26 +112,17 @@ public final class PersistingDistributionCampaignAdministrationUseCase
         String normalizedActorId = requireActorId(actorId);
         Instant now = clock.instant();
         return campaigns.findById(campaignId).thenCompose(existing -> {
-            if (existing.isEmpty()
-                    || existing.orElseThrow().state().terminal()) {
+            if (existing.isEmpty() || existing.orElseThrow().state().terminal()) {
                 return CompletableFuture.completedFuture(
                         new CampaignCancellationResult(false, 0));
             }
-            DistributionCampaignState expected = existing.orElseThrow().state();
-            return campaigns.cancel(campaignId, expected, now).thenCompose(result -> {
-                if (!result.cancelled()) {
-                    return CompletableFuture.completedFuture(result);
-                }
-                return appendAudit(
-                                campaignId,
-                                CANCELLED_EVENT,
-                                normalizedActorType,
-                                normalizedActorId,
-                                "{\"recipientsCancelled\":"
-                                        + result.recipientsCancelled() + "}",
-                                now)
-                        .thenApply(ignored -> result);
-            });
+            return controls.cancelWithAudit(
+                    campaignId,
+                    existing.orElseThrow().state(),
+                    now,
+                    CANCELLED_EVENT,
+                    normalizedActorType,
+                    normalizedActorId);
         });
     }
 
@@ -149,39 +148,17 @@ public final class PersistingDistributionCampaignAdministrationUseCase
             if (current != expected) {
                 return CompletableFuture.completedFuture(false);
             }
-            return campaigns.transitionState(campaignId, expected, target, now)
-                    .thenCompose(changed -> {
-                        if (!changed) {
-                            return CompletableFuture.completedFuture(false);
-                        }
-                        return appendAudit(
-                                        campaignId,
-                                        eventType,
-                                        normalizedActorType,
-                                        normalizedActorId,
-                                        "{\"from\":\"" + expected.name()
-                                                + "\",\"to\":\"" + target.name() + "\"}",
-                                        now)
-                                .thenApply(ignored -> true);
-                    });
+            AuditEventRecord event = AuditEventRecord.pending(
+                    AGGREGATE_TYPE,
+                    campaignId.toString(),
+                    eventType,
+                    normalizedActorType,
+                    normalizedActorId,
+                    "{\"from\":\"" + expected.name()
+                            + "\",\"to\":\"" + target.name() + "\"}",
+                    now.toEpochMilli());
+            return controls.transitionWithAudit(campaignId, expected, target, now, event);
         });
-    }
-
-    private CompletionStage<AuditEventRecord> appendAudit(
-            UUID campaignId,
-            String eventType,
-            String actorType,
-            String actorId,
-            String detailJson,
-            Instant now) {
-        return audit.append(AuditEventRecord.pending(
-                AGGREGATE_TYPE,
-                campaignId.toString(),
-                eventType,
-                actorType,
-                actorId,
-                detailJson,
-                now.toEpochMilli()));
     }
 
     private static String requireActorType(String actorType) {
