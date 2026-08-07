@@ -290,7 +290,7 @@ jobs:
           con = sqlite3.connect(db)
           con.row_factory = sqlite3.Row
           evidence = {
-              'definitions': [dict(r) for r in con.execute('SELECT definition_id, lookup_key, display_name, current_revision, lifecycle_state FROM lore_definitions')],
+              'definitions': [dict(r) for r in con.execute('SELECT definition_id, lookup_key, display_name, current_revision, deleted_at FROM lore_definitions')],
               'instances': [dict(r) for r in con.execute('SELECT instance_id, definition_id, applied_revision, desired_revision, lifecycle_state FROM lore_instances ORDER BY created_at, instance_id')],
               'deliveries': [dict(r) for r in con.execute('SELECT delivery_id, instance_id, player_id, state, attempt_count FROM direct_deliveries ORDER BY created_at, delivery_id')],
               'integrity': [r[0] for r in con.execute('PRAGMA integrity_check')],
@@ -298,8 +298,8 @@ jobs:
           }
           con.close()
           Path('/tmp/wp05-java/evidence/pre-restart-db.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
-          if len(evidence['definitions']) != 1 or evidence['definitions'][0]['lookup_key'] != 'acc_diag_core':
-              raise SystemExit('Expected exactly one diagnostic definition')
+          if len(evidence['definitions']) != 1 or evidence['definitions'][0]['lookup_key'] != 'acc_diag_core' or evidence['definitions'][0]['deleted_at'] is not None:
+              raise SystemExit('Expected exactly one active diagnostic definition')
           if len(evidence['instances']) != 3:
               raise SystemExit(f"Expected 3 instances after adopt+online+offline give, got {len(evidence['instances'])}")
           states = sorted(d['state'] for d in evidence['deliveries'])
