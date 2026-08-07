@@ -13,6 +13,9 @@ import net.enthusia.loreitems.domain.CampaignRecipientState;
 
 public final class PersistingDistributionDeliveryExecutionUseCase
         implements DistributionDeliveryExecutionUseCase {
+    private static final String RECIPIENT_ARGUMENT = "recipient";
+    private static final String DELIVERY_ARGUMENT = "delivery";
+
     private final DistributionDeliveryRepository repository;
     private final Clock clock;
     private final Duration claimLease;
@@ -47,7 +50,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
     @Override
     public CompletionStage<Optional<PreparedDistributionDelivery>> prepare(
             CampaignRecipient recipient) {
-        Objects.requireNonNull(recipient, "recipient");
+        Objects.requireNonNull(recipient, RECIPIENT_ARGUMENT);
         return repository.prepareClaimed(recipient, clock.instant());
     }
 
@@ -56,7 +59,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
             CampaignRecipient recipient,
             CampaignRecipientState targetPendingState,
             Duration delay) {
-        Objects.requireNonNull(recipient, "recipient");
+        Objects.requireNonNull(recipient, RECIPIENT_ARGUMENT);
         Instant now = clock.instant();
         return repository.deferClaimed(
                 recipient,
@@ -70,7 +73,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
             PreparedDistributionDelivery delivery,
             CampaignRecipientState targetPendingState,
             Duration delay) {
-        Objects.requireNonNull(delivery, "delivery");
+        Objects.requireNonNull(delivery, DELIVERY_ARGUMENT);
         Instant now = clock.instant();
         return repository.deferPrepared(
                 delivery,
@@ -82,14 +85,14 @@ public final class PersistingDistributionDeliveryExecutionUseCase
     @Override
     public CompletionStage<Boolean> cancel(CampaignRecipient recipient) {
         return repository.cancelClaimed(
-                Objects.requireNonNull(recipient, "recipient"),
+                Objects.requireNonNull(recipient, RECIPIENT_ARGUMENT),
                 clock.instant());
     }
 
     @Override
     public CompletionStage<Boolean> cancel(PreparedDistributionDelivery delivery) {
         return repository.cancelPrepared(
-                Objects.requireNonNull(delivery, "delivery"),
+                Objects.requireNonNull(delivery, DELIVERY_ARGUMENT),
                 clock.instant());
     }
 
@@ -99,7 +102,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
             int inventorySlot,
             String afterFingerprint) {
         return repository.completePrepared(
-                Objects.requireNonNull(delivery, "delivery"),
+                Objects.requireNonNull(delivery, DELIVERY_ARGUMENT),
                 inventorySlot,
                 afterFingerprint,
                 clock.instant());
@@ -110,7 +113,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
             CampaignRecipient recipient,
             String reason) {
         return repository.moveClaimedToReview(
-                Objects.requireNonNull(recipient, "recipient"),
+                Objects.requireNonNull(recipient, RECIPIENT_ARGUMENT),
                 reason,
                 clock.instant());
     }
@@ -120,7 +123,7 @@ public final class PersistingDistributionDeliveryExecutionUseCase
             PreparedDistributionDelivery delivery,
             String reason) {
         return repository.movePreparedToReview(
-                Objects.requireNonNull(delivery, "delivery"),
+                Objects.requireNonNull(delivery, DELIVERY_ARGUMENT),
                 reason,
                 clock.instant());
     }
