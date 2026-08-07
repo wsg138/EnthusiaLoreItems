@@ -104,20 +104,12 @@ class SQLiteDirectDeliveryFailureMatrixTest {
         try (SQLiteFailureInjectionHarness harness = new SQLiteFailureInjectionHarness(database)) {
             seedDefinition(harness.runtime(), "after-claim");
             SQLiteDirectDeliveryRepository repository = repository(harness);
-            repository.acceptExternal(
-                            command("after-claim", "after-claim-op"),
-                            Instant.ofEpochMilli(1_000L))
-                    .toCompletableFuture()
-                    .join();
-            Page<PreparedDirectDelivery> claimed = repository
-                    .claimPreparedPending(
-                            "after-claim-worker",
-                            Instant.ofEpochMilli(2_000L),
-                            Duration.ofMillis(10L),
-                            10)
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(1, claimed.items().size());
+            PreparedDirectDelivery claimed = acceptAndClaim(
+                    repository,
+                    command("after-claim", "after-claim-op"),
+                    "after-claim-worker",
+                    Duration.ofMillis(10L));
+            assertEquals("after-claim-worker", claimed.claimToken());
 
             harness.restart();
             repository = repository(harness);
@@ -153,56 +145,18 @@ class SQLiteDirectDeliveryFailureMatrixTest {
         try (SQLiteFailureInjectionHarness harness = new SQLiteFailureInjectionHarness(database)) {
             seedDefinition(harness.runtime(), "verification-failure");
             SQLiteDirectDeliveryRepository beforeRestart = repository(harness);
-            beforeRestart.acceptExternal(
-                            command("verification-failure", "verification-op"),
-                            Instant.ofEpochMilli(1_000L))
-                    .toCompletableFuture()
-                    .join();
-            PreparedDirectDelivery delivery = beforeRestart
-                    .claimPreparedPending(
-                            "verification-worker",
-                            Instant.ofEpochMilli(2_000L),
-                            Duration.ofMillis(10L),
-                            10)
-                    .toCompletableFuture()
-                    .join()
-                    .items()
-                    .getFirst();
+            PreparedDirectDelivery delivery = acceptAndClaim(
+                    beforeRestart,
+                    command("verification-failure", "verification-op"),
+                    "verification-worker",
+                    Duration.ofMillis(10L));
             harness.arm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_AUDIT_INSERT);
 
-            assertThrows(CompletionException.class, () -> beforeRestart
-                    .completeClaimed(
-                            delivery,
-                            4,
-                            "a".repeat(64),
-                            Instant.ofEpochMilli(2_005L))
-                    .toCompletableFuture()
-                    .join());
-            Page<DirectDeliveryRecord> afterFailure = beforeRestart
-                    .listNonTerminal(PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(1, afterFailure.items().size());
-            assertEquals(DirectDeliveryState.RESERVED, afterFailure.items().getFirst().state());
-            assertEquals(1, count(harness.runtime(), CountTable.OBSERVATIONS));
-            assertEquals(1, count(harness.runtime(), CountTable.AUDIT_EVENTS));
+            assertVerificationFailureRolledBack(harness, beforeRestart, delivery);
 
             harness.restart();
             harness.disarm(SQLiteFailureInjectionHarness.FailurePoint.BEFORE_AUDIT_INSERT);
-            SQLiteDirectDeliveryRepository afterRestart = repository(harness);
-            assertEquals(1, afterRestart
-                    .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 10)
-                    .toCompletableFuture()
-                    .join());
-            Page<DirectDeliveryRecord> recovered = afterRestart
-                    .listNonTerminal(PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join();
-
-            assertEquals(DirectDeliveryState.REVIEW_REQUIRED, recovered.items().getFirst().state());
-            assertEquals(1, count(harness.runtime(), CountTable.OBSERVATIONS));
-            assertEquals(2, count(harness.runtime(), CountTable.AUDIT_EVENTS));
-            assertEquals(1, countCurrentState(harness.runtime(), "MISSING_UNRESOLVED"));
+            assertVerificationFailureRecovered(harness, repository(harness));
         }
     }
 
@@ -214,20 +168,11 @@ class SQLiteDirectDeliveryFailureMatrixTest {
             seedDefinition(harness.runtime(), "after-terminal");
             ExternalDeliveryCommand command = command("after-terminal", "after-terminal-op");
             SQLiteDirectDeliveryRepository repository = repository(harness);
-            ExternalDeliveryAcceptance accepted = repository
-                    .acceptExternal(command, Instant.ofEpochMilli(1_000L))
-                    .toCompletableFuture()
-                    .join();
-            PreparedDirectDelivery delivery = repository
-                    .claimPreparedPending(
-                            "terminal-worker",
-                            Instant.ofEpochMilli(2_000L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join()
-                    .items()
-                    .getFirst();
+            PreparedDirectDelivery delivery = acceptAndClaim(
+                    repository,
+                    command,
+                    "terminal-worker",
+                    Duration.ofSeconds(30));
             assertTrue(repository
                     .completeClaimed(
                             delivery,
@@ -238,33 +183,98 @@ class SQLiteDirectDeliveryFailureMatrixTest {
                     .join());
 
             harness.restart();
-            repository = repository(harness);
-            ExternalDeliveryAcceptance replay = repository
-                    .acceptExternal(command, Instant.ofEpochMilli(4_000L))
-                    .toCompletableFuture()
-                    .join();
-
-            assertEquals(ExternalDeliveryOutcome.ALREADY_ACCEPTED, replay.outcome());
-            assertEquals(accepted.deliveryId(), replay.deliveryId());
-            assertTrue(repository
-                    .claimPreparedPending(
-                            "post-terminal-worker",
-                            Instant.ofEpochMilli(4_001L),
-                            Duration.ofSeconds(30),
-                            10)
-                    .toCompletableFuture()
-                    .join()
-                    .items()
-                    .isEmpty());
-            assertTrue(repository
-                    .listNonTerminal(PageRequest.first(10))
-                    .toCompletableFuture()
-                    .join()
-                    .items()
-                    .isEmpty());
-            assertEquals(1, count(harness.runtime(), CountTable.LORE_INSTANCES));
-            assertEquals(1, count(harness.runtime(), CountTable.DIRECT_DELIVERIES));
+            assertTerminalRestartState(harness, repository(harness), command, delivery);
         }
+    }
+
+    private static PreparedDirectDelivery acceptAndClaim(
+            SQLiteDirectDeliveryRepository repository,
+            ExternalDeliveryCommand command,
+            String claimToken,
+            Duration lease) {
+        repository.acceptExternal(command, Instant.ofEpochMilli(1_000L))
+                .toCompletableFuture()
+                .join();
+        Page<PreparedDirectDelivery> claimed = repository.claimPreparedPending(
+                        claimToken,
+                        Instant.ofEpochMilli(2_000L),
+                        lease,
+                        10)
+                .toCompletableFuture()
+                .join();
+        assertEquals(1, claimed.items().size());
+        return claimed.items().getFirst();
+    }
+
+    private static void assertVerificationFailureRolledBack(
+            SQLiteFailureInjectionHarness harness,
+            SQLiteDirectDeliveryRepository repository,
+            PreparedDirectDelivery delivery) {
+        assertThrows(CompletionException.class, () -> repository
+                .completeClaimed(
+                        delivery,
+                        4,
+                        "a".repeat(64),
+                        Instant.ofEpochMilli(2_005L))
+                .toCompletableFuture()
+                .join());
+        Page<DirectDeliveryRecord> afterFailure = repository
+                .listNonTerminal(PageRequest.first(10))
+                .toCompletableFuture()
+                .join();
+        assertEquals(1, afterFailure.items().size());
+        assertEquals(DirectDeliveryState.RESERVED, afterFailure.items().getFirst().state());
+        assertEquals(1, count(harness.runtime(), CountTable.OBSERVATIONS));
+        assertEquals(1, count(harness.runtime(), CountTable.AUDIT_EVENTS));
+    }
+
+    private static void assertVerificationFailureRecovered(
+            SQLiteFailureInjectionHarness harness,
+            SQLiteDirectDeliveryRepository repository) {
+        assertEquals(1, repository
+                .moveExpiredClaimsToReview(Instant.ofEpochMilli(2_011L), 10)
+                .toCompletableFuture()
+                .join());
+        Page<DirectDeliveryRecord> recovered = repository
+                .listNonTerminal(PageRequest.first(10))
+                .toCompletableFuture()
+                .join();
+        assertEquals(1, recovered.items().size());
+        assertEquals(DirectDeliveryState.REVIEW_REQUIRED, recovered.items().getFirst().state());
+        assertEquals(1, count(harness.runtime(), CountTable.OBSERVATIONS));
+        assertEquals(2, count(harness.runtime(), CountTable.AUDIT_EVENTS));
+        assertEquals(1, countCurrentState(harness.runtime(), "MISSING_UNRESOLVED"));
+    }
+
+    private static void assertTerminalRestartState(
+            SQLiteFailureInjectionHarness harness,
+            SQLiteDirectDeliveryRepository repository,
+            ExternalDeliveryCommand command,
+            PreparedDirectDelivery delivery) {
+        ExternalDeliveryAcceptance replay = repository
+                .acceptExternal(command, Instant.ofEpochMilli(4_000L))
+                .toCompletableFuture()
+                .join();
+        assertEquals(ExternalDeliveryOutcome.ALREADY_ACCEPTED, replay.outcome());
+        assertEquals(delivery.deliveryId(), replay.deliveryId().orElseThrow());
+        assertTrue(repository
+                .claimPreparedPending(
+                        "post-terminal-worker",
+                        Instant.ofEpochMilli(4_001L),
+                        Duration.ofSeconds(30),
+                        10)
+                .toCompletableFuture()
+                .join()
+                .items()
+                .isEmpty());
+        assertTrue(repository
+                .listNonTerminal(PageRequest.first(10))
+                .toCompletableFuture()
+                .join()
+                .items()
+                .isEmpty());
+        assertEquals(1, count(harness.runtime(), CountTable.LORE_INSTANCES));
+        assertEquals(1, count(harness.runtime(), CountTable.DIRECT_DELIVERIES));
     }
 
     private static SQLiteDirectDeliveryRepository repository(SQLiteFailureInjectionHarness harness) {
