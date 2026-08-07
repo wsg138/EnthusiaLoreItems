@@ -14,7 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MigrationUpgradeMatrixTest {
+    private static final int RECIPIENT_STATE_MIGRATION_VERSION = 6;
     private static final int LATEST_VERSION = 7;
+    private static final String SQLITE_INDEX_TYPE = "index";
+    private static final String SQL_VALUE_SEPARATOR = "', '";
     private static final String ACTIVE_DEFINITION = "10000000-0000-0000-0000-000000000001";
     private static final String DELETED_DEFINITION = "10000000-0000-0000-0000-000000000002";
     private static final String INSTANCE = "20000000-0000-0000-0000-000000000001";
@@ -39,14 +42,15 @@ class MigrationUpgradeMatrixTest {
         MigrationRunner runner = new MigrationRunner();
 
         try (Connection connection = factory.open()) {
-            runner.migrateThrough(connection, 6);
-            seedHistoricalState(connection, 6);
+            runner.migrateThrough(connection, RECIPIENT_STATE_MIGRATION_VERSION);
+            seedHistoricalState(connection, RECIPIENT_STATE_MIGRATION_VERSION);
             execute(connection,
                     "CREATE INDEX idx_distribution_campaign_revision "
                             + "ON distribution_campaigns(campaign_id)");
 
             assertThrows(SQLException.class, () -> runner.migrate(connection));
-            assertEquals(6, scalarInt(connection, "SELECT COUNT(*) FROM schema_history"));
+            assertEquals(RECIPIENT_STATE_MIGRATION_VERSION,
+                    scalarInt(connection, "SELECT COUNT(*) FROM schema_history"));
             assertFalse(schemaObjectExists(connection, "table", "distribution_campaign_revision_snapshots"));
             assertEquals(1, scalarInt(connection, "SELECT COUNT(*) FROM distribution_campaigns"));
 
@@ -86,7 +90,7 @@ class MigrationUpgradeMatrixTest {
         execute(connection,
                 "INSERT INTO lore_definitions(definition_id, lookup_key, display_name, "
                         + "current_revision, created_at) VALUES ('" + ACTIVE_DEFINITION
-                        + "', 'upgrade-active', 'Upgrade Active', 1, 1)");
+                        + SQL_VALUE_SEPARATOR + "upgrade-active', 'Upgrade Active', 1, 1)");
         execute(connection,
                 "INSERT INTO lore_definition_revisions(definition_id, revision, codec_version, "
                         + "template_blob, created_at) VALUES ('" + ACTIVE_DEFINITION
@@ -94,7 +98,7 @@ class MigrationUpgradeMatrixTest {
         execute(connection,
                 "INSERT INTO lore_definitions(definition_id, lookup_key, display_name, "
                         + "current_revision, created_at, deleted_at) VALUES ('" + DELETED_DEFINITION
-                        + "', 'upgrade-deleted', 'Upgrade Deleted', 1, 1, 2)");
+                        + SQL_VALUE_SEPARATOR + "upgrade-deleted', 'Upgrade Deleted', 1, 1, 2)");
         execute(connection,
                 "INSERT INTO lore_definition_revisions(definition_id, revision, codec_version, "
                         + "template_blob, created_at) VALUES ('" + DELETED_DEFINITION
@@ -105,17 +109,17 @@ class MigrationUpgradeMatrixTest {
         execute(connection,
                 "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, "
                         + "desired_revision, lifecycle_state, created_at) VALUES ('" + INSTANCE
-                        + "', '" + ACTIVE_DEFINITION + "', 1, 1, 'ACTIVE', 1)");
+                        + SQL_VALUE_SEPARATOR + ACTIVE_DEFINITION + "', 1, 1, 'ACTIVE', 1)");
         execute(connection,
                 "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
                         + "location_key, confidence, source, observed_at) VALUES ('" + INSTANCE
-                        + "', '" + ACTIVE_DEFINITION
+                        + SQL_VALUE_SEPARATOR + ACTIVE_DEFINITION
                         + "', 'PLAYER_INVENTORY', 'player:test', 'CONFIRMED_NOW', 'upgrade', 2)");
         execute(connection,
                 "INSERT INTO instance_current_state(instance_id, state, location_type, "
                         + "location_key, last_observation_id, state_revision, updated_at) VALUES ('"
-                        + INSTANCE
-                        + "', 'CONFIRMED_NOW', 'PLAYER_INVENTORY', 'player:test', 1, 1, 2)");
+                        + INSTANCE + SQL_VALUE_SEPARATOR
+                        + "CONFIRMED_NOW', 'PLAYER_INVENTORY', 'player:test', 1, 1, 2)");
     }
 
     private static void seedPendingWork(Connection connection) throws SQLException {
@@ -123,13 +127,13 @@ class MigrationUpgradeMatrixTest {
                 "INSERT INTO pending_mutations(mutation_id, mutation_type, definition_id, "
                         + "instance_id, desired_revision, state, attempt_count, created_at, updated_at) "
                         + "VALUES ('" + MUTATION + "', 'TEMPLATE_UPDATE', '" + ACTIVE_DEFINITION
-                        + "', '" + INSTANCE + "', 1, 'PENDING', 0, 3, 3)");
+                        + SQL_VALUE_SEPARATOR + INSTANCE + "', 1, 'PENDING', 0, 3, 3)");
     }
 
     private static void seedDeletedMarker(Connection connection) throws SQLException {
         execute(connection,
                 "INSERT INTO deleted_definition_markers(definition_id, lookup_key, deleted_at) "
-                        + "VALUES ('" + DELETED_DEFINITION + "', 'upgrade-deleted', 2)");
+                        + "VALUES ('" + DELETED_DEFINITION + SQL_VALUE_SEPARATOR + "upgrade-deleted', 2)");
     }
 
     private static void seedCampaign(Connection connection, int version) throws SQLException {
@@ -138,17 +142,21 @@ class MigrationUpgradeMatrixTest {
                         + "display_name, definition_id, state, created_at, updated_at) VALUES ('"
                         + CAMPAIGN + "', 'upgrade-source', 'upgrade-source.txt', 'Upgrade Campaign', '"
                         + ACTIVE_DEFINITION + "', 'DRAFT', 4, 4)");
-        String recipientState = version < 6 ? "PENDING_NAME" : "UNRESOLVED";
+        String recipientState = recipientStateFor(version);
         execute(connection,
                 "INSERT INTO distribution_recipients(campaign_id, recipient_key, snapshot_index, "
                         + "original_value, state, attempt_count, updated_at) VALUES ('" + CAMPAIGN
                         + "', 'name:upgrade-user', 0, 'UpgradeUser', '" + recipientState + "', 0, 4)");
-        if (version >= 7) {
+        if (version >= LATEST_VERSION) {
             execute(connection,
                     "INSERT INTO distribution_campaign_revision_snapshots(campaign_id, definition_id, "
-                            + "definition_revision, created_at) VALUES ('" + CAMPAIGN + "', '"
-                            + ACTIVE_DEFINITION + "', 1, 4)");
+                            + "definition_revision, created_at) VALUES ('" + CAMPAIGN
+                            + SQL_VALUE_SEPARATOR + ACTIVE_DEFINITION + "', 1, 4)");
         }
+    }
+
+    private static String recipientStateFor(int version) {
+        return version < RECIPIENT_STATE_MIGRATION_VERSION ? "PENDING_NAME" : "UNRESOLVED";
     }
 
     private static void seedAudit(Connection connection) throws SQLException {
@@ -180,11 +188,11 @@ class MigrationUpgradeMatrixTest {
         assertFalse(hasRows(connection, "PRAGMA foreign_key_check"));
         assertEquals("wal", scalarText(connection, "PRAGMA journal_mode"));
         assertEquals(5_000, scalarInt(connection, "PRAGMA busy_timeout"));
-        assertTrue(schemaObjectExists(connection, "index", "uq_template_update_instance_revision"));
-        assertTrue(schemaObjectExists(connection, "index", "idx_mutations_type_claimable"));
-        assertTrue(schemaObjectExists(connection, "index", "idx_mutations_type_review"));
-        assertTrue(schemaObjectExists(connection, "index", "uq_destructive_target_active_instance"));
-        assertTrue(schemaObjectExists(connection, "index", "idx_distribution_campaign_revision"));
+        assertTrue(schemaObjectExists(connection, SQLITE_INDEX_TYPE, "uq_template_update_instance_revision"));
+        assertTrue(schemaObjectExists(connection, SQLITE_INDEX_TYPE, "idx_mutations_type_claimable"));
+        assertTrue(schemaObjectExists(connection, SQLITE_INDEX_TYPE, "idx_mutations_type_review"));
+        assertTrue(schemaObjectExists(connection, SQLITE_INDEX_TYPE, "uq_destructive_target_active_instance"));
+        assertTrue(schemaObjectExists(connection, SQLITE_INDEX_TYPE, "idx_distribution_campaign_revision"));
     }
 
     private static boolean schemaObjectExists(Connection connection, String type, String name)
