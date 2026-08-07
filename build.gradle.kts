@@ -16,6 +16,11 @@ version = providers.gradleProperty("releaseVersion").orElse("0.1.0-SNAPSHOT").ge
 allprojects {
     group = rootProject.group
     version = rootProject.version
+
+    tasks.withType<org.gradle.api.tasks.bundling.AbstractArchiveTask>().configureEach {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
 }
 
 subprojects {
