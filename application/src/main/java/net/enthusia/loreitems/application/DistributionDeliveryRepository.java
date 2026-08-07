@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.CampaignRecipientState;
@@ -31,11 +32,19 @@ public interface DistributionDeliveryRepository {
             Instant now,
             Instant nextAttemptAt);
 
-    CompletionStage<Boolean> cancelClaimed(CampaignRecipient recipient, Instant now);
+    default CompletionStage<Boolean> cancelClaimed(
+            CampaignRecipient recipient,
+            Instant now) {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("Safe campaign claim cancellation is unavailable"));
+    }
 
-    CompletionStage<Boolean> cancelPrepared(
+    default CompletionStage<Boolean> cancelPrepared(
             PreparedDistributionDelivery delivery,
-            Instant now);
+            Instant now) {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("Safe prepared campaign cancellation is unavailable"));
+    }
 
     CompletionStage<Boolean> completePrepared(
             PreparedDistributionDelivery delivery,
