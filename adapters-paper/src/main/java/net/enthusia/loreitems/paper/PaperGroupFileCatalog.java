@@ -28,6 +28,7 @@ public final class PaperGroupFileCatalog {
     private static final String YAML_SUFFIX = ".yml";
     private static final String ACTIVE_MARKER = ".active-";
     private static final String RECOVERY_TEMP_PREFIX = ".distribution-marker-recovery-";
+    private static final String RECOVERY_TEMP_SUFFIX = ".tmp";
     private static final Set<String> SUPPORTED_KEYS = Set.of("display-name", "players");
     private static final int MAX_GROUP_FILE_BYTES = 1_048_576;
     private static final int MAX_RECIPIENTS = 100_000;
@@ -69,17 +70,20 @@ public final class PaperGroupFileCatalog {
         int inspectedEntries = 0;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(groupsDirectory)) {
             for (Path candidate : stream) {
+                Path fileName = candidate.getFileName();
+                if (fileName == null) {
+                    continue;
+                }
+                String name = fileName.toString();
+                if (isRecoveryTempName(name)) {
+                    continue;
+                }
                 inspectedEntries++;
                 if (inspectedEntries > maxDirectoryEntries) {
                     throw new IOException(
                             "groups directory exceeds the bounded entry limit of "
                                     + maxDirectoryEntries);
                 }
-                Path fileName = candidate.getFileName();
-                if (fileName == null) {
-                    continue;
-                }
-                String name = fileName.toString();
                 if (!isDiscoverableName(name)) {
                     continue;
                 }
@@ -292,7 +296,7 @@ public final class PaperGroupFileCatalog {
             String sourceFingerprint,
             UUID campaignId) throws IOException {
         Path temporary = Files.createTempFile(
-                groupsDirectory, RECOVERY_TEMP_PREFIX, ".tmp");
+                groupsDirectory, RECOVERY_TEMP_PREFIX, RECOVERY_TEMP_SUFFIX);
         try {
             Files.writeString(
                     temporary,
@@ -371,6 +375,10 @@ public final class PaperGroupFileCatalog {
     private static boolean isDiscoverableName(String name) {
         String lower = name.toLowerCase(Locale.ROOT);
         return lower.endsWith(YAML_SUFFIX) && !lower.contains(ACTIVE_MARKER);
+    }
+
+    private static boolean isRecoveryTempName(String name) {
+        return name.startsWith(RECOVERY_TEMP_PREFIX) && name.endsWith(RECOVERY_TEMP_SUFFIX);
     }
 
     private static String validateSourceName(String sourceName) {

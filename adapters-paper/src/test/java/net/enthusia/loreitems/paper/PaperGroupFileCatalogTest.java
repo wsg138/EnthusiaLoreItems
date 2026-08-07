@@ -152,6 +152,24 @@ class PaperGroupFileCatalogTest {
         assertTrue(failure.getMessage().contains("bounded entry limit"));
     }
 
+    @Test
+    void recoveryTempFilesDoNotConsumeDirectoryEntryBudget() throws Exception {
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory, 3);
+        catalog.initializeDirectories();
+        Path groups = temporaryDirectory.resolve("groups");
+        for (int index = 0; index < 8; index++) {
+            Files.writeString(
+                    groups.resolve(".distribution-marker-recovery-orphan-" + index + ".tmp"),
+                    "orphan");
+        }
+        write("one.yml", "display-name: One\nplayers:\n  - PlayerOne\n");
+
+        GroupFileCatalogSnapshot snapshot = catalog.reload();
+
+        assertEquals(1, snapshot.validFiles().size());
+        assertTrue(snapshot.invalidFiles().isEmpty());
+    }
+
     private void write(String name, String content) throws IOException {
         Path groups = temporaryDirectory.resolve("groups");
         Files.createDirectories(groups);
