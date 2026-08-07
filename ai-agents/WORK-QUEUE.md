@@ -7,20 +7,17 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 |---:|---|---:|---|---|
 | 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | merged/verified |
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
-| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | all package gates passed; normal merge/post-merge verification remain |
-| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | READY | WP-03 COMPLETE; exact next package, not started |
+| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
+| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | IN_PROGRESS | canonical branch claimed from verified WP-03 `main` |
 | 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | BLOCKED | WP-04 release candidate |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
 
-## WP-03 prospective completion checkpoint
-- Branch: `agent/wp-03-mass-distributions`
-- PR: #14
-- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Worker starting head: `10cb131e93c4758cfe9f1e174e1400cb8d0b5ffc`
-- Independent review: CodeRabbit run `fc10c8bf-f61f-4009-bde2-54620c4792d7`; all 17 inline threads resolved; no requested changes.
-- Exact green VERIFYING head: `cce46ffe0f030b2d5490a2542b73b4709647e823`.
-- Verification: Actions `31173515497` success for full Gradle verification, repository tooling, new-code complexity, and workflow Codacy; external Codacy `92850542953` success with zero annotations.
-- Remaining work is only exact-head verification of this prospective-completion state, normal merge, and live-main/post-merge verification.
+## WP-04 claim checkpoint
+- Branch: `agent/wp-04-production-hardening`
+- Draft PR: create immediately from this claim commit
+- Starting/verified live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Dependency evidence: WP-03 merge commit is live `main`; GitHub Actions `verify` run `31174065679` completed successfully on that merge SHA.
+- Checkpointed implementation/evidence head: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
 - Blocker: none.
 
 ## Progress
@@ -29,4 +26,4 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - Weighted progress: 60%
 
 ## Exact next action
-Verify the exact prospective-completion SHA. If green and concurrency/review state remains clean, normally merge PR #14, verify live `main` and post-merge checks, then stop. WP-04 is READY but must not be started in this chat.
+Open the exact WP-04 draft PR, re-fetch the claim lock, inventory current hardening/release surfaces, and complete the entire WP-04 contract on the same branch.

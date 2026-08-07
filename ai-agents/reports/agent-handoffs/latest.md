@@ -1,47 +1,39 @@
 # Latest agent handoff
 
-## Completed package pending merge
-- Package: WP-03 — one-use mass distributions
-- Status: `COMPLETE` (prospective pre-merge state)
-- Branch: `agent/wp-03-mass-distributions`
-- PR: #14
-- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Worker starting head: `10cb131e93c4758cfe9f1e174e1400cb8d0b5ffc`
-- Exact green VERIFYING head: `cce46ffe0f030b2d5490a2542b73b4709647e823`
-- VERIFYING Actions: `31173515497` success
-- External Codacy: `92850542953` success, zero annotations
-- Checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-03-complete-premerge.md`
+## Active package
+- Package: WP-04 — automated production hardening and release candidate
+- Status: `IN_PROGRESS`
+- Branch: `agent/wp-04-production-hardening`
+- Draft PR: create immediately from the durable claim commit
+- Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Checkpointed implementation/evidence head: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
 
-## Acceptance/review state
-- Complete WP-03 functional contract, focused test coverage, author harsh review, independent review, and all review remediation are complete.
-- CodeRabbit substantive review run `fc10c8bf-f61f-4009-bde2-54620c4792d7` covered all 90 PR files.
-- All 17 inline review threads are resolved and there is no requested-changes review.
-- Confirmed review/static defects were fixed on the canonical branch; validated false positives/maintainability-only suggestions were resolved with repository-specific evidence rather than risky scope churn.
+## Reconciliation evidence
+- WP-03 PR #14 is normally merged into live `main` as `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`.
+- GitHub Actions `verify` run `31174065679` succeeded on that merge SHA.
+- No open LoreItems PR existed at routing time.
+- Historical canonical branches for WP-01 through WP-03 remain; WP-04/WP-05 and WP-06 auxiliary LoreItems/Tags branches were absent before claim.
+- WP-04 is the lowest-numbered dependency-verified READY package and is now exclusively claimed.
 
-## Verification
-- `f71c056748541d31a23f78807aab73acdd5630bd`: Actions `31173262374` and external Codacy green.
-- `cce46ffe0f030b2d5490a2542b73b4709647e823`: Actions `31173515497` and external Codacy `92850542953` green with zero annotations.
-- No local test pass is claimed because this runtime cannot resolve GitHub dependencies.
-- The prospective-completion state commit still requires exact-head verification before merge.
-
-## Queue/progress
-- WP-01 COMPLETE
-- WP-02 COMPLETE
-- WP-03 COMPLETE
-- WP-04 READY (do not begin in this chat)
-- WP-05 BLOCKED
-- WP-06 BLOCKED
-- Completed 3/6; remaining 3/6; weighted progress 60%.
+## Completed
+- Read universal prompt, workflow rules, queue/state/handoff, all six package contracts, requirements, architecture, and implementation plan.
+- Reconciled recent merges and canonical branches with live GitHub.
+- Atomically created `agent/wp-04-production-hardening` from verified live `main`.
+- Began durable `IN_PROGRESS` checkpoint.
 
 ## Remaining
-1. Exact-head Actions/external Codacy on the prospective-completion SHA.
-2. Final concurrency/review recheck.
-3. Normal merge PR #14.
-4. Live-main and post-merge verification.
-5. Stop; do not begin WP-04.
+All WP-04 acceptance criteria remain: complete deterministic failure matrix, saturation/backpressure tests, all-version migration/upgrade tests, reload/shutdown hardening, stable service API tests/docs, fixed-scenario performance harness/results, static-analysis cleanup, operator/recovery docs, WP-05 acceptance matrix, RC packaging/reproducibility/artifacts, harsh and independent review, exact-head CI/Codacy, normal merge/post-merge verification, and `v1.0.0-rc.1` prerelease verification.
+
+## Tests
+- No WP-04 implementation tests yet.
+- Dependency verification only: post-merge Actions success on WP-03 merge SHA.
+- No local build claim; no dependency-capable checkout is available in this runtime.
+
+## Findings
+None yet.
 
 ## Blocker
 None.
 
 ## Exact next action
-Hold the completion SHA stable, verify it, normally merge PR #14 if clean, verify live `main`, and stop.
+Create the exact draft PR from this claim commit, verify the branch/PR/head did not move, then inventory and implement the WP-04 production-hardening surfaces on this branch only.
