@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -32,10 +33,12 @@ import java.util.function.Consumer;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.CampaignCancellationResult;
 import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
+import net.enthusia.loreitems.application.DistributionCampaignStatus;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.CampaignRecipientState;
 import net.enthusia.loreitems.domain.DefinitionKey;
 import net.enthusia.loreitems.domain.DistributionCampaign;
+import net.enthusia.loreitems.domain.DistributionCampaignState;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -287,8 +290,8 @@ public final class DistributionCampaignCommandExecutor
         try {
             stage = administration.cancel(campaignId, actor.type(), actor.id());
         } catch (RuntimeException exception) {
-            cancellationFence.committed(campaignId);
-            throw exception;
+            reconcileCancellationFailure(sender, campaignId, exception);
+            return true;
         }
         stage.whenComplete((result, throwable) -> scheduleMain(() ->
                 finishCancellation(sender, campaignId, result, throwable)));
@@ -301,8 +304,7 @@ public final class DistributionCampaignCommandExecutor
             CampaignCancellationResult result,
             Throwable throwable) {
         if (throwable != null || result == null) {
-            cancellationFence.committed(campaignId);
-            sendFailure(sender, throwable);
+            reconcileCancellationFailure(sender, campaignId, throwable);
             return;
         }
         if (!result.cancelled()) {
@@ -314,6 +316,55 @@ public final class DistributionCampaignCommandExecutor
         markerWake.run();
         sender.sendMessage("Campaign cancelled; pending recipients cancelled: "
                 + result.recipientsCancelled());
+    }
+
+    private void reconcileCancellationFailure(
+            CommandSender sender, UUID campaignId, Throwable originalFailure) {
+        CompletionStage<Optional<DistributionCampaignStatus>> verification;
+        try {
+            verification = administration.status(campaignId);
+        } catch (RuntimeException verificationFailure) {
+            logCancellationVerificationFailure(campaignId, verificationFailure);
+            sendFailure(sender, originalFailure);
+            return;
+        }
+        verification.whenComplete((status, verificationFailure) -> scheduleMain(() ->
+                finishCancellationFailure(
+                        sender,
+                        campaignId,
+                        originalFailure,
+                        status,
+                        verificationFailure)));
+    }
+
+    private void finishCancellationFailure(
+            CommandSender sender,
+            UUID campaignId,
+            Throwable originalFailure,
+            Optional<DistributionCampaignStatus> status,
+            Throwable verificationFailure) {
+        if (verificationFailure != null || status == null) {
+            logCancellationVerificationFailure(campaignId, verificationFailure);
+            sendFailure(sender, originalFailure);
+            return;
+        }
+        boolean durableCancellation = status.isPresent()
+                && status.orElseThrow().campaign().state() == DistributionCampaignState.CANCELLED;
+        if (durableCancellation) {
+            cancellationFence.committed(campaignId);
+            markerWake.run();
+        } else {
+            cancellationFence.release(campaignId);
+        }
+        sendFailure(sender, originalFailure);
+    }
+
+    private void logCancellationVerificationFailure(UUID campaignId, Throwable failure) {
+        plugin.getLogger().log(
+                Level.SEVERE,
+                "Could not verify durable cancellation state for campaign " + campaignId
+                        + "; the delivery fence remains active for safety.",
+                failure);
     }
 
     private boolean reconcile(CommandSender sender, String[] args) {
