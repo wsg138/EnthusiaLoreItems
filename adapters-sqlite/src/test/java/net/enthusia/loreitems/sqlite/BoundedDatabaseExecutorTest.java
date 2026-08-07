@@ -19,6 +19,8 @@ import net.enthusia.loreitems.application.MetricsPort;
 import org.junit.jupiter.api.Test;
 
 class BoundedDatabaseExecutorTest {
+    private static final String RUNNING = "running";
+
     @Test
     void saturatedQueueRejectsWithoutExceedingConfiguredCapacityAndReportsMetrics() throws Exception {
         RecordingMetrics metrics = new RecordingMetrics();
@@ -30,7 +32,7 @@ class BoundedDatabaseExecutorTest {
         CompletableFuture<String> running = executor.submit(() -> {
             started.countDown();
             assertTrue(release.await(1, TimeUnit.SECONDS));
-            return "running";
+            return RUNNING;
         });
         assertTrue(started.await(1, TimeUnit.SECONDS));
 
@@ -44,7 +46,7 @@ class BoundedDatabaseExecutorTest {
         assertEquals(1L, metrics.counter("database.queue.rejected"));
 
         release.countDown();
-        assertEquals("running", running.get(1, TimeUnit.SECONDS));
+        assertEquals(RUNNING, running.get(1, TimeUnit.SECONDS));
         assertEquals("queued", queued.get(1, TimeUnit.SECONDS));
         assertTrue(executor.shutdown(Duration.ofSeconds(1)));
         assertEquals(0L, metrics.gauge("database.queue.depth"));
@@ -68,7 +70,7 @@ class BoundedDatabaseExecutorTest {
                     Thread.interrupted();
                 }
             }
-            return "running";
+            return RUNNING;
         });
         assertTrue(started.await(1, TimeUnit.SECONDS));
 
@@ -79,7 +81,7 @@ class BoundedDatabaseExecutorTest {
         assertInstanceOf(RejectedExecutionException.class, failure.getCause());
 
         release.countDown();
-        assertEquals("running", running.get(1, TimeUnit.SECONDS));
+        assertEquals(RUNNING, running.get(1, TimeUnit.SECONDS));
     }
 
     private static final class RecordingMetrics implements MetricsPort {
