@@ -17,6 +17,9 @@ import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DistributionCampaign;
 
 public final class PaperDistributionMarkerReconciler {
+    private static final String YAML_SUFFIX = ".yml";
+    private static final String ACTIVE_MARKER = ".active-";
+
     private final PaperGroupFileCatalog groupCatalog;
     private final Function<PageRequest, CompletionStage<Page<DistributionCampaign>>> campaignLookup;
     private final Executor blockingExecutor;
@@ -85,13 +88,42 @@ public final class PaperDistributionMarkerReconciler {
     private Path reconcileCompleted(DistributionCampaign campaign) throws IOException {
         groupCatalog.repairActiveMarker(
                 campaign.sourceName(), campaign.sourceFingerprint(), campaign.campaignId());
-        return groupCatalog.moveToCompleted(campaign.sourceName(), campaign.campaignId());
+        Path marker = groupCatalog.moveToCompleted(campaign.sourceName(), campaign.campaignId());
+        removeDuplicateActiveMarker(campaign, marker);
+        return marker;
     }
 
     private Path reconcileCancelled(DistributionCampaign campaign) throws IOException {
         groupCatalog.repairActiveMarker(
                 campaign.sourceName(), campaign.sourceFingerprint(), campaign.campaignId());
-        return groupCatalog.moveToCancelled(campaign.sourceName(), campaign.campaignId());
+        Path marker = groupCatalog.moveToCancelled(campaign.sourceName(), campaign.campaignId());
+        removeDuplicateActiveMarker(campaign, marker);
+        return marker;
+    }
+
+    private static void removeDuplicateActiveMarker(
+            DistributionCampaign campaign, Path terminalMarker) throws IOException {
+        if (!Files.isRegularFile(terminalMarker, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(terminalMarker)) {
+            return;
+        }
+        Path terminalDirectory = terminalMarker.getParent();
+        Path groupsDirectory = terminalDirectory == null ? null : terminalDirectory.getParent();
+        if (groupsDirectory == null) {
+            throw new IOException("Terminal campaign marker is outside the groups directory layout");
+        }
+        String sourceName = campaign.sourceName();
+        String stem = sourceName.substring(0, sourceName.length() - YAML_SUFFIX.length());
+        Path activeMarker = groupsDirectory.resolve(
+                stem + ACTIVE_MARKER + campaign.campaignId() + YAML_SUFFIX);
+        if (!Files.exists(activeMarker, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        if (Files.isSymbolicLink(activeMarker)
+                || !Files.isRegularFile(activeMarker, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Duplicate active campaign marker is not a safe regular file");
+        }
+        Files.delete(activeMarker);
     }
 
     private static DistributionMarkerReconciliationPage.Entry verifyMarker(

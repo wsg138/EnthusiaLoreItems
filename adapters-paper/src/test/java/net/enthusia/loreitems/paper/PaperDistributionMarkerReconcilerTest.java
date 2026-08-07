@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,6 +57,34 @@ class PaperDistributionMarkerReconcilerTest {
         assertTrue(Files.isRegularFile(result.entries().get(1).markerPath()));
         assertTrue(result.entries().get(1).markerPath().startsWith(
                 temporaryDirectory.resolve("groups/completed")));
+    }
+
+    @Test
+    void removesDuplicateActiveMarkerAfterTerminalStateIsAlreadyVisible() throws Exception {
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
+        GroupFileDefinition source = writeAndInspect(catalog, "duplicate.yml", "Duplicate");
+        DistributionCampaign completed = campaign(source, DistributionCampaignState.COMPLETED);
+        Path activeMarker = catalog.moveToActive(source, completed.campaignId());
+        Path completedMarker = catalog.moveToCompleted(source.sourceName(), completed.campaignId());
+        Files.copy(completedMarker, activeMarker);
+        assertTrue(Files.isRegularFile(activeMarker));
+        PageRequest request = PageRequest.first(1);
+        PaperDistributionMarkerReconciler reconciler = new PaperDistributionMarkerReconciler(
+                catalog,
+                ignored -> CompletableFuture.completedFuture(new Page<>(
+                        List.of(completed), request.offset(), request.limit(), false)),
+                Runnable::run);
+
+        DistributionMarkerReconciliationPage result = reconciler.reconcile(request)
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(
+                DistributionMarkerReconciliationPage.Status.RECONCILED,
+                result.entries().getFirst().status());
+        assertEquals(completedMarker, result.entries().getFirst().markerPath());
+        assertTrue(Files.isRegularFile(completedMarker));
+        assertFalse(Files.exists(activeMarker));
     }
 
     @Test
