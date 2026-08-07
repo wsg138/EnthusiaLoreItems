@@ -17,9 +17,12 @@ public interface DistributionCampaignAdministrationUseCase {
             CampaignRecipientState state,
             PageRequest request);
 
-    CompletionStage<Boolean> pause(UUID campaignId);
+    CompletionStage<Boolean> pause(UUID campaignId, String actorType, String actorId);
 
-    CompletionStage<Boolean> resume(UUID campaignId);
+    CompletionStage<Boolean> resume(UUID campaignId, String actorType, String actorId);
 
-    CompletionStage<CampaignCancellationResult> cancel(UUID campaignId);
+    CompletionStage<CampaignCancellationResult> cancel(
+            UUID campaignId,
+            String actorType,
+            String actorId);
 }
