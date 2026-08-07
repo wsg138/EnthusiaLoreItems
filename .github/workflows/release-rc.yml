@@ -1,11 +1,9 @@
 name: Release RC
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
+  push:
+    tags:
+      - v1.0.0-rc.1
 
 permissions:
   contents: write
@@ -13,50 +11,42 @@ permissions:
 
 jobs:
   release:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      TARGET_SHA: ${{ github.sha }}
       RC_TAG: v1.0.0-rc.1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
-      - name: Detect existing RC
-        id: existing
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/${RC_TAG}" >/dev/null 2>&1; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "released=false" >> "$GITHUB_OUTPUT"
-          fi
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
-        if: steps.existing.outputs.released != 'true'
         with:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
-        if: steps.existing.outputs.released != 'true'
         with:
           gradle-version: "8.14.3"
-      - name: Verify exact main source
-        if: steps.existing.outputs.released != 'true'
+      - name: Verify tag points at main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${TARGET_SHA}" = "${MAIN_SHA}"
+      - name: Verify exact tagged source
         run: gradle --no-daemon clean check
       - name: Preserve test reports
-        if: steps.existing.outputs.released != 'true'
         run: |
           mapfile -t REPORTS < <(find . \( -path '*/build/test-results/*' -o -path '*/build/reports/tests/*' \) -type f | sort)
           test "${#REPORTS[@]}" -gt 0
           tar -czf /tmp/EnthusiaLoreItems-test-reports.tar.gz "${REPORTS[@]}"
       - name: Run deterministic WP-04 profile
-        if: steps.existing.outputs.released != 'true'
         env:
-          PROFILE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          PROFILE_COMMIT: ${{ github.sha }}
         run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
       - name: Build first release artifact
-        if: steps.existing.outputs.released != 'true'
         run: |
           gradle --no-daemon :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
@@ -69,7 +59,6 @@ jobs:
             --dependencies /tmp/gradle-dependencies.txt \
             --output-dir /tmp/rc-first
       - name: Verify clean-build reproducibility
-        if: steps.existing.outputs.released != 'true'
         run: |
           gradle --no-daemon clean :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
@@ -83,13 +72,7 @@ jobs:
             --output-dir /tmp/rc-second
           diff -u /tmp/rc-first/normalized-entry-manifest.txt /tmp/rc-second/normalized-entry-manifest.txt
           diff -u /tmp/rc-first/EnthusiaLoreItems.jar.sha256 /tmp/rc-second/EnthusiaLoreItems.jar.sha256
-      - name: Create exact RC tag
-        if: steps.existing.outputs.released != 'true'
-        run: |
-          git tag "${RC_TAG}" "${TARGET_SHA}"
-          git push origin "refs/tags/${RC_TAG}"
-      - name: Publish GitHub prerelease from verified main commit
-        if: steps.existing.outputs.released != 'true'
+      - name: Publish GitHub prerelease from verified tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
