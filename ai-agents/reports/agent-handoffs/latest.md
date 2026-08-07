@@ -3,10 +3,11 @@
 ## Active package
 
 - Package: WP-03 — one-use mass distributions
-- Status: `PARTIAL`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-03-mass-distributions`
 - Draft pull request: #14, `WP-03: complete one-use mass distributions`
 - Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
+- Resume claim based on exact observed branch head: `d4da0120bacda0a8fc516f96369f6660fd9a6ea5`
 - Latest verified implementation checkpoint: `759896e5da61c46079a5e7c98154aa1852bc0f39`
 - Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
@@ -24,7 +25,7 @@
 
 - `bfe248c70c1cdbee4f88b62eb073445e745b8785`: CI run #863 passed Gradle verification, repository tooling, complexity, and exact-head Codacy for the filesystem/state-model section.
 - `759896e5da61c46079a5e7c98154aa1852bc0f39`: CI run #868 passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy for the atomic-start section.
-- PR #14 had no submitted reviews, requested changes, or unresolved review threads at the latest check.
+- PR #14 had no submitted reviews, requested changes, or unresolved review threads at the latest pre-resume check. This evidence will be refreshed for the final package head.
 
 ## Findings fixed
 
@@ -46,13 +47,13 @@
 
 ## Blocker
 
-None. The package is PARTIAL, not BLOCKED. The environment lacked a usable local checkout because unauthenticated container DNS could not resolve GitHub, but authenticated GitHub tooling remained sufficient for the committed work.
+None. The package is active and resumable. The local container cannot resolve GitHub, so implementation and checkpoints use authenticated GitHub tooling as the durable source of truth.
 
 ## Queue state
 
 - WP-01: `COMPLETE`
 - WP-02: `COMPLETE`
-- WP-03: `PARTIAL`
+- WP-03: `IN_PROGRESS`
 - WP-04 through WP-06: `BLOCKED`
 - Completed packages: 2 of 6
 - Remaining packages: 4 of 6
@@ -60,4 +61,4 @@ None. The package is PARTIAL, not BLOCKED. The environment lacked a usable local
 
 ## Exact next action
 
-Resume PR #14 at its current head. Implement a Paper-side campaign coordinator/operator flow that converts a validated group source plus explicitly selected active definition/revision into `DistributionCampaignStartRequest`; commit the DB-authoritative start first, then move or repair the active source marker from durable DB state. Continue the same WP-03 package from there; do not claim WP-04.
+Implement the Paper-side campaign coordinator/operator flow that converts a validated group source plus explicitly selected active definition/revision into `DistributionCampaignStartRequest`; commit the DB-authoritative campaign first, then move or repair the active source marker from durable DB state. Continue into identity binding and delivery integration on this same package without beginning WP-04.
