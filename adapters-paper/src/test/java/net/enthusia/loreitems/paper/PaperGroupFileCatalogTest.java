@@ -141,6 +141,17 @@ class PaperGroupFileCatalogTest {
         assertFalse(first.equals(changed));
     }
 
+    @Test
+    void reloadRejectsDirectoryWorkBeyondConfiguredEntryBudget() throws Exception {
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory, 3);
+        catalog.initializeDirectories();
+        write("one.yml", "display-name: One\nplayers:\n  - PlayerOne\n");
+        assertEquals(1, catalog.reload().validFiles().size());
+        write("two.yml", "display-name: Two\nplayers:\n  - PlayerTwo\n");
+        IOException failure = assertThrows(IOException.class, catalog::reload);
+        assertTrue(failure.getMessage().contains("bounded entry limit"));
+    }
+
     private void write(String name, String content) throws IOException {
         Path groups = temporaryDirectory.resolve("groups");
         Files.createDirectories(groups);
