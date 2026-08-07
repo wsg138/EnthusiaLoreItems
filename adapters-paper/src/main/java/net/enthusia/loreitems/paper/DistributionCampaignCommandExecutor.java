@@ -119,6 +119,13 @@ public final class DistributionCampaignCommandExecutor
             case "campaigns" -> campaigns(sender, args);
             case "status" -> status(sender, args);
             case "recipients" -> recipients(sender, args);
+            default -> routeControl(sender, label, subcommand, args);
+        };
+    }
+
+    private boolean routeControl(
+            CommandSender sender, String label, String subcommand, String[] args) {
+        return switch (subcommand) {
             case "pause" -> transition(sender, args, true);
             case "resume" -> transition(sender, args, false);
             case "cancel" -> cancel(sender, args);
