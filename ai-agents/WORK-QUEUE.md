@@ -15,9 +15,14 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 ## WP-04 completion record
 - Production-hardening PR: #15, normally merged as `89399db2d92fd7197479a8803e920c02f5bec490`.
 - Release-recovery PR: #16, normally merged as `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
-- Final WP-04 head `063ad63ee7341cc42a4f20c51883d5c34abd25a7` passed Actions run `31204122398`, including Gradle, repository tooling, complexity, exact-head Codacy, profile, RC package validation, evidence packaging, and reproducibility.
+- Exact PR-head verification for final WP-04 head `063ad63ee7341cc42a4f20c51883d5c34abd25a7`: Actions run `31204122398` passed Gradle verification, repository tooling, new-code complexity, exact-head Codacy, fixed-scenario profiling, RC package validation, immutable evidence packaging, and clean-build reproducibility; CodeRabbit status was successful and review threads were zero.
+- Post-merge WP-04 `main` verification: CI run `31204427939` passed on `89399db2d92fd7197479a8803e920c02f5bec490`.
+- Release-recovery exact-head verification: Actions run `31204825737` passed on `c0be8bf9755e7038f6a8a9f1feb715322136f3a4`, including exact-head Codacy; CodeRabbit was successful and review threads were zero.
+- Post-recovery `main` verification: CI run `31205231097` passed on `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
+- Release workflow run `31205326905` completed successfully and recovered the already-created exact RC tag without moving it.
 - `v1.0.0-rc.1` is a GitHub prerelease targeting `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Released JAR digest: `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
+- Verified release assets: `EnthusiaLoreItems.jar`, `EnthusiaLoreItems.jar.sha256`, `bom.cyclonedx.json`, `gradle-dependencies.txt`, `normalized-entry-manifest.txt`, `wp04-profile.json`, and `EnthusiaLoreItems-test-reports.tar.gz`.
+- The released JAR digest reported by GitHub is `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 - No live Paper/Leaf acceptance is claimed by WP-04; that remains WP-05 scope.
 
 ## WP-05 durable blocker checkpoint
