@@ -1,7 +1,21 @@
 package net.enthusia.loreitems.paper;
 
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.FIRST_PAGE;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.parsePage;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.parsePositive;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.parseState;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.request;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.requireLength;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.requireMinimumLength;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.safeMessage;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.sendPageFooter;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.sendUsage;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.showCatalogPage;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.showPreview;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.showRecipients;
+import static net.enthusia.loreitems.paper.DistributionCampaignCommandSupport.showStatus;
+
 import java.io.IOException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -17,12 +31,8 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.CampaignCancellationResult;
-import net.enthusia.loreitems.application.CampaignRecipientCounts;
 import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
-import net.enthusia.loreitems.application.DistributionCampaignStatus;
-import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
-import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.CampaignRecipientState;
 import net.enthusia.loreitems.domain.DefinitionKey;
 import net.enthusia.loreitems.domain.DistributionCampaign;
@@ -44,7 +54,6 @@ public final class DistributionCampaignCommandExecutor
             "enthusia.loreitems.admin.distribution.control";
 
     private static final int MAX_PENDING_PREVIEWS = 64;
-    private static final int FIRST_PAGE = 1;
 
     private final Plugin plugin;
     private final PaperGroupFileCatalog groupCatalog;
@@ -135,7 +144,10 @@ public final class DistributionCampaignCommandExecutor
                 throw new CompletionException(exception);
             }
         }, blockingExecutor);
-        completeOnMain(sender, stage, snapshot -> showCatalogPage(sender, snapshot, pageNumber));
+        completeOnMain(
+                sender,
+                stage,
+                snapshot -> showCatalogPage(sender, snapshot, pageNumber, pageSize));
         return true;
     }
 
@@ -168,8 +180,9 @@ public final class DistributionCampaignCommandExecutor
                 sender.sendMessage("No active lore definition matches that definition key.");
                 return;
             }
-            storePreview(actor, result.orElseThrow());
-            showPreview(sender, result.orElseThrow());
+            DistributionCampaignPreview preview = result.orElseThrow();
+            storePreview(actor, preview);
+            showPreview(sender, preview);
         });
         return true;
     }
@@ -199,14 +212,14 @@ public final class DistributionCampaignCommandExecutor
     private boolean campaigns(CommandSender sender, String[] args) {
         requirePermission(sender, INSPECT_PERMISSION);
         int pageNumber = parsePage(args, 1);
-        PageRequest request = request(pageNumber);
-        completeOnMain(sender, administration.listCampaigns(request), page -> {
+        PageRequest page = request(pageNumber, pageSize);
+        completeOnMain(sender, administration.listCampaigns(page), result -> {
             sender.sendMessage("Distribution campaigns — page " + pageNumber);
-            for (DistributionCampaign campaign : page.items()) {
+            for (DistributionCampaign campaign : result.items()) {
                 sender.sendMessage(campaign.campaignId() + " " + campaign.state()
                         + " " + campaign.sourceName() + " -> " + campaign.displayName());
             }
-            sendPageFooter(sender, page.hasMore());
+            sendPageFooter(sender, result.hasMore());
         });
         return true;
     }
@@ -233,7 +246,8 @@ public final class DistributionCampaignCommandExecutor
         int pageNumber = args.length > 3 ? parsePositive(args[3], "page") : FIRST_PAGE;
         completeOnMain(
                 sender,
-                administration.listRecipients(campaignId, state, request(pageNumber)),
+                administration.listRecipients(
+                        campaignId, state, request(pageNumber, pageSize)),
                 page -> showRecipients(sender, page, state, pageNumber));
         return true;
     }
@@ -299,14 +313,19 @@ public final class DistributionCampaignCommandExecutor
     private boolean reconcile(CommandSender sender, String[] args) {
         requirePermission(sender, CONTROL_PERMISSION);
         int pageNumber = parsePage(args, 1);
-        completeOnMain(sender, markerReconciler.reconcile(request(pageNumber)), page -> {
-            sender.sendMessage("Distribution marker reconciliation — page " + pageNumber);
-            for (DistributionMarkerReconciliationPage.Entry entry : page.entries()) {
-                sender.sendMessage(entry.campaignId() + " " + entry.campaignState()
-                        + " " + entry.status() + " — " + entry.detail());
-            }
-            sender.sendMessage(page.nextPage() == null ? "End of results." : "More results available.");
-        });
+        completeOnMain(
+                sender,
+                markerReconciler.reconcile(request(pageNumber, pageSize)),
+                page -> {
+                    sender.sendMessage("Distribution marker reconciliation — page " + pageNumber);
+                    for (DistributionMarkerReconciliationPage.Entry entry : page.entries()) {
+                        sender.sendMessage(entry.campaignId() + " " + entry.campaignState()
+                                + " " + entry.status() + " — " + entry.detail());
+                    }
+                    sender.sendMessage(page.nextPage() == null
+                            ? "End of results."
+                            : "More results available.");
+                });
         return true;
     }
 
@@ -316,79 +335,6 @@ public final class DistributionCampaignCommandExecutor
             previews.remove(oldest);
         }
         previews.put(new PreviewKey(actor.id(), preview.campaignId()), preview);
-    }
-
-    private static void showPreview(CommandSender sender, DistributionCampaignPreview preview) {
-        sender.sendMessage("Distribution preview — no delivery has started yet.");
-        sender.sendMessage("Campaign: " + preview.campaignId());
-        sender.sendMessage("Source: " + preview.groupFile().sourceName()
-                + " (" + preview.groupFile().displayName() + ")");
-        sender.sendMessage("Recipients: " + preview.startRequest().recipients().size());
-        sender.sendMessage("Definition: " + preview.definition().key().value()
-                + " revision " + preview.definition().currentRevision().value());
-        sender.sendMessage("Confirm explicitly with /loredistribution confirm " + preview.campaignId());
-    }
-
-    private void showCatalogPage(
-            CommandSender sender, GroupFileCatalogSnapshot snapshot, int pageNumber) {
-        List<String> lines = new ArrayList<>();
-        for (GroupFileDefinition valid : snapshot.validFiles()) {
-            lines.add("VALID " + valid.sourceName() + " — " + valid.displayName()
-                    + " (" + valid.recipients().size() + " recipients)");
-        }
-        for (GroupFileValidationFailure invalid : snapshot.invalidFiles()) {
-            lines.add("INVALID " + invalid.sourceName() + " — "
-                    + String.join("; ", invalid.diagnostics()));
-        }
-        showStringPage(sender, "Group catalog", lines, pageNumber);
-    }
-
-    private static void showStatus(CommandSender sender, DistributionCampaignStatus status) {
-        DistributionCampaign campaign = status.campaign();
-        CampaignRecipientCounts counts = status.recipientCounts();
-        sender.sendMessage("Campaign " + campaign.campaignId() + " — " + campaign.state());
-        sender.sendMessage("Source: " + campaign.sourceName() + " — " + campaign.displayName());
-        sender.sendMessage("Definition: " + campaign.definitionId().value()
-                + " revision " + campaign.definitionRevision().value());
-        sender.sendMessage("total=" + counts.total() + " remaining=" + counts.remaining()
-                + " unresolved=" + counts.unresolved()
-                + " offline=" + counts.queuedOffline()
-                + " full=" + counts.queuedInventoryFull()
-                + " reserved=" + counts.reservedInFlight()
-                + " review=" + counts.reviewRequired()
-                + " delivered=" + counts.delivered()
-                + " cancelled=" + counts.cancelled());
-    }
-
-    private static void showRecipients(
-            CommandSender sender,
-            Page<CampaignRecipient> page,
-            CampaignRecipientState state,
-            int pageNumber) {
-        sender.sendMessage("Campaign recipients "
-                + (state == null ? "ALL" : state.name()) + " — page " + pageNumber);
-        for (CampaignRecipient recipient : page.items()) {
-            sender.sendMessage("#" + recipient.snapshotIndex() + " " + recipient.originalValue()
-                    + " -> " + recipient.state()
-                    + " player=" + value(recipient.playerId())
-                    + " instance=" + value(recipient.instanceId()));
-        }
-        sendPageFooter(sender, page.hasMore());
-    }
-
-    private void showStringPage(
-            CommandSender sender, String title, List<String> lines, int pageNumber) {
-        int from = Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize);
-        if (from >= lines.size()) {
-            sender.sendMessage(title + " — page " + pageNumber + " is empty.");
-            return;
-        }
-        int to = Math.min(lines.size(), Math.addExact(from, pageSize));
-        sender.sendMessage(title + " — page " + pageNumber);
-        for (String line : lines.subList(from, to)) {
-            sender.sendMessage(line);
-        }
-        sender.sendMessage(to < lines.size() ? "More results available." : "End of results.");
     }
 
     private <T> void completeOnMain(
@@ -411,50 +357,16 @@ public final class DistributionCampaignCommandExecutor
             plugin.getServer().getScheduler().runTask(plugin, action);
         } catch (RuntimeException exception) {
             if (!closed) {
-                plugin.getLogger().log(Level.SEVERE, "Could not schedule distribution command result.", exception);
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Could not schedule distribution command result.",
+                        exception);
             }
         }
     }
 
     private static void sendFailure(CommandSender sender, Throwable throwable) {
-        Throwable cause = unwrap(throwable);
-        sender.sendMessage("Distribution operation failed safely: " + safeMessage(cause));
-    }
-
-    private PageRequest request(int pageNumber) {
-        int offset = Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize);
-        return new PageRequest(offset, pageSize);
-    }
-
-    private static CampaignRecipientState parseState(String value) {
-        if ("all".equalsIgnoreCase(value)) {
-            return null;
-        }
-        return CampaignRecipientState.valueOf(value.toUpperCase(Locale.ROOT));
-    }
-
-    private static int parsePage(String[] args, int index) {
-        return args.length > index ? parsePositive(args[index], "page") : FIRST_PAGE;
-    }
-
-    private static int parsePositive(String value, String name) {
-        int parsed = Integer.parseInt(value);
-        if (parsed < FIRST_PAGE) {
-            throw new IllegalArgumentException(name + " must be at least 1");
-        }
-        return parsed;
-    }
-
-    private static void requireLength(String[] args, int length, String usage) {
-        if (args.length != length) {
-            throw new IllegalArgumentException("Usage: /loredistribution " + usage);
-        }
-    }
-
-    private static void requireMinimumLength(String[] args, int length, String usage) {
-        if (args.length < length) {
-            throw new IllegalArgumentException("Usage: /loredistribution " + usage);
-        }
+        sender.sendMessage("Distribution operation failed safely: " + safeMessage(throwable));
     }
 
     private static void requirePermission(CommandSender sender, String permission) {
@@ -469,46 +381,14 @@ public final class DistributionCampaignCommandExecutor
                 : new Actor("CONSOLE", sender.getName());
     }
 
-    private static Object value(Object value) {
-        return value == null ? "-" : value;
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof CompletionException exception && exception.getCause() != null) {
-            return exception.getCause();
-        }
-        return throwable;
-    }
-
-    private static String safeMessage(Throwable throwable) {
-        if (throwable == null) {
-            return "unknown failure";
-        }
-        String message = throwable.getMessage();
-        return message == null || message.isBlank()
-                ? throwable.getClass().getSimpleName()
-                : message;
-    }
-
-    private static void sendPageFooter(CommandSender sender, boolean hasMore) {
-        sender.sendMessage(hasMore ? "More results available." : "End of results.");
-    }
-
-    private static void sendUsage(CommandSender sender, String label) {
-        sender.sendMessage("/" + label + " reload [page] | inspect <group.yml> | "
-                + "preview <group.yml> <definition-key> | confirm <campaign-uuid> | "
-                + "campaigns [page] | status <campaign-uuid> | "
-                + "recipients <campaign-uuid> [state|all] [page] | pause|resume|cancel <uuid> | "
-                + "reconcile [page]");
-    }
-
     @Override
     public List<String> onTabComplete(
             CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             List<String> values = new ArrayList<>();
             if (sender.hasPermission(INSPECT_PERMISSION)) {
-                Collections.addAll(values, "reload", "inspect", "campaigns", "status", "recipients");
+                Collections.addAll(
+                        values, "reload", "inspect", "campaigns", "status", "recipients");
             }
             if (sender.hasPermission(START_PERMISSION)) {
                 Collections.addAll(values, "preview", "confirm");
