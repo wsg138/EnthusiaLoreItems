@@ -7,21 +7,24 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 ## Publication state
 
 - Repository: `wsg138/EnthusiaLoreItems`
-- Verified starting live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
-- Active package: WP-03 — one-use mass distributions
-- Status: `IN_REVIEW`
+- Verified live `main`: `d77ec61032e5583783694ae349f785495cbf8f31`
+- Active unfinished package lock: WP-03 — one-use mass distributions
+- Status: `BLOCKED`
 - Canonical branch: `agent/wp-03-mass-distributions`
 - Pull request: #14, `WP-03: complete one-use mass distributions`
-- Latest fully verified implementation/restart-test head: `67f4d1cba9c0d0cf34c54827f7f106085394401c`
-- Review-entry coordination head before this state commit: `649a52c79f8feb54d7fcbc1e74dbc94ce2e01b5c`
+- Exact implementation/review-ready head before blocker-state commits: `895f0e9f9e3160db1dde255c997cebf3cf19090e`
+- Latest exact runtime head with complete successful CI/Codacy: `45e0ea43cf0034ce87098ae0945a319149929a48`
+- Blocker checkpoint report: `ai-agents/reports/agent-handoffs/2026-08-07-wp-03-review-rate-limit-blocker.md`
 - Exact next package after authoritative WP-03 completion: WP-04 — automated production hardening and release candidate
 
 ## Live reconciliation
 
 - Live `main` remains `d77ec61032e5583783694ae349f785495cbf8f31`, the normal merge of WP-02 PR #13.
 - PR #14 and `agent/wp-03-mass-distributions` remain the single unfinished LoreItems package lock.
+- PR #14 is open, non-draft, and mergeable.
 - WP-04 through WP-06 remain blocked and no next-package branch has been claimed.
-- PR #14 had no requested changes or unresolved review threads before entering the review gate.
+- At blocker observation PR #14 had no submitted reviews, no requested changes, and zero unresolved review threads.
+- CodeRabbit refused to start the required independent review because its review quota was exhausted and reported `Next review available in: 56 minutes` in the visible PR conversation.
 
 ## Package status
 
@@ -29,7 +32,7 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 |---|---:|---|---|
 | WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
 | WP-02 | 20% | COMPLETE | PR #13 normally merged and live `main` verified |
-| WP-03 | 20% | IN_REVIEW | Complete implementation and harsh-review fixes are on the fixed PR; substantive review/final verification remain |
+| WP-03 | 20% | BLOCKED | Verified external dependency: required independent review capacity is temporarily unavailable |
 | WP-04 | 15% | BLOCKED | WP-03 is not COMPLETE |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate is not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release is not verified |
@@ -40,49 +43,52 @@ This file is a committed coordination snapshot. Live GitHub remains authoritativ
 - Completed packages: 2 of 6
 - Remaining packages: 4 of 6
 - Weighted progress: `40 / 100 = 40%`
-- Active incomplete work receives zero official weighted completion credit.
+- WP-03 receives no official weighted completion credit while incomplete.
 
 ## WP-03 completed acceptance work
 
-- Creates exactly the required `groups/`, `groups/completed/`, and `groups/cancelled/` directories and performs bounded, off-thread YAML discovery/validation.
-- Supports Java names, leading-`*` Floodgate-style names, and UUIDs; preserves original values; rejects malformed/duplicate/path/symlink/unsupported input.
-- Uses an immutable DB-authoritative campaign UUID, source fingerprint, selected definition revision, recipient snapshot, actor, and audit record before any filesystem move or physical delivery.
-- Refuses replay of a previously committed source fingerprint and rejects source/revision drift before start.
+- Creates exactly the required group directories and performs bounded, off-thread YAML discovery/validation with path/symlink safety, deterministic fingerprints, strict diagnostics, and bounded directory/file/recipient work.
+- Supports Java names, leading-`*` Floodgate-style names, and UUIDs; preserves original values; rejects malformed/duplicate inputs.
+- Uses an immutable DB-authoritative campaign UUID, source fingerprint, selected definition revision, recipient snapshot, actor, and audit record before filesystem movement or physical delivery.
+- Refuses replay of a committed source fingerprint and rejects source/revision drift before start.
 - Resolves only cached names before start and durably binds unresolved names case-insensitively on later joins without network lookup correctness dependency.
-- Uses a bounded persistent campaign queue with claim leases, prepared instance identity, verified main-thread insertion, exact completion, offline/full deferral, no overflow drops, join/inventory wakeups, and conservative `REVIEW_REQUIRED` recovery.
-- Provides exact seven-state counts plus total/remaining equations, bounded campaign/recipient pagination, pause/resume/cancel, atomic control/audit persistence, and WP-02 recovery-view integration.
-- Recovers active/completed/cancelled markers from durable DB state. If original/active files are gone after DB commit, recovery atomically synthesizes a non-reusable operator marker and can terminalize it later.
-- Integrates permissions, messages, metrics-port instrumentation, audit, documentation, writable/degraded startup, and ordered shutdown.
+- Uses bounded exactly-once campaign delivery with claim leases, prepared instance identity, verified main-thread insertion, durable completion, offline/full deferral, no overflow drops, bounded wakeups/retries, and conservative `REVIEW_REQUIRED` recovery.
+- Provides exact seven-state counts and total/remaining equations, bounded campaign/recipient pagination, pause/resume/cancel, atomic control/audit persistence, restart survival, and WP-02 recovery-view integration.
+- Recovers active/completed/cancelled markers from durable DB state, including synthesizing non-reusable operator markers when original/active files disappear after DB commit.
+- Integrates permissions, messages, recipient-health and operation metrics through the existing MetricsPort, audit, operator documentation, writable/degraded startup, reload semantics, and ordered shutdown.
 
-## Harsh review and fixes
+## Harsh review and confirmed fixes
 
 - Moved cached-name resolution off the server thread.
 - Decomposed oversized SQLite/Paper delivery components and command routing to satisfy new-code complexity limits without weakening gates.
-- Fixed exact-head Codacy findings directly, including concurrent preview storage, named command/time constants, repeated delimiters, and startup cleanup.
-- Fixed atomic campaign control/audit persistence.
-- Fixed missing campaign-review rows in the canonical `/loreitems recovery` surface.
-- Fixed a partial-start Bukkit service leak.
+- Fixed exact-head Codacy findings directly rather than suppressing analyzers.
+- Fixed atomic campaign control/audit persistence and missing campaign-review rows in `/loreitems recovery`.
+- Fixed partial-start administration-service cleanup and stale duplicate terminal markers.
 - Fixed DB/filesystem split-brain marker recovery when the original source disappears after durable start.
-- Added dedicated Paper campaign-delivery worker tests, multi-campaign exactly-once end-to-end coverage, and pause/resume/cancel restart persistence coverage.
+- Fixed missing unresolved/review/remaining recipient-health metrics.
+- Fixed cancellation-failure fencing so failed cancellation verifies durable state before committing/releasing the in-memory fence and fails closed if durable state cannot be verified.
+- Added dedicated Paper campaign-delivery worker tests, multi-campaign exactly-once end-to-end coverage, marker-loss recovery tests, and pause/resume/cancel persistence across real SQLite restarts.
 
 ## Tests and verification
 
-- CI run #979 on exact head `67f4d1cba9c0d0cf34c54827f7f106085394401c` passed full Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
-- The test matrix includes parser/validator safety, immutable snapshots/replay/revision drift, cached/late identity binding, recipient state/count transitions, atomic control/audit, delivery claim/prepare/complete/review/cancel, full inventory/no-drop behavior, cancellation fencing, marker reconciliation, multiple independent campaigns, restart recovery, and foundation regressions run by the full repository suite.
-- Documentation/review-state commits after that implementation head require the normal final exact-head CI refresh before merge.
+- CI run #985 (`31159954396`) on exact head `45e0ea43cf0034ce87098ae0945a319149929a48` passed full Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
+- The subsequent `895f0e9f9e3160db1dde255c997cebf3cf19090e` commit is documentation-only for already-implemented recipient-health metrics.
+- Blocker/workflow-state commits after that require the ordinary final exact-head CI/Codacy refresh after substantive review; no stale evidence will be used for merge.
+- The test matrix covers parser/validator safety, immutable snapshots/replay/revision drift, cached/late identity binding, recipient state/count transitions, atomic control/audit, delivery claim/prepare/complete/review/cancel, full inventory/no-drop behavior, cancellation fencing, marker reconciliation/reconstruction, multiple independent campaigns, restart recovery, and foundation regressions.
 
 ## Remaining acceptance criteria
 
-- Mark PR #14 ready and obtain substantive review.
-- Resolve every requested change and unresolved review thread on this same package branch.
-- Move to `VERIFYING` only after review is clean.
+- Obtain the required substantive independent review after external review capacity is available.
+- Resolve every requested change and every actionable review thread on this same branch.
+- Move WP-03 to `VERIFYING` only after review is clean and unresolved-thread count is zero.
 - Obtain final exact-head success for Gradle verification, repository tooling, complexity, and Codacy after all review/state changes.
-- Publish final COMPLETE/READY queue and handoff state, normally merge PR #14, verify live `main`, and stop without starting WP-04.
+- Publish prospective final state with WP-03 `COMPLETE`, only WP-04 `READY`, updated counts/weighted progress, and final evidence.
+- Normally merge PR #14, verify live `main`, and stop without beginning WP-04.
 
 ## Blocker
 
-None. The local container cannot resolve GitHub, but authenticated GitHub repository tooling remains sufficient for durable package work.
+Verified external dependency: CodeRabbit review capacity is unavailable. The bot explicitly reported that the requested full independent review could not start because the review quota was exhausted. This prevents the package-required independent-review gate and therefore prevents merge. It is not an implementation, CI, or static-analysis defect.
 
 ## Exact next action
 
-Mark fixed PR #14 ready for review, reconcile substantive review findings, then perform the final exact-head verification gate on the reviewed head.
+When external review capacity is available, trigger `@coderabbitai review` on PR #14, reconcile every finding/thread, then set WP-03 to `VERIFYING` and run the final exact-head verification gate. If all gates pass, commit prospective completion state, normally merge, verify live `main`, and stop. Do not begin WP-04.
