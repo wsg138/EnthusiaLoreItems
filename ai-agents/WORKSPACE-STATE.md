@@ -5,13 +5,16 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `READY`
-- Canonical branch: not started
-- Pull request: none
+- Status: `IN_PROGRESS`
+- Canonical branch: `agent/wp-05-live-acceptance-release`
+- Pull request: draft PR #18, `WP-05: complete live acceptance and release LoreItems`
+- Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`
+- Durable claim commit: `760f04f162b934d7a0f21ba8c354548aeb8cffbf`
 - Dependency satisfied by: verified WP-04 RC `v1.0.0-rc.1`
 - WP-04 implementation merge: `89399db2d92fd7197479a8803e920c02f5bec490`
 - WP-04 release-recovery merge: `e4b7968adea1357e7307815a5a5ef7f456f16ad1`
-- Latest completion handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-complete.md`
+- Exact RC JAR SHA-256: `3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`
+- Latest package handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-05-claim.md`
 
 ## Package status
 | Package | Weight | Status | Reason |
@@ -20,7 +23,7 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | WP-04 | 15% | COMPLETE | PR #15 and release-recovery PR #16 normally merged; post-merge CI and RC prerelease verified |
-| WP-05 | 15% | READY | `v1.0.0-rc.1` is published from the exact verified WP-04 merge and the manual acceptance matrix is ready |
+| WP-05 | 15% | IN_PROGRESS | canonical branch and draft PR #18 established; exact RC verified; live acceptance prerequisite/evidence verification underway |
 | WP-06 | 10% | BLOCKED | WP-05 production release not verified |
 
 ## Progress
@@ -41,26 +44,31 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 - Operator installation/upgrade/configuration/backup/restore/rollback/degraded recovery/incident guidance is complete at `docs/operator-guide.md`.
 - Executable WP-05 manual acceptance cases and evidence requirements are complete at `docs/wp-05-manual-acceptance-matrix.md`.
 
-## Verification and release record
-- Final WP-04 PR head `063ad63ee7341cc42a4f20c51883d5c34abd25a7`: Actions run `31204122398` completed `success`, including Gradle verification, repository tooling, new-code complexity, exact-head Codacy, deterministic profile, RC validation, immutable evidence packaging, and reproducibility. CodeRabbit status was `success`; PR #15 had zero review threads and no requested changes.
-- PR #15 was normally merged as `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Post-merge `main` CI run `31204427939` completed `success` on that exact implementation merge.
-- Initial release workflow validated the exact CI bundle and created `v1.0.0-rc.1` at `89399db2d92fd7197479a8803e920c02f5bec490`, but release creation hit immediate tag-visibility lag.
-- Recovery PR #16 head `c0be8bf9755e7038f6a8a9f1feb715322136f3a4`: Actions run `31204825737` completed `success`, including exact-head Codacy; CodeRabbit was `success` and review threads were zero.
-- PR #16 was normally merged as `e4b7968adea1357e7307815a5a5ef7f456f16ad1`; post-merge CI run `31205231097` completed `success`.
-- Release workflow run `31205326905` completed `success`, detected the existing exact tag, verified it remained on `main`, selected the successful CI run for the tagged SHA, revalidated the immutable artifact bundle, and published without moving the tag or executing repository code.
-- GitHub release `v1.0.0-rc.1` is `prerelease: true` and has `target_commitish` `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Verified assets: `EnthusiaLoreItems.jar`, `EnthusiaLoreItems.jar.sha256`, `bom.cyclonedx.json`, `gradle-dependencies.txt`, `normalized-entry-manifest.txt`, `wp04-profile.json`, `EnthusiaLoreItems-test-reports.tar.gz`.
-- Released JAR digest: `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
+## WP-05 completed acceptance criteria
+None. Package claim, routing reconciliation, and RC metadata verification do not substitute for executed live acceptance.
+
+## WP-05 remaining acceptance criteria
+- Execute every manual case in `docs/wp-05-manual-acceptance-matrix.md` against the exact RC with complete GitHub-backed evidence.
+- Fix and regression-test every confirmed defect in this same package.
+- Repeat the entire matrix against the exact final WP-05 JAR with every case PASS.
+- Re-run full automated WP-04 CI/profile/migration/package/static-analysis gates on the final head.
+- Complete independent code review and separate evidence audit with no requested changes or unresolved threads.
+- Record owner/operator sign-off.
+- Finalize `1.0.0`, merge normally, verify live `main`, publish `v1.0.0`, and verify tag target/assets/checksums.
+
+## Tests and verification
+- Pre-claim live `main` `476f9e5bbfa8155ab76b23bde0681ac35b92f177`: CI run `31215810485` successful; Release RC run `31215904779` successful.
+- GitHub prerelease `v1.0.0-rc.1` directly verified with target `89399db2d92fd7197479a8803e920c02f5bec490` and JAR digest `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
+- No WP-05 manual case is claimed as run or PASS.
+- No local build result is claimed because this execution environment cannot reach GitHub for a dependency-capable checkout.
 
 ## Known findings
-- No unresolved WP-04 review thread or requested change remains.
-- No confirmed production item-loss/duplication defect remains open from WP-04 automated verification.
-- The RC publisher contains a safe partial-publication recovery path and becomes a no-op once the RC release already exists.
-- No live Paper/Leaf acceptance is claimed here; WP-05 owns live behavior verification and production-release decision.
+- No competing unfinished canonical package lock exists.
+- No committed WP-05 executed-case evidence or WP-05 live-acceptance issue was found during repository reconciliation.
+- The package contract requires a designated Java 21 Paper/Leaf 1.21.11-compatible live acceptance server with Geyser/Floodgate and Java, Bedrock, offline, and never-joined test accounts. This worker must directly verify access before any case can be executed or claimed.
 
 ## Blocker
-None for WP-05. WP-06 remains blocked.
+None declared at this checkpoint. Lack of the required designated live acceptance environment, if confirmed, is an external dependency and must transition this same WP-05 package to `BLOCKED` rather than creating follow-up work.
 
 ## Exact next action
-Start WP-05 from the live `main` head after this state transition is merged. Test the exact released `v1.0.0-rc.1` JAR using `docs/wp-05-manual-acceptance-matrix.md`, preserve the required evidence per case, and do not start WP-06 until WP-05 reaches its production-release gate.
+Verify live acceptance-server and test-account access. If available, execute `ACC-ENV-001` using the exact released RC and commit evidence. If unavailable and no durable executed evidence exists, commit WP-05 as `BLOCKED` with the exact required handoff and stop. Do not start WP-06.

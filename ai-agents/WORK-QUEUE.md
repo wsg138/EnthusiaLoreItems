@@ -9,7 +9,7 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | READY | WP-04 RC `v1.0.0-rc.1` published and verified |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | IN_PROGRESS | canonical branch `agent/wp-05-live-acceptance-release`; draft PR #18; exact RC verified; live acceptance prerequisite/evidence verification underway |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
 
 ## WP-04 completion record
@@ -25,10 +25,20 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - The released JAR digest reported by GitHub is `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 - No live Paper/Leaf acceptance is claimed by WP-04; that remains WP-05 scope.
 
+## WP-05 active checkpoint
+- Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`.
+- Canonical branch: `agent/wp-05-live-acceptance-release`.
+- Draft PR: #18, `WP-05: complete live acceptance and release LoreItems`.
+- Durable claim commit: `760f04f162b934d7a0f21ba8c354548aeb8cffbf`.
+- Exact RC under test: `v1.0.0-rc.1`, JAR SHA-256 `3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
+- Completed WP-05 acceptance criteria: none; claim/reconciliation is not acceptance evidence.
+- Remaining: the complete live matrix, any same-package defect remediation/regressions, final all-PASS matrix, final automated/review gates, operator sign-off, normal merge/main verification, and production `v1.0.0` release verification.
+- No competing canonical package lock or pre-existing WP-05 executed case evidence was found during live reconciliation.
+
 ## Progress
 - Completed: 4/6
 - Remaining: 2/6
 - Weighted progress: 75%
 
 ## Exact next action
-Start WP-05 from live `main` after this completion-state transition is merged. Use the exact `v1.0.0-rc.1` release artifact and execute `docs/wp-05-manual-acceptance-matrix.md`. Do not begin WP-06.
+Verify whether this worker has access to the contract-required designated Java 21 Paper/Leaf 1.21.11 acceptance environment with Geyser/Floodgate and required test accounts. If available, execute `ACC-ENV-001` against the exact RC. If unavailable and no GitHub-backed executed evidence exists, record that verified external dependency as WP-05 `BLOCKED`. Do not begin WP-06.
