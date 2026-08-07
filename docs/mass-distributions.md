@@ -162,9 +162,9 @@ The runtime periodically reads campaign state from SQLite in bounded pages and r
 - `COMPLETED` campaigns move to `groups/completed/`;
 - `CANCELLED` campaigns move to `groups/cancelled/`.
 
-Missing or failed marker repair is logged for operator attention, but it does not rewrite durable campaign state from the filesystem.
+If the original source or active marker disappeared after the database committed, reconciliation atomically synthesizes a non-reusable operator marker containing the durable campaign ID, source name, and source fingerprint. Terminal reconciliation can move that reconstructed marker into `completed/` or `cancelled/`. A changed replacement source is left untouched and is never substituted for the durable campaign snapshot.
 
-Startup resumes durable recipients and expired claims from SQLite. The source file is never used to decide whether a previously committed campaign should deliver again.
+Filesystem marker repair never rewrites durable campaign state from the filesystem. Startup resumes durable recipients and expired claims from SQLite, and a marker is never used to decide whether a previously committed campaign should deliver again.
 
 ## Operator commands
 
