@@ -160,7 +160,13 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     private void enqueuePlayer(Player player) {
         UUID playerId = player.getUniqueId();
-        enqueueIdentity(playerId, player.getName(), floodgatePlayer.test(playerId));
+        try {
+            enqueueIdentity(playerId, player.getName(), floodgatePlayer.test(playerId));
+        } catch (IllegalArgumentException exception) {
+            plugin.getLogger().warning(
+                    "Skipping distribution identity binding for unsupported player name '"
+                            + player.getName() + "': " + safeMessage(exception));
+        }
     }
 
     private void advancePeriodicOnlineScan() {
@@ -216,8 +222,10 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         try {
             plugin.getServer().getScheduler().runTask(plugin, completion);
         } catch (RuntimeException exception) {
+            closed = true;
             plugin.getLogger().warning(
-                    "Could not schedule distribution identity completion: " + safeMessage(exception));
+                    "Could not schedule distribution identity completion; "
+                            + "binding worker is now closed: " + safeMessage(exception));
         }
     }
 
@@ -256,12 +264,10 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
         closed = true;
         if (task != null) {
             task.cancel();
+            task = null;
         }
         HandlerList.unregisterAll(this);
         onlineScan = Collections.emptyIterator();

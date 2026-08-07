@@ -72,7 +72,7 @@ public final class DistributionCampaignCommandExecutor
     private final int pageSize;
     private final Map<PreviewKey, DistributionCampaignPreview> previews = new ConcurrentHashMap<>();
 
-    private boolean closed;
+    private volatile boolean closed;
 
     public DistributionCampaignCommandExecutor(
             Plugin plugin,
@@ -412,8 +412,16 @@ public final class DistributionCampaignCommandExecutor
         if (closed) {
             return;
         }
+        Runnable guardedAction = () -> {
+            if (!closed) {
+                action.run();
+            }
+        };
+        if (closed) {
+            return;
+        }
         try {
-            plugin.getServer().getScheduler().runTask(plugin, action);
+            plugin.getServer().getScheduler().runTask(plugin, guardedAction);
         } catch (RuntimeException exception) {
             if (!closed) {
                 plugin.getLogger().log(

@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
@@ -40,7 +43,10 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Owns all WP-03 campaign runtime components and their bounded lifecycle. */
+@SuppressWarnings("PMD.DoNotUseThreads")
 final class DistributionRuntime implements AutoCloseable {
+    private static final int DISTRIBUTION_QUEUE_CAPACITY = 64;
+
     private final JavaPlugin plugin;
     private final PaperGroupFileCatalog groupCatalog;
     private final DistributionCampaignAdministrationUseCase administration;
@@ -48,6 +54,7 @@ final class DistributionRuntime implements AutoCloseable {
     private final PaperDistributionRecipientBindingWorker bindingWorker;
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
     private final DistributionCampaignCommandExecutor commandExecutor;
+    private final ThreadPoolExecutor distributionExecutor;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private volatile boolean serviceRegistered;
@@ -62,7 +69,9 @@ final class DistributionRuntime implements AutoCloseable {
         SQLiteStorageRuntime requiredStorage = Objects.requireNonNull(storage, "storage");
         FoundationConfiguration requiredConfiguration =
                 Objects.requireNonNull(configuration, "configuration");
-        Executor workerExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        distributionExecutor = createDistributionExecutor();
+        Executor workerExecutor = distributionExecutor;
         MetricsPort metrics = requiredStorage.metrics();
         Clock clock = Clock.systemUTC();
 
@@ -223,6 +232,7 @@ final class DistributionRuntime implements AutoCloseable {
         }
         if (!started && !serviceRegistered) {
             closeQuietly(commandExecutor, "distribution command executor");
+            distributionExecutor.shutdownNow();
             return;
         }
         unregisterAdministrationService();
@@ -230,6 +240,22 @@ final class DistributionRuntime implements AutoCloseable {
         closeQuietly(bindingWorker, "distribution identity-binding worker");
         closeQuietly(deliveryWorker, "distribution delivery worker");
         closeQuietly(commandExecutor, "distribution command executor");
+        distributionExecutor.shutdownNow();
+    }
+
+    private static ThreadPoolExecutor createDistributionExecutor() {
+        return new ThreadPoolExecutor(
+                1,
+                1,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(DISTRIBUTION_QUEUE_CAPACITY),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "loreitems-distribution");
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void unregisterAdministrationService() {
