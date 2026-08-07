@@ -6,36 +6,33 @@
 - Branch: `agent/wp-04-production-hardening`
 - Draft PR: #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
-- Resumed from exact head: `43b4092e6dc8c873ed7c77ccee4b87e5e5a44f34`
-- Latest verified implementation head: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
-- Coherent-section checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-failure-and-migration-gates.md`
+- Resumed from exact head: `28227f3b8b79bea86d0fc44be312a05a561e3263`
+- Latest verified implementation head before resume: `d42684074788ebfbf9dbfaef6111a03254f99bdd`
+- Previous coherent-section checkpoint: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-failure-and-migration-gates.md`
 
 ## Reconciliation
-- Live `main` remains the verified WP-03 merge commit at the package start.
-- WP-04 draft PR #15 remains the only unfinished canonical package lock; no WP-05/WP-06 competing package branch exists.
+- Live `main` is `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`, the verified WP-03 merge commit.
+- WP-04 draft PR #15 is the only unfinished canonical package lock.
+- Canonical WP-01 through WP-03 branches are historical; WP-05 and WP-06 primary LoreItems branches are absent; no WP-06 LoreItems auxiliary branch is present.
+- Exact observed PR head at resume: `28227f3b8b79bea86d0fc44be312a05a561e3263`.
 
 ## Completed coherent sections
 - Operator installation/upgrade/configuration, backup/restore, degraded recovery, queue/review recovery, rollback, and incident guidance.
 - Executable WP-05 live acceptance matrix with unique case IDs and exact evidence expectations.
 - Test-only SQLite failure-injection/restart harness and first complete direct/API-delivery durability group: pre-intent rollback; durable-intent replay; expired-claim restart recovery to review; verification-commit rollback/review; post-terminal replay; Paper-side post-insert durable-completion failure to review.
-- Every historical committed SQLite schema version V1–V7 now has a populated upgrade test through the production migration runner, preserving identity, observation/current-state, pending mutation, deleted marker, audit, campaign, and recipient data.
-- Migration gate verifies `integrity_check`, `foreign_key_check`, WAL, busy timeout, required indexes, and an interrupted V7 partial-DDL/data migration rollback followed by a successful retry.
+- Every historical committed SQLite schema version V1–V7 has a populated upgrade test through the production migration runner, preserving identity, observation/current-state, pending mutation, deleted marker, audit, campaign, and recipient data.
+- Migration gate verifies `integrity_check`, `foreign_key_check`, WAL, busy timeout, required indexes, and interrupted V7 partial-DDL/data migration rollback followed by successful retry.
 
-## Exact verification
-- Exact implementation head `d42684074788ebfbf9dbfaef6111a03254f99bdd`: GitHub Actions CI run `31182331548` completed successfully.
-- `verify` passed Gradle verification, repository tooling, new-code complexity, and exact-head Codacy.
-- CodeRabbit combined commit status is `success`.
-- No local build result is claimed because the runtime cannot resolve GitHub for a local dependency-capable checkout.
+## Resume verification
+- Exact pre-resume checkpoint head `28227f3b8b79bea86d0fc44be312a05a561e3263`: GitHub Actions CI run `31182619090` completed `success`.
+- Combined commit status includes CodeRabbit `success`.
+- PR #15 has no submitted reviews and zero review threads; no requested changes exist.
+- PR #15 is open, draft, and mergeable.
+- No local Gradle/build result is claimed because this runtime cannot resolve GitHub for a dependency-capable checkout.
 
-## Harsh-review findings fixed
-- New failure-matrix test initially failed Java compilation because a reassigned repository was captured by a lambda; fixed by stable before/after-restart references.
-- Complexity gate rejected two >50-NLOC test methods; fixed by extracting focused verification/restart helpers without suppressions.
-- Codacy found harness field/method name collisions and nullable-runtime lifecycle smells; fixed with distinct names and explicit closed-state lifecycle.
-- Codacy found migration fixture repeated literals and an inline schema-version literal; fixed with named constants/helper logic without suppressions.
-
-## Remaining
+## Remaining acceptance criteria
 - Complete deterministic crash/restart matrix for all other durable state machines and reload/shutdown points; fixed-seed randomized recovery.
-- Saturation/backpressure verification across all named bounded queues/executors/caches/retries/result surfaces.
+- Saturation/backpressure verification across database executor, delivery, update, destructive, campaign, notification, reconciliation, GUI query, debounce, cache, retry, and bounded result surfaces.
 - Reload/shutdown lifecycle automation.
 - Stable versioned Bukkit API tests/docs plus source/binary compatibility verification.
 - Reproducible fixed-scenario performance/profile harness and committed threshold evidence.
@@ -44,8 +41,12 @@
 - Full-package independent harsh review and all fixes; exact-head CI/Codacy and zero unresolved review state.
 - Normal merge, post-merge `main` verification, and verified `v1.0.0-rc.1` prerelease/assets.
 
+## Known findings
+- No competing unfinished package lock is present.
+- Existing pre-resume exact-head verification is green, but any new commit makes that evidence stale and requires exact-head re-verification.
+
 ## Blocker
 None. WP-04 remains `IN_PROGRESS`.
 
 ## Exact next action
-Inventory every bounded-work surface named by WP-04 and add deterministic saturation/backpressure tests for capacities, rejection/defer behavior, bounded retries/results, and metrics. Commit that coherent section on PR #15 and continue WP-04 only.
+Inventory every bounded-work surface named by WP-04, implement deterministic saturation/backpressure tests for configured capacity, rejection/defer behavior, bounded retries/results/metrics, commit that coherent section on PR #15, and continue WP-04 only. Do not start WP-05.
