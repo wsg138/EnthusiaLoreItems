@@ -360,12 +360,16 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             DistributionCampaignAdministrationUseCase distribution = plugin.getServer()
                     .getServicesManager()
                     .load(DistributionCampaignAdministrationUseCase.class);
-            CompletionStage<Page<CampaignRecipient>> campaignReviews = distribution == null
+            boolean distributionAvailable = distribution != null;
+            CompletionStage<Page<CampaignRecipient>> campaignReviews = !distributionAvailable
                     ? CompletableFuture.completedFuture(emptyCampaignPage(request))
                     : Objects.requireNonNull(
                             distribution.listReviewRequired(request),
                             "campaign review query stage");
-            stage = recovery.thenCombine(campaignReviews, RecoveryView::new);
+            stage = recovery.thenCombine(
+                    campaignReviews,
+                    (recoveryPage, reviews) -> new RecoveryView(
+                            recoveryPage, reviews, distributionAvailable));
         } catch (RuntimeException exception) {
             finishQuery(actor);
             handleFailure(actor, "recovery work", exception);
@@ -387,7 +391,9 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             notifyActor(
                     actor,
                     LoreItemsAdministrationFormatter.recoveryLines(
-                            view.recovery(), view.campaignReviews()));
+                            view.recovery(),
+                            view.campaignReviews(),
+                            view.distributionAvailable()));
         });
     }
 
@@ -504,7 +510,8 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
 
     private record RecoveryView(
             LoreItemsAdministrationUseCase.RecoveryPage recovery,
-            Page<CampaignRecipient> campaignReviews) {}
+            Page<CampaignRecipient> campaignReviews,
+            boolean distributionAvailable) {}
 
     public void closeEditorSessions(String reason) {
         destructiveExecutor.clearConfirmations();

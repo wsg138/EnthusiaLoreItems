@@ -67,25 +67,40 @@ final class LoreItemsAdministrationFormatter {
                 page.deliveries().offset(),
                 page.deliveries().limit(),
                 false);
-        return recoveryLines(page, emptyCampaignReview);
+        return recoveryLines(page, emptyCampaignReview, true);
     }
 
     static List<String> recoveryLines(
             LoreItemsAdministrationUseCase.RecoveryPage page,
             Page<CampaignRecipient> campaignReviews) {
+        return recoveryLines(page, campaignReviews, true);
+    }
+
+    static List<String> recoveryLines(
+            LoreItemsAdministrationUseCase.RecoveryPage page,
+            Page<CampaignRecipient> campaignReviews,
+            boolean campaignReviewAvailable) {
         List<String> lines = new ArrayList<>();
         lines.add("Nonterminal lore-item recovery and review work — page "
                 + pageNumber(page.deliveries()));
+        if (!campaignReviewAvailable) {
+            lines.add("Campaign review data is unavailable because mass distribution administration "
+                    + "is not active.");
+        }
         if (page.deliveries().items().isEmpty()
                 && page.mutations().items().isEmpty()
                 && campaignReviews.items().isEmpty()) {
-            lines.add("No nonterminal delivery, mutation, or campaign review records were found.");
+            lines.add(campaignReviewAvailable
+                    ? "No nonterminal delivery, mutation, or campaign review records were found."
+                    : "No nonterminal delivery or mutation records were found.");
             return lines;
         }
         appendDeliveryRecovery(lines, page.deliveries());
         appendMutationRecovery(lines, page.mutations());
-        appendCampaignReviews(lines, campaignReviews);
-        if (page.hasMore() || campaignReviews.hasMore()) {
+        if (campaignReviewAvailable) {
+            appendCampaignReviews(lines, campaignReviews);
+        }
+        if (page.hasMore() || (campaignReviewAvailable && campaignReviews.hasMore())) {
             lines.add("More recovery or review records are available on the next page.");
         }
         return lines;
