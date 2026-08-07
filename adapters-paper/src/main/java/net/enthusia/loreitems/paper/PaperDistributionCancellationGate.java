@@ -1,26 +1,27 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.enthusia.loreitems.application.PreparedDistributionDelivery;
 import net.enthusia.loreitems.domain.CampaignRecipient;
 
 final class PaperDistributionCancellationGate implements AutoCloseable {
+    private static final int MIN_HOLD_LIMIT = 1;
+
     private final int perCampaignHoldLimit;
-    private final Set<UUID> fences = new HashSet<>();
-    private final Set<UUID> committed = new HashSet<>();
-    private final Map<UUID, List<CampaignRecipient>> heldClaims = new HashMap<>();
-    private final Map<UUID, List<PreparedDistributionDelivery>> heldPrepared = new HashMap<>();
+    private final Set<UUID> fences = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> committedCampaigns = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, List<CampaignRecipient>> heldClaims = new ConcurrentHashMap<>();
+    private final Map<UUID, List<PreparedDistributionDelivery>> heldPrepared = new ConcurrentHashMap<>();
 
     PaperDistributionCancellationGate(int perCampaignHoldLimit) {
-        if (perCampaignHoldLimit < 1) {
+        if (perCampaignHoldLimit < MIN_HOLD_LIMIT) {
             throw new IllegalArgumentException("perCampaignHoldLimit must be positive");
         }
         this.perCampaignHoldLimit = perCampaignHoldLimit;
@@ -36,7 +37,7 @@ final class PaperDistributionCancellationGate implements AutoCloseable {
             Consumer<PreparedDistributionDelivery> cancelPrepared) {
         UUID id = Objects.requireNonNull(campaignId, "campaignId");
         fences.add(id);
-        committed.add(id);
+        committedCampaigns.add(id);
         drain(id, cancelClaim, cancelPrepared);
     }
 
@@ -46,7 +47,7 @@ final class PaperDistributionCancellationGate implements AutoCloseable {
             Consumer<PreparedDistributionDelivery> processPrepared) {
         UUID id = Objects.requireNonNull(campaignId, "campaignId");
         fences.remove(id);
-        committed.remove(id);
+        committedCampaigns.remove(id);
         drain(id, processClaim, processPrepared);
     }
 
@@ -56,7 +57,7 @@ final class PaperDistributionCancellationGate implements AutoCloseable {
         if (!fences.contains(campaignId)) {
             return Decision.PROCESS;
         }
-        if (committed.contains(campaignId)) {
+        if (committedCampaigns.contains(campaignId)) {
             return Decision.CANCEL;
         }
         return hold(heldClaims, campaignId, recipient)
@@ -70,7 +71,7 @@ final class PaperDistributionCancellationGate implements AutoCloseable {
         if (!fences.contains(campaignId)) {
             return Decision.PROCESS;
         }
-        if (committed.contains(campaignId)) {
+        if (committedCampaigns.contains(campaignId)) {
             return Decision.CANCEL;
         }
         return hold(heldPrepared, campaignId, delivery)
@@ -108,7 +109,7 @@ final class PaperDistributionCancellationGate implements AutoCloseable {
         heldClaims.clear();
         heldPrepared.clear();
         fences.clear();
-        committed.clear();
+        committedCampaigns.clear();
     }
 
     enum Decision {
