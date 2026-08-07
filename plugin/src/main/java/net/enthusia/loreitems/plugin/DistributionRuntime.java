@@ -16,6 +16,7 @@ import net.enthusia.loreitems.application.MetricsDistributionDeliveryExecutionUs
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PersistingDistributionCampaignAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingDistributionDeliveryExecutionUseCase;
+import net.enthusia.loreitems.paper.DistributionCampaignCommandDependencies;
 import net.enthusia.loreitems.paper.DistributionCampaignCommandExecutor;
 import net.enthusia.loreitems.paper.PaperCachedPlayerIdentityResolver;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
@@ -49,6 +50,7 @@ final class DistributionRuntime implements AutoCloseable {
     private final DistributionCampaignCommandExecutor commandExecutor;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    private volatile boolean serviceRegistered;
     private volatile boolean started;
 
     DistributionRuntime(
@@ -57,69 +59,104 @@ final class DistributionRuntime implements AutoCloseable {
             FoundationConfiguration configuration,
             Executor blockingExecutor) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        Objects.requireNonNull(storage, "storage");
-        Objects.requireNonNull(configuration, "configuration");
+        SQLiteStorageRuntime requiredStorage = Objects.requireNonNull(storage, "storage");
+        FoundationConfiguration requiredConfiguration =
+                Objects.requireNonNull(configuration, "configuration");
         Executor workerExecutor = Objects.requireNonNull(blockingExecutor, "blockingExecutor");
-        MetricsPort metrics = storage.metrics();
-
+        MetricsPort metrics = requiredStorage.metrics();
         Clock clock = Clock.systemUTC();
+
         groupCatalog = new PaperGroupFileCatalog(plugin.getDataFolder().toPath());
         SQLiteDistributionCampaignRepository campaigns =
-                new SQLiteDistributionCampaignRepository(storage);
+                new SQLiteDistributionCampaignRepository(requiredStorage);
         SQLiteDistributionRecipientRepository recipients =
-                new SQLiteDistributionRecipientRepository(storage);
-        DistributionCampaignAdministrationUseCase persistedAdministration =
+                new SQLiteDistributionRecipientRepository(requiredStorage);
+        administration = buildAdministration(requiredStorage, campaigns, recipients, metrics, clock);
+        PaperDistributionMarkerReconciler markerReconciler =
+                new PaperDistributionMarkerReconciler(groupCatalog, campaigns, workerExecutor);
+        deliveryWorker = buildDeliveryWorker(
+                plugin, requiredStorage, requiredConfiguration, metrics, clock);
+        bindingWorker = buildBindingWorker(
+                plugin, recipients, deliveryWorker, requiredConfiguration);
+        markerWorker = new PaperDistributionMarkerRecoveryWorker(
+                plugin, markerReconciler, requiredConfiguration.defaultPageSize());
+        commandExecutor = buildCommandExecutor(
+                requiredStorage, requiredConfiguration, workerExecutor, markerReconciler);
+    }
+
+    private DistributionCampaignAdministrationUseCase buildAdministration(
+            SQLiteStorageRuntime storage,
+            SQLiteDistributionCampaignRepository campaigns,
+            SQLiteDistributionRecipientRepository recipients,
+            MetricsPort metrics,
+            Clock clock) {
+        DistributionCampaignAdministrationUseCase persisted =
                 new PersistingDistributionCampaignAdministrationUseCase(
                         campaigns,
                         recipients,
                         new SQLiteDistributionReviewRepository(storage),
                         new SQLiteDistributionCampaignControlRepository(storage),
                         clock);
-        administration = new MetricsDistributionCampaignAdministrationUseCase(
-                persistedAdministration, metrics);
-        PaperDistributionMarkerReconciler markerReconciler =
-                new PaperDistributionMarkerReconciler(groupCatalog, campaigns, workerExecutor);
-        DistributionDeliveryExecutionUseCase persistedDelivery =
+        return new MetricsDistributionCampaignAdministrationUseCase(persisted, metrics);
+    }
+
+    private static PaperDistributionDeliveryWorker buildDeliveryWorker(
+            JavaPlugin plugin,
+            SQLiteStorageRuntime storage,
+            FoundationConfiguration configuration,
+            MetricsPort metrics,
+            Clock clock) {
+        DistributionDeliveryExecutionUseCase persisted =
                 new PersistingDistributionDeliveryExecutionUseCase(
                         new SQLiteCancellableDistributionDeliveryRepository(storage),
                         clock,
                         Duration.ofSeconds(configuration.deliveryClaimLeaseSeconds()));
         DistributionDeliveryExecutionUseCase delivery =
-                new MetricsDistributionDeliveryExecutionUseCase(persistedDelivery, metrics);
-        deliveryWorker = new PaperDistributionDeliveryWorker(
+                new MetricsDistributionDeliveryExecutionUseCase(persisted, metrics);
+        return new PaperDistributionDeliveryWorker(
                 plugin,
                 delivery,
                 new PaperDirectDeliveryOperator(),
                 configuration.deliveryClaimBatchSize(),
                 configuration.mutationBudgetPerTick());
-        BindDistributionRecipientsUseCase binder =
-                new BindDistributionRecipientsUseCase(recipients);
-        bindingWorker = new PaperDistributionRecipientBindingWorker(
+    }
+
+    private static PaperDistributionRecipientBindingWorker buildBindingWorker(
+            JavaPlugin plugin,
+            SQLiteDistributionRecipientRepository recipients,
+            PaperDistributionDeliveryWorker deliveryWorker,
+            FoundationConfiguration configuration) {
+        return new PaperDistributionRecipientBindingWorker(
                 plugin,
-                binder,
+                new BindDistributionRecipientsUseCase(recipients),
                 deliveryWorker::wakePlayer,
                 configuration.defaultPageSize(),
                 configuration.mutationBudgetPerTick());
-        markerWorker = new PaperDistributionMarkerRecoveryWorker(
-                plugin, markerReconciler, configuration.defaultPageSize());
-        PaperDistributionCampaignCoordinator coordinator =
-                new PaperDistributionCampaignCoordinator(
-                        groupCatalog,
-                        new SQLiteDefinitionRepository(storage),
-                        new SQLiteDistributionCampaignStartRepository(storage),
-                        new PaperCachedPlayerIdentityResolver(),
-                        workerExecutor,
-                        workerExecutor);
-        commandExecutor = new DistributionCampaignCommandExecutor(
-                plugin,
+    }
+
+    private DistributionCampaignCommandExecutor buildCommandExecutor(
+            SQLiteStorageRuntime storage,
+            FoundationConfiguration configuration,
+            Executor workerExecutor,
+            PaperDistributionMarkerReconciler markerReconciler) {
+        PaperDistributionCampaignCoordinator coordinator = new PaperDistributionCampaignCoordinator(
                 groupCatalog,
-                coordinator,
-                administration,
-                markerReconciler,
-                deliveryWorker,
-                markerWorker::wake,
+                new SQLiteDefinitionRepository(storage),
+                new SQLiteDistributionCampaignStartRepository(storage),
+                new PaperCachedPlayerIdentityResolver(),
                 workerExecutor,
-                configuration.defaultPageSize());
+                workerExecutor);
+        DistributionCampaignCommandDependencies dependencies =
+                new DistributionCampaignCommandDependencies(
+                        groupCatalog,
+                        coordinator,
+                        administration,
+                        markerReconciler,
+                        deliveryWorker,
+                        markerWorker::wake,
+                        workerExecutor);
+        return new DistributionCampaignCommandExecutor(
+                plugin, dependencies, configuration.defaultPageSize());
     }
 
     void activate() throws IOException {
@@ -139,11 +176,7 @@ final class DistributionRuntime implements AutoCloseable {
                 plugin.getCommand("loredistribution"),
                 "plugin.yml must declare the loredistribution command");
         try {
-            plugin.getServer().getServicesManager().register(
-                    DistributionCampaignAdministrationUseCase.class,
-                    administration,
-                    plugin,
-                    ServicePriority.Normal);
+            registerAdministrationService();
             command.setExecutor(commandExecutor);
             command.setTabCompleter(commandExecutor);
             deliveryWorker.start();
@@ -160,6 +193,15 @@ final class DistributionRuntime implements AutoCloseable {
                     exception);
             plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
+    }
+
+    private void registerAdministrationService() {
+        plugin.getServer().getServicesManager().register(
+                DistributionCampaignAdministrationUseCase.class,
+                administration,
+                plugin,
+                ServicePriority.Normal);
+        serviceRegistered = true;
     }
 
     private void executeOnMain(Runnable action) {
@@ -179,16 +221,24 @@ final class DistributionRuntime implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        if (!started) {
+        if (!started && !serviceRegistered) {
             closeQuietly(commandExecutor, "distribution command executor");
             return;
         }
-        plugin.getServer().getServicesManager().unregister(
-                DistributionCampaignAdministrationUseCase.class, administration);
+        unregisterAdministrationService();
         closeQuietly(markerWorker, "distribution marker worker");
         closeQuietly(bindingWorker, "distribution identity-binding worker");
         closeQuietly(deliveryWorker, "distribution delivery worker");
         closeQuietly(commandExecutor, "distribution command executor");
+    }
+
+    private void unregisterAdministrationService() {
+        if (!serviceRegistered) {
+            return;
+        }
+        plugin.getServer().getServicesManager().unregister(
+                DistributionCampaignAdministrationUseCase.class, administration);
+        serviceRegistered = false;
     }
 
     private void closeQuietly(AutoCloseable component, String name) {
