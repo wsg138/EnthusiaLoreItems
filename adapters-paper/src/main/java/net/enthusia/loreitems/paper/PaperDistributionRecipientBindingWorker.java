@@ -5,9 +5,9 @@ import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +29,9 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
     private static final int MIN_QUEUE_CAPACITY = 32;
     private static final int QUEUE_MULTIPLIER = 8;
     private static final int MAX_QUEUE_CAPACITY = 4_096;
+    private static final int MIN_POSITIVE_VALUE = 1;
+    private static final int FIRST_CHARACTER_INDEX = 0;
+    private static final long NO_TICKS_REMAINING = 0L;
     private static final long PERIODIC_SCAN_TICKS = 200L;
 
     private final Plugin plugin;
@@ -43,8 +46,8 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
     private final Set<IdentityCandidate> scheduled = new HashSet<>();
 
     private BukkitTask task;
+    private Iterator<? extends Player> onlineScan = Collections.emptyIterator();
     private int inFlight;
-    private int scanCursor;
     private long ticksUntilScan;
     private volatile boolean closed;
 
@@ -77,10 +80,11 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         this.deliveryWake = Objects.requireNonNull(deliveryWake, "deliveryWake");
         this.floodgatePlayer = Objects.requireNonNull(floodgatePlayer, "floodgatePlayer");
         this.clock = Objects.requireNonNull(clock, "clock");
-        if (pageSize < 1 || pageSize > net.enthusia.loreitems.application.PageRequest.MAX_LIMIT) {
+        if (pageSize < MIN_POSITIVE_VALUE
+                || pageSize > net.enthusia.loreitems.application.PageRequest.MAX_LIMIT) {
             throw new IllegalArgumentException("pageSize is outside the supported bounded range");
         }
-        if (mutationBudgetPerTick < 1) {
+        if (mutationBudgetPerTick < MIN_POSITIVE_VALUE) {
             throw new IllegalArgumentException("mutationBudgetPerTick must be positive");
         }
         this.pageSize = pageSize;
@@ -101,7 +105,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
-        ticksUntilScan = 0L;
+        ticksUntilScan = NO_TICKS_REMAINING;
     }
 
     @EventHandler
@@ -116,12 +120,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         if (closed) {
             return;
         }
-        if (ticksUntilScan <= 0L) {
-            enqueuePeriodicOnlineScan();
-            ticksUntilScan = PERIODIC_SCAN_TICKS;
-        } else {
-            ticksUntilScan--;
-        }
+        advancePeriodicOnlineScan();
         while (inFlight < mutationBudgetPerTick && !pending.isEmpty()) {
             IdentityCandidate candidate = pending.removeFirst();
             inFlight++;
@@ -160,19 +159,20 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         enqueueIdentity(playerId, player.getName(), floodgatePlayer.test(playerId));
     }
 
-    private void enqueuePeriodicOnlineScan() {
-        List<Player> online = new ArrayList<>(Bukkit.getOnlinePlayers());
-        if (online.isEmpty()) {
-            scanCursor = 0;
-            return;
+    private void advancePeriodicOnlineScan() {
+        if (!onlineScan.hasNext()) {
+            if (ticksUntilScan > NO_TICKS_REMAINING) {
+                ticksUntilScan--;
+                return;
+            }
+            onlineScan = Bukkit.getOnlinePlayers().iterator();
+            ticksUntilScan = PERIODIC_SCAN_TICKS;
         }
-        int count = Math.min(mutationBudgetPerTick, online.size());
-        int start = Math.floorMod(scanCursor, online.size());
-        for (int index = 0; index < count; index++) {
-            Player player = online.get((start + index) % online.size());
-            enqueuePlayer(player);
+        int scanned = 0;
+        while (scanned < mutationBudgetPerTick && onlineScan.hasNext()) {
+            enqueuePlayer(onlineScan.next());
+            scanned++;
         }
-        scanCursor = (start + count) % online.size();
     }
 
     private void submitBinding(IdentityCandidate candidate) {
@@ -256,12 +256,11 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
             return;
         }
         closed = true;
-        BukkitTask currentTask = task;
-        task = null;
-        if (currentTask != null) {
-            currentTask.cancel();
+        if (task != null) {
+            task.cancel();
         }
         HandlerList.unregisterAll(this);
+        onlineScan = Collections.emptyIterator();
         pending.clear();
         scheduled.clear();
     }
@@ -269,7 +268,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
     private static String normalizeName(String currentName) {
         Objects.requireNonNull(currentName, "currentName");
         String normalized = currentName.strip();
-        if (normalized.isEmpty() || normalized.charAt(0) == '*') {
+        if (normalized.isEmpty() || normalized.charAt(FIRST_CHARACTER_INDEX) == '*') {
             throw new IllegalArgumentException("currentName must be an unprefixed non-blank player name");
         }
         return normalized;
@@ -277,7 +276,8 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     private static void requirePrimaryThread() {
         if (!Bukkit.isPrimaryThread()) {
-            throw new IllegalStateException("Distribution binding worker mutation must run on the server thread");
+            throw new IllegalStateException(
+                    "Distribution binding worker mutation must run on the server thread");
         }
     }
 
@@ -305,8 +305,8 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     private static final class FloodgateDetector {
         private final Plugin plugin;
-        private Method getInstance;
-        private Method isFloodgatePlayer;
+        private Method getInstanceMethod;
+        private Method floodgatePlayerMethod;
         private boolean available;
         private boolean failureLogged;
 
@@ -321,8 +321,8 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
             }
             try {
                 Class<?> api = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-                getInstance = api.getMethod("getInstance");
-                isFloodgatePlayer = api.getMethod("isFloodgatePlayer", UUID.class);
+                getInstanceMethod = api.getMethod("getInstance");
+                floodgatePlayerMethod = api.getMethod("isFloodgatePlayer", UUID.class);
                 available = true;
             } catch (ClassNotFoundException | NoSuchMethodException | LinkageError exception) {
                 logFailure(exception);
@@ -334,8 +334,8 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
                 return false;
             }
             try {
-                Object api = getInstance.invoke(null);
-                return Boolean.TRUE.equals(isFloodgatePlayer.invoke(api, playerId));
+                Object api = getInstanceMethod.invoke(null);
+                return Boolean.TRUE.equals(floodgatePlayerMethod.invoke(api, playerId));
             } catch (IllegalAccessException | InvocationTargetException | RuntimeException exception) {
                 available = false;
                 logFailure(exception);
