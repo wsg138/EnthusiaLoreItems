@@ -4,15 +4,24 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
+import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
+import net.enthusia.loreitems.application.DestructiveOperationStore;
+import net.enthusia.loreitems.application.DestructiveOperationStoreProvider;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PersistingDestructiveAdministrationUseCase;
+import net.enthusia.loreitems.application.PersistingDestructiveRemovalExecutionUseCase;
 import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
@@ -20,10 +29,12 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private static final int MIN_RECOVERY_LIMIT = 1;
     private static final long INITIAL_DELAY_TICKS = 1L;
     private static final long RECOVERY_PERIOD_TICKS = 100L;
-    private static final Duration TEMPLATE_UPDATE_CLAIM_LEASE = Duration.ofSeconds(30L);
+    private static final Duration MUTATION_CLAIM_LEASE = Duration.ofSeconds(30L);
 
     private final Plugin plugin;
     private final PendingMutationRepository repository;
+    private final Optional<DestructiveOperationStore> destructiveStore;
+    private final Optional<DestructiveAdministrationUseCase> destructiveAdministration;
     private final int recoveryLimit;
     private final PaperTemplateUpdateCoordinator templateUpdateCoordinator;
     private final PaperTemplateUpdateAccessRegistry templateUpdateAccessRegistry;
@@ -32,14 +43,36 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
+    private boolean destructiveServicesRegistered;
     private volatile boolean closed;
 
     public PaperMutationRecoveryWorker(
             Plugin plugin,
             PendingMutationRepository repository,
             int recoveryLimit) {
+        this(plugin, repository, optionalDestructiveStore(repository), recoveryLimit);
+    }
+
+    public PaperMutationRecoveryWorker(
+            Plugin plugin,
+            PendingMutationRepository repository,
+            DestructiveOperationStore destructiveStore,
+            int recoveryLimit) {
+        this(
+                plugin,
+                repository,
+                Optional.of(Objects.requireNonNull(destructiveStore, "destructiveStore")),
+                recoveryLimit);
+    }
+
+    private PaperMutationRecoveryWorker(
+            Plugin plugin,
+            PendingMutationRepository repository,
+            Optional<DestructiveOperationStore> destructiveStore,
+            int recoveryLimit) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.destructiveStore = Objects.requireNonNull(destructiveStore, "destructiveStore");
         if (recoveryLimit < MIN_RECOVERY_LIMIT) {
             throw new IllegalArgumentException("recoveryLimit must be positive");
         }
@@ -48,15 +81,14 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                     "repository must also provide template-update execution storage");
         }
         this.recoveryLimit = recoveryLimit;
+        Clock clock = Clock.systemUTC();
+        this.destructiveAdministration = destructiveStore.map(
+                store -> new PersistingDestructiveAdministrationUseCase(store, clock));
         TemplateUpdateExecutionUseCase useCase = new PersistingTemplateUpdateExecutionUseCase(
                 templateStore,
-                Clock.systemUTC(),
-                TEMPLATE_UPDATE_CLAIM_LEASE);
-        this.templateUpdateCoordinator = new PaperTemplateUpdateCoordinator(
-                plugin,
-                useCase,
-                new PaperTemplateUpdateOperator(),
-                recoveryLimit);
+                clock,
+                MUTATION_CLAIM_LEASE);
+        this.templateUpdateCoordinator = createCoordinator(useCase, clock);
         this.templateUpdateAccessRegistry = new PaperTemplateUpdateAccessRegistry();
         this.templateUpdateListener = new PaperTemplateUpdateListener(
                 plugin,
@@ -73,6 +105,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (closed || task != null) {
             throw new IllegalStateException("Mutation recovery worker cannot be started");
         }
+        registerDestructiveServices();
         templateUpdateListener.start();
         try {
             entityTemplateUpdateListener.start();
@@ -85,6 +118,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             entityTemplateUpdateListener.close();
             templateUpdateListener.close();
             templateUpdateCoordinator.close();
+            unregisterDestructiveServices();
             throw exception;
         }
     }
@@ -101,11 +135,17 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (closed || !recoveryInFlight.compareAndSet(false, true)) {
             return;
         }
-        CompletionStage<Integer> stage;
+        CompletionStage<RecoveryCounts> stage;
         try {
-            stage = Objects.requireNonNull(
+            CompletionStage<Integer> templateRecovery = Objects.requireNonNull(
                     repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit),
-                    "mutation recovery stage");
+                    "template recovery stage");
+            CompletionStage<Integer> destructiveRecovery = destructiveStore
+                    .map(this::recoverDestructiveClaims)
+                    .orElseGet(() -> CompletableFuture.completedFuture(0));
+            stage = templateRecovery.thenCombine(
+                    destructiveRecovery,
+                    RecoveryCounts::new);
         } catch (RuntimeException exception) {
             recoveryInFlight.set(false);
             plugin.getLogger().log(
@@ -128,17 +168,97 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                         "Expired mutation recovery completed without a result.");
                 return;
             }
-            if (recovered > 0) {
-                plugin.getLogger().warning(
-                        "Moved " + recovered
-                                + " expired item-mutation claims to REVIEW_REQUIRED.");
-            }
-            if (recovered == recoveryLimit) {
-                plugin.getLogger().warning(
-                        "The bounded mutation-recovery batch was full; more expired claims "
-                                + "may remain for the next pass.");
-            }
+            reportRecovery("template-update", recovered.templateUpdates());
+            reportRecovery("destructive-removal", recovered.destructiveRemovals());
         });
+    }
+
+    private CompletionStage<Integer> recoverDestructiveClaims(DestructiveOperationStore store) {
+        return Objects.requireNonNull(
+                store.moveExpiredClaimsToReview(Instant.now(), recoveryLimit),
+                "destructive recovery stage");
+    }
+
+    private PaperTemplateUpdateCoordinator createCoordinator(
+            TemplateUpdateExecutionUseCase useCase,
+            Clock clock) {
+        if (destructiveStore.isEmpty()) {
+            return new PaperTemplateUpdateCoordinator(
+                    plugin,
+                    useCase,
+                    new PaperTemplateUpdateOperator(),
+                    recoveryLimit);
+        }
+        return new PaperTemplateUpdateCoordinator(
+                plugin,
+                useCase,
+                new PaperTemplateUpdateOperator(),
+                new PersistingDestructiveRemovalExecutionUseCase(
+                        destructiveStore.orElseThrow(),
+                        clock,
+                        MUTATION_CLAIM_LEASE),
+                new PaperDestructiveRemovalOperator(),
+                recoveryLimit);
+    }
+
+    private void registerDestructiveServices() {
+        if (destructiveAdministration.isEmpty()) {
+            return;
+        }
+        ServicesManager services = plugin.getServer().getServicesManager();
+        DestructiveAdministrationUseCase administration = destructiveAdministration.orElseThrow();
+        services.register(
+                DestructiveAdministrationUseCase.class,
+                administration,
+                plugin,
+                ServicePriority.Normal);
+        try {
+            services.register(
+                    PaperMutationRecoveryWorker.class,
+                    this,
+                    plugin,
+                    ServicePriority.Normal);
+            destructiveServicesRegistered = true;
+        } catch (RuntimeException exception) {
+            services.unregister(DestructiveAdministrationUseCase.class, administration);
+            throw exception;
+        }
+    }
+
+    private void unregisterDestructiveServices() {
+        if (!destructiveServicesRegistered) {
+            return;
+        }
+        ServicesManager services = plugin.getServer().getServicesManager();
+        services.unregister(PaperMutationRecoveryWorker.class, this);
+        services.unregister(
+                DestructiveAdministrationUseCase.class,
+                destructiveAdministration.orElseThrow());
+        destructiveServicesRegistered = false;
+    }
+
+    private static Optional<DestructiveOperationStore> optionalDestructiveStore(
+            PendingMutationRepository repository) {
+        Objects.requireNonNull(repository, "repository");
+        if (repository instanceof DestructiveOperationStoreProvider provider) {
+            return Optional.of(Objects.requireNonNull(
+                    provider.destructiveOperationStore(),
+                    "destructive operation store"));
+        }
+        return Optional.empty();
+    }
+
+    private void reportRecovery(String kind, int recovered) {
+        if (recovered > 0) {
+            plugin.getLogger().warning(
+                    "Moved " + recovered + " expired " + kind
+                            + " claims to REVIEW_REQUIRED.");
+        }
+        if (recovered == recoveryLimit) {
+            plugin.getLogger().warning(
+                    "The bounded " + kind
+                            + " recovery batch was full; more expired claims may remain.");
+        }
     }
 
     private static Throwable unwrap(Throwable throwable) {
@@ -158,5 +278,8 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (current != null) {
             current.cancel();
         }
+        unregisterDestructiveServices();
     }
+
+    private record RecoveryCounts(int templateUpdates, int destructiveRemovals) {}
 }

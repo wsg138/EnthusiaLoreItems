@@ -13,6 +13,7 @@ import java.util.concurrent.Semaphore;
 import java.util.function.IntSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.AuditEventRecord;
+import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
@@ -48,6 +49,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private final IntSupplier pageSizeSupplier;
     private final PaperTrackingAdministrationGui trackingGui;
     private final PaperTemplateEditorManager templateEditor;
+    private final LoreItemsDestructiveCommandExecutor destructiveExecutor;
     private final Set<CommandActor> activeActors = ConcurrentHashMap.newKeySet();
     private final Semaphore queryCapacity = new Semaphore(MAX_CONCURRENT_QUERIES);
 
@@ -69,6 +71,13 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
         validatePageSize(currentPageSize());
+        this.destructiveExecutor = new LoreItemsDestructiveCommandExecutor(
+                plugin,
+                () -> plugin.getServer()
+                        .getServicesManager()
+                        .load(DestructiveAdministrationUseCase.class),
+                pageSizeSupplier,
+                () -> wakeDestructiveWork(plugin));
         this.templateEditor = new PaperTemplateEditorManager(
                 plugin,
                 Objects.requireNonNull(rolloutBatchSupplier, "rolloutBatchSupplier"),
@@ -77,6 +86,19 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
                 plugin, pageSizeSupplier, templateEditor);
         this.templateEditor.setDefinitionNavigator(trackingGui::openDefinitions);
         this.templateEditor.setInstanceNavigator(trackingGui::openInstances);
+    }
+
+    private static void wakeDestructiveWork(Plugin plugin) {
+        PaperMutationRecoveryWorker worker = plugin.getServer()
+                .getServicesManager()
+                .load(PaperMutationRecoveryWorker.class);
+        if (worker != null) {
+            worker.wakeAccessible();
+        }
+    }
+
+    LoreItemsDestructiveCommandExecutor destructiveCommandExecutor() {
+        return destructiveExecutor;
     }
 
     @Override
@@ -209,7 +231,9 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
                 return;
             }
             if (page == null) {
-                handleFailure(actor, "active anomalies",
+                handleFailure(
+                        actor,
+                        "active anomalies",
                         new IllegalStateException("Active anomaly query returned no page"));
                 return;
             }
@@ -306,7 +330,9 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             return;
         }
         if (view == null) {
-            handleFailure(actor, "instance audit",
+            handleFailure(
+                    actor,
+                    "instance audit",
                     new IllegalStateException("Instance audit query returned no view"));
             return;
         }
@@ -339,7 +365,9 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
                 return;
             }
             if (page == null) {
-                handleFailure(actor, "recovery work",
+                handleFailure(
+                        actor,
+                        "recovery work",
                         new IllegalStateException("Recovery query returned no page"));
                 return;
             }
@@ -455,11 +483,13 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             Page<InstanceObservation> observations) {}
 
     public void closeEditorSessions(String reason) {
+        destructiveExecutor.clearConfirmations();
         templateEditor.closeSessions(reason);
     }
 
     @Override
     public void close() {
+        destructiveExecutor.close();
         templateEditor.close();
     }
 

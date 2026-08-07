@@ -2,48 +2,59 @@
 
 ## Purpose
 
-This is the current GitHub-backed handoff for the fixed remaining-work program. Live GitHub always outranks this snapshot.
+This is the current GitHub-backed handoff for the fixed remaining-work program. Resolve conflicts using this authority order: live GitHub state; the selected package contract; workflow documents; requirements; architecture; implementation plan; then state or handoff records.
 
-## Prospective completion
+The completion state below is prospective until PR #13 is normally merged and live `main` is verified.
 
-- Package: WP-01 — editor and template management
-- Status: `COMPLETE` prospectively, pending final-records verification, normal merge, and live-main verification
-- Canonical branch: `agent/wp-01-editor-template-management`
-- Pull request: #11, `WP-01: complete editor and template management`
-- Live `main` before merge: `05fade8645ac994bd9ab498c64449ea4cf084384`
-- Starting branch SHA for this completing session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
-- Reviewed source head: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
-- Verified pre-completion checkpoint: `22a28078f25b5e24aa6c611f6dff06ab504a4267`
-- Next package prepared as READY: WP-02; it must not be started in this chat
+## WP-02 publication state
 
-## Completed acceptance criteria
+- Package: WP-02 — destructive administration
+- Status: `COMPLETE` prospectively
+- Canonical branch: `agent/wp-02-destructive-administration`
+- Ready pull request: #13, `WP-02: complete destructive administration`
+- Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
+- Verified final implementation head: `98d58bd76c69939159a351bd3407c108a3015227`
+- Final implementation workflow: run `31137614006`, success
+- Final implementation Codacy: check `92740655340`, success with zero annotations
+- Records-publication commits before this handoff: `ce4eb25e10c49fa28b67f6ab888e9c02ea7cd46d`, `76509ff132c3672abb28f1f0b05634a42c07f747`, and `7099713072ebea26e01376f4eaf3788c042552c1`
+- Next package after authoritative completion: WP-03 — one-use mass distributions, `READY`
 
-- Complete definition-specific management and GUI/chat editor workflow with bounded permission-checked sessions and explicit lifecycle handling.
-- Every required material, name, lore, enchantment, glint, damage, unbreakable, attribute, model, stack-size, custom-model-data, dye, potion, trim, banner, profile, firework, and tooltip/flag operation.
-- Exact held-item replacement fallback with versioned codec preservation, identity stripping, amount/max-stack normalization, preview, and confirmation.
-- Immutable monotonic revisions with actor and before/after evidence; atomic durable rollout intent; duplicate/replay/restart idempotency.
-- Bounded accessible updates across all required scopes; durable natural-observation deferral without force loading.
-- Identity/revision verification and safe anomaly/review routing for malformed, conflicting, stale, mismatched, or ambiguous evidence.
-- Degraded/read-only rejection, Bukkit-thread and async-storage boundaries, pagination, bounds, reload/shutdown ownership, permissions, tab completion, messages, and documentation.
-- Required automated test matrix, harsh review, confirmed fixes, exact-head gates, and review resolution.
+## Completed package scope
 
-## Verification
+- Durable, reboot-safe, idempotent exact removal, purge, and full-delete operations with fixed snapshots, V5 migration, audit, recovery, pause/resume, evidence review, completion, deleted-definition exclusion, marker retention, and late-copy scheduling.
+- Bounded destructive-first execution through natural-access scanning, with no force loads, Paper-thread mutation, asynchronous persistence, exact identity/revision/location/fingerprint checks, changed-item preservation, and expired-claim recovery.
+- Physical removal coverage for player and Ender inventories, loaded inventories, nested shulkers and bundles, dropped items, item/glow frames, item displays, and armor-stand equipment.
+- Privileged preview-confirm flows with actor-specific, operation-specific, expiring, bounded, single-use confirmations.
+- Paginated operation/target inspection, metrics, pause/resume, evidence-gated review controls, GUI entry points, permissions, messages, tab completion, lifecycle cleanup, worker wakeups, and operator recovery documentation.
 
-- GitHub Actions run `31073464520` on `22a28078f25b5e24aa6c611f6dff06ab504a4267` passed full Gradle verification, repository-tool tests, new-code complexity, and exact-head Codacy.
-- Reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` has successful Codacy analysis with zero annotations.
-- All live inline review threads are resolved and no review is in requested-changes state.
-- Full findings, fixes, risk coverage, and deliberately rejected low-value suggestions are recorded in `ai-agents/reports/WP-01-author-harsh-review.md`.
+## Recovered exact-head evidence
 
-## Counts and progress prepared by this commit
+GitHub Actions was not waived. When hosted runners recovered, the first final execution exposed a real empty-`ItemDisplay` regression. Commit `98d58bd76c69939159a351bd3407c108a3015227` repaired it by treating AIR as absent before fingerprinting.
 
-- Completed packages: 1 of 6
-- Remaining packages: 5 of 6
-- Weighted progress: 20%
-- WP-02: READY
-- WP-03 through WP-06: BLOCKED
+Run `31137614006` then passed on that exact implementation head, including Java 21, Gradle 8.14.3, `gradle --no-daemon clean check`, repository-tool tests, new-code complexity verification, and exact-head Codacy verification. External Codacy check `92740655340` also passed with zero annotations.
 
-These values become authoritative only after this exact records commit is verified, normally merged, and observed on live `main`.
+## Review state and remediation
+
+The original CodeRabbit COMMENT review posted seven actionable threads. Six implementation defects were fixed with focused regression coverage: page overflow, scheduler-rejection cleanup, empty item-display handling, late-target uniqueness, complete JSON escaping, and overflow-safe aggregate validation. The earlier coordination thread was also resolved.
+
+The incremental CodeRabbit review on implementation head `98d58bd76c69939159a351bd3407c108a3015227` completed successfully with two coordination findings:
+
+1. align the queue, workspace state, detailed report, and latest handoff with the recovered final evidence;
+2. include the complete conflict-resolution authority order.
+
+This records-only publication sequence addresses both. No review is in `CHANGES_REQUESTED` state.
+
+## Prospective queue state
+
+- WP-01: `COMPLETE`
+- WP-02: `COMPLETE`
+- WP-03: `READY`
+- WP-04 through WP-06: `BLOCKED`
+- Completed packages: 2 of 6
+- Weighted progress: 40%
+
+This state becomes authoritative only after normal merge and live-main verification. The worker completing WP-02 must not claim or begin WP-03.
 
 ## Exact next action
 
-Verify the final records commit at exact head, reconcile any new review activity, normally merge PR #11, confirm live `main` and authoritative package state, and stop without beginning WP-02.
+Inspect Actions and Codacy for the final records-only branch head containing this handoff, resolve the two addressed coordination threads, reconfirm zero requested changes and unresolved threads, update PR #13 with truthful final evidence, merge only through the normal merge-commit method, verify live `main` and post-merge checks, and stop.

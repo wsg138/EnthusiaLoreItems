@@ -19,24 +19,21 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     private static final String RECOVERY_SUBCOMMAND = "recovery";
     private static final String BROWSE_SUBCOMMAND = "browse";
     private static final String USAGE =
-            "Usage: /loreitems create <lookup-key> <display name> | "
-                    + "/loreitems adopt <lookup-key> | "
-                    + "/loreitems give <lookup-key> [player] | "
-                    + "/loreitems browse | "
-                    + "/loreitems anomalies [page] | "
-                    + "/loreitems audit <instance-uuid> [page] | "
-                    + "/loreitems recovery [page]";
+            "Usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|"
+                    + "remove|purge|delete|operations|targets|destructive-metrics|"
+                    + "pause-operation|resume-operation|resolve-removal ...";
 
     private final CreateDefinitionCommandExecutor createExecutor;
     private final AdoptHeldItemCommandExecutor adoptExecutor;
     private final GiveLoreItemCommandExecutor giveExecutor;
     private final LoreItemsAdministrationCommandExecutor administrationExecutor;
+    private final LoreItemsDestructiveCommandExecutor destructiveExecutor;
 
     public LoreItemsCommandExecutor(
             CreateDefinitionCommandExecutor createExecutor,
             AdoptHeldItemCommandExecutor adoptExecutor,
             GiveLoreItemCommandExecutor giveExecutor) {
-        this(createExecutor, adoptExecutor, giveExecutor, null);
+        this(createExecutor, adoptExecutor, giveExecutor, null, null);
     }
 
     public LoreItemsCommandExecutor(
@@ -44,10 +41,27 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             AdoptHeldItemCommandExecutor adoptExecutor,
             GiveLoreItemCommandExecutor giveExecutor,
             LoreItemsAdministrationCommandExecutor administrationExecutor) {
+        this(
+                createExecutor,
+                adoptExecutor,
+                giveExecutor,
+                administrationExecutor,
+                administrationExecutor == null
+                        ? null
+                        : administrationExecutor.destructiveCommandExecutor());
+    }
+
+    public LoreItemsCommandExecutor(
+            CreateDefinitionCommandExecutor createExecutor,
+            AdoptHeldItemCommandExecutor adoptExecutor,
+            GiveLoreItemCommandExecutor giveExecutor,
+            LoreItemsAdministrationCommandExecutor administrationExecutor,
+            LoreItemsDestructiveCommandExecutor destructiveExecutor) {
         this.createExecutor = Objects.requireNonNull(createExecutor, "createExecutor");
         this.adoptExecutor = Objects.requireNonNull(adoptExecutor, "adoptExecutor");
         this.giveExecutor = Objects.requireNonNull(giveExecutor, "giveExecutor");
         this.administrationExecutor = administrationExecutor;
+        this.destructiveExecutor = destructiveExecutor;
     }
 
     @Override
@@ -72,13 +86,9 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             case BROWSE_SUBCOMMAND, ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND,
                     RECOVERY_SUBCOMMAND ->
                     executeAdministration(sender, command, label, arguments);
-            default -> {
-                sender.sendMessage(USAGE);
-                yield true;
-            }
+            default -> executeDestructiveOrUsage(sender, command, label, arguments, subcommand);
         };
     }
-
 
     @Override
     public List<String> onTabComplete(
@@ -90,19 +100,35 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(alias, "alias");
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length != 1) {
-            return List.of();
+        if (arguments.length == 1) {
+            return topLevelCompletions(
+                    sender,
+                    arguments[0],
+                    administrationExecutor != null,
+                    destructiveExecutor != null);
         }
-        return topLevelCompletions(
-            sender, arguments[0], administrationExecutor != null);
+        if (destructiveExecutor != null
+                && arguments.length > 1
+                && destructiveExecutor.handles(arguments[0])) {
+            return destructiveExecutor.onTabComplete(sender, command, alias, arguments);
+        }
+        return List.of();
     }
 
     static List<String> topLevelCompletions(CommandSender sender, String input) {
-        return topLevelCompletions(sender, input, true);
+        return topLevelCompletions(sender, input, true, true);
     }
 
     static List<String> topLevelCompletions(
             CommandSender sender, String input, boolean administrationAvailable) {
+        return topLevelCompletions(sender, input, administrationAvailable, false);
+    }
+
+    static List<String> topLevelCompletions(
+            CommandSender sender,
+            String input,
+            boolean administrationAvailable,
+            boolean destructiveAvailable) {
         Objects.requireNonNull(sender, "sender");
         String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
         List<String> candidates = new ArrayList<>();
@@ -113,12 +139,24 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             if (LoreItemsAdministrationCommandExecutor.canBrowse(sender)) {
                 candidates.add(BROWSE_SUBCOMMAND);
             }
-            addIfAllowed(candidates, sender, ANOMALIES_SUBCOMMAND,
+            addIfAllowed(
+                    candidates,
+                    sender,
+                    ANOMALIES_SUBCOMMAND,
                     LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
-            addIfAllowed(candidates, sender, AUDIT_SUBCOMMAND,
+            addIfAllowed(
+                    candidates,
+                    sender,
+                    AUDIT_SUBCOMMAND,
                     LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
-            addIfAllowed(candidates, sender, RECOVERY_SUBCOMMAND,
+            addIfAllowed(
+                    candidates,
+                    sender,
+                    RECOVERY_SUBCOMMAND,
                     LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
+        }
+        if (destructiveAvailable) {
+            candidates.addAll(LoreItemsDestructiveCommandExecutor.topLevelCompletions(sender, ""));
         }
         return candidates.stream().filter(value -> value.startsWith(prefix)).toList();
     }
@@ -143,5 +181,18 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             return true;
         }
         return administrationExecutor.onCommand(sender, command, label, arguments);
+    }
+
+    private boolean executeDestructiveOrUsage(
+            CommandSender sender,
+            Command command,
+            String label,
+            String[] arguments,
+            String subcommand) {
+        if (destructiveExecutor != null && destructiveExecutor.handles(subcommand)) {
+            return destructiveExecutor.onCommand(sender, command, label, arguments);
+        }
+        sender.sendMessage(USAGE);
+        return true;
     }
 }

@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.DestructiveOperationStore;
+import net.enthusia.loreitems.application.DestructiveOperationStoreProvider;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
@@ -25,7 +27,9 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.PendingMutationState;
 
 public final class SQLitePendingMutationRepository
-        implements PendingMutationRepository, TemplateUpdateExecutionStore {
+        implements PendingMutationRepository,
+                TemplateUpdateExecutionStore,
+                DestructiveOperationStoreProvider {
     private static final String NOW_ARGUMENT = "now";
     private static final String MUTATION_TYPE_ARGUMENT = "mutationType";
     private static final long MIN_LEASE_MILLIS = 1L;
@@ -33,10 +37,17 @@ public final class SQLitePendingMutationRepository
 
     private final SQLiteStorageRuntime storage;
     private final SQLiteTemplateUpdateExecutionStore templateUpdates;
+    private final SQLiteDestructiveOperationStore destructiveOperations;
 
     public SQLitePendingMutationRepository(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.templateUpdates = new SQLiteTemplateUpdateExecutionStore(storage);
+        this.destructiveOperations = new SQLiteDestructiveOperationStore(storage);
+    }
+
+    @Override
+    public DestructiveOperationStore destructiveOperationStore() {
+        return destructiveOperations;
     }
 
     @Override
@@ -50,8 +61,9 @@ public final class SQLitePendingMutationRepository
         return storage.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
                     "INSERT INTO pending_mutations(mutation_id, mutation_type, definition_id, "
-                            + "instance_id, desired_revision, state, claim_token, claim_expires_at, "
-                            + "attempt_count, next_attempt_at, created_at, updated_at) "
+                            + "instance_id, desired_revision, state, claim_token, "
+                            + "claim_expires_at, attempt_count, next_attempt_at, created_at, "
+                            + "updated_at) "
                             + "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?)")) {
                 statement.setString(1, mutation.mutationId().toString());
                 statement.setString(2, mutation.mutationType());

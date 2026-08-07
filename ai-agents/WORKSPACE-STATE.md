@@ -2,27 +2,42 @@
 
 ## Snapshot warning
 
-This file is a committed coordination snapshot, not an authority over live GitHub. Every agent must refresh live state before routing or relying on it. Canonical branch and PR presence outranks stale queue text.
+This file is a committed coordination snapshot. Live GitHub remains authoritative. Resolve conflicts using this order: live GitHub state; the selected package contract; workflow documents; requirements; architecture; implementation plan; then state or handoff records.
 
-## Prospective completion baseline
+The COMPLETE and READY states below are prospective until PR #13 is normally merged and the resulting live `main` is verified.
+
+## Publication state
 
 - Repository: `wsg138/EnthusiaLoreItems`
-- Live `main` before merge: `05fade8645ac994bd9ab498c64449ea4cf084384`
-- Completed package: WP-01 — editor and template management
-- Canonical branch: `agent/wp-01-editor-template-management`
-- Pull request: #11, `WP-01: complete editor and template management`
-- Starting branch SHA for the completing session: `f974c2d23a488d0e08d0902a37929e69e0456a57`
-- Reviewed source head: `7b91ca90eb27574e1fdf0779e02c448f52158f8c`
-- Verified pre-completion checkpoint: `22a28078f25b5e24aa6c611f6dff06ab504a4267`
-- Status: `COMPLETE` prospectively, pending exact-head verification of this records commit, normal merge, and live-main verification
+- Verified starting live `main`: `50ac248b1583739c57b7dcb25b4e949436b736ce`
+- Completing package: WP-02 — destructive administration
+- Status: `COMPLETE` prospectively
+- Canonical branch: `agent/wp-02-destructive-administration`
+- Ready pull request: #13, `WP-02: complete destructive administration`
+- Verified implementation head: `98d58bd76c69939159a351bd3407c108a3015227`
+- Exact next package after authoritative completion: WP-03 — one-use mass distributions
+
+## Recovered exact-head verification
+
+GitHub Actions was not waived. After the hosted-runner incident was resolved, run `31137614006` executed successfully for exact implementation head `98d58bd76c69939159a351bd3407c108a3015227`:
+
+- runner allocation and checkout: success;
+- Java 21 setup: success;
+- Gradle 8.14.3 setup: success;
+- `gradle --no-daemon clean check`: success;
+- repository-tool dependency installation and tests: success;
+- new-code complexity verification: success;
+- exact-head Codacy verification: success.
+
+External Codacy check `92740655340` also succeeded for that exact implementation head with zero annotations. The test failure exposed after runner recovery was repaired in commit `98d58bd76c69939159a351bd3407c108a3015227`: empty `ItemDisplay` stacks are treated as AIR/absent without fingerprint serialization.
 
 ## Package status
 
 | Package | Weight | Status | Reason |
 |---|---:|---|---|
-| WP-01 | 20% | COMPLETE | Complete contract implemented, harsh-reviewed, exact-head gates passed at the pre-completion checkpoint; final records commit must be verified and normally merged |
-| WP-02 | 20% | READY | The exact next package is unlocked by prospective WP-01 completion; it must not begin in this chat |
-| WP-03 | 20% | BLOCKED | WP-02 is not COMPLETE |
+| WP-01 | 20% | COMPLETE | PR #11 normally merged and live `main` verified |
+| WP-02 | 20% | COMPLETE | Prospective final state in PR #13; normal merge and live-main verification remain |
+| WP-03 | 20% | READY | Available only after WP-02 is authoritative on live `main` and in a separate worker/chat |
 | WP-04 | 15% | BLOCKED | WP-03 is not COMPLETE |
 | WP-05 | 15% | BLOCKED | WP-04 release candidate is not verified |
 | WP-06 | 10% | BLOCKED | WP-05 production release is not verified |
@@ -30,30 +45,39 @@ This file is a committed coordination snapshot, not an authority over live GitHu
 ## Counts and weighted progress
 
 - Fixed package count: 6
-- Completed packages: 1 of 6
-- Remaining packages: 5 of 6
-- Ready package: WP-02
-- Weighted progress: `20 / 100 = 20%`
+- Completed packages: 2 of 6
+- Remaining packages: 4 of 6
+- Weighted progress: `40 / 100 = 40%`
 
-These values become authoritative only after this exact records commit is verified, PR #11 is normally merged, and live `main` is confirmed. Until then, live GitHub still shows WP-01 as the active unfinished lock.
+These values become authoritative only after PR #13 is normally merged and live `main` is verified.
 
-## Completed acceptance evidence
+## Completed acceptance criteria
 
-- Authorized administrators can browse and edit through the complete GUI/chat workflow, including every required common and specialized component operation and exact replace-from-held fallback.
-- Invalid, unauthorized, stale, cancelled, timed-out, disconnected, reload, shutdown, degraded, duplicate, and over-capacity paths create no unintended revision or rollout.
-- Confirmation is immutable, monotonic, atomic with durable rollout intent, replay-safe, restart-safe, and complete-evidence preserving.
-- Accessible updates are bounded; inaccessible updates remain durably pending until natural observation without force loading.
-- Identity, revision, malformed, duplicate-conflict, and ambiguous outcomes are verified and routed safely instead of silently rewritten.
-- Query/session bounds, main-thread Paper access, asynchronous storage boundaries, pagination, lifecycle ownership, compatibility, permissions, messages, and documentation are present.
-- Required domain/application, Paper, SQLite, rollout, lifecycle, architecture, repository-tool, complexity, Gradle, CI, and Codacy tests passed.
+- Durable, reboot-safe, idempotent exact removal, purge, and full-delete operation state with fixed target snapshots.
+- Incremental bounded destructive execution through the natural-access scanner without force loads or background Paper access.
+- Exact-reference, revision, location, and fingerprint verification before physical deletion, with changed or ambiguous evidence routed to review.
+- Privileged preview/confirm flows, bounded confirmation sessions, worker wakeups, pagination, metrics, pause/resume, review controls, GUI actions, permissions, messages, completion, and lifecycle cleanup.
+- Tracking, audit, age, error, retry, lease, operation, and target evidence presentation.
+- Focused domain, SQLite, migration, Paper removal, command confirmation, GUI, recovery, divergence, pause-fence, unknown-outcome, stale-confirmation, overflow, JSON-escaping, aggregate-count, and empty-item-display tests.
+- Operator recovery documentation, GitHub-backed checkpoints, independent full-package harsh review, and final author-side harsh review.
 
-## Verification evidence
+## Review reconciliation
 
-- GitHub Actions run `31073464520` on `22a28078f25b5e24aa6c611f6dff06ab504a4267`: full Gradle verification passed; repository tooling passed; new-code complexity passed; exact-head Codacy passed.
-- Exact-head Codacy on reviewed source head `7b91ca90eb27574e1fdf0779e02c448f52158f8c` succeeded with zero annotations.
-- All inline review threads are resolved; no review is in requested-changes state.
-- CodeRabbit provided the independent full-PR review; the full author harsh review and triage are committed in `ai-agents/reports/WP-01-author-harsh-review.md`.
+- PR #13 is ready for review.
+- The earlier CodeRabbit review posted seven actionable threads; all were fixed and resolved.
+- The incremental CodeRabbit review on implementation head `98d58bd76c69939159a351bd3407c108a3015227` completed with status success and posted two coordination-record findings.
+- This publication sequence aligns the queue, workspace state, detailed report, and latest handoff and restores the complete conflict-resolution authority order.
+- No submitted review is in `CHANGES_REQUESTED` state.
+
+## Remaining finalization
+
+1. Verify GitHub Actions and Codacy for the final records-only branch head produced by this publication sequence.
+2. Resolve the two addressed coordination review threads and reconfirm no requested changes or unresolved threads remain.
+3. Update the PR body with truthful final exact-head evidence.
+4. Merge PR #13 with GitHub's normal merge-commit method.
+5. Verify the resulting merge commit, live `main`, committed queue/state/handoff, and post-merge CI/Codacy.
+6. Stop without claiming or beginning WP-03.
 
 ## Exact next action
 
-Verify this final records commit through GitHub Actions and Codacy, reconcile any new review activity, normally merge PR #11, verify live `main` contains the merge and authoritative completion state, then stop without beginning WP-02.
+Finish this records publication sequence, inspect its exact-head gates, reconcile review state, normally merge PR #13, verify live `main`, and stop.

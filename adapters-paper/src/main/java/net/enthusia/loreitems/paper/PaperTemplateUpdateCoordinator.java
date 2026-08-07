@@ -10,12 +10,13 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
+import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
 import org.bukkit.plugin.Plugin;
 
-/** Bounded bridge from natural-access observations to durable template-update claims. */
+/** Bounded bridge from natural-access observations to destructive-first durable mutation claims. */
 final class PaperTemplateUpdateCoordinator implements AutoCloseable {
     private static final int MIN_MAX_IN_FLIGHT = 1;
     private static final int QUEUE_MULTIPLIER = 8;
@@ -23,6 +24,7 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
     private final Plugin plugin;
     private final TemplateUpdateExecutionUseCase useCase;
     private final PaperTemplateUpdateOperator operator;
+    private final PaperDestructiveRemovalCoordinator destructiveCoordinator;
     private final Clock clock;
     private final int maxInFlight;
     private final int maxQueued;
@@ -39,7 +41,7 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             TemplateUpdateExecutionUseCase useCase,
             PaperTemplateUpdateOperator operator,
             int maxInFlight) {
-        this(plugin, useCase, operator, maxInFlight, Clock.systemUTC());
+        this(plugin, useCase, operator, null, null, maxInFlight, Clock.systemUTC());
     }
 
     PaperTemplateUpdateCoordinator(
@@ -48,10 +50,46 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             PaperTemplateUpdateOperator operator,
             int maxInFlight,
             Clock clock) {
+        this(plugin, useCase, operator, null, null, maxInFlight, clock);
+    }
+
+    PaperTemplateUpdateCoordinator(
+            Plugin plugin,
+            TemplateUpdateExecutionUseCase useCase,
+            PaperTemplateUpdateOperator operator,
+            DestructiveRemovalExecutionUseCase destructiveUseCase,
+            PaperDestructiveRemovalOperator destructiveOperator,
+            int maxInFlight) {
+        this(
+                plugin,
+                useCase,
+                operator,
+                destructiveUseCase,
+                destructiveOperator,
+                maxInFlight,
+                Clock.systemUTC());
+    }
+
+    PaperTemplateUpdateCoordinator(
+            Plugin plugin,
+            TemplateUpdateExecutionUseCase useCase,
+            PaperTemplateUpdateOperator operator,
+            DestructiveRemovalExecutionUseCase destructiveUseCase,
+            PaperDestructiveRemovalOperator destructiveOperator,
+            int maxInFlight,
+            Clock clock) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCase = Objects.requireNonNull(useCase, "useCase");
         this.operator = Objects.requireNonNull(operator, "operator");
         this.clock = Objects.requireNonNull(clock, "clock");
+        if ((destructiveUseCase == null) != (destructiveOperator == null)) {
+            throw new IllegalArgumentException(
+                    "Destructive use case and operator must be configured together");
+        }
+        this.destructiveCoordinator = destructiveUseCase == null
+                ? null
+                : new PaperDestructiveRemovalCoordinator(
+                        plugin, destructiveUseCase, destructiveOperator, clock);
         if (maxInFlight < MIN_MAX_IN_FLIGHT) {
             throw new IllegalArgumentException("maxInFlight must be positive");
         }
@@ -91,6 +129,24 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
     }
 
     private void start(PaperTemplateUpdateScanner.Candidate candidate) {
+        if (destructiveCoordinator == null) {
+            startTemplateUpdate(candidate);
+            return;
+        }
+        boolean accepted = destructiveCoordinator.submit(
+                candidate,
+                () -> startTemplateUpdate(candidate),
+                () -> finish(candidate));
+        if (!accepted) {
+            finish(candidate);
+        }
+    }
+
+    private void startTemplateUpdate(PaperTemplateUpdateScanner.Candidate candidate) {
+        if (isClosed()) {
+            finish(candidate);
+            return;
+        }
         CompletionStage<TemplateUpdatePrepareResult> preparation;
         try {
             preparation = Objects.requireNonNull(
@@ -381,6 +437,9 @@ final class PaperTemplateUpdateCoordinator implements AutoCloseable {
             }
             queued.clear();
             saturated = false;
+        }
+        if (destructiveCoordinator != null) {
+            destructiveCoordinator.close();
         }
     }
 }
