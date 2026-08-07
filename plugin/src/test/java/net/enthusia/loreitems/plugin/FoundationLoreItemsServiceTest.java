@@ -10,25 +10,28 @@ import net.enthusia.loreitems.application.ExternalDeliveryCommand;
 import net.enthusia.loreitems.application.ExternalDeliveryOutcome;
 import net.enthusia.loreitems.application.ExternalDeliveryUseCase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class FoundationLoreItemsServiceTest {
     private static final UUID PLAYER_ID =
             UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final String STARTER_BLADE = "starter_blade";
 
-    @Test
-    void mapsEveryDurableOutcomeWithoutChangingTheExternalIdempotencyKey() {
-        for (ExternalDeliveryOutcome outcome : ExternalDeliveryOutcome.values()) {
-            FoundationLoreItemsService service = new FoundationLoreItemsService(command ->
-                    CompletableFuture.completedFuture(outcome));
+    @ParameterizedTest
+    @EnumSource(ExternalDeliveryOutcome.class)
+    void mapsEveryDurableOutcomeWithoutChangingTheExternalIdempotencyKey(
+            ExternalDeliveryOutcome outcome) {
+        FoundationLoreItemsService service = new FoundationLoreItemsService(command ->
+                CompletableFuture.completedFuture(outcome));
 
-            LoreDeliveryResult result = service.queueDelivery(
-                            "starter_blade", PLAYER_ID, " tags:claim-42 ")
-                    .toCompletableFuture()
-                    .join();
+        LoreDeliveryResult result = service.queueDelivery(
+                        STARTER_BLADE, PLAYER_ID, " tags:claim-42 ")
+                .toCompletableFuture()
+                .join();
 
-            assertEquals(LoreDeliveryStatus.valueOf(outcome.name()), result.status());
-            assertEquals("tags:claim-42", result.externalOperationId());
-        }
+        assertEquals(LoreDeliveryStatus.valueOf(outcome.name()), result.status());
+        assertEquals("tags:claim-42", result.externalOperationId());
     }
 
     @Test
@@ -49,11 +52,11 @@ class FoundationLoreItemsServiceTest {
         FoundationLoreItemsService service = new FoundationLoreItemsService(useCase);
 
         LoreDeliveryResult first = service.queueDelivery(
-                        "starter_blade", PLAYER_ID, "tags:claim-43")
+                        STARTER_BLADE, PLAYER_ID, "tags:claim-43")
                 .toCompletableFuture()
                 .join();
         LoreDeliveryResult replay = service.queueDelivery(
-                        "starter_blade", PLAYER_ID, "tags:claim-43")
+                        STARTER_BLADE, PLAYER_ID, "tags:claim-43")
                 .toCompletableFuture()
                 .join();
 
@@ -72,11 +75,11 @@ class FoundationLoreItemsServiceTest {
                 .toCompletableFuture()
                 .join();
         LoreDeliveryResult missingPlayer = service.queueDelivery(
-                        "starter_blade", null, "operation")
+                        STARTER_BLADE, null, "operation")
                 .toCompletableFuture()
                 .join();
         LoreDeliveryResult missingOperation = service.queueDelivery(
-                        "starter_blade", PLAYER_ID, null)
+                        STARTER_BLADE, PLAYER_ID, null)
                 .toCompletableFuture()
                 .join();
 
@@ -91,7 +94,7 @@ class FoundationLoreItemsServiceTest {
                 CompletableFuture.failedFuture(new IllegalStateException("storage unavailable")));
 
         LoreDeliveryResult result = service.queueDelivery(
-                        "starter_blade", PLAYER_ID, "tags:claim-44")
+                        STARTER_BLADE, PLAYER_ID, "tags:claim-44")
                 .toCompletableFuture()
                 .join();
 
