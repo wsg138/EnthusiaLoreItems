@@ -1,5 +1,7 @@
 package net.enthusia.loreitems.paper;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,12 +24,16 @@ import org.bukkit.plugin.Plugin;
 public final class PaperTrackingCoordinator implements AutoCloseable {
     private static final int MIN_CAPACITY = 1;
     private static final int QUEUE_MULTIPLIER = 8;
+    private static final int NATURAL_ACCESS_DEBOUNCE_CAPACITY = 4_096;
+    private static final long NATURAL_ACCESS_DEBOUNCE_MILLIS = 250L;
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
+    private static final String NATURAL_ACCESS_SUFFIX = "-unique";
 
     private final Plugin plugin;
     private final Supplier<TrackingObservationUseCase> useCaseSupplier;
     private final IntSupplier maxInFlightSupplier;
     private final MetricsPort metrics;
+    private final BoundedDebounceRegistry<DebounceKey> naturalAccessDebounce;
     private final Object lock = new Object();
     private final Queue<PendingObservation> queued = new ArrayDeque<>();
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
@@ -42,11 +48,30 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             Supplier<TrackingObservationUseCase> useCaseSupplier,
             IntSupplier maxInFlightSupplier,
             MetricsPort metrics) {
+        this(
+                plugin,
+                useCaseSupplier,
+                maxInFlightSupplier,
+                metrics,
+                new BoundedDebounceRegistry<>(
+                        Clock.systemUTC(),
+                        Duration.ofMillis(NATURAL_ACCESS_DEBOUNCE_MILLIS),
+                        NATURAL_ACCESS_DEBOUNCE_CAPACITY));
+    }
+
+    PaperTrackingCoordinator(
+            Plugin plugin,
+            Supplier<TrackingObservationUseCase> useCaseSupplier,
+            IntSupplier maxInFlightSupplier,
+            MetricsPort metrics,
+            BoundedDebounceRegistry<DebounceKey> naturalAccessDebounce) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.useCaseSupplier = Objects.requireNonNull(useCaseSupplier, "useCaseSupplier");
         this.maxInFlightSupplier = Objects.requireNonNull(
                 maxInFlightSupplier, "maxInFlightSupplier");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.naturalAccessDebounce = Objects.requireNonNull(
+                naturalAccessDebounce, "naturalAccessDebounce");
         currentMaxInFlight();
     }
 
@@ -54,6 +79,9 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         Objects.requireNonNull(request, "request");
         if (rejectIfClosed()) {
             return false;
+        }
+        if (coalesceNaturalAccess(request)) {
+            return true;
         }
         Optional<PendingObservation> resolved = resolve(request);
         if (resolved.isEmpty()) {
@@ -64,6 +92,23 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             startCounted(resolved.orElseThrow());
         }
         return submission != Submission.REJECTED;
+    }
+
+    private boolean coalesceNaturalAccess(TrackingObservationUseCase.Request request) {
+        if (!request.source().endsWith(NATURAL_ACCESS_SUFFIX)) {
+            return false;
+        }
+        BoundedDebounceRegistry.OfferResult result = naturalAccessDebounce.offer(
+                DebounceKey.from(request));
+        metrics.setGauge("tracking.debounce.size", naturalAccessDebounce.size());
+        if (result == BoundedDebounceRegistry.OfferResult.DUPLICATE) {
+            metrics.increment("tracking.debounce.coalesced");
+            return true;
+        }
+        if (result == BoundedDebounceRegistry.OfferResult.ACCEPTED_AFTER_EVICTION) {
+            metrics.increment("tracking.debounce.evicted");
+        }
+        return false;
     }
 
     private boolean rejectIfClosed() {
@@ -268,6 +313,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         if (firstClose) {
             starting.forEach(this::startCounted);
         }
+        naturalAccessDebounce.clear();
+        metrics.setGauge("tracking.debounce.size", 0L);
         awaitQuiescence();
     }
 
@@ -289,6 +336,24 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                     Level.WARNING,
                     "Lore-item tracking quiescence failed unexpectedly.",
                     exception.getCause());
+        }
+    }
+
+    record DebounceKey(
+            net.enthusia.loreitems.application.LoreItemIdentity identity,
+            net.enthusia.loreitems.domain.LocationDescriptor location,
+            TrackingObservationUseCase.Presence presence,
+            TrackingObservationUseCase.EvidenceMode mode) {
+        private DebounceKey {
+            Objects.requireNonNull(identity, "identity");
+            Objects.requireNonNull(location, "location");
+            Objects.requireNonNull(presence, "presence");
+            Objects.requireNonNull(mode, "mode");
+        }
+
+        static DebounceKey from(TrackingObservationUseCase.Request request) {
+            return new DebounceKey(
+                    request.identity(), request.location(), request.presence(), request.mode());
         }
     }
 
