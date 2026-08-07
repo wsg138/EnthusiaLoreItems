@@ -17,23 +17,33 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
-import org.mockbukkit.mockbukkit.ServerMock;
 
 class PaperDistributionRecipientBindingWorkerTest {
     private static final Clock CLOCK = Clock.fixed(
             Instant.ofEpochMilli(1_800_000_000_000L), ZoneOffset.UTC);
-    private ServerMock server;
-    private PaperDistributionRecipientBindingWorker worker;
+    private static final List<UUID> BUDGET_TEST_PLAYERS = List.of(
+            new UUID(0L, 1L),
+            new UUID(0L, 2L),
+            new UUID(0L, 3L),
+            new UUID(0L, 4L),
+            new UUID(0L, 5L),
+            new UUID(0L, 6L),
+            new UUID(0L, 7L),
+            new UUID(0L, 8L),
+            new UUID(0L, 9L),
+            new UUID(0L, 10L));
+
+    private PaperDistributionRecipientBindingWorker workerUnderTest;
 
     @BeforeEach
     void setUp() {
-        server = MockBukkit.mock();
+        MockBukkit.mock();
     }
 
     @AfterEach
     void tearDown() {
-        if (worker != null) {
-            worker.close();
+        if (workerUnderTest != null) {
+            workerUnderTest.close();
         }
         MockBukkit.unmock();
     }
@@ -43,7 +53,7 @@ class PaperDistributionRecipientBindingWorkerTest {
         UUID playerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         List<String> lookups = new ArrayList<>();
         List<UUID> wakes = new ArrayList<>();
-        worker = worker(
+        workerUnderTest = newWorker(
                 (id, name, now, limit) -> {
                     lookups.add(name);
                     return CompletableFuture.completedFuture(
@@ -51,22 +61,22 @@ class PaperDistributionRecipientBindingWorkerTest {
                 },
                 wakes,
                 1);
-        worker.start();
+        workerUnderTest.start();
 
-        worker.enqueueIdentity(playerId, "JavaPlayer", false);
-        worker.tick();
+        workerUnderTest.enqueueIdentity(playerId, "JavaPlayer", false);
+        workerUnderTest.tick();
 
         assertEquals(List.of("JavaPlayer"), lookups);
         assertEquals(List.of(playerId), wakes);
-        assertEquals(0, worker.pendingCount());
-        assertEquals(0, worker.inFlightCount());
+        assertEquals(0, workerUnderTest.pendingCount());
+        assertEquals(0, workerUnderTest.inFlightCount());
     }
 
     @Test
     void floodgateIdentityBindsOnlyExplicitStarKey() {
         UUID playerId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         List<String> lookups = new ArrayList<>();
-        worker = worker(
+        workerUnderTest = newWorker(
                 (id, name, now, limit) -> {
                     lookups.add(name);
                     return CompletableFuture.completedFuture(
@@ -74,10 +84,10 @@ class PaperDistributionRecipientBindingWorkerTest {
                 },
                 new ArrayList<>(),
                 1);
-        worker.start();
+        workerUnderTest.start();
 
-        worker.enqueueIdentity(playerId, "BedrockPlayer", true);
-        worker.tick();
+        workerUnderTest.enqueueIdentity(playerId, "BedrockPlayer", true);
+        workerUnderTest.tick();
 
         assertEquals(List.of("*BedrockPlayer"), lookups);
     }
@@ -86,30 +96,30 @@ class PaperDistributionRecipientBindingWorkerTest {
     void hasMoreRequeuesOneBoundedPageForLaterTick() {
         UUID playerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         AtomicInteger calls = new AtomicInteger();
-        worker = worker(
+        workerUnderTest = newWorker(
                 (id, name, now, limit) -> CompletableFuture.completedFuture(
                         calls.incrementAndGet() == 1
                                 ? new DistributionRecipientBindingBatch(8, 8, 0, true)
                                 : new DistributionRecipientBindingBatch(2, 2, 0, false)),
                 new ArrayList<>(),
                 1);
-        worker.start();
+        workerUnderTest.start();
 
-        worker.enqueueIdentity(playerId, "LaterPlayer", false);
-        worker.tick();
+        workerUnderTest.enqueueIdentity(playerId, "LaterPlayer", false);
+        workerUnderTest.tick();
         assertEquals(1, calls.get());
-        assertEquals(1, worker.pendingCount());
+        assertEquals(1, workerUnderTest.pendingCount());
 
-        worker.tick();
+        workerUnderTest.tick();
         assertEquals(2, calls.get());
-        assertEquals(0, worker.pendingCount());
+        assertEquals(0, workerUnderTest.pendingCount());
     }
 
     @Test
     void inFlightDatabaseWorkNeverExceedsMutationBudget() {
         List<CompletableFuture<DistributionRecipientBindingBatch>> futures = new ArrayList<>();
         AtomicInteger calls = new AtomicInteger();
-        worker = worker(
+        workerUnderTest = newWorker(
                 (id, name, now, limit) -> {
                     calls.incrementAndGet();
                     CompletableFuture<DistributionRecipientBindingBatch> future = new CompletableFuture<>();
@@ -118,29 +128,28 @@ class PaperDistributionRecipientBindingWorkerTest {
                 },
                 new ArrayList<>(),
                 2);
-        worker.start();
-        for (int index = 0; index < 10; index++) {
-            worker.enqueueIdentity(
-                    new UUID(0L, index + 1L),
-                    "Player" + index,
-                    false);
+        workerUnderTest.start();
+        int playerNumber = 0;
+        for (UUID playerId : BUDGET_TEST_PLAYERS) {
+            workerUnderTest.enqueueIdentity(playerId, "Player" + playerNumber, false);
+            playerNumber++;
         }
 
-        worker.tick();
+        workerUnderTest.tick();
 
         assertEquals(2, calls.get());
-        assertEquals(2, worker.inFlightCount());
-        assertEquals(8, worker.pendingCount());
+        assertEquals(2, workerUnderTest.inFlightCount());
+        assertEquals(8, workerUnderTest.pendingCount());
         futures.get(0).complete(new DistributionRecipientBindingBatch(0, 0, 0, false));
         futures.get(1).complete(new DistributionRecipientBindingBatch(0, 0, 0, false));
-        assertEquals(0, worker.inFlightCount());
+        assertEquals(0, workerUnderTest.inFlightCount());
 
-        worker.tick();
+        workerUnderTest.tick();
         assertEquals(4, calls.get());
-        assertTrue(worker.inFlightCount() <= 2);
+        assertTrue(workerUnderTest.inFlightCount() <= 2);
     }
 
-    private PaperDistributionRecipientBindingWorker worker(
+    private PaperDistributionRecipientBindingWorker newWorker(
             PaperDistributionRecipientBindingWorker.BindingFunction binding,
             List<UUID> wakes,
             int budget) {
