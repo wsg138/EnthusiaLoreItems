@@ -53,6 +53,9 @@ public final class SQLiteDistributionCampaignControlRepository
         Objects.requireNonNull(campaignId, "campaignId");
         Objects.requireNonNull(expected, "expected");
         Objects.requireNonNull(now, "now");
+        String normalizedEventType = requireText(eventType, "eventType");
+        String normalizedActorType = requireText(actorType, "actorType");
+        String normalizedActorId = requireText(actorId, "actorId");
         expected.transitionTo(DistributionCampaignState.CANCELLED);
         long nowMillis = requireNonNegative(now);
         return storage.execute(connection -> SQLiteTransactions.inTransaction(
@@ -62,9 +65,9 @@ public final class SQLiteDistributionCampaignControlRepository
                         campaignId,
                         expected,
                         nowMillis,
-                        eventType,
-                        actorType,
-                        actorId)));
+                        normalizedEventType,
+                        normalizedActorType,
+                        normalizedActorId)));
     }
 
     private static boolean transitionAndAudit(
@@ -181,6 +184,15 @@ public final class SQLiteDistributionCampaignControlRepository
                     "Campaign control audit event does not match the atomic transition");
         }
         return event;
+    }
+
+    private static String requireText(String value, String name) {
+        Objects.requireNonNull(value, name);
+        String normalized = value.strip();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException(name + " must not be blank");
+        }
+        return normalized;
     }
 
     private static long requireNonNegative(Instant now) {

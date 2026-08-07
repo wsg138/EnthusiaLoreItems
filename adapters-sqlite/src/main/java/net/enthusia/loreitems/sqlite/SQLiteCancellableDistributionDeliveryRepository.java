@@ -136,12 +136,10 @@ public final class SQLiteCancellableDistributionDeliveryRepository
 
     private CompletionStage<Integer> recoverOrdinaryClaims(
             Instant now, int limit, int cancelled) {
-        int remaining = limit - cancelled;
-        if (remaining < MIN_LIMIT) {
+        if (cancelled > 0) {
             return CompletableFuture.completedFuture(cancelled);
         }
-        return delegate.recoverExpiredClaims(now, remaining)
-                .thenApply(recovered -> cancelled + recovered);
+        return delegate.recoverExpiredClaims(now, limit);
     }
 
     private static boolean cancelClaimed(

@@ -180,12 +180,16 @@ final class SQLiteDistributionDeliveryClaimTransactions {
             int limit) throws SQLException {
         List<ExpiredClaim> expired = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT campaign_id, recipient_key, player_id, instance_id, claim_token "
-                        + "FROM distribution_recipients "
-                        + "WHERE state = 'RESERVED_IN_FLIGHT' "
-                        + "AND claim_expires_at <= ? "
-                        + "ORDER BY claim_expires_at, campaign_id, snapshot_index "
-                        + "LIMIT ?")) {
+                "SELECT recipient.campaign_id, recipient.recipient_key, recipient.player_id, "
+                        + "recipient.instance_id, recipient.claim_token "
+                        + "FROM distribution_recipients recipient "
+                        + "JOIN distribution_campaigns campaign "
+                        + "ON campaign.campaign_id = recipient.campaign_id "
+                        + "WHERE recipient.state = 'RESERVED_IN_FLIGHT' "
+                        + "AND recipient.claim_expires_at <= ? "
+                        + "AND campaign.state <> 'CANCELLED' "
+                        + "ORDER BY recipient.claim_expires_at, recipient.campaign_id, "
+                        + "recipient.snapshot_index LIMIT ?")) {
             statement.setLong(1, now);
             statement.setInt(2, limit);
             try (ResultSet resultSet = statement.executeQuery()) {

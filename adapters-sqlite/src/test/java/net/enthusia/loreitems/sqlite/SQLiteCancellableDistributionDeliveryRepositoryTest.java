@@ -2,6 +2,7 @@ package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
@@ -10,8 +11,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import net.enthusia.loreitems.application.DistributionCampaignStartRequest;
 import net.enthusia.loreitems.application.MetricsPort;
+import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.PreparedDistributionDelivery;
 import net.enthusia.loreitems.domain.CampaignRecipient;
 import net.enthusia.loreitems.domain.CampaignRecipientState;
@@ -102,12 +105,60 @@ class SQLiteCancellableDistributionDeliveryRepositoryTest {
         }
     }
 
+    @Test
+    void cancelledCampaignRecoveryDrainsClaimsBeforeOrdinaryRecoveryAcrossBatches() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("cancel-batched.db"));
+        try {
+            CampaignFixture fixture = seedCampaign(runtime, "sha256:cancel-batched", 3);
+            SQLiteCancellableDistributionDeliveryRepository repository =
+                    new SQLiteCancellableDistributionDeliveryRepository(runtime);
+            assertEquals(
+                    3,
+                    repository.claimPending("claim-batched", CLAIM_AT, SHORT_LEASE, 3)
+                            .toCompletableFuture()
+                            .join()
+                            .items()
+                            .size());
+
+            cancelCampaign(runtime, fixture.campaignId(), CLAIM_AT.plusMillis(2L));
+            Instant recoveryAt = CLAIM_AT.plusMillis(11L);
+            assertEquals(1, repository.recoverExpiredClaims(recoveryAt, 1)
+                    .toCompletableFuture().join());
+            assertEquals(1, repository.recoverExpiredClaims(recoveryAt, 1)
+                    .toCompletableFuture().join());
+            assertEquals(1, repository.recoverExpiredClaims(recoveryAt, 1)
+                    .toCompletableFuture().join());
+            assertEquals(0, repository.recoverExpiredClaims(recoveryAt, 1)
+                    .toCompletableFuture().join());
+
+            List<CampaignRecipient> recovered = new SQLiteDistributionRecipientRepository(runtime)
+                    .listByCampaign(fixture.campaignId(), new PageRequest(0, 10))
+                    .toCompletableFuture()
+                    .join()
+                    .items();
+            assertEquals(3, recovered.size());
+            assertTrue(recovered.stream()
+                    .allMatch(recipient -> recipient.state() == CampaignRecipientState.CANCELLED
+                            || recipient.state() == CampaignRecipientState.REVIEW_REQUIRED));
+            assertTrue(recovered.stream()
+                    .noneMatch(recipient -> recipient.state() == CampaignRecipientState.QUEUED_OFFLINE));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
     private static CampaignFixture seedCampaign(
             SQLiteStorageRuntime runtime,
             String fingerprint) {
+        return seedCampaign(runtime, fingerprint, 1);
+    }
+
+    private static CampaignFixture seedCampaign(
+            SQLiteStorageRuntime runtime,
+            String fingerprint,
+            int recipientCount) {
         UUID definitionId = seedDefinition(runtime);
         UUID campaignId = UUID.randomUUID();
-        UUID playerId = UUID.randomUUID();
         DistributionCampaign campaign = new DistributionCampaign(
                 campaignId,
                 fingerprint,
@@ -119,16 +170,21 @@ class SQLiteCancellableDistributionDeliveryRepositoryTest {
                 CREATED_AT,
                 CREATED_AT,
                 null);
-        CampaignRecipient recipient = CampaignRecipient.knownPlayer(
-                campaignId,
-                0,
-                playerId,
-                playerId.toString(),
-                CREATED_AT);
+        List<CampaignRecipient> recipients = IntStream.range(0, recipientCount)
+                .mapToObj(index -> {
+                    UUID playerId = UUID.randomUUID();
+                    return CampaignRecipient.knownPlayer(
+                            campaignId,
+                            index,
+                            playerId,
+                            playerId.toString(),
+                            CREATED_AT);
+                })
+                .toList();
         new SQLiteDistributionCampaignStartRepository(runtime)
                 .start(new DistributionCampaignStartRequest(
                         campaign,
-                        List.of(recipient),
+                        recipients,
                         "PLAYER",
                         "operator"))
                 .toCompletableFuture()
