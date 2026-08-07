@@ -14,6 +14,7 @@ import org.bukkit.command.CommandSender;
 
 final class DistributionCampaignCommandSupport {
     static final int FIRST_PAGE = 1;
+    private static final String LABEL_SEPARATOR = " — ";
 
     private DistributionCampaignCommandSupport() {
     }
@@ -72,11 +73,11 @@ final class DistributionCampaignCommandSupport {
             int pageSize) {
         List<String> lines = new ArrayList<>();
         for (GroupFileDefinition valid : snapshot.validFiles()) {
-            lines.add("VALID " + valid.sourceName() + " — " + valid.displayName()
+            lines.add("VALID " + valid.sourceName() + LABEL_SEPARATOR + valid.displayName()
                     + " (" + valid.recipients().size() + " recipients)");
         }
         for (GroupFileValidationFailure invalid : snapshot.invalidFiles()) {
-            lines.add("INVALID " + invalid.sourceName() + " — "
+            lines.add("INVALID " + invalid.sourceName() + LABEL_SEPARATOR
                     + String.join("; ", invalid.diagnostics()));
         }
         showStringPage(sender, "Group catalog", lines, pageNumber, pageSize);
@@ -85,8 +86,8 @@ final class DistributionCampaignCommandSupport {
     static void showStatus(CommandSender sender, DistributionCampaignStatus status) {
         DistributionCampaign campaign = status.campaign();
         CampaignRecipientCounts counts = status.recipientCounts();
-        sender.sendMessage("Campaign " + campaign.campaignId() + " — " + campaign.state());
-        sender.sendMessage("Source: " + campaign.sourceName() + " — " + campaign.displayName());
+        sender.sendMessage("Campaign " + campaign.campaignId() + LABEL_SEPARATOR + campaign.state());
+        sender.sendMessage("Source: " + campaign.sourceName() + LABEL_SEPARATOR + campaign.displayName());
         sender.sendMessage("Definition: " + campaign.definitionId().value()
                 + " revision " + campaign.definitionRevision().value());
         sender.sendMessage("total=" + counts.total() + " remaining=" + counts.remaining()
