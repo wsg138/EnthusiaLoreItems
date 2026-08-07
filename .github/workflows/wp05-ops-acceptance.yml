@@ -252,23 +252,31 @@ jobs:
           from pathlib import Path
           db = Path('plugins/EnthusiaLoreItems/loreitems.db')
           con = sqlite3.connect(db)
+          con.row_factory = sqlite3.Row
           tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
           counts = {t: con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] for t in tables}
+          external_requests = [dict(r) for r in con.execute(
+              "SELECT external_operation_id, definition_key, player_id, delivery_id, outcome "
+              "FROM external_delivery_requests ORDER BY created_at, external_operation_id")]
           evidence = {
               'journal_mode': con.execute('PRAGMA journal_mode').fetchone()[0],
               'integrity_check': [r[0] for r in con.execute('PRAGMA integrity_check')],
               'foreign_key_check': [list(r) for r in con.execute('PRAGMA foreign_key_check')],
               'table_counts': counts,
+              'external_delivery_requests': external_requests,
           }
           con.close()
           Path('/tmp/wp05-ops/evidence/healthy-database.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
           if str(evidence['journal_mode']).lower() != 'wal' or evidence['integrity_check'] != ['ok'] or evidence['foreign_key_check']:
               raise SystemExit('Healthy recovery database integrity failed')
-          if counts.get('lore_definitions', 0) != 0 or counts.get('lore_instances', 0) != 0 or counts.get('external_delivery_requests', 0) != 0:
-              raise SystemExit('Probe created unintended durable work')
+          if counts.get('lore_definitions', 0) != 0 or counts.get('lore_instances', 0) != 0 or counts.get('direct_deliveries', 0) != 0:
+              raise SystemExit('Probe created a physical-delivery intent unexpectedly')
+          if len(external_requests) != 1 or external_requests[0]['outcome'] != 'UNKNOWN_DEFINITION' or external_requests[0]['delivery_id'] is not None:
+              raise SystemExit('Healthy API rejection was not persisted as the expected idempotent UNKNOWN_DEFINITION result')
           PY
 
           END_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          START_UTC="$(cat /tmp/wp05-ops/evidence/start-utc.txt)"
           echo "$END_UTC" > /tmp/wp05-ops/evidence/end-utc.txt
           cat > /tmp/wp05-ops/evidence/case-metadata.txt <<EOF
           case_id=ACC-OPS-001
@@ -281,6 +289,7 @@ jobs:
           induced_condition=loreitems.db path replaced with directory before degraded boot
           degraded_api_outcome=SERVICE_UNAVAILABLE
           recovered_api_outcome=UNKNOWN_DEFINITION
+          recovered_idempotency_record=UNKNOWN_DEFINITION with null delivery_id and no direct delivery
           test_accounts=none-required-public-service-probe-used
           cleanup=normal-stop-and-disposable-runner-teardown
           rollback=remove-invalid-db-directory-and-restart-from-pinned-exact-rc
