@@ -1,13 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -43,10 +37,7 @@ public final class PaperDistributionDeliveryWorker
     private final PaperDirectDeliveryOperator operator;
     private final int claimLimit;
     private final AtomicBoolean claimInFlight = new AtomicBoolean();
-    private final Set<UUID> cancellationFences = new HashSet<>();
-    private final Set<UUID> committedCancellations = new HashSet<>();
-    private final Map<UUID, List<CampaignRecipient>> heldClaims = new HashMap<>();
-    private final Map<UUID, List<PreparedDistributionDelivery>> heldPrepared = new HashMap<>();
+    private final PaperDistributionCancellationGate cancellationGate;
 
     private volatile boolean closed;
     private BukkitTask pollTask;
@@ -65,6 +56,7 @@ public final class PaperDistributionDeliveryWorker
                     "Campaign delivery worker budgets must be positive");
         }
         claimLimit = Math.min(deliveryClaimBatchSize, mutationBudgetPerTick);
+        cancellationGate = new PaperDistributionCancellationGate(claimLimit);
     }
 
     /**
@@ -104,26 +96,23 @@ public final class PaperDistributionDeliveryWorker
     @Override
     public void begin(UUID campaignId) {
         requirePrimaryThread();
-        cancellationFences.add(Objects.requireNonNull(campaignId, "campaignId"));
+        cancellationGate.begin(campaignId);
     }
 
     @Override
     public void committed(UUID campaignId) {
         requirePrimaryThread();
-        UUID id = Objects.requireNonNull(campaignId, "campaignId");
-        cancellationFences.add(id);
-        committedCancellations.add(id);
-        drainHeldCancellation(id);
+        cancellationGate.committed(campaignId, this::cancel, this::cancel);
         requestRun();
     }
 
     @Override
     public void release(UUID campaignId) {
         requirePrimaryThread();
-        UUID id = Objects.requireNonNull(campaignId, "campaignId");
-        cancellationFences.remove(id);
-        committedCancellations.remove(id);
-        drainHeldNormally(id);
+        cancellationGate.release(
+                campaignId,
+                this::processClaimedRecipient,
+                this::processPrepared);
     }
 
     public void wakePlayer(UUID playerId) {
@@ -218,13 +207,7 @@ public final class PaperDistributionDeliveryWorker
     }
 
     private void processClaimedRecipient(CampaignRecipient recipient) {
-        UUID campaignId = recipient.campaignId();
-        if (cancellationFences.contains(campaignId)) {
-            if (committedCancellations.contains(campaignId)) {
-                cancel(recipient);
-            } else {
-                holdClaim(recipient);
-            }
+        if (interceptClaim(recipient)) {
             return;
         }
         Player player = plugin.getServer().getPlayer(recipient.playerId());
@@ -237,6 +220,23 @@ public final class PaperDistributionDeliveryWorker
             return;
         }
         prepare(recipient);
+    }
+
+    private boolean interceptClaim(CampaignRecipient recipient) {
+        return switch (cancellationGate.intercept(recipient)) {
+            case PROCESS -> false;
+            case CANCEL -> {
+                cancel(recipient);
+                yield true;
+            }
+            case HELD -> true;
+            case LEASE_EXPIRY_FALLBACK -> {
+                plugin.getLogger().warning(
+                        "A campaign cancellation fence reached its bounded held-claim limit; "
+                                + "the extra claim will expire without a physical side effect.");
+                yield true;
+            }
+        };
     }
 
     private void prepare(CampaignRecipient recipient) {
@@ -278,16 +278,7 @@ public final class PaperDistributionDeliveryWorker
     }
 
     private void processPrepared(PreparedDistributionDelivery delivery) {
-        if (closed) {
-            return;
-        }
-        UUID campaignId = delivery.campaignId();
-        if (cancellationFences.contains(campaignId)) {
-            if (committedCancellations.contains(campaignId)) {
-                cancel(delivery);
-            } else {
-                holdPrepared(delivery);
-            }
+        if (closed || interceptPrepared(delivery)) {
             return;
         }
         Player player = plugin.getServer().getPlayer(delivery.playerId());
@@ -296,6 +287,29 @@ public final class PaperDistributionDeliveryWorker
             return;
         }
         PaperDirectDeliveryOperator.ApplyResult result = operator.apply(player, delivery);
+        handleApplyResult(delivery, result);
+    }
+
+    private boolean interceptPrepared(PreparedDistributionDelivery delivery) {
+        return switch (cancellationGate.intercept(delivery)) {
+            case PROCESS -> false;
+            case CANCEL -> {
+                cancel(delivery);
+                yield true;
+            }
+            case HELD -> true;
+            case LEASE_EXPIRY_FALLBACK -> {
+                plugin.getLogger().warning(
+                        "A campaign cancellation fence reached its bounded prepared limit; "
+                                + "the extra prepared claim will expire into review without insertion.");
+                yield true;
+            }
+        };
+    }
+
+    private void handleApplyResult(
+            PreparedDistributionDelivery delivery,
+            PaperDirectDeliveryOperator.ApplyResult result) {
         switch (result.status()) {
             case APPLIED -> complete(delivery, result);
             case NO_SPACE ->
@@ -305,52 +319,6 @@ public final class PaperDistributionDeliveryWorker
                     delivery,
                     "The campaign delivery operator returned an unsupported result state.",
                     null);
-        }
-    }
-
-    private void holdClaim(CampaignRecipient recipient) {
-        List<CampaignRecipient> held = heldClaims.computeIfAbsent(
-                recipient.campaignId(), ignored -> new ArrayList<>());
-        if (held.size() < claimLimit) {
-            held.add(recipient);
-            return;
-        }
-        plugin.getLogger().warning(
-                "A campaign cancellation fence reached its bounded held-claim limit; "
-                        + "the extra claim will expire without a physical side effect.");
-    }
-
-    private void holdPrepared(PreparedDistributionDelivery delivery) {
-        List<PreparedDistributionDelivery> held = heldPrepared.computeIfAbsent(
-                delivery.campaignId(), ignored -> new ArrayList<>());
-        if (held.size() < claimLimit) {
-            held.add(delivery);
-            return;
-        }
-        plugin.getLogger().warning(
-                "A campaign cancellation fence reached its bounded prepared limit; "
-                        + "the extra prepared claim will expire into review without insertion.");
-    }
-
-    private void drainHeldCancellation(UUID campaignId) {
-        List<CampaignRecipient> claims = heldClaims.remove(campaignId);
-        if (claims != null) {
-            claims.forEach(this::cancel);
-        }
-        List<PreparedDistributionDelivery> prepared = heldPrepared.remove(campaignId);
-        if (prepared != null) {
-            prepared.forEach(this::cancel);
-        }
-    }
-
-    private void drainHeldNormally(UUID campaignId) {
-        List<CampaignRecipient> claims = heldClaims.remove(campaignId);
-        if (claims != null) {
-            claims.forEach(this::processClaimedRecipient);
-        }
-        List<PreparedDistributionDelivery> prepared = heldPrepared.remove(campaignId);
-        if (prepared != null) {
-            prepared.forEach(this::processPrepared);
         }
     }
 
@@ -585,10 +553,7 @@ public final class PaperDistributionDeliveryWorker
     public void close() {
         closed = true;
         HandlerList.unregisterAll(this);
-        heldClaims.clear();
-        heldPrepared.clear();
-        cancellationFences.clear();
-        committedCancellations.clear();
+        cancellationGate.close();
         BukkitTask task = pollTask;
         if (task != null) {
             task.cancel();
