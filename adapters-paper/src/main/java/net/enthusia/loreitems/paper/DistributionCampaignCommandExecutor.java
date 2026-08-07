@@ -56,6 +56,7 @@ public final class DistributionCampaignCommandExecutor
     private static final int MAX_PENDING_PREVIEWS = 64;
     private static final int TOP_LEVEL_TAB_ARGUMENT_COUNT = 1;
     private static final int RECIPIENT_STATE_TAB_ARGUMENT_COUNT = 3;
+    private static final String RECIPIENTS_SUBCOMMAND = "recipients";
 
     private final Plugin plugin;
     private final PaperGroupFileCatalog groupCatalog;
@@ -120,7 +121,7 @@ public final class DistributionCampaignCommandExecutor
             case "confirm" -> confirm(sender, args);
             case "campaigns" -> campaigns(sender, args);
             case "status" -> status(sender, args);
-            case "recipients" -> recipients(sender, args);
+            case RECIPIENTS_SUBCOMMAND -> recipients(sender, args);
             default -> routeControl(sender, label, subcommand, args);
         };
     }
@@ -395,7 +396,7 @@ public final class DistributionCampaignCommandExecutor
             List<String> values = new ArrayList<>();
             if (sender.hasPermission(INSPECT_PERMISSION)) {
                 Collections.addAll(
-                        values, "reload", "inspect", "campaigns", "status", "recipients");
+                        values, "reload", "inspect", "campaigns", "status", RECIPIENTS_SUBCOMMAND);
             }
             if (sender.hasPermission(START_PERMISSION)) {
                 Collections.addAll(values, "preview", "confirm");
@@ -408,7 +409,7 @@ public final class DistributionCampaignCommandExecutor
             return values;
         }
         if (args.length == RECIPIENT_STATE_TAB_ARGUMENT_COUNT
-                && "recipients".equalsIgnoreCase(args[0])) {
+                && RECIPIENTS_SUBCOMMAND.equalsIgnoreCase(args[0])) {
             List<String> states = new ArrayList<>();
             states.add("all");
             for (CampaignRecipientState state : CampaignRecipientState.values()) {
