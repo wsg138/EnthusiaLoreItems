@@ -2,38 +2,43 @@
 
 ## Active package
 - Package: WP-04 — automated production hardening and release candidate
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Branch: `agent/wp-04-production-hardening`
-- Draft PR: create immediately from the durable claim commit
+- Draft PR: #15
 - Starting live `main`: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
-- Checkpointed implementation/evidence head: `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`
+- Claim commit: `3413b3304779518a2913a1d372bef61bd8115a2f`
+- Documentation/matrix implementation head: `c9784b744271384aac32ea7e145f38df1476cd49`
+- Durable section handoff: `ai-agents/reports/agent-handoffs/2026-08-07-wp-04-operator-docs-and-acceptance-matrix.md`
 
-## Reconciliation evidence
-- WP-03 PR #14 is normally merged into live `main` as `d8a9b0055fd8e71e6a25b82364ebb625aa75ae9b`.
-- GitHub Actions `verify` run `31174065679` succeeded on that merge SHA.
-- No open LoreItems PR existed at routing time.
-- Historical canonical branches for WP-01 through WP-03 remain; WP-04/WP-05 and WP-06 auxiliary LoreItems/Tags branches were absent before claim.
-- WP-04 is the lowest-numbered dependency-verified READY package and is now exclusively claimed.
+## Completed this section
+- Added `docs/operator-guide.md` with installation/upgrade/configuration/permissions, WAL-aware backups, restore, degraded/read-only recovery, queue/review recovery, deleted-marker handling, campaign-marker repair, staged deployment, rollback, and incident collection.
+- Added `docs/wp-05-manual-acceptance-matrix.md` with unique live case IDs, prerequisites, exact steps, expected physical and durable/database outcomes, evidence requirements, cleanup, rollback, defect-regression subset, and exact-final-jar release gate.
+- Corrected stale routing metadata that still said the already-open draft PR needed to be created.
 
-## Completed
-- Read universal prompt, workflow rules, queue/state/handoff, all six package contracts, requirements, architecture, and implementation plan.
-- Reconciled recent merges and canonical branches with live GitHub.
-- Atomically created `agent/wp-04-production-hardening` from verified live `main`.
-- Began durable `IN_PROGRESS` checkpoint.
+## Verification
+- PR #15 is the canonical durable claim and remained draft/open.
+- GitHub Actions CI run `31179217336` was triggered on exact documentation/matrix head `c9784b744271384aac32ea7e145f38df1476cd49`; it was still in progress when the section checkpoint was written.
+- No local Gradle/build/test result is claimed because this runtime has no mounted dependency-capable checkout.
+- No live Paper/Leaf acceptance is claimed; that is WP-05.
 
 ## Remaining
-All WP-04 acceptance criteria remain: complete deterministic failure matrix, saturation/backpressure tests, all-version migration/upgrade tests, reload/shutdown hardening, stable service API tests/docs, fixed-scenario performance harness/results, static-analysis cleanup, operator/recovery docs, WP-05 acceptance matrix, RC packaging/reproducibility/artifacts, harsh and independent review, exact-head CI/Codacy, normal merge/post-merge verification, and `v1.0.0-rc.1` prerelease verification.
-
-## Tests
-- No WP-04 implementation tests yet.
-- Dependency verification only: post-merge Actions success on WP-03 merge SHA.
-- No local build claim; no dependency-capable checkout is available in this runtime.
+- deterministic failure-injection/restart harness and complete durable state-machine matrix;
+- saturation/backpressure automation for every required queue/executor/cache/retry/result surface;
+- all historical schema migration/upgrade/interruption/integrity/WAL/index checks;
+- reload/shutdown automated lifecycle coverage;
+- stable versioned Bukkit API finalization, replay/reload/restart tests/docs, binary/source compatibility;
+- fixed-scenario performance/profile harness and committed threshold evidence;
+- static-analysis/complexity remediation;
+- RC version/artifact/reproducibility/package smoke/release workflow/release notes;
+- full-package harsh and independent review, all fixes, exact-head CI/Codacy and review resolution;
+- normal merge, post-merge `main` verification, and verified `v1.0.0-rc.1` prerelease/assets.
 
 ## Findings
-None yet.
+- Stale package metadata about PR creation was corrected.
+- No production-code defect was established in the documentation/manual-matrix section.
 
 ## Blocker
-None.
+None. `PARTIAL` records useful committed work while preserving the same package/branch/PR for the next worker.
 
 ## Exact next action
-Create the exact draft PR from this claim commit, verify the branch/PR/head did not move, then inventory and implement the WP-04 production-hardening surfaces on this branch only.
+Resume draft PR #15, refresh live exact head/check/review state, then implement the reusable deterministic failure-injection/restart harness and the first complete durable state-machine test group. Keep all work in WP-04 and do not start WP-05.
