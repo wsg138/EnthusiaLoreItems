@@ -52,7 +52,10 @@ final class PaperDestructiveRemovalOperator {
                     "The naturally encountered item changed before destructive preparation.");
         }
         PaperTemplateUpdateReference.DestructiveLocation location =
-                candidate.reference().destructiveLocation();
+                PaperDestructiveLocationResolver.resolve(plugin, candidate.reference()).orElse(null);
+        if (location == null) {
+            return ObservationResult.notAccessible();
+        }
         return ObservationResult.observed(new DestructiveRemovalExecutionUseCase.Observation(
                 currentIdentity,
                 location.locationType(),
