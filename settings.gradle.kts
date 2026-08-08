@@ -23,4 +23,5 @@ include(
     "adapters-paper",
     "plugin",
     "architecture-tests",
+    "acceptance-harness",
 )
