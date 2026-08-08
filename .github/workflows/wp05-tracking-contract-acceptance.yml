@@ -94,6 +94,7 @@ jobs:
             const empty=bot.inventory.firstEmptyInventorySlot(); if(empty==null) throw new Error('no empty inventory slot')
             await bot.clickWindow(empty,0,0); await sleep(700); log('TRACK1 storage-after-cursor')
             bot.chat('/tp Wp05TrackBot 0 71 0'); await sleep(700)
+            bot.chat('/setblock 1 70 0 minecraft:ender_chest'); await sleep(700)
             const block=await waitBlock(bot,'ender_chest','ender chest')
             const chest=await bot.openContainer(block); await sleep(500)
             item=tracked(bot); await chest.deposit(item.type,null,1); await sleep(800); log('TRACK1 ender-deposit')
@@ -108,11 +109,14 @@ jobs:
             fs.writeFileSync(`${root}/track1-reconnected`,'ok\n')
             await waitFile('go-track2-chest')
             bot.chat('/tp Wp05TrackBot 10 71 0');await sleep(600)
+            bot.chat('/setblock 11 70 0 minecraft:chest');await sleep(700)
             let item=tracked(bot), block=await waitBlock(bot,'chest','chest')
             let c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(900);log('TRACK2 chest-deposit');await c.withdraw(item.type,null,1);await sleep(700);c.close();log('TRACK2 chest-withdraw')
             fs.writeFileSync(`${root}/track2-chest-done`,'ok\n')
             await waitFile('go-track2-hopper')
-            bot.chat('/tp Wp05TrackBot 20 71 0');await sleep(600);item=tracked(bot);block=await waitBlock(bot,'hopper','hopper')
+            bot.chat('/tp Wp05TrackBot 20 71 0');await sleep(600);item=tracked(bot)
+            bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper');await sleep(700)
+            block=await waitBlock(bot,'hopper','hopper')
             c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
             await waitFile('go-track3-drop')
             bot.chat('/tp Wp05TrackBot 30 71 0');await sleep(600);item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
@@ -132,10 +136,6 @@ jobs:
           java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server.log" 2>&1 & SERVER_PID=$!
           cleanup(){ touch "$ROOT/bot.stop" || true; if [[ -n "${BOT_PID:-}" ]];then wait "$BOT_PID" || true;fi; if kill -0 "$SERVER_PID" 2>/dev/null;then echo stop >&3||true;wait "$SERVER_PID"||true;fi; };trap cleanup EXIT
           for _ in $(seq 1 180);do grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server.log" && grep -q 'WP-05 deterministic acceptance helper is active' "$ROOT/evidence/server.log" && break;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$ROOT/evidence/server.log";exit 1;};sleep 1;done
-          echo 'setblock 1 70 0 ender_chest' >&3
-          echo 'setblock 11 70 0 chest' >&3
-          echo 'setblock 20 70 0 hopper' >&3
-          echo 'setblock 20 69 0 chest' >&3
           (cd "$ROOT/bot" && node bot.js)>"$ROOT/evidence/bot-stdout.log" 2>&1 & BOT_PID=$!
           for _ in $(seq 1 90);do test -s "$ROOT/bot.uuid"&&break;sleep 1;done;test -s "$ROOT/bot.uuid";echo 'op Wp05TrackBot' >&3;echo 'clear Wp05TrackBot' >&3
           echo 'wp05accept source Wp05TrackBot helmet' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_contract Track Contract' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3;sleep 1
