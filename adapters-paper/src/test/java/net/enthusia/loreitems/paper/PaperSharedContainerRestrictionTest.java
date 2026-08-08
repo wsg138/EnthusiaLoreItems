@@ -18,6 +18,7 @@ import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,9 +58,10 @@ class PaperSharedContainerRestrictionTest {
     void restrictedModeBlocksTrackedInsertionIntoOpenShulker() {
         plugin.getConfig().set("shared-containers-allowed", false);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
+        InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(trackedItem());
         InventoryClickEvent event = new InventoryClickEvent(
-                player.openInventory(shulker),
+                view,
                 InventoryType.SlotType.CONTAINER,
                 0,
                 ClickType.LEFT,
@@ -74,9 +76,10 @@ class PaperSharedContainerRestrictionTest {
     void allowedModeLeavesTrackedShulkerInsertionUntouched() {
         plugin.getConfig().set("shared-containers-allowed", true);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
+        InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(trackedItem());
         InventoryClickEvent event = new InventoryClickEvent(
-                player.openInventory(shulker),
+                view,
                 InventoryType.SlotType.CONTAINER,
                 0,
                 ClickType.LEFT,
@@ -92,9 +95,10 @@ class PaperSharedContainerRestrictionTest {
         plugin.getConfig().set("shared-containers-allowed", false);
         Inventory inventory = server.createInventory(null, 9);
         inventory.setItem(0, ItemStack.of(Material.BUNDLE));
+        InventoryView view = player.openInventory(inventory);
         player.setItemOnCursor(trackedItem());
         InventoryClickEvent event = new InventoryClickEvent(
-                player.openInventory(inventory),
+                view,
                 InventoryType.SlotType.CONTAINER,
                 0,
                 ClickType.RIGHT,
@@ -110,9 +114,10 @@ class PaperSharedContainerRestrictionTest {
         plugin.getConfig().set("shared-containers-allowed", false);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
         shulker.setItem(0, trackedItem());
+        InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(ItemStack.empty());
         InventoryClickEvent event = new InventoryClickEvent(
-                player.openInventory(shulker),
+                view,
                 InventoryType.SlotType.CONTAINER,
                 0,
                 ClickType.LEFT,
