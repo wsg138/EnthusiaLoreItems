@@ -38,15 +38,18 @@ final class PaperDestructiveLocationResolver {
         if (root == null) {
             return Optional.empty();
         }
-        String path = SLOT_PREFIX + reference.rootSlot();
+        StringBuilder path = new StringBuilder(SLOT_PREFIX).append(reference.rootSlot());
         for (PaperTemplateUpdateItemReference.NestedStep step : reference.nestedPath()) {
-            path += '/' + step.kind().name().toLowerCase(Locale.ROOT) + ':' + step.index();
+            path.append('/')
+                    .append(step.kind().name().toLowerCase(Locale.ROOT))
+                    .append(':')
+                    .append(step.index());
         }
         String type = reference.nestedPath().isEmpty()
                 ? root.type().name()
                 : LocationDescriptor.Type.NESTED_CONTAINER.name();
         return Optional.of(new PaperTemplateUpdateReference.DestructiveLocation(
-                type, root.locationKey(), path));
+                type, root.locationKey(), path.toString()));
     }
 
     private static Optional<RootLocation> resolveRoot(
