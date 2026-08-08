@@ -5,17 +5,20 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Pull request: draft PR #18, `WP-05: complete live acceptance and release LoreItems`
 - Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`
+- Session starting package head: `c1795e0fd11646e450e234616fa6fdcace9c71a7`
 - Durable claim commit: `760f04f162b934d7a0f21ba8c354548aeb8cffbf`
 - Initial IN_PROGRESS checkpoint: `5825c2ddc284300ec323a47d5d62b6bb9a8ac853`
 - Prior blocker/review head: `ed869117dc449c0c96c824cf2668725ea711662b`
 - Resume handoff commit: `a88bc75c289209f2b855eca7e80f77b7515ca111`
-- Checkpointed implementation/evidence head before blocker metadata: `5d64fba0451c0dd99f51e76d6f392b74109ba370`
 - Owner-approved account-auth scope amendment: `dc6d6dc01c9a678316e6a0120dd115551f9ca491`
 - Account-auth probe removal: `3bd8326c8c9280d338831cfc4c3cc143d41278b3`
+- This session resume checkpoint: `283b7ec5cbb24fe00672264f49aad946e593f2dc`
+- Coherent identity/core evidence head: `c2e47825adca172db095ee9869b4cf0b0999f752`
+- Identity/core checkpoint: `324c8dc3e74b0309520939350c803a7305a5bda1`
 - Dependency satisfied by: verified WP-04 RC `v1.0.0-rc.1`
 - WP-04 implementation merge: `89399db2d92fd7197479a8803e920c02f5bec490`
 - WP-04 release-recovery merge: `e4b7968adea1357e7307815a5a5ef7f456f16ad1`
@@ -35,7 +38,7 @@ This amendment removed the prior external blocker. It does not convert unexecute
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | WP-04 | 15% | COMPLETE | PR #15 and release-recovery PR #16 normally merged; post-merge CI and RC prerelease verified |
-| WP-05 | 15% | IN_PROGRESS | owner removed account-auth prerequisite; remaining in-scope acceptance/release work resumes on PR #18 |
+| WP-05 | 15% | PARTIAL | PR #18 retains the durable claim; exact-head identity/core block passes, remaining amended matrix/release work is unfinished |
 | WP-06 | 10% | BLOCKED | WP-05 production release `v1.0.0` not verified |
 
 ## Progress
@@ -43,7 +46,9 @@ This amendment removed the prior external blocker. It does not convert unexecute
 - Completed: 4 of 6
 - Remaining: 2 of 6
 - Weighted progress: `75 / 100 = 75%`
-- WP-05 accepted case count so far: 2 historical RC PASS cases. Partial case completion does not award package weight.
+- WP-05 exact-head live PASS cases checkpointed: 7 of 35 (`ACC-ID-001`, `ACC-ID-002`, `ACC-CORE-001..005`).
+- Historical `ACC-ENV-001` and `ACC-OPS-001` remain traceability evidence only until the required final-head rerun.
+- Partial case completion does not award package weight.
 - WP-05 implementation defects found: 1; fixed and live-regression verified: 1.
 
 ## WP-04 completed acceptance evidence
@@ -70,56 +75,73 @@ This amendment removed the prior external blocker. It does not convert unexecute
 - Verified assets: `EnthusiaLoreItems.jar`, `EnthusiaLoreItems.jar.sha256`, `bom.cyclonedx.json`, `gradle-dependencies.txt`, `normalized-entry-manifest.txt`, `wp04-profile.json`, `EnthusiaLoreItems-test-reports.tar.gz`.
 - Released JAR digest: `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
 
-## WP-05 completed acceptance criteria
-- `ACC-ENV-001` — PASS against exact published RC. Durable evidence: `docs/wp-05-acceptance/ACC-ENV-001/`; evidence commit `be8a3a4832dc6a78e918b39963a946731c22f624`; run `31217633117`.
-- `ACC-OPS-001` — PASS against exact published RC. Durable evidence: `docs/wp-05-acceptance/ACC-OPS-001/`; evidence commit `7a1a2a63a50cfe16905955e59d8f7fdcce035a59`; corrected run `31218811889`.
-- Those two cases are historical RC evidence only after the Floodgate defect fix; the WP-05 contract still requires the entire in-scope matrix to be repeated against the exact final fixed JAR before release approval.
+## WP-05 completed live acceptance evidence
+Historical traceability evidence:
+- `ACC-ENV-001` — historical RC PASS at `be8a3a4832dc6a78e918b39963a946731c22f624`, run `31217633117`.
+- `ACC-OPS-001` — historical RC PASS at `7a1a2a63a50cfe16905955e59d8f7fdcce035a59`, corrected run `31218811889`.
+- These must be rerun on the final fixed JAR and are not counted in the 7 current exact-head PASS cases.
+
+Coherent exact-head live block at `c2e47825adca172db095ee9869b4cf0b0999f752`:
+- `ACC-ID-001` and `ACC-CORE-001..004` — PASS, Java identity/core run `31240091014`.
+- `ACC-CORE-005` — PASS, full-inventory run `31240091001`.
+- `ACC-ID-002` — PASS, real Geyser/Floodgate server-boundary identity run `31240091010` under the owner-approved no-account-auth interpretation.
+- Repository CI `31240091012` — PASS, including repository tooling, full tests, complexity, exact-head Codacy, deterministic WP-04 profile, package validation, and reproducibility.
+- Permanent workflows build the exact PR head, record source/JAR hashes and auth mode, and upload GitHub Actions evidence.
 
 ## WP-05 confirmed defect and fix
 - Real Geyser/Floodgate exposed a Bedrock player to Bukkit as `*Wp05BedrockBot`.
 - The original RC recipient-binding worker treated that already-prefixed valid Floodgate name as invalid because it assumed `Player#getName()` was unprefixed and attempted to prepend `*` itself.
 - Production fix commit: `e00035d937d8a7d51eb00484689c74dd1d6d394a`.
 - Static-analysis cleanup: `ed52a32688329be931bc6fdfc5008b393a0f2ffb`.
-- Live fixed-head regression readiness head: `9928e1f6f818c9c42fdbaa9778b475a0280d0f18`.
-- Final live regression run `31222017554` completed successfully and the old recipient-binding rejection warning was absent for the real `*`-prefixed Bukkit join.
+- Final historical live regression run `31222017554` succeeded; current exact-head `ACC-ID-002` also passes.
 - Permanent defect report: `docs/wp-05-defects/floodgate-prefixed-recipient-binding.md`.
 
-## WP-05 diagnostic evidence now eligible for in-scope rerun design
-- Java network-client diagnostic exercised create, adopt, online give, offline queued give, restart delivery, and second restart replay on the real command/inventory path. The prior run remains diagnostic because it predates the scope amendment; the same behavior may now be rerun and credited when evidence meets the amended contract.
-- Full-inventory diagnostic run `31222689118` passed on fixed head: 36 occupied storage slots kept delivery pending, no overflow item entity was created, one opened slot/rejoin delivered exactly once, and another restart preserved one instance/one completed delivery with no duplicate or review-required state. It must be rerun on the final in-scope build for acceptance credit.
-- Protection/void exploration runs `31223151624` and `31223376860` were inconclusive harness diagnostics. Real fire/lava portions held; the synthetic `/damage` explosion shortcut was not a faithful substitute for the required physical TNT/cactus case. No implementation defect and no acceptance PASS is claimed.
+## Acceptance-harness findings fixed this session
+- Mineflayer 4.35 tab-completion results are objects with `match` fields and no-permission empty results may time out; the workflow now normalizes results and treats that timeout as an empty completion set.
+- Shell bot processes launched in command substitution were not children of the calling shell; completion handling was corrected.
+- `bedrock-protocol` did not expose a `container_open` packet for the Java-side GUI despite the GUI opening; a test-only helper action now observes the real server-side Bukkit `InventoryView` instead.
+- A negative `grep` for `topSize=5` incorrectly matched `topSize=54`; replaced with the exact positive `topType=CHEST topSize=54` assertion.
+- These were harness defects only. No additional LoreItems production defect was confirmed by this block.
+
+## WP-05 diagnostic evidence retained for future design
+- Full-inventory historical diagnostic run `31222689118` passed on a fixed head and informed permanent `ACC-CORE-005`, which now passes exact-head.
+- Protection/void exploration runs `31223151624` and `31223376860` remain inconclusive only. Fire/lava portions held, but synthetic `/damage` explosion was not a faithful matrix substitute; no LoreItems defect and no PASS is claimed.
 - The removed authenticated-session probe is not acceptance evidence. Its device-code workflow was retired after the owner removed real-account authentication from scope.
 
 ## WP-05 remaining acceptance criteria
-- Execute and credit every in-scope case in `docs/wp-05-manual-acceptance-matrix.md` under the owner-approved no-account-auth interpretation.
-- Fix and regression-test every future confirmed implementation defect in this same package.
-- Repeat the entire in-scope matrix against the exact final WP-05 JAR with every case PASS.
-- Re-run full automated WP-04 CI/profile/migration/package/static-analysis/reproducibility gates on the final head.
-- Complete independent code review and separate evidence audit with no requested changes or unresolved threads.
-- Record owner/operator sign-off.
-- Finalize `1.0.0`, merge normally, verify live `main`, publish `v1.0.0`, and verify tag target/assets/checksums.
+Current exact-head live cases still required:
+- `ACC-ENV-001`
+- `ACC-EDIT-001..003`
+- `ACC-TRACK-001..003`
+- `ACC-PROT-001..002`
+- `ACC-ANOM-001..002`
+- `ACC-DEST-001..004`
+- `ACC-DIST-001..005`
+- `ACC-API-001`
+- `ACC-LIFE-001..002`
+- `ACC-OPS-001..005`
 
-## Tests and verification
-- Pre-claim live `main` `476f9e5bbfa8155ab76b23bde0681ac35b92f177`: CI run `31215810485` successful; Release RC run `31215904779` successful.
-- Prior blocker-review head `ed869117dc449c0c96c824cf2668725ea711662b`: CI run `31216903570` successful, including exact-head Codacy, profile, package validation, and reproducibility; external Codacy successful with no issues.
-- `ACC-ENV-001`: Paper 1.21.11 build 116 + Java 21 + Geyser/Floodgate/ViaVersion + exact RC; WAL/integrity/FK/schema/baseline/clean-stop evidence audited PASS.
-- `ACC-OPS-001`: exact RC degraded read-only failure injection through invalid SQLite path; public V1 consumer received `SERVICE_UNAVAILABLE`; healthy restart returned `UNKNOWN_DEFINITION`; WAL/integrity/FK clean; zero definitions/instances/direct deliveries; audited PASS.
-- Floodgate fix: full Gradle suite, repository tooling, complexity, exact-head Codacy, deterministic profile, package validation and reproducibility passed around the fixed implementation; final live Geyser/Floodgate regression run `31222017554` passed.
-- Full-inventory fixed-head diagnostic run `31222689118` passed; rerun required for amended acceptance credit.
+Package-level gates still required:
+- Fix and regression-test every future confirmed implementation defect in this same package.
+- Repeat the complete 35-case in-scope matrix on the exact final JAR after the last code change, with every case PASS.
+- Re-run full WP-04 automated migration/failure/saturation/profile/package/reproducibility/static-analysis/Codacy verification on final head.
+- Finalize version `1.0.0`, release notes, SHA-256, CycloneDX SBOM, Gradle dependency manifest, acceptance index, upgrade/backup/restore/rollback rehearsal.
+- Independent harsh code review and separate evidence audit; no requested changes; zero unresolved threads.
+- Owner/operator sign-off recorded on GitHub.
+- Normal merge of PR #18, post-merge live `main` verification, then `v1.0.0` tag/release from the merge commit with verified assets/checksums.
 
 ## Findings
 - One LoreItems implementation defect has been confirmed in WP-05 and is fixed/regression-verified: already-prefixed real Floodgate names were rejected by the distribution recipient-binding adapter.
-- Acceptance-harness defect: first `ACC-OPS-001` run `31218454541` incorrectly required zero `external_delivery_requests`. Production behavior intentionally persists `UNKNOWN_DEFINITION` outcomes for idempotency. Corrected by `c00271761e60446f4611706f6b70f3d00ccfde03`; corrected run passed.
-- Earlier checkpoint-quality finding: initial blocker-state edits condensed WP-04 history; fixed at `ed869117dc449c0c96c824cf2668725ea711662b`. This workspace record preserves that history.
-- Protection/void diagnostic failures are not classified as plugin defects because the synthetic explosion stimulus was not faithful to the manual matrix and the run was intentionally diagnostic-only.
-- The account-auth probe contained a test-harness lifecycle bug: its Java/Bedrock watchdog timers were not cleared after successful spawn, leaving Node alive unnecessarily. The workflow is removed because account authentication is no longer in scope; this is not a LoreItems production defect.
-- The local container lacks ordinary outbound DNS, but GitHub-hosted runners successfully provide the disposable networked Paper acceptance environment.
+- First historical `ACC-OPS-001` run `31218454541` was a harness failure because it wrongly required zero `external_delivery_requests`; corrected production-aware assertion passed.
+- Protection/void historical diagnostic failures are not plugin defects because the synthetic explosion stimulus was not faithful to the manual matrix.
+- Historical account-auth probe lifecycle bug was test-only and the workflow is removed because account authentication is out of scope.
+- The local container lacks ordinary outbound DNS; GitHub-hosted runners are the working disposable networked Paper acceptance environment.
 
 ## Current status
-WP-05 is no longer externally blocked. Continue the same canonical package on PR #18. Real Microsoft/Xbox accounts are out of scope. The next work is to execute the remaining in-scope matrix with disposable protocol/server-side identities, fix any confirmed LoreItems defects, then complete the release/review gates.
+WP-05 is `PARTIAL`, not blocked and not complete. The same branch and draft PR retain the durable claim. Useful current-head acceptance automation/evidence is committed, but the remaining matrix, final-head rerun, review, operator sign-off, release, merge, and post-merge verification are unfinished. WP-06 stays `BLOCKED`.
 
 ## Routing consequence
-WP-05 remains the single unfinished canonical package, so the universal dispatcher must resume it before selecting new work. WP-06 remains `BLOCKED` until WP-05 is normally merged, verified on live `main`, and the production `v1.0.0` release/tag/assets are verified.
+The universal dispatcher must resume this `PARTIAL` WP-05 before selecting any new work. Do not create a follow-up package or begin WP-06.
 
 ## Exact next action
-Continue WP-05 on PR #18 with the amended no-account-auth scope. Build permanent automated/disposable Paper acceptance evidence for the remaining in-scope matrix, rerun all cases on the final JAR after the last code change, complete review/release gates, and only then mark WP-06 READY.
+Resume PR #18 and build a consolidated disposable-server acceptance block for physical tracking, anomaly handling, destructive operations, stable API behavior, lifecycle recovery, and operational recovery/backup behavior. Drive real Bukkit/server events through the separate acceptance helper/protocol clients, keep database inspection read-only, and classify any real mismatch as WP-05 work. Then continue editor/protection/distribution/environment/operations cases, repeat all 35 on the exact final JAR, finish review/sign-off/release/merge/post-merge gates, and only then unlock WP-06.
