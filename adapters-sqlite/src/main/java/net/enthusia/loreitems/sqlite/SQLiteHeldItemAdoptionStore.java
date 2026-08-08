@@ -31,6 +31,8 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
     private static final String OBSERVATION_SOURCE = "held-item-adoption";
     private static final String REVIEW_REQUIRED_STATE = "REVIEW_REQUIRED";
     private static final String COMPLETED_STATE = "COMPLETED";
+    private static final String PLAYER_LOCATION_PREFIX = "player:";
+    private static final String SLOT_PATH_PREFIX = "slot:";
     private static final int SINGLE_ROW = 1;
     private static final int MAX_REVIEW_REASON_LENGTH = 4_096;
     private static final char FIRST_NON_CONTROL_CHARACTER = 0x20;
@@ -238,8 +240,8 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
                 Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, adoption.instanceId().value().toString());
             statement.setString(2, adoption.definitionId().value().toString());
-            statement.setString(3, adoption.playerId().toString());
-            statement.setString(4, "hotbar:" + adoption.selectedSlot());
+            statement.setString(3, playerLocationKey(adoption));
+            statement.setString(4, selectedSlotPath(adoption));
             statement.setString(5, OBSERVATION_SOURCE);
             statement.setLong(6, observedAt);
             statement.executeUpdate();
@@ -263,8 +265,8 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
                         + "container_path = ?, last_observation_id = ?, state_revision = 1, "
                         + "updated_at = ? WHERE instance_id = ? AND state = 'MISSING_UNRESOLVED' "
                         + "AND state_revision = 0 AND last_observation_id IS NULL AND updated_at <= ?")) {
-            statement.setString(1, adoption.playerId().toString());
-            statement.setString(2, "hotbar:" + adoption.selectedSlot());
+            statement.setString(1, playerLocationKey(adoption));
+            statement.setString(2, selectedSlotPath(adoption));
             statement.setLong(3, observationId);
             statement.setLong(4, completedAt);
             statement.setString(5, adoption.instanceId().value().toString());
@@ -273,6 +275,14 @@ public final class SQLiteHeldItemAdoptionStore implements HeldItemAdoptionStore 
                 throw new SQLException("Adoption current-state verification lost its expected state");
             }
         }
+    }
+
+    private static String playerLocationKey(PreparedHeldItemAdoption adoption) {
+        return PLAYER_LOCATION_PREFIX + adoption.playerId();
+    }
+
+    private static String selectedSlotPath(PreparedHeldItemAdoption adoption) {
+        return SLOT_PATH_PREFIX + adoption.selectedSlot();
     }
 
     private static boolean transitionMutation(
