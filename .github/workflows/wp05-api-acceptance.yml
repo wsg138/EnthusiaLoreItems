@@ -187,8 +187,8 @@ jobs:
             sleep 1
           done
           grep -F 'operation=api-op-degraded' "$ROOT/evidence/server-initial.log" | grep -F 'status=ACCEPTED_QUEUED'
-          wait_sql "select count(*)=2 from external_delivery_requests where external_operation_id in ('api-op-1','api-op-degraded')" 45
-          wait_sql "select count(*)=2 from direct_deliveries where idempotency_key in ('external:api-op-1','external:api-op-degraded') and state='COMPLETED'" 60 || true
+          wait_sql "select count(*)=2 from external_delivery_requests where external_operation_id in ('api-op-1','api-op-degraded') and outcome='ACCEPTED_QUEUED' and delivery_id is not null" 45
+          wait_sql "select count(*)=2 from direct_deliveries d join external_delivery_requests e on e.delivery_id=d.delivery_id where e.external_operation_id in ('api-op-1','api-op-degraded')" 45
           echo 'wp05accept dump Wp05ApiBot' >&3
           sleep 2
           stop_bot
@@ -217,27 +217,35 @@ jobs:
           db=root/'server/plugins/EnthusiaLoreItems/loreitems.db'
           c=sqlite3.connect(db);c.row_factory=sqlite3.Row
           external=[dict(r) for r in c.execute('select external_operation_id,definition_key,player_id,delivery_id,outcome from external_delivery_requests order by external_operation_id')]
-          deliveries=[dict(r) for r in c.execute("select delivery_id,instance_id,player_id,state,idempotency_key,attempt_count from direct_deliveries where idempotency_key like 'external:%' order by idempotency_key")]
+          deliveries=[dict(r) for r in c.execute("select d.delivery_id,d.player_id,d.state,d.idempotency_key,d.attempt_count,e.external_operation_id from direct_deliveries d join external_delivery_requests e on e.delivery_id=d.delivery_id where e.external_operation_id in ('api-op-1','api-op-degraded') order by e.external_operation_id")]
           integrity=[r[0] for r in c.execute('pragma integrity_check')]
           foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
           schema=c.execute('pragma user_version').fetchone()[0]
-          accepted={r['external_operation_id']:r for r in external}
-          assert set(accepted)=={'api-op-1','api-op-degraded'}, external
-          assert all(r['delivery_id'] for r in external), external
-          assert len({r['delivery_id'] for r in external})==2, external
+          c.close()
+          by_operation={r['external_operation_id']:r for r in external}
+          assert set(by_operation)=={'api-op-1','api-op-degraded','api-op-unknown'}, external
+          accepted={op:by_operation[op] for op in ('api-op-1','api-op-degraded')}
+          assert all(r['outcome']=='ACCEPTED_QUEUED' and r['delivery_id'] for r in accepted.values()), accepted
+          assert len({r['delivery_id'] for r in accepted.values()})==2, accepted
+          unknown=by_operation['api-op-unknown']
+          assert unknown['outcome']=='UNKNOWN_DEFINITION' and unknown['delivery_id'] is None, unknown
+          assert 'api-op-validation' not in by_operation
           assert len(deliveries)==2, deliveries
+          assert {r['external_operation_id'] for r in deliveries}=={'api-op-1','api-op-degraded'}, deliveries
+          assert {r['idempotency_key'] for r in deliveries}=={'api-op-1','api-op-degraded'}, deliveries
           assert all(r['player_id']==player for r in deliveries), deliveries
           assert integrity==['ok'] and not foreign
-          c.close()
           initial=(root/'evidence/server-initial.log').read_text(errors='replace')
           restart=(root/'evidence/server-restart.log').read_text(errors='replace')
+          def has_status(log, operation, status):
+              return any(f'operation={operation}' in line and f'status={status}' in line for line in log.splitlines())
           required=[
-              ('ACCEPTED_QUEUED','api-op-1'),('ALREADY_ACCEPTED','api-op-1'),
-              ('UNKNOWN_DEFINITION','api-op-unknown'),('VALIDATION_FAILURE','api-op-validation'),
-              ('SERVICE_UNAVAILABLE','api-op-degraded'),('ACCEPTED_QUEUED','api-op-degraded')]
-          for status,op in required:
-              assert f'operation={op}' in initial and f'status={status}' in initial, (status,op)
-          assert 'operation=api-op-1' in restart and 'status=ALREADY_ACCEPTED' in restart
+              ('api-op-1','ACCEPTED_QUEUED'),('api-op-1','ALREADY_ACCEPTED'),
+              ('api-op-unknown','UNKNOWN_DEFINITION'),('api-op-validation','VALIDATION_FAILURE'),
+              ('api-op-degraded','SERVICE_UNAVAILABLE'),('api-op-degraded','ACCEPTED_QUEUED')]
+          for operation,status in required:
+              assert has_status(initial,operation,status), (operation,status)
+          assert has_status(restart,'api-op-1','ALREADY_ACCEPTED')
           evidence={
               'case':'ACC-API-001','result':'PASS','started_utc':start,'ended_utc':end,
               'server':'Paper 1.21.11 build 116','java':'Temurin 21','plugin_version':'1.0.0-rc.1',
@@ -245,11 +253,13 @@ jobs:
               'plugin_sha256':(root/'evidence/plugin-sha256.txt').read_text().split()[0],
               'player':{'name':'Wp05ApiBot','uuid':player,'auth_mode':'offline protocol client; UUID/name server-visible semantics only'},
               'config':(root/'evidence/loreitems-config.yml').read_text(),
-              'schema_user_version':schema,'external_requests':external,'deliveries':deliveries,
+              'schema_user_version':schema,
+              'external_requests':[{'external_operation_id':r['external_operation_id'],'definition_key':r['definition_key'],'player_id':r['player_id'],'has_delivery':r['delivery_id'] is not None,'outcome':r['outcome']} for r in external],
+              'deliveries':[{'player_id':r['player_id'],'state':r['state'],'idempotency_key':r['idempotency_key'],'attempt_count':r['attempt_count'],'external_operation_id':r['external_operation_id']} for r in deliveries],
               'integrity':integrity,'foreign_key_check':foreign,
               'steps':['resolve real Bukkit service through independent helper','accept unique operation','replay before restart','unknown definition','invalid definition key','force SQLite write contention and observe SERVICE_UNAVAILABLE','retry same degraded operation after lock release','restart server and helper','reacquire service and replay same operation','verify one durable request/delivery per accepted external operation'],
               'expected':'Stable V1 service returns accepted/replay/unknown/validation/unavailable outcomes without duplicate durable intent; same operation IDs remain idempotent across recovery and restart.',
-              'actual':'All expected statuses observed from the real registered service; exactly two accepted external operations map to exactly two durable deliveries; replay created no additional durable request; integrity and foreign-key checks pass.',
+              'actual':'All expected statuses were observed on the real registered service. The two accepted external operation IDs map one-to-one to two durable deliveries; the unknown definition is durably recorded as a non-acceptance outcome; the syntactically invalid request is rejected before persistence; replay creates no additional durable intent; integrity and foreign-key checks pass.',
               'cleanup':'Disposable server stopped; no shared environment mutated.',
               'rollback':'Disposable /tmp acceptance server may be discarded.'}
           (root/'evidence/ACC-API-001.json').write_text(json.dumps(evidence,indent=2)+'\n')
