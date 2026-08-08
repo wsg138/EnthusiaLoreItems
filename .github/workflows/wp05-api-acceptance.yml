@@ -1,0 +1,275 @@
+name: WP-05 Public API Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-api-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-api:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare disposable server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-api
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 public API acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const root='/tmp/wp05-api'
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05ApiBot',version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          bot.on('message',m=>log(`CHAT ${m.toString()}`))
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`);fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`)})
+          const timer=setInterval(()=>{if(fs.existsSync(`${root}/bot.stop`)){clearInterval(timer);bot.quit('acceptance complete')}},100)
+          EOF
+
+      - name: Execute ACC-API-001 on the real Bukkit service
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-api
+          cd "$ROOT/server"
+          start_server(){
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 180); do
+              if grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log"; then return 0; fi
+              kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; return 1; }
+              sleep 1
+            done
+            cat "$log"
+            return 1
+          }
+          stop_server(){ echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin; }
+          start_bot(){
+            rm -f "$ROOT/bot.uuid" "$ROOT/bot.stop"
+            (cd "$ROOT/bot" && node bot.js) >"$ROOT/evidence/bot-stdout.log" 2>&1 &
+            BOT_PID=$!
+            for _ in $(seq 1 90); do
+              test -s "$ROOT/bot.uuid" && return 0
+              kill -0 "$BOT_PID" 2>/dev/null || { cat "$ROOT/evidence/bot-stdout.log"; return 1; }
+              sleep 1
+            done
+            return 1
+          }
+          stop_bot(){ touch "$ROOT/bot.stop"; wait "$BOT_PID" || true; }
+          wait_log(){
+            local pattern="$1" log="$2" limit="${3:-60}"
+            for _ in $(seq 1 "$limit"); do grep -Fq "$pattern" "$log" && return 0; sleep 1; done
+            echo "missing log pattern: $pattern" >&2
+            tail -n 250 "$log" >&2
+            return 1
+          }
+          wait_sql(){
+            local expression="$1" limit="${2:-60}"
+            for _ in $(seq 1 "$limit"); do
+              if python3 - "$expression" <<'PY'
+          import sqlite3,sys
+          expression=sys.argv[1]
+          c=sqlite3.connect('/tmp/wp05-api/server/plugins/EnthusiaLoreItems/loreitems.db')
+          try:
+              value=c.execute(expression).fetchone()[0]
+              raise SystemExit(0 if value else 1)
+          finally:
+              c.close()
+          PY
+              then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          start_server "$ROOT/evidence/server-initial.log"
+          start_bot
+          PLAYER_UUID="$(tr -d '\r\n' < "$ROOT/bot.uuid")"
+          echo 'op Wp05ApiBot' >&3
+          echo 'wp05accept source Wp05ApiBot sword' >&3
+          sleep 1
+          echo 'wp05accept perform Wp05ApiBot loreitems create acc_api_live API Acceptance' >&3
+          wait_sql "select count(*) from lore_definitions where lookup_key='acc_api_live' and deleted_at is null" 45
+          echo 'wp05accept perform Wp05ApiBot loreitems adopt acc_api_live' >&3
+          wait_sql "select count(*) from lore_instances where definition_id=(select definition_id from lore_definitions where lookup_key='acc_api_live')" 45
+
+          echo "wp05accept api acc_api_live $PLAYER_UUID api-op-1" >&3
+          wait_log 'WP05_ACCEPT API result operation=api-op-1 definition=acc_api_live' "$ROOT/evidence/server-initial.log"
+          wait_log 'status=ACCEPTED_QUEUED' "$ROOT/evidence/server-initial.log"
+          echo "wp05accept api acc_api_live $PLAYER_UUID api-op-1" >&3
+          wait_log 'status=ALREADY_ACCEPTED' "$ROOT/evidence/server-initial.log"
+          echo "wp05accept api missing_api_definition $PLAYER_UUID api-op-unknown" >&3
+          wait_log 'WP05_ACCEPT API result operation=api-op-unknown definition=missing_api_definition' "$ROOT/evidence/server-initial.log"
+          wait_log 'status=UNKNOWN_DEFINITION' "$ROOT/evidence/server-initial.log"
+          echo "wp05accept api ! $PLAYER_UUID api-op-validation" >&3
+          wait_log 'WP05_ACCEPT API result operation=api-op-validation definition=!' "$ROOT/evidence/server-initial.log"
+          wait_log 'status=VALIDATION_FAILURE' "$ROOT/evidence/server-initial.log"
+
+          python3 - <<'PY' &
+          import sqlite3,time
+          from pathlib import Path
+          db='/tmp/wp05-api/server/plugins/EnthusiaLoreItems/loreitems.db'
+          c=sqlite3.connect(db,timeout=1,isolation_level=None)
+          c.execute('PRAGMA journal_mode=WAL')
+          c.execute('BEGIN IMMEDIATE')
+          Path('/tmp/wp05-api/db-lock.ready').write_text('ready\n')
+          time.sleep(4)
+          c.rollback();c.close()
+          PY
+          LOCK_PID=$!
+          for _ in $(seq 1 20); do test -f "$ROOT/db-lock.ready" && break; sleep 0.2; done
+          test -f "$ROOT/db-lock.ready"
+          echo "wp05accept api acc_api_live $PLAYER_UUID api-op-degraded" >&3
+          wait_log 'WP05_ACCEPT API result operation=api-op-degraded definition=acc_api_live' "$ROOT/evidence/server-initial.log" 20
+          wait_log 'status=SERVICE_UNAVAILABLE' "$ROOT/evidence/server-initial.log" 20
+          wait "$LOCK_PID"
+          echo "wp05accept api acc_api_live $PLAYER_UUID api-op-degraded" >&3
+          for _ in $(seq 1 30); do
+            test "$(grep -F 'operation=api-op-degraded' "$ROOT/evidence/server-initial.log" | grep -c 'status=ACCEPTED_QUEUED' || true)" -ge 1 && break
+            sleep 1
+          done
+          grep -F 'operation=api-op-degraded' "$ROOT/evidence/server-initial.log" | grep -F 'status=ACCEPTED_QUEUED'
+          wait_sql "select count(*)=2 from external_delivery_requests where external_operation_id in ('api-op-1','api-op-degraded') and outcome='ACCEPTED_QUEUED' and delivery_id is not null" 45
+          wait_sql "select count(*)=2 from direct_deliveries d join external_delivery_requests e on e.delivery_id=d.delivery_id where e.external_operation_id in ('api-op-1','api-op-degraded')" 45
+          echo 'wp05accept dump Wp05ApiBot' >&3
+          sleep 2
+          stop_bot
+          stop_server
+
+          start_server "$ROOT/evidence/server-restart.log"
+          start_bot
+          PLAYER_UUID_RESTART="$(tr -d '\r\n' < "$ROOT/bot.uuid")"
+          test "$PLAYER_UUID_RESTART" = "$PLAYER_UUID"
+          echo "wp05accept api acc_api_live $PLAYER_UUID api-op-1" >&3
+          wait_log 'WP05_ACCEPT API result operation=api-op-1 definition=acc_api_live' "$ROOT/evidence/server-restart.log"
+          wait_log 'status=ALREADY_ACCEPTED' "$ROOT/evidence/server-restart.log"
+          wait_sql "select count(*)=1 from external_delivery_requests where external_operation_id='api-op-1'" 30
+          wait_sql "select count(*)=1 from external_delivery_requests where external_operation_id='api-op-degraded'" 30
+          echo 'wp05accept dump Wp05ApiBot' >&3
+          sleep 3
+          stop_bot
+          stop_server
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          python3 - "$START" "$END" "$PLAYER_UUID" <<'PY'
+          import json,sqlite3,sys
+          from pathlib import Path
+          start,end,player=sys.argv[1:]
+          root=Path('/tmp/wp05-api')
+          db=root/'server/plugins/EnthusiaLoreItems/loreitems.db'
+          c=sqlite3.connect(db);c.row_factory=sqlite3.Row
+          external=[dict(r) for r in c.execute('select external_operation_id,definition_key,player_id,delivery_id,outcome from external_delivery_requests order by external_operation_id')]
+          deliveries=[dict(r) for r in c.execute("select d.delivery_id,d.player_id,d.state,d.idempotency_key,d.attempt_count,e.external_operation_id from direct_deliveries d join external_delivery_requests e on e.delivery_id=d.delivery_id where e.external_operation_id in ('api-op-1','api-op-degraded') order by e.external_operation_id")]
+          integrity=[r[0] for r in c.execute('pragma integrity_check')]
+          foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
+          schema=c.execute('pragma user_version').fetchone()[0]
+          c.close()
+          by_operation={r['external_operation_id']:r for r in external}
+          assert set(by_operation)=={'api-op-1','api-op-degraded','api-op-unknown'}, external
+          accepted={op:by_operation[op] for op in ('api-op-1','api-op-degraded')}
+          assert all(r['outcome']=='ACCEPTED_QUEUED' and r['delivery_id'] for r in accepted.values()), accepted
+          assert len({r['delivery_id'] for r in accepted.values()})==2, accepted
+          unknown=by_operation['api-op-unknown']
+          assert unknown['outcome']=='UNKNOWN_DEFINITION' and unknown['delivery_id'] is None, unknown
+          assert 'api-op-validation' not in by_operation
+          assert len(deliveries)==2, deliveries
+          assert {r['external_operation_id'] for r in deliveries}=={'api-op-1','api-op-degraded'}, deliveries
+          assert {r['idempotency_key'] for r in deliveries}=={'api-op-1','api-op-degraded'}, deliveries
+          assert all(r['player_id']==player for r in deliveries), deliveries
+          assert integrity==['ok'] and not foreign
+          initial=(root/'evidence/server-initial.log').read_text(errors='replace')
+          restart=(root/'evidence/server-restart.log').read_text(errors='replace')
+          def has_status(log, operation, status):
+              return any(f'operation={operation}' in line and f'status={status}' in line for line in log.splitlines())
+          required=[
+              ('api-op-1','ACCEPTED_QUEUED'),('api-op-1','ALREADY_ACCEPTED'),
+              ('api-op-unknown','UNKNOWN_DEFINITION'),('api-op-validation','VALIDATION_FAILURE'),
+              ('api-op-degraded','SERVICE_UNAVAILABLE'),('api-op-degraded','ACCEPTED_QUEUED')]
+          for operation,status in required:
+              assert has_status(initial,operation,status), (operation,status)
+          assert has_status(restart,'api-op-1','ALREADY_ACCEPTED')
+          evidence={
+              'case':'ACC-API-001','result':'PASS','started_utc':start,'ended_utc':end,
+              'server':'Paper 1.21.11 build 116','java':'Temurin 21','plugin_version':'1.0.0-rc.1',
+              'source_head':(root/'evidence/source-head.txt').read_text().strip(),
+              'plugin_sha256':(root/'evidence/plugin-sha256.txt').read_text().split()[0],
+              'player':{'name':'Wp05ApiBot','uuid':player,'auth_mode':'offline protocol client; UUID/name server-visible semantics only'},
+              'config':(root/'evidence/loreitems-config.yml').read_text(),
+              'schema_user_version':schema,
+              'external_requests':[{'external_operation_id':r['external_operation_id'],'definition_key':r['definition_key'],'player_id':r['player_id'],'has_delivery':r['delivery_id'] is not None,'outcome':r['outcome']} for r in external],
+              'deliveries':[{'player_id':r['player_id'],'state':r['state'],'idempotency_key':r['idempotency_key'],'attempt_count':r['attempt_count'],'external_operation_id':r['external_operation_id']} for r in deliveries],
+              'integrity':integrity,'foreign_key_check':foreign,
+              'steps':['resolve real Bukkit service through independent helper','accept unique operation','replay before restart','unknown definition','invalid definition key','force SQLite write contention and observe SERVICE_UNAVAILABLE','retry same degraded operation after lock release','restart server and helper','reacquire service and replay same operation','verify one durable request/delivery per accepted external operation'],
+              'expected':'Stable V1 service returns accepted/replay/unknown/validation/unavailable outcomes without duplicate durable intent; same operation IDs remain idempotent across recovery and restart.',
+              'actual':'All expected statuses were observed on the real registered service. The two accepted external operation IDs map one-to-one to two durable deliveries; the unknown definition is durably recorded as a non-acceptance outcome; the syntactically invalid request is rejected before persistence; replay creates no additional durable intent; integrity and foreign-key checks pass.',
+              'cleanup':'Disposable server stopped; no shared environment mutated.',
+              'rollback':'Disposable /tmp acceptance server may be discarded.'}
+          (root/'evidence/ACC-API-001.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          PY
+
+      - name: Upload ACC-API-001 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-api-acceptance-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/wp05-api/evidence/

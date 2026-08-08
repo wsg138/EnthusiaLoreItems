@@ -3,32 +3,39 @@
 ## Queue invariants
 Exactly six immutable packages. Live GitHub outranks snapshots. Resume the single unfinished canonical lock before new work. Never split packages or begin the next package in the same completion chat.
 
-| Order | Package | Weight | Status | Dependency |
+| Order | Package | Weight | Status | Dependency / routing |
 |---:|---|---:|---|---|
-| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | merged/verified |
-| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
-| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
-| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | READY | WP-04 RC `v1.0.0-rc.1` published and verified |
-| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
-
-## WP-04 completion record
-- Production-hardening PR: #15, normally merged as `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Release-recovery PR: #16, normally merged as `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
-- Exact PR-head verification for final WP-04 head `063ad63ee7341cc42a4f20c51883d5c34abd25a7`: Actions run `31204122398` passed Gradle verification, repository tooling, new-code complexity, exact-head Codacy, fixed-scenario profiling, RC package validation, immutable evidence packaging, and clean-build reproducibility; CodeRabbit status was successful and review threads were zero.
-- Post-merge WP-04 `main` verification: CI run `31204427939` passed on `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Release-recovery exact-head verification: Actions run `31204825737` passed on `c0be8bf9755e7038f6a8a9f1feb715322136f3a4`, including exact-head Codacy; CodeRabbit was successful and review threads were zero.
-- Post-recovery `main` verification: CI run `31205231097` passed on `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
-- Release workflow run `31205326905` completed successfully and recovered the already-created exact RC tag without moving it.
-- `v1.0.0-rc.1` is a GitHub prerelease targeting `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Verified release assets: `EnthusiaLoreItems.jar`, `EnthusiaLoreItems.jar.sha256`, `bom.cyclonedx.json`, `gradle-dependencies.txt`, `normalized-entry-manifest.txt`, `wp04-profile.json`, and `EnthusiaLoreItems-test-reports.tar.gz`.
-- The released JAR digest reported by GitHub is `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
-- No live Paper/Leaf acceptance is claimed by WP-04; that remains WP-05 scope.
+| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | merged and verified |
+| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged and verified |
+| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | merged and verified |
+| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | merged and verified; `v1.0.0-rc.1` prerelease/assets verified |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | canonical draft PR #18 retains the lock; acceptance/release work remains resumable |
+| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | requires verified WP-05 production `v1.0.0` release |
 
 ## Progress
-- Completed: 4/6
-- Remaining: 2/6
-- Weighted progress: 75%
+- Completed: 4/6 packages.
+- Remaining: 2/6 packages.
+- Weighted completed progress: 75%.
+- No WP-05 weight is awarded until the complete package contract, merge, post-merge verification, and production release are verified.
+
+## WP-05 live lock
+- Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`.
+- Canonical branch: `agent/wp-05-live-acceptance-release`.
+- Draft PR: #18, `WP-05: complete live acceptance and release LoreItems`.
+- Intentional-stop status: `PARTIAL`.
+- Immediately preceding implementation/evidence head: `05c1d59499b6785d6bf2b665f1f3cfac808de9b4`.
+- Durable checkpoint commit: `30f9fa151381ae3110e715f733f8bf96c2ca5edc`.
+- Permanent checkpoint: `ai-agents/reports/agent-handoffs/2026-08-08-wp-05-ci-tracking-partial.md`.
+- Owner-approved scope amendment remains in force: real Microsoft/Xbox account authentication is out of scope; server-visible Java/Floodgate identity behavior remains required.
+
+## Current WP-05 evidence summary
+Permanent predecessor PASS evidence exists for `ACC-ID-001`, `ACC-ID-002`, and `ACC-CORE-001..005`. Successful predecessor workflows additionally map to `ACC-EDIT-001..002`, `ACC-DEST-001`, and `ACC-API-001`. Those older runs are traceability until the current/final exact head reruns successfully.
+
+The 2026-08-08 06:02–06:12 EDT worker fixed two verification defects:
+- `6aa457e499341ad405438961bf4999d74c515627`: shared-container test compile/API mismatch.
+- `05c1d59499b6785d6bf2b665f1f3cfac808de9b4`: tracking acceptance create-source setup plus fatal-bot cleanup hang.
+
+No new LoreItems production defect was confirmed by that worker. The one previously confirmed WP-05 production defect (already-prefixed real Floodgate recipient names rejected by binding) remains fixed and regression-verified.
 
 ## Exact next action
-Start WP-05 from live `main` after this completion-state transition is merged. Use the exact `v1.0.0-rc.1` release artifact and execute `docs/wp-05-manual-acceptance-matrix.md`. Do not begin WP-06.
+Resume WP-05 from the live canonical PR head. Inspect exact-head workflows first; repair any confirmed failure on the same branch. Once current identity/core/editor/tracking/exact-remove/API gates are green, record exact-head credit and build the next consolidated disposable-Paper acceptance block for `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002`. Continue `ACC-EDIT-003`, protection, distribution, environment, backup/recovery/load cases, then rerun all 35 on the exact final JAR and finish review, sign-off, normal merge, post-merge verification, and `v1.0.0` release. Do not begin WP-06.

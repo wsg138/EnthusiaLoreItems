@@ -9,3 +9,4 @@ exclude_paths:
   - "adapters-sqlite/src/main/resources/db/migration/V5__destructive_administration.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V6__mass_distribution_recipient_states.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V7__mass_distribution_revision_snapshot.sql"
+  - "adapters-sqlite/src/main/resources/db/migration/V8__canonicalize_adopted_player_locations.sql"

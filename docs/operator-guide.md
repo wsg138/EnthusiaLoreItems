@@ -52,8 +52,10 @@ duplicate-warning-interval-seconds: 300
 default-page-size: 45
 max-page-size: 100
 mutation-budget-per-tick: 16
-shared-containers-allowed: false
+shared-containers-allowed: true
 ```
+
+`shared-containers-allowed: true` is the default and leaves nested shulker/bundle storage unrestricted. Set it to `false` to prohibit players from inserting LoreItems into either shulkers or bundles; removing an existing LoreItem from those containers remains allowed.
 
 ### Startup-only settings
 

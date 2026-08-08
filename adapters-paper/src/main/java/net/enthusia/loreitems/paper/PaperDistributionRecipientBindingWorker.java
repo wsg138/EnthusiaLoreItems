@@ -31,6 +31,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
     private static final int MAX_QUEUE_CAPACITY = 4_096;
     private static final int MIN_POSITIVE_VALUE = 1;
     private static final int FIRST_CHARACTER_INDEX = 0;
+    private static final int FLOODGATE_PREFIX_LENGTH = 1;
     private static final long NO_TICKS_REMAINING = 0L;
     private static final long PERIODIC_SCAN_TICKS = 200L;
 
@@ -134,8 +135,7 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
 
     void enqueueIdentity(UUID playerId, String currentName, boolean floodgate) {
         requirePrimaryThread();
-        String normalizedName = normalizeName(currentName);
-        String lookupName = floodgate ? '*' + normalizedName : normalizedName;
+        String lookupName = normalizeLookupName(currentName, floodgate);
         IdentityCandidate candidate = new IdentityCandidate(
                 Objects.requireNonNull(playerId, "playerId"), lookupName);
         if (scheduled.contains(candidate)) {
@@ -274,13 +274,28 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         scheduled.clear();
     }
 
-    private static String normalizeName(String currentName) {
+    private static String normalizeLookupName(String currentName, boolean floodgate) {
         Objects.requireNonNull(currentName, "currentName");
         String normalized = currentName.strip();
-        if (normalized.isEmpty() || normalized.charAt(FIRST_CHARACTER_INDEX) == '*') {
-            throw new IllegalArgumentException("currentName must be an unprefixed non-blank player name");
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("currentName must be non-blank");
         }
-        return normalized;
+        boolean hasFloodgatePrefix = normalized.charAt(FIRST_CHARACTER_INDEX) == '*';
+        if (!floodgate) {
+            if (hasFloodgatePrefix) {
+                throw new IllegalArgumentException(
+                        "non-Floodgate currentName must not use the Floodgate '*' prefix");
+            }
+            return normalized;
+        }
+        if (hasFloodgatePrefix) {
+            if (normalized.length() == FLOODGATE_PREFIX_LENGTH) {
+                throw new IllegalArgumentException(
+                        "Floodgate currentName must contain a name after the '*' prefix");
+            }
+            return normalized;
+        }
+        return '*' + normalized;
     }
 
     private static void requirePrimaryThread() {

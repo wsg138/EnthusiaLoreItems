@@ -1,0 +1,100 @@
+{
+  "database": "/tmp/wp05/server/plugins/EnthusiaLoreItems/loreitems.db",
+  "foreign_key_check": [],
+  "foreign_key_schema": {
+    "deleted_definition_markers": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "destructive_operations": [
+      {"from":"exact_instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"definition_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "destructive_targets": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_instances","to":"definition_id"},
+      {"from":"operation_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"destructive_operations","to":"operation_id"}
+    ],
+    "direct_deliveries": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"}
+    ],
+    "distribution_campaign_revision_snapshots": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definition_revisions","to":"definition_id"},
+      {"from":"definition_revision","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_definition_revisions","to":"revision"},
+      {"from":"campaign_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"distribution_campaigns","to":"campaign_id"}
+    ],
+    "distribution_campaigns": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "distribution_recipients": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"campaign_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"distribution_campaigns","to":"campaign_id"}
+    ],
+    "external_delivery_requests": [
+      {"from":"delivery_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"direct_deliveries","to":"delivery_id"}
+    ],
+    "instance_anomalies": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_instances","to":"definition_id"},
+      {"from":"definition_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "instance_current_state": [
+      {"from":"last_observation_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"instance_observations","to":"observation_id"},
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"instance_observations","to":"instance_id"},
+      {"from":"instance_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"}
+    ],
+    "instance_observations": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_instances","to":"definition_id"}
+    ],
+    "lore_definition_revisions": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "lore_instances": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definition_revisions","to":"definition_id"},
+      {"from":"desired_revision","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_definition_revisions","to":"revision"},
+      {"from":"definition_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definition_revisions","to":"definition_id"},
+      {"from":"applied_revision","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_definition_revisions","to":"revision"},
+      {"from":"definition_id","id":2,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "pending_mutations": [
+      {"from":"instance_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_instances","to":"instance_id"},
+      {"from":"definition_id","id":1,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definitions","to":"definition_id"}
+    ],
+    "template_edit_confirmations": [
+      {"from":"definition_id","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":0,"table":"lore_definition_revisions","to":"definition_id"},
+      {"from":"target_revision","id":0,"match":"NONE","on_delete":"NO ACTION","on_update":"NO ACTION","seq":1,"table":"lore_definition_revisions","to":"revision"}
+    ]
+  },
+  "integrity_check": ["ok"],
+  "journal_mode": "wal",
+  "schema_history": [
+    {"applied_at":1786135943168,"description":"foundation","version":1},
+    {"applied_at":1786135943170,"description":"template revision rollout","version":2},
+    {"applied_at":1786135943174,"description":"mutation queue controls","version":3},
+    {"applied_at":1786135943175,"description":"template editor confirmations","version":4},
+    {"applied_at":1786135943176,"description":"destructive administration","version":5},
+    {"applied_at":1786135943180,"description":"mass distribution recipient states","version":6},
+    {"applied_at":1786135943181,"description":"mass distribution revision snapshot","version":7}
+  ],
+  "sha256": "9aa1285860536ba0672713e0da6e4bf969b4268d13d78977be1b27c9eee14b82",
+  "table_counts": {
+    "audit_events":0,
+    "deleted_definition_markers":0,
+    "destructive_operations":0,
+    "destructive_targets":0,
+    "direct_deliveries":0,
+    "distribution_campaign_revision_snapshots":0,
+    "distribution_campaigns":0,
+    "distribution_recipients":0,
+    "external_delivery_requests":0,
+    "instance_anomalies":0,
+    "instance_current_state":0,
+    "instance_observations":0,
+    "lore_definition_revisions":0,
+    "lore_definitions":0,
+    "lore_instances":0,
+    "pending_mutations":0,
+    "schema_history":7,
+    "template_edit_confirmations":0
+  }
+}

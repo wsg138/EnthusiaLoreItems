@@ -1,0 +1,13 @@
+name: WP05AcceptanceHarness
+version: 1.0.0
+main: net.enthusia.loreitems.acceptance.WP05AcceptanceHarnessPlugin
+api-version: "1.21"
+depend:
+  - EnthusiaLoreItems
+commands:
+  wp05accept:
+    description: Deterministic WP-05 acceptance helper. Never ship with production.
+    usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump ...
+permissions:
+  wp05.acceptance:
+    default: op

@@ -93,6 +93,26 @@ class PaperDistributionRecipientBindingWorkerTest {
     }
 
     @Test
+    void floodgateServerVisiblePrefixedNameIsPreservedWithoutDoublePrefix() {
+        UUID playerId = UUID.fromString("22222222-2222-2222-2222-222222222223");
+        List<String> lookups = new ArrayList<>();
+        workerUnderTest = newWorker(
+                (id, name, now, limit) -> {
+                    lookups.add(name);
+                    return CompletableFuture.completedFuture(
+                            new DistributionRecipientBindingBatch(1, 1, 0, false));
+                },
+                new ArrayList<>(),
+                1);
+        workerUnderTest.start();
+
+        workerUnderTest.enqueueIdentity(playerId, "*BedrockPlayer", true);
+        workerUnderTest.tick();
+
+        assertEquals(List.of("*BedrockPlayer"), lookups);
+    }
+
+    @Test
     void hasMoreRequeuesOneBoundedPageForLaterTick() {
         UUID playerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         AtomicInteger calls = new AtomicInteger();

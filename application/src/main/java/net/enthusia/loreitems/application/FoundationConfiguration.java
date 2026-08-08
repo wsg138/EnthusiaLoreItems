@@ -28,7 +28,7 @@ public record FoundationConfiguration(
     }
 
     public static FoundationConfiguration defaults() {
-        return new FoundationConfiguration(5_000, 256, 10, 32, 30, 300, 45, 100, 16, false);
+        return new FoundationConfiguration(5_000, 256, 10, 32, 30, 300, 45, 100, 16, true);
     }
 
     public boolean hasSameStartupResources(FoundationConfiguration other) {

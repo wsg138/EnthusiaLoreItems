@@ -1,0 +1,18 @@
+2026-08-07T21:10:11.906747930Z ServerMain WARN Advanced terminal features are not available in this environment
+[21:10:21 WARN]: [floodgate] en_ is not a supported Floodgate language.
+[21:10:22 INFO]: [EnthusiaLoreItems] Loading server plugin EnthusiaLoreItems v1.0.0-rc.1
+[21:10:22 INFO]: [Wp05AcceptanceProbe] Loading server plugin Wp05AcceptanceProbe v1.0
+[21:10:24 INFO]: [EnthusiaLoreItems] Enabling EnthusiaLoreItems v1.0.0-rc.1
+[21:10:24 INFO]: [EnthusiaLoreItems] Foundation bootstrap enabled; durable storage is initializing off-thread.
+[21:10:24 INFO]: [EnthusiaLoreItems] Durable storage is active; definition creation, adoption, protection, display observations, terminal void loss, and mass distributions are available. Delivery, recovery, anomaly, and administration components are activating on the server thread.
+[21:10:25 INFO]: [Wp05AcceptanceProbe] Enabling Wp05AcceptanceProbe v1.0
+[21:10:30 INFO]: [EnthusiaLoreItems] Queued direct-delivery processing is active.
+[21:10:30 INFO]: [EnthusiaLoreItems] Expired item-mutation recovery is active.
+[21:10:31 INFO]: [EnthusiaLoreItems] Lore-item anomaly detection, warnings, and administration are active.
+[21:10:31 INFO]: [EnthusiaLoreItems] Mass distribution delivery, identity binding, marker recovery, and commands are active.
+[21:10:31 WARN]: *** You are running an outdated version of Minecraft, which is 4 release(s) and 16 build(s) behind!
+[21:10:31 WARN]: *** Please update to the latest stable version on https://papermc.io/downloads/paper ***
+[21:10:34 INFO]: [Wp05AcceptanceProbe] WP05_PROBE status=UNKNOWN_DEFINITION operation=acc-ops-001-probe detail=No active lore definition has that key.
+[21:10:38 INFO]: Stopping the server
+[21:10:38 INFO]: [Wp05AcceptanceProbe] Disabling Wp05AcceptanceProbe v1.0
+[21:10:38 INFO]: [EnthusiaLoreItems] Disabling EnthusiaLoreItems v1.0.0-rc.1

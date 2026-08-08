@@ -38,6 +38,7 @@ import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
@@ -183,6 +184,64 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
                 && containsLoreIdentityEvidence(event.getView().getTopInventory())) {
             event.setCancelled(true);
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSharedContainerClick(InventoryClickEvent event) {
+        if (sharedContainersAllowed()) {
+            return;
+        }
+        Inventory top = event.getView().getTopInventory();
+        if (top.getType() == InventoryType.SHULKER_BOX
+                && wouldInsertIntoTopInventory(event, top.getSize())) {
+            event.setCancelled(true);
+            return;
+        }
+        ItemStack current = event.getCurrentItem();
+        ItemStack cursor = event.getCursor();
+        if ((isBundle(current) && hasLoreIdentityEvidence(cursor))
+                || (isBundle(cursor) && hasLoreIdentityEvidence(current))) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSharedContainerDrag(InventoryDragEvent event) {
+        if (sharedContainersAllowed()
+                || event.getView().getTopInventory().getType() != InventoryType.SHULKER_BOX
+                || !hasLoreIdentityEvidence(event.getOldCursor())) {
+            return;
+        }
+        int topSize = event.getView().getTopInventory().getSize();
+        if (event.getRawSlots().stream().anyMatch(slot -> slot >= 0 && slot < topSize)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private boolean wouldInsertIntoTopInventory(InventoryClickEvent event, int topSize) {
+        int rawSlot = event.getRawSlot();
+        if (rawSlot >= 0 && rawSlot < topSize) {
+            if (hasLoreIdentityEvidence(event.getCursor())) {
+                return true;
+            }
+            int hotbarButton = event.getHotbarButton();
+            return hotbarButton >= 0
+                    && hasLoreIdentityEvidence(
+                            event.getWhoClicked().getInventory().getItem(hotbarButton));
+        }
+        return event.isShiftClick() && hasLoreIdentityEvidence(event.getCurrentItem());
+    }
+
+    private boolean sharedContainersAllowed() {
+        return plugin.getConfig().getBoolean("shared-containers-allowed", true);
+    }
+
+    private static boolean isBundle(ItemStack item) {
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        String material = item.getType().name();
+        return material.equals("BUNDLE") || material.endsWith("_BUNDLE");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
