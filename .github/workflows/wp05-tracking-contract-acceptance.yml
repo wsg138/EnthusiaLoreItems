@@ -119,7 +119,7 @@ jobs:
             bot.chat('/tp Wp05TrackBot 32 71 0');await sleep(1800);log('TRACK3 pickup-wait');fs.writeFileSync(`${root}/track3-pickup-done`,'ok\n')
             await waitFile('bot.stop');bot.quit('tracking acceptance complete')
           }
-          ;(async()=>{try{await phaseOne();await phaseTwo()}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));process.exitCode=1}})()
+          ;(async()=>{try{await phaseOne();await phaseTwo()}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));process.exit(1)}})()
           EOF
 
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003
@@ -137,7 +137,7 @@ jobs:
           echo 'setblock 20 69 0 chest' >&3
           (cd "$ROOT/bot" && node bot.js)>"$ROOT/evidence/bot-stdout.log" 2>&1 & BOT_PID=$!
           for _ in $(seq 1 90);do test -s "$ROOT/bot.uuid"&&break;sleep 1;done;test -s "$ROOT/bot.uuid";echo 'op Wp05TrackBot' >&3;echo 'clear Wp05TrackBot' >&3
-          echo 'wp05accept source Wp05TrackBot helmet' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_contract Track Contract' >&3;sleep 1;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3
+          echo 'wp05accept source Wp05TrackBot helmet' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_contract Track Contract' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3;sleep 1
           python3 - "$DB" <<'PY'
           import sqlite3,sys,time
           db=sys.argv[1]
@@ -172,7 +172,7 @@ jobs:
           PY
 
           # Fresh sword instance for chest/hopper/nested structural path checks.
-          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_nested Track Nested' >&3;sleep 1;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1
+          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_nested Track Nested' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1
           python3 - "$DB" <<'PY'
           import sqlite3,time
           db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
@@ -204,7 +204,7 @@ jobs:
           PY
 
           # Fresh tracked instance for natural drop/pickup, then display/death coverage siblings.
-          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_world Track World' >&3;sleep 1;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1
+          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_world Track World' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1
           touch "$ROOT/go-track3-drop";for _ in $(seq 1 120);do test -f "$ROOT/track3-drop-done"&&break;sleep .25;done;test -f "$ROOT/track3-drop-done"
           python3 - "$DB" <<'PY'
           import sqlite3,time
