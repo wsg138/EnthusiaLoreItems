@@ -63,8 +63,8 @@ class PaperDestructiveRemovalOperatorTest {
                 observation.status());
         DestructiveRemovalExecutionUseCase.Observation evidence = observation.observation();
         assertEquals("PLAYER_INVENTORY", evidence.locationType());
-        assertEquals(player.getUniqueId().toString(), evidence.locationKey());
-        assertEquals("slot=0", evidence.containerPath());
+        assertEquals("player:" + player.getUniqueId(), evidence.locationKey());
+        assertEquals("slot:0", evidence.containerPath());
 
         DestructiveRemovalExecutionUseCase.PreparedRemoval prepared =
                 prepared(evidence, Instant.now().plusSeconds(30));
