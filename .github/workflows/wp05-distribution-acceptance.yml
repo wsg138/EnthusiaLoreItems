@@ -1,0 +1,243 @@
+name: WP-05 Distribution Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-distribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  distribution:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare campaign server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-dist
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems/groups" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          delivery-claim-batch-size: 32
+          delivery-claim-lease-seconds: 5
+          mutation-budget-per-tick: 32
+          EOF
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 distribution acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > idle.js <<'EOF'
+          const mineflayer=require('mineflayer'),fs=require('fs')
+          const root='/tmp/wp05-dist',name=process.env.BOT_NAME
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/${name}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.on('kicked',r=>log(`KICKED ${String(r)}`));bot.on('end',()=>process.exit(0))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/${name}.uuid`,`${bot.player.uuid}\n`)})
+          const timer=setInterval(()=>{if(fs.existsSync(`${root}/${name}.stop`)){clearInterval(timer);bot.quit('acceptance stage complete')}},100)
+          EOF
+
+      - name: Execute ACC-DIST-001..005
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-dist
+          DATA="$ROOT/server/plugins/EnthusiaLoreItems"
+          DB="$DATA/loreitems.db"
+          cd "$ROOT/server"
+          start_server(){
+            local log="$1"; rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 & SERVER_PID=$!
+            for _ in $(seq 1 180); do
+              if grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log"; then return; fi
+              kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; return 1; }; sleep 1
+            done; cat "$log"; return 1
+          }
+          stop_server(){ echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin; }
+          start_bot(){
+            local name="$1"; rm -f "$ROOT/$name.uuid" "$ROOT/$name.stop"
+            (cd "$ROOT/bot" && BOT_NAME="$name" node idle.js) >"$ROOT/evidence/$name-stdout.log" 2>&1 & LAST_BOT_PID=$!
+            for _ in $(seq 1 90); do test -s "$ROOT/$name.uuid" && return; kill -0 "$LAST_BOT_PID" 2>/dev/null || return 1; sleep 1; done; return 1
+          }
+          stop_bot(){ local name="$1" pid="$2"; touch "$ROOT/$name.stop"; wait "$pid" || true; rm -f "$ROOT/$name.stop"; }
+          wait_sql(){
+            local code="$1"
+            python3 - "$DB" "$code" <<'PY'
+          import sqlite3,sys,time
+          db,code=sys.argv[1:]
+          for _ in range(320):
+              try:
+                  with sqlite3.connect(db) as c:
+                      if eval(code,{'c':c}): raise SystemExit(0)
+              except (sqlite3.Error,TypeError,IndexError): pass
+              time.sleep(.25)
+          raise SystemExit('SQL wait failed: '+code)
+          PY
+          }
+          OFFLINE_UUID="$(python3 - <<'PY'
+          import hashlib,uuid
+          name=b'OfflinePlayer:Wp05DistOffline'
+          b=bytearray(hashlib.md5(name).digest()); b[6]=(b[6]&0x0f)|0x30; b[8]=(b[8]&0x3f)|0x80
+          print(uuid.UUID(bytes=bytes(b)))
+          PY
+          )"
+          printf '%s\n' "$OFFLINE_UUID" > "$ROOT/evidence/offline-uuid.txt"
+          start_server "$ROOT/evidence/server-initial.log"
+          start_bot Wp05DistOnline; ONLINE_PID=$LAST_BOT_PID
+          start_bot Wp05DistFull; FULL_PID=$LAST_BOT_PID
+          echo 'op Wp05DistOnline' >&3; echo 'op Wp05DistFull' >&3
+          echo 'wp05accept source Wp05DistOnline sword' >&3; sleep 1
+          echo 'wp05accept perform Wp05DistOnline loreitems create acc_dist_live Distribution Acceptance' >&3
+          wait_sql "c.execute(\"select count(*) from lore_definitions where lookup_key='acc_dist_live'\").fetchone()[0]==1"
+
+          # Fill every normal storage slot on the full-inventory recipient before campaign start.
+          for slot in $(seq 0 35); do echo "item replace entity Wp05DistFull inventory.$slot with minecraft:stone 64" >&3; done
+          sleep 1
+          cat > "$DATA/groups/main.yml" <<EOF
+          display-name: WP05 Distribution Main
+          players:
+            - Wp05DistOnline
+            - $OFFLINE_UUID
+            - Wp05DistFull
+          EOF
+          cat > "$DATA/groups/duplicate.yml" <<'EOF'
+          display-name: WP05 Duplicate Invalid
+          players:
+            - Wp05DistOnline
+            - wp05distonline
+          EOF
+          cat > "$DATA/groups/changed.yml" <<'EOF'
+          display-name: WP05 Changed Preview
+          players:
+            - Wp05DistOnline
+          EOF
+          echo 'loredistribution reload' >&3; sleep 2
+          grep -qi 'INVALID duplicate.yml' "$ROOT/evidence/server-initial.log"
+
+          # Preview/confirm the real main group and assert the immutable recipient snapshot.
+          echo 'loredistribution preview main.yml acc_dist_live' >&3
+          for _ in $(seq 1 80); do CAMPAIGN="$(grep -oE 'Campaign: [0-9a-f-]{36}' "$ROOT/evidence/server-initial.log" | tail -n1 | awk '{print $2}' || true)"; test -n "$CAMPAIGN" && break; sleep .25; done
+          test -n "${CAMPAIGN:-}"; echo "$CAMPAIGN" > "$ROOT/evidence/main-campaign-id.txt"
+          echo "loredistribution confirm $CAMPAIGN" >&3
+          wait_sql "c.execute(\"select count(*) from distribution_recipients where campaign_id='$CAMPAIGN'\").fetchone()[0]==3"
+          python3 - "$DB" "$CAMPAIGN" "$OFFLINE_UUID" <<'PY' | tee "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys
+          db,cid,offline=sys.argv[1:]
+          with sqlite3.connect(db) as c:
+              campaign=c.execute('select state,definition_revision,source_name from distribution_campaigns where campaign_id=?',(cid,)).fetchone()
+              assert campaign and campaign[0]=='ACTIVE' and campaign[1]==1 and campaign[2]=='main.yml',campaign
+              rows=c.execute('select snapshot_index,original_value,state,player_id from distribution_recipients where campaign_id=? order by snapshot_index',(cid,)).fetchall()
+              assert len(rows)==3 and [r[0] for r in rows]==[0,1,2],rows
+              assert rows[1][1]==offline and rows[1][3]==offline,rows[1]
+          print('PASS ACC-DIST-001: preview/confirm created the exact immutable three-recipient revision-1 snapshot')
+          PY
+          wait_sql "c.execute(\"select count(*) from distribution_recipients where campaign_id='$CAMPAIGN' and state='DELIVERED'\").fetchone()[0]>=1"
+          wait_sql "c.execute(\"select count(*) from distribution_recipients where campaign_id='$CAMPAIGN' and state='PENDING_OFFLINE'\").fetchone()[0]>=1"
+          wait_sql "c.execute(\"select count(*) from distribution_recipients where campaign_id='$CAMPAIGN' and state='PENDING_SPACE'\").fetchone()[0]>=1"
+          python3 - "$DB" "$CAMPAIGN" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              rows=c.execute("select state,count(*) from distribution_recipients where campaign_id=? group by state",(sys.argv[2],)).fetchall(); d=dict(rows)
+              assert d.get('DELIVERED')==1 and d.get('PENDING_OFFLINE')==1 and d.get('PENDING_SPACE')==1,d
+              iid=c.execute("select instance_id from distribution_recipients where campaign_id=? and state='DELIVERED'",(sys.argv[2],)).fetchone()[0]
+              assert c.execute('select count(*) from lore_instances where instance_id=?',(iid,)).fetchone()[0]==1
+          print('PASS ACC-DIST-002: online recipient reached one terminal delivery with exactly one durable instance')
+          print('PASS ACC-DIST-003 pre-restart: offline/full recipients remained durable pending without overflow delivery')
+          PY
+
+          # Two-step fingerprint race: mutate source after preview; old confirmation must create no campaign row.
+          echo 'loredistribution preview changed.yml acc_dist_live' >&3
+          for _ in $(seq 1 80); do CHANGED="$(grep -oE 'Campaign: [0-9a-f-]{36}' "$ROOT/evidence/server-initial.log" | tail -n1 | awk '{print $2}' || true)"; [[ -n "$CHANGED" && "$CHANGED" != "$CAMPAIGN" ]] && break; sleep .25; done
+          test -n "${CHANGED:-}"; test "$CHANGED" != "$CAMPAIGN"
+          cat > "$DATA/groups/changed.yml" <<EOF
+          display-name: WP05 Changed Preview
+          players:
+            - Wp05DistOnline
+            - $OFFLINE_UUID
+          EOF
+          echo "loredistribution confirm $CHANGED" >&3; sleep 2
+          python3 - "$DB" "$CHANGED" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              assert c.execute('select count(*) from distribution_campaigns where campaign_id=?',(sys.argv[2],)).fetchone()[0]==0
+              assert c.execute("select count(*) from distribution_campaigns where source_name='duplicate.yml'").fetchone()[0]==0
+          print('PASS ACC-DIST-005: changed preview and duplicate recipient set failed closed with no partial campaign state')
+          PY
+
+          # Restart with pending campaign work to prove durable resume/idempotency.
+          stop_bot Wp05DistFull "$FULL_PID"; stop_bot Wp05DistOnline "$ONLINE_PID"; stop_server
+          start_server "$ROOT/evidence/server-restart.log"
+          start_bot Wp05DistOffline; OFFLINE_PID=$LAST_BOT_PID
+          start_bot Wp05DistFull; FULL_PID=$LAST_BOT_PID
+          echo 'op Wp05DistOffline' >&3; echo 'op Wp05DistFull' >&3
+          # Free exactly one storage slot; the periodic/wakeup worker must deliver instead of dropping overflow.
+          echo 'item replace entity Wp05DistFull inventory.0 with minecraft:air' >&3
+          wait_sql "c.execute(\"select count(*) from distribution_recipients where campaign_id='$CAMPAIGN' and state='DELIVERED'\").fetchone()[0]==3"
+          wait_sql "(lambda r:r is not None and r[0]=='COMPLETED')(c.execute(\"select state from distribution_campaigns where campaign_id='$CAMPAIGN'\").fetchone())"
+          python3 - "$DB" "$CAMPAIGN" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              cid=sys.argv[2]
+              rows=c.execute("select recipient_key,state,instance_id from distribution_recipients where campaign_id=? order by snapshot_index",(cid,)).fetchall()
+              assert len(rows)==3 and all(r[1]=='DELIVERED' and r[2] for r in rows),rows
+              ids=[r[2] for r in rows]; assert len(ids)==len(set(ids))==3,ids
+              assert c.execute("select count(*) from lore_instances where instance_id in (?,?,?)",ids).fetchone()[0]==3
+              assert c.execute("select state from distribution_campaigns where campaign_id=?",(cid,)).fetchone()[0]=='COMPLETED'
+              assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
+              assert c.execute('pragma foreign_key_check').fetchall()==[]
+          print('PASS ACC-DIST-003: offline/full recipients retried to one delivery each after becoming eligible')
+          print('PASS ACC-DIST-004: restart resumed active campaign idempotently and completed without duplicate instances')
+          PY
+          test -f "$DATA/groups/completed/main.yml" || test -n "$(find "$DATA/groups/completed" -maxdepth 1 -type f -name '*main*' -o -name '*.yml' -print -quit)"
+          echo 'loredistribution status '"$CAMPAIGN" >&3; echo 'loredistribution recipients '"$CAMPAIGN"' all 1' >&3; sleep 1
+          stop_bot Wp05DistFull "$FULL_PID"; stop_bot Wp05DistOffline "$OFFLINE_PID"; stop_server
+
+      - name: Upload distribution acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-distribution-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-dist/evidence/
+          if-no-files-found: error
+          retention-days: 30
