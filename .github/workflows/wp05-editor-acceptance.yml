@@ -1,0 +1,246 @@
+name: WP-05 Editor Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-editor-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editor:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare disposable server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-editor
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          mutation-budget-per-tick: 16
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 editor acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const root='/tmp/wp05-editor'
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05EditorBot',version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const title=()=>bot.currentWindow ? String(bot.currentWindow.title) : ''
+          const waitWindow=async fragment=>{
+            for(let i=0;i<120;i++){ if(bot.currentWindow && title().toLowerCase().includes(fragment.toLowerCase())) return; await sleep(100) }
+            throw new Error(`window '${fragment}' not open; current=${title()}`)
+          }
+          const waitNoWindow=async()=>{ for(let i=0;i<120;i++){if(!bot.currentWindow)return;await sleep(100)};throw new Error('window did not close') }
+          const click=async slot=>{ await bot.clickWindow(slot,0,0); await sleep(250) }
+          async function openEditor(){
+            bot.chat('/loreitems browse'); await waitWindow('Lore definitions'); await click(0)
+            await waitWindow('Template management'); await click(29); await waitWindow('Template editor')
+          }
+          async function editNameAndConfirm(name){
+            await openEditor(); await click(10); await waitNoWindow(); bot.chat(`submit literal ${name}`)
+            await waitWindow('Template editor'); await click(49); await waitWindow('Confirm template revision')
+            await click(31); await sleep(1500)
+          }
+          async function invalidAndCancel(){
+            await openEditor(); await click(9); await waitNoWindow(); bot.chat('submit definitely:not_a_material')
+            await sleep(500); bot.chat('cancel'); await waitWindow('Template editor'); await click(45); await sleep(500)
+            await openEditor(); await click(49); await waitWindow('Confirm template revision'); await click(33); await sleep(500)
+          }
+          bot.on('message',m=>log(`CHAT ${m.toString()}`))
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',async()=>{
+            try{
+              log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`); fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`)
+              while(!fs.existsSync(`${root}/go1`)) await sleep(100)
+              await editNameAndConfirm('WP05 Edited One'); fs.writeFileSync(`${root}/done1`,'ok\n')
+              while(!fs.existsSync(`${root}/go2`)) await sleep(100)
+              await editNameAndConfirm('WP05 Edited Two'); fs.writeFileSync(`${root}/done2`,'ok\n')
+              while(!fs.existsSync(`${root}/go3`)) await sleep(100)
+              await invalidAndCancel(); fs.writeFileSync(`${root}/done3`,'ok\n')
+              while(!fs.existsSync(`${root}/bot.stop`)) await sleep(100)
+              bot.quit('acceptance complete')
+            }catch(e){ log(`FATAL ${e.stack||e}`); fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e)); bot.quit('acceptance failed') }
+          })
+          EOF
+
+      - name: Execute ACC-EDIT-001..003 through the real GUI/chat editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-editor
+          DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"
+          cd "$ROOT/server"
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server.log" 2>&1 &
+          SERVER_PID=$!
+          cleanup(){
+            touch "$ROOT/bot.stop" || true
+            if [[ -n "${BOT_PID:-}" ]]; then wait "$BOT_PID" || true; fi
+            if kill -0 "$SERVER_PID" 2>/dev/null; then echo stop >&3 || true; wait "$SERVER_PID" || true; fi
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 180); do
+            if grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server.log" && grep -q 'WP-05 deterministic acceptance helper is active' "$ROOT/evidence/server.log"; then break; fi
+            kill -0 "$SERVER_PID" 2>/dev/null || { cat "$ROOT/evidence/server.log"; exit 1; }
+            sleep 1
+          done
+          (cd "$ROOT/bot" && node bot.js) >"$ROOT/evidence/bot-stdout.log" 2>&1 & BOT_PID=$!
+          for _ in $(seq 1 90); do test -s "$ROOT/bot.uuid" && break; sleep 1; done
+          test -s "$ROOT/bot.uuid"
+          echo 'op Wp05EditorBot' >&3
+          echo 'wp05accept source Wp05EditorBot sword' >&3
+          sleep 1
+          echo 'wp05accept perform Wp05EditorBot loreitems create acc_edit_live Editor Acceptance' >&3
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(90):
+              try:
+                  with sqlite3.connect(db) as c:
+                      row=c.execute("select definition_id,current_revision from lore_definitions where lookup_key='acc_edit_live' and deleted_at is null").fetchone()
+                      if row and row[1]==1: break
+              except sqlite3.Error: pass
+              time.sleep(.25)
+          else: raise SystemExit('definition creation did not reach revision 1')
+          PY
+
+          touch "$ROOT/go1"
+          for _ in $(seq 1 120); do test -f "$ROOT/done1" && break; test ! -f "$ROOT/bot.failed" || { cat "$ROOT/bot.failed"; exit 1; }; sleep .25; done
+          test -f "$ROOT/done1"
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(120):
+              with sqlite3.connect(db) as c:
+                  row=c.execute("select definition_id,current_revision from lore_definitions where lookup_key='acc_edit_live'").fetchone()
+                  if row and row[1]==2:
+                      did=row[0]
+                      revisions=c.execute('select count(*) from lore_definition_revisions where definition_id=?',(did,)).fetchone()[0]
+                      instances=c.execute('select count(*) from lore_instances where definition_id=?',(did,)).fetchone()[0]
+                      if revisions==2 and instances==0: break
+              time.sleep(.25)
+          else: raise SystemExit('ACC-EDIT-001 revision/zero-instance assertion failed')
+          PY
+
+          for n in 1 2 3; do echo 'wp05accept perform Wp05EditorBot loreitems give acc_edit_live' >&3; sleep .5; done
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(180):
+              with sqlite3.connect(db) as c:
+                  did=c.execute("select definition_id from lore_definitions where lookup_key='acc_edit_live'").fetchone()[0]
+                  rows=c.execute("select applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?",(did,)).fetchall()
+                  if len(rows)>=3 and all(r[0]==2 and r[1]==2 and r[2]=='ACTIVE' for r in rows): break
+              time.sleep(.25)
+          else: raise SystemExit('multiple revision-2 instances were not delivered')
+          PY
+          touch "$ROOT/go2"
+          for _ in $(seq 1 160); do test -f "$ROOT/done2" && break; test ! -f "$ROOT/bot.failed" || { cat "$ROOT/bot.failed"; exit 1; }; sleep .25; done
+          test -f "$ROOT/done2"
+          python3 - "$DB" <<'PY' | tee "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(240):
+              with sqlite3.connect(db) as c:
+                  did,rev=c.execute("select definition_id,current_revision from lore_definitions where lookup_key='acc_edit_live'").fetchone()
+                  rows=c.execute("select applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?",(did,)).fetchall()
+                  pending=c.execute("select count(*) from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE' and state not in ('COMPLETED','CANCELLED')",(did,)).fetchone()[0]
+                  revisions=c.execute('select count(*) from lore_definition_revisions where definition_id=?',(did,)).fetchone()[0]
+                  if rev==3 and revisions==3 and len(rows)>=3 and pending==0 and all(r[0]==3 and r[1]==3 and r[2]=='ACTIVE' for r in rows): break
+              time.sleep(.25)
+          else: raise SystemExit('ACC-EDIT-002 rollout did not converge')
+          print('PASS ACC-EDIT-001')
+          print('PASS ACC-EDIT-002: GUI revision rolled every discoverable active instance to revision 3')
+          PY
+
+          touch "$ROOT/go3"
+          for _ in $(seq 1 120); do test -f "$ROOT/done3" && break; test ! -f "$ROOT/bot.failed" || { cat "$ROOT/bot.failed"; exit 1; }; sleep .25; done
+          test -f "$ROOT/done3"
+          python3 - "$DB" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; time.sleep(1)
+          with sqlite3.connect(db) as c:
+              did,rev=c.execute("select definition_id,current_revision from lore_definitions where lookup_key='acc_edit_live'").fetchone()
+              revisions=c.execute('select count(*) from lore_definition_revisions where definition_id=?',(did,)).fetchone()[0]
+              assert rev==3 and revisions==3,(rev,revisions)
+          print('PASS ACC-EDIT-003: invalid input plus editor/preview cancellation left revision unchanged')
+          PY
+
+          touch "$ROOT/bot.stop"; wait "$BOT_PID"; unset BOT_PID
+          echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin
+          mkfifo server.stdin; exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server-restart.log" 2>&1 & SERVER_PID=$!
+          for _ in $(seq 1 180); do grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server-restart.log" && break; sleep 1; done
+          python3 - "$DB" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              did,rev=c.execute("select definition_id,current_revision from lore_definitions where lookup_key='acc_edit_live'").fetchone()
+              rows=c.execute("select applied_revision,desired_revision from lore_instances where definition_id=?",(did,)).fetchall()
+              assert rev==3 and len(rows)>=3 and all(r==(3,3) for r in rows),(rev,rows)
+              assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
+              assert c.execute('pragma foreign_key_check').fetchall()==[]
+          print('PASS editor restart durability and SQLite integrity')
+          PY
+          echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin
+          trap - EXIT
+
+      - name: Upload editor acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-editor-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-editor/evidence/
+          if-no-files-found: error
+          retention-days: 30
