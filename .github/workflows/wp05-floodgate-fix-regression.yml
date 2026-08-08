@@ -117,7 +117,7 @@ jobs:
           grep -F '*Wp05BedrockBot joined the game' /tmp/wp05-floodgate/evidence/server-admin.log
           echo 'wp05accept source *Wp05BedrockBot sword' >&3;echo 'wp05accept perform *Wp05BedrockBot loreitems browse' >&3;sleep 2;echo 'wp05accept view *Wp05BedrockBot' >&3;sleep 2
           VIEW_LINE="$(grep -F 'WP05_ACCEPT VIEW player=*Wp05BedrockBot' /tmp/wp05-floodgate/evidence/server-admin.log|tail -n1)";test -n "$VIEW_LINE";printf '%s\n' "$VIEW_LINE">/tmp/wp05-floodgate/evidence/server-visible-gui.txt
-          printf '%s\n' "$VIEW_LINE"|grep -v 'topType=CRAFTING';printf '%s\n' "$VIEW_LINE"|grep -v 'topSize=5'
+          printf '%s\n' "$VIEW_LINE"|grep -F 'topType=CHEST topSize=54'
           echo 'wp05accept perform *Wp05BedrockBot loredistribution reload' >&3;sleep 3;echo 'wp05accept perform *Wp05BedrockBot loredistribution inspect acc-bedrock-id.yml' >&3;sleep 5
           grep -F 'Group acc-bedrock-id.yml' /tmp/wp05-floodgate/evidence/client-admin.log;grep -F 'Recipients: 1' /tmp/wp05-floodgate/evidence/client-admin.log
           SECOND_IDENTITY_LINE="$(grep -F 'WP05_ACCEPT SOURCE player=*Wp05BedrockBot uuid=' /tmp/wp05-floodgate/evidence/server-admin.log|tail -n1)";printf '%s\n' "$SECOND_IDENTITY_LINE"|grep -F "uuid=$UUID_VALUE"
