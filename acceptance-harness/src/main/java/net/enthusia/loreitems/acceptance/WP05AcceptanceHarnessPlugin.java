@@ -245,8 +245,12 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
     private void dump(CommandSender sender, String[] arguments) {
         requireLength(arguments, 2, "dump <player>");
         Player player = requirePlayer(arguments[1]);
-        int count = dumpContents(player, player.getInventory().getContents(), "DUMP");
-        count += dumpContents(player, player.getEnderChest().getContents(), "DUMP_ENDER");
+        ItemStack[] inventoryContents = Objects.requireNonNull(
+                player.getInventory().getContents(), "player inventory contents");
+        ItemStack[] enderContents = Objects.requireNonNull(
+                player.getEnderChest().getContents(), "player Ender Chest contents");
+        int count = dumpContents(player, inventoryContents, "DUMP");
+        count += dumpContents(player, enderContents, "DUMP_ENDER");
         sender.sendMessage("WP05_ACCEPT DUMP ok player=" + player.getName() + " count=" + count);
     }
 
@@ -398,8 +402,10 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
 
     private static ItemStack takeTrackedStorageItem(Player player) {
         PlayerInventory inventory = player.getInventory();
-        for (int slot = 0; slot < inventory.getStorageContents().length; slot++) {
-            ItemStack item = inventory.getItem(slot);
+        ItemStack[] storageContents = Objects.requireNonNull(
+                inventory.getStorageContents(), "player storage contents");
+        for (int slot = 0; slot < storageContents.length; slot++) {
+            ItemStack item = storageContents[slot];
             if (item != null && hasIdentity(item)) {
                 inventory.setItem(slot, null);
                 return item;
@@ -409,7 +415,9 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
     }
 
     private static ItemStack requireTrackedStorageItem(Player player) {
-        for (ItemStack item : player.getInventory().getStorageContents()) {
+        ItemStack[] storageContents = Objects.requireNonNull(
+                player.getInventory().getStorageContents(), "player storage contents");
+        for (ItemStack item : storageContents) {
             if (item != null && hasIdentity(item)) {
                 return item;
             }
