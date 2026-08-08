@@ -4,9 +4,11 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
 import net.kyori.adventure.text.Component;
@@ -21,7 +23,6 @@ import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.GlowItemFrame;
@@ -45,7 +46,7 @@ import org.bukkit.plugin.java.JavaPlugin;
  * outside the helper so they remain independent of LoreItems internals.
  */
 @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
-public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements CommandExecutor {
+public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
     private static final String PERMISSION = "wp05.acceptance";
     private static final String ENTITY_MARKER = "wp05-acceptance";
     private static final NamespacedKey VERSION_KEY = key("identity_version");
@@ -53,6 +54,11 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
     private static final NamespacedKey REVISION_KEY = key("applied_revision");
     private static final int UUID_BYTES = 16;
+
+    @FunctionalInterface
+    private interface AcceptanceAction {
+        void run(CommandSender sender, String[] arguments);
+    }
 
     @Override
     public void onEnable() {
@@ -75,24 +81,31 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
             sender.sendMessage("Usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump|cleanup ...");
             return true;
         }
+        AcceptanceAction action = commandActions().get(arguments[0].toLowerCase(Locale.ROOT));
+        if (action == null) {
+            sender.sendMessage("Unknown WP-05 acceptance helper action.");
+            return true;
+        }
         try {
-            switch (arguments[0].toLowerCase(Locale.ROOT)) {
-                case "source" -> source(sender, arguments);
-                case "perform" -> perform(sender, arguments);
-                case "place" -> place(sender, arguments);
-                case "duplicate" -> duplicate(sender, arguments);
-                case "malform" -> malform(sender, arguments);
-                case "damage" -> damage(sender, arguments);
-                case "api" -> api(sender, arguments);
-                case "dump" -> dump(sender, arguments);
-                case "cleanup" -> cleanup(sender);
-                default -> sender.sendMessage("Unknown WP-05 acceptance helper action.");
-            }
+            action.run(sender, arguments);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             sender.sendMessage("WP05_ACCEPT FAIL " + exception.getMessage());
             getLogger().log(Level.SEVERE, "Acceptance helper action failed", exception);
         }
         return true;
+    }
+
+    private Map<String, AcceptanceAction> commandActions() {
+        return Map.ofEntries(
+                Map.entry("source", this::source),
+                Map.entry("perform", this::perform),
+                Map.entry("place", this::place),
+                Map.entry("duplicate", this::duplicate),
+                Map.entry("malform", this::malform),
+                Map.entry("damage", this::damage),
+                Map.entry("api", this::api),
+                Map.entry("dump", this::dump),
+                Map.entry("cleanup", (sender, ignored) -> cleanup(sender)));
     }
 
     private void source(CommandSender sender, String[] arguments) {
@@ -131,27 +144,33 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         requireLength(arguments, 3,
                 "place <player> <storage|offhand|armor|cursor|ender|chest|drop|frame|glowframe|armorstand|shulker|bundle>");
         Player player = requirePlayer(arguments[1]);
-        ItemStack tracked = takeTrackedStorageItem(player);
         String destination = arguments[2].toLowerCase(Locale.ROOT);
-        switch (destination) {
-            case "storage" -> player.getInventory().setItem(8, tracked);
-            case "offhand" -> player.getInventory().setItemInOffHand(tracked);
-            case "armor" -> player.getInventory().setHelmet(tracked);
-            case "cursor" -> player.setItemOnCursor(tracked);
-            case "ender" -> player.getEnderChest().setItem(0, tracked);
-            case "chest" -> chest(player, 4).getBlockInventory().setItem(0, tracked);
-            case "drop" -> drop(player, tracked);
-            case "frame" -> frame(player, tracked, false);
-            case "glowframe" -> frame(player, tracked, true);
-            case "armorstand" -> armorStand(player, tracked);
-            case "shulker" -> nestedShulker(player, tracked);
-            case "bundle" -> nestedBundle(player, tracked);
-            default -> throw new IllegalArgumentException("unknown destination " + destination);
+        Consumer<ItemStack> placement = placementActions(player).get(destination);
+        if (placement == null) {
+            throw new IllegalArgumentException("unknown destination " + destination);
         }
+        ItemStack tracked = takeTrackedStorageItem(player);
+        placement.accept(tracked);
         player.closeInventory();
         log("PLACE", player, destination, describe(tracked));
         sender.sendMessage("WP05_ACCEPT PLACE ok player=" + player.getName()
                 + " destination=" + destination);
+    }
+
+    private Map<String, Consumer<ItemStack>> placementActions(Player player) {
+        return Map.ofEntries(
+                Map.entry("storage", item -> player.getInventory().setItem(8, item)),
+                Map.entry("offhand", item -> player.getInventory().setItemInOffHand(item)),
+                Map.entry("armor", item -> player.getInventory().setHelmet(item)),
+                Map.entry("cursor", player::setItemOnCursor),
+                Map.entry("ender", item -> player.getEnderChest().setItem(0, item)),
+                Map.entry("chest", item -> chest(player, 4).getBlockInventory().setItem(0, item)),
+                Map.entry("drop", item -> drop(player, item)),
+                Map.entry("frame", item -> frame(player, item, false)),
+                Map.entry("glowframe", item -> frame(player, item, true)),
+                Map.entry("armorstand", item -> armorStand(player, item)),
+                Map.entry("shulker", item -> nestedShulker(player, item)),
+                Map.entry("bundle", item -> nestedBundle(player, item)));
     }
 
     private void duplicate(CommandSender sender, String[] arguments) {
@@ -172,7 +191,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         ItemStack malformed = requireTrackedStorageItem(player).clone();
         ItemMeta meta = requireMeta(malformed);
         meta.getPersistentDataContainer().remove(REVISION_KEY);
-        malformed.setItemMeta(meta);
+        applyMeta(malformed, meta);
         if (!player.getInventory().addItem(malformed).isEmpty()) {
             throw new IllegalStateException("no storage slot for malformed copy");
         }
@@ -194,7 +213,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
             throw new IllegalStateException("tracked material has no durability boundary");
         }
         damageable.setDamage(maximum - 1);
-        tracked.setItemMeta(meta);
+        applyMeta(tracked, meta);
         log("DAMAGE_SETUP", player, "damage=" + (maximum - 1), describe(tracked));
         sender.sendMessage("WP05_ACCEPT DAMAGE ok player=" + player.getName()
                 + " damage=" + (maximum - 1));
@@ -225,48 +244,39 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
     private void dump(CommandSender sender, String[] arguments) {
         requireLength(arguments, 2, "dump <player>");
         Player player = requirePlayer(arguments[1]);
-        int count = 0;
-        for (ItemStack item : player.getInventory().getContents()) {
-            if (hasIdentity(item)) {
-                count++;
-                getLogger().info("WP05_ACCEPT DUMP player=" + player.getName() + ' '
-                        + describe(item));
-            }
-        }
-        for (ItemStack item : player.getEnderChest().getContents()) {
-            if (hasIdentity(item)) {
-                count++;
-                getLogger().info("WP05_ACCEPT DUMP_ENDER player=" + player.getName() + ' '
-                        + describe(item));
-            }
-        }
+        int count = dumpContents(player, player.getInventory().getContents(), "DUMP");
+        count += dumpContents(player, player.getEnderChest().getContents(), "DUMP_ENDER");
         sender.sendMessage("WP05_ACCEPT DUMP ok player=" + player.getName() + " count=" + count);
+    }
+
+    private int dumpContents(Player player, ItemStack[] contents, String marker) {
+        int count = 0;
+        for (ItemStack item : contents) {
+            if (item != null && hasIdentity(item)) {
+                count++;
+                getLogger().info("WP05_ACCEPT " + marker + " player=" + player.getName() + ' '
+                        + describe(item));
+            }
+        }
+        return count;
     }
 
     private void cleanup(CommandSender sender) {
         for (World world : Bukkit.getWorlds()) {
-            for (Item item : world.getEntitiesByClass(Item.class)) {
-                if (item.getScoreboardTags().contains(ENTITY_MARKER)) {
-                    item.remove();
-                }
-            }
-            for (ItemFrame frame : world.getEntitiesByClass(ItemFrame.class)) {
-                if (frame.getScoreboardTags().contains(ENTITY_MARKER)) {
-                    frame.remove();
-                }
-            }
-            for (GlowItemFrame frame : world.getEntitiesByClass(GlowItemFrame.class)) {
-                if (frame.getScoreboardTags().contains(ENTITY_MARKER)) {
-                    frame.remove();
-                }
-            }
-            for (ArmorStand stand : world.getEntitiesByClass(ArmorStand.class)) {
-                if (stand.getScoreboardTags().contains(ENTITY_MARKER)) {
-                    stand.remove();
-                }
-            }
+            removeMarked(world.getEntitiesByClass(Item.class));
+            removeMarked(world.getEntitiesByClass(ItemFrame.class));
+            removeMarked(world.getEntitiesByClass(GlowItemFrame.class));
+            removeMarked(world.getEntitiesByClass(ArmorStand.class));
         }
         sender.sendMessage("WP05_ACCEPT CLEANUP ok");
+    }
+
+    private static <T extends org.bukkit.entity.Entity> void removeMarked(Iterable<T> entities) {
+        for (T entity : entities) {
+            if (entity.getScoreboardTags().contains(ENTITY_MARKER)) {
+                entity.remove();
+            }
+        }
     }
 
     private void drop(Player player, ItemStack tracked) {
@@ -279,14 +289,14 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         Block support = base.clone().add(0.0, 0.0, 1.0).getBlock();
         support.setType(Material.STONE);
         if (glow) {
-            GlowItemFrame frame = player.getWorld().spawn(base, GlowItemFrame.class);
-            frame.addScoreboardTag(ENTITY_MARKER);
-            frame.setItem(tracked, false);
-        } else {
-            ItemFrame frame = player.getWorld().spawn(base, ItemFrame.class);
-            frame.addScoreboardTag(ENTITY_MARKER);
-            frame.setItem(tracked, false);
+            GlowItemFrame itemFrame = player.getWorld().spawn(base, GlowItemFrame.class);
+            itemFrame.addScoreboardTag(ENTITY_MARKER);
+            itemFrame.setItem(tracked, false);
+            return;
         }
+        ItemFrame itemFrame = player.getWorld().spawn(base, ItemFrame.class);
+        itemFrame.addScoreboardTag(ENTITY_MARKER);
+        itemFrame.setItem(tracked, false);
     }
 
     private void armorStand(Player player, ItemStack tracked) {
@@ -306,7 +316,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         }
         shulker.getInventory().setItem(0, tracked);
         meta.setBlockState(shulker);
-        outer.setItemMeta(meta);
+        applyMeta(outer, meta);
         chest(player, 14).getBlockInventory().setItem(0, outer);
     }
 
@@ -317,7 +327,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
             throw new IllegalStateException("bundle item did not expose BundleMeta");
         }
         bundle.addItem(tracked);
-        outer.setItemMeta(bundle);
+        applyMeta(outer, bundle);
         chest(player, 16).getBlockInventory().setItem(0, outer);
     }
 
@@ -341,7 +351,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         ItemMeta meta = requireMeta(item);
         meta.displayName(Component.text(name));
         meta.lore(List.of(Component.text("WP-05 acceptance source"), Component.text("preserve-components")));
-        item.setItemMeta(meta);
+        applyMeta(item, meta);
         return item;
     }
 
@@ -359,7 +369,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
                 .trail(true)
                 .flicker(true)
                 .build());
-        item.setItemMeta(firework);
+        applyMeta(item, firework);
         return item;
     }
 
@@ -375,9 +385,9 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         PlayerInventory inventory = player.getInventory();
         for (int slot = 0; slot < inventory.getStorageContents().length; slot++) {
             ItemStack item = inventory.getItem(slot);
-            if (hasIdentity(item)) {
+            if (item != null && hasIdentity(item)) {
                 inventory.setItem(slot, null);
-                return Objects.requireNonNull(item, "tracked item disappeared from storage");
+                return item;
             }
         }
         throw new IllegalStateException("no tracked item in player storage");
@@ -385,15 +395,15 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
 
     private static ItemStack requireTrackedStorageItem(Player player) {
         for (ItemStack item : player.getInventory().getStorageContents()) {
-            if (hasIdentity(item)) {
-                return Objects.requireNonNull(item, "tracked storage item");
+            if (item != null && hasIdentity(item)) {
+                return item;
             }
         }
         throw new IllegalStateException("no tracked item in player storage");
     }
 
     private static boolean hasIdentity(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+        if (item.getType().isAir() || !item.hasItemMeta()) {
             return false;
         }
         ItemMeta meta = item.getItemMeta();
@@ -408,10 +418,13 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         return meta;
     }
 
-    private static String describe(ItemStack item) {
-        if (item == null) {
-            return "item=null";
+    private static void applyMeta(ItemStack item, ItemMeta meta) {
+        if (!item.setItemMeta(meta)) {
+            throw new IllegalStateException("item metadata was rejected for " + item.getType());
         }
+    }
+
+    private static String describe(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return "material=" + item.getType() + " meta=none";
@@ -450,9 +463,11 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
     }
 
     private static NamespacedKey key(String value) {
-        return Objects.requireNonNull(
-                NamespacedKey.fromString("enthusialoreitems:" + value),
-                "static namespaced key");
+        NamespacedKey parsed = NamespacedKey.fromString("enthusialoreitems:" + value);
+        if (parsed == null) {
+            throw new IllegalStateException("invalid static namespaced key " + value);
+        }
+        return parsed;
     }
 
     private static void requireLength(String[] arguments, int length, String usage) {
