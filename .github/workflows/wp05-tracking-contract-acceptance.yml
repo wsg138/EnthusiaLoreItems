@@ -74,7 +74,7 @@ jobs:
           const root='/tmp/wp05-tracking-contract', sleep=ms=>new Promise(r=>setTimeout(r,ms))
           const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
           const waitFile=async f=>{for(let i=0;i<400;i++){if(fs.existsSync(`${root}/${f}`))return;await sleep(100)}throw new Error(`missing marker ${f}`)}
-          const waitBlock=async (bot,offset,label)=>{for(let i=0;i<100;i++){const block=bot.blockAt(bot.entity.position.offset(...offset));if(block)return block;await sleep(100)}throw new Error(`${label} block not loaded`)}
+          const waitBlock=async (bot,name,label)=>{for(let i=0;i<100;i++){const block=bot.findBlock({matching:b=>b.name===name,maxDistance:4});if(block)return block;await sleep(100)}throw new Error(`${label} block not loaded`)}
           const tracked=bot=>{
             const items=bot.inventory.items(); if(items.length!==1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`); return items[0]
           }
@@ -94,7 +94,7 @@ jobs:
             const empty=bot.inventory.firstEmptyInventorySlot(); if(empty==null) throw new Error('no empty inventory slot')
             await bot.clickWindow(empty,0,0); await sleep(700); log('TRACK1 storage-after-cursor')
             bot.chat('/tp Wp05TrackBot 0 71 0'); await sleep(700)
-            const block=await waitBlock(bot,[1,-1,0],'ender chest')
+            const block=await waitBlock(bot,'ender_chest','ender chest')
             const chest=await bot.openContainer(block); await sleep(500)
             item=tracked(bot); await chest.deposit(item.type,null,1); await sleep(800); log('TRACK1 ender-deposit')
             await chest.withdraw(item.type,null,1); await sleep(800); log('TRACK1 ender-withdraw'); chest.close(); await sleep(500)
@@ -108,11 +108,11 @@ jobs:
             fs.writeFileSync(`${root}/track1-reconnected`,'ok\n')
             await waitFile('go-track2-chest')
             bot.chat('/tp Wp05TrackBot 10 71 0');await sleep(600)
-            let item=tracked(bot), block=await waitBlock(bot,[1,-1,0],'chest')
+            let item=tracked(bot), block=await waitBlock(bot,'chest','chest')
             let c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(900);log('TRACK2 chest-deposit');await c.withdraw(item.type,null,1);await sleep(700);c.close();log('TRACK2 chest-withdraw')
             fs.writeFileSync(`${root}/track2-chest-done`,'ok\n')
             await waitFile('go-track2-hopper')
-            bot.chat('/tp Wp05TrackBot 20 71 0');await sleep(600);item=tracked(bot);block=await waitBlock(bot,[0,-1,0],'hopper')
+            bot.chat('/tp Wp05TrackBot 20 71 0');await sleep(600);item=tracked(bot);block=await waitBlock(bot,'hopper','hopper')
             c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
             await waitFile('go-track3-drop')
             bot.chat('/tp Wp05TrackBot 30 71 0');await sleep(600);item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
