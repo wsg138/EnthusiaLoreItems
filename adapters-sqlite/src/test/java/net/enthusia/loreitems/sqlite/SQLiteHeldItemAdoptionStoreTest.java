@@ -186,19 +186,20 @@ class SQLiteHeldItemAdoptionStoreTest {
                 .toCompletableFuture().join();
         assertEquals(1, observations.items().size());
         InstanceObservation observation = observations.items().getFirst();
-        assertEquals(PLAYER_ID.toString(), observation.location().locationKey());
-        assertEquals("hotbar:4", observation.location().containerPath());
+        assertEquals("player:" + PLAYER_ID, observation.location().locationKey());
+        assertEquals("slot:4", observation.location().containerPath());
         InstanceCurrentState currentState = new SQLiteCurrentStateRepository(runtime)
                 .findByInstance(adoption.instanceId())
                 .toCompletableFuture().join().orElseThrow();
         assertEquals(InstanceCurrentState.State.CONFIRMED_NOW, currentState.state());
+        assertEquals(observation.location(), currentState.location());
         assertEquals(observation.observationId(), currentState.lastObservationId());
         assertEquals(1L, currentState.stateRevision());
         Page<AuditEventRecord> audits = new SQLiteAuditRepository(runtime)
                 .listByAggregate(
-                        "lore_instance",
-                        adoption.instanceId().value().toString(),
-                        PageRequest.first(10))
+                            "lore_instance",
+                            adoption.instanceId().value().toString(),
+                            PageRequest.first(10))
                 .toCompletableFuture().join();
         assertEquals(2, audits.items().size());
         assertEquals("held_item_adopted", audits.items().getFirst().eventType());
@@ -286,7 +287,6 @@ class SQLiteHeldItemAdoptionStoreTest {
                 })
                 .toCompletableFuture().join();
     }
-
 
     private record MutationSnapshot(
             PendingMutationState state,
