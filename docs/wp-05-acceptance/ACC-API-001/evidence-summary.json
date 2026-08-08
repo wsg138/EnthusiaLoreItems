@@ -1,0 +1,44 @@
+{
+  "case": "ACC-API-001",
+  "result": "PASS",
+  "source_head": "e8921e0d3b633bc4a8c803aa37898acfeea2747e",
+  "workflow_run": 31242418203,
+  "artifact_id": 9017460902,
+  "artifact_digest": "sha256:16e727aa54bb30c5fe29b2f75f53b27659be1ab8f3a140d524b4369f1e6adfbc",
+  "started_utc": "2026-08-08T05:46:57Z",
+  "ended_utc": "2026-08-08T05:48:01Z",
+  "server": "Paper 1.21.11 build 116",
+  "java": "Temurin 21.0.11+10",
+  "plugin_version": "1.0.0-rc.1",
+  "plugin_sha256": "e817b066ce18daca3556b83e20828ad40d45257f2c75e03b5ee4e43221820dd1",
+  "runtime_schema_version": 7,
+  "runtime_schema_basis": "MigrationRunner defines V1-V7 and SQLiteStorageRuntime reaches READ_WRITE only after migrationRunner.migrate succeeds; the exact test reached writable storage before exercising the API. PRAGMA user_version is unused by LoreItems and remained 0.",
+  "player": {
+    "name": "Wp05ApiBot",
+    "uuid": "a7b0cbc0-922b-31fa-a9ca-049c17193774",
+    "auth_mode": "offline protocol client; UUID/name server-visible semantics only"
+  },
+  "statuses_observed": {
+    "api-op-1_initial": "ACCEPTED_QUEUED",
+    "api-op-1_pre_restart_replay": "ALREADY_ACCEPTED",
+    "api-op-unknown": "UNKNOWN_DEFINITION",
+    "api-op-validation": "VALIDATION_FAILURE",
+    "api-op-degraded_while_locked": "SERVICE_UNAVAILABLE",
+    "api-op-degraded_after_recovery": "ACCEPTED_QUEUED",
+    "api-op-1_post_restart_replay": "ALREADY_ACCEPTED"
+  },
+  "durable_results": {
+    "accepted_external_requests": 2,
+    "accepted_direct_deliveries": 2,
+    "accepted_delivery_states": ["COMPLETED", "COMPLETED"],
+    "accepted_attempt_counts": [1, 1],
+    "unknown_definition_requests": 1,
+    "unknown_definition_has_delivery": false,
+    "invalid_definition_requests_persisted": 0,
+    "replay_duplicates_created": 0
+  },
+  "integrity_check": ["ok"],
+  "foreign_key_check": [],
+  "hidden_instance_ids_redacted": true,
+  "shared_environment_mutated": false
+}
