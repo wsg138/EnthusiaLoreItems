@@ -130,7 +130,8 @@ class PaperSharedContainerRestrictionTest {
     private static final class NoOpVoidLossUseCase implements VoidLossUseCase {
         @Override
         public CompletionStage<PrepareResult> prepare(Request request) {
-            return CompletableFuture.completedFuture(PrepareResult.unavailable("unused"));
+            return CompletableFuture.completedFuture(
+                    PrepareResult.of(PrepareStatus.SERVICE_UNAVAILABLE, "unused"));
         }
 
         @Override
