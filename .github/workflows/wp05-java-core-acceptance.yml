@@ -110,7 +110,7 @@ jobs:
           stop_server(){ echo stop >&3;wait "$SERVER_PID";exec 3>&-;rm -f server.stdin;}
           run_bot(){ local role="$1" mode="$2";rm -f "/tmp/wp05-core/${role}-${mode}.ready" "/tmp/wp05-core/${role}-${mode}.go" "/tmp/wp05-core/${role}-${mode}.done";(cd /tmp/wp05-core/bot&&ROLE="$role" MODE="$mode" node bot.js)>"/tmp/wp05-core/evidence/${role}-${mode}-stdout.log" 2>&1 & echo $!;}
           wait_ready(){ local role="$1" mode="$2" pid="$3";for _ in $(seq 1 90);do test -f "/tmp/wp05-core/${role}-${mode}.ready"&&return 0;kill -0 "$pid" 2>/dev/null||{ cat "/tmp/wp05-core/evidence/${role}-${mode}-stdout.log";return 1;};sleep 1;done;return 1;}
-          finish_bot(){ local role="$1" mode="$2" pid="$3";for _ in $(seq 1 120);do test -f "/tmp/wp05-core/${role}-${mode}.done"&&break;sleep 1;done;cat "/tmp/wp05-core/${role}-${mode}.done";grep -q '^ok' "/tmp/wp05-core/${role}-${mode}.done";wait "$pid";}
+          finish_bot(){ local role="$1" mode="$2";for _ in $(seq 1 120);do test -f "/tmp/wp05-core/${role}-${mode}.done"&&break;sleep 1;done;cat "/tmp/wp05-core/${role}-${mode}.done";grep -q '^ok' "/tmp/wp05-core/${role}-${mode}.done";}
           START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           start_server /tmp/wp05-core/evidence/server-initial.log
           TARGET_PID="$(run_bot target initial)";wait_ready target initial "$TARGET_PID"
@@ -122,7 +122,7 @@ jobs:
           echo 'wp05accept dump Wp05JavaAdmin' >&3;echo 'wp05accept dump Wp05JavaTarget' >&3;sleep 2
           grep -F 'WP05_ACCEPT DUMP player=Wp05JavaAdmin' /tmp/wp05-core/evidence/server-initial.log;grep -F 'WP05_ACCEPT DUMP player=Wp05JavaTarget' /tmp/wp05-core/evidence/server-initial.log
           grep -F 'maxStack=1' /tmp/wp05-core/evidence/server-initial.log
-          touch /tmp/wp05-core/admin-exit /tmp/wp05-core/target-exit;finish_bot admin initial "$ADMIN_PID";finish_bot target initial "$TARGET_PID";sleep 2
+          touch /tmp/wp05-core/admin-exit /tmp/wp05-core/target-exit;finish_bot admin initial;finish_bot target initial;sleep 2
           echo 'loreitems give acc_core_live Wp05JavaTarget' >&3;sleep 4;stop_server
           python3 - <<'PY'
           import json,sqlite3
@@ -136,14 +136,14 @@ jobs:
           start_server /tmp/wp05-core/evidence/server-recovery.log
           TARGET_PID="$(run_bot target recovery)";wait_ready target recovery "$TARGET_PID";touch /tmp/wp05-core/target-recovery.go
           ADMIN_PID="$(run_bot admin recovery)";wait_ready admin recovery "$ADMIN_PID";echo 'op Wp05JavaAdmin' >&3;touch /tmp/wp05-core/admin-recovery.go
-          finish_bot target recovery "$TARGET_PID";finish_bot admin recovery "$ADMIN_PID";sleep 2;stop_server
+          finish_bot target recovery;finish_bot admin recovery;sleep 2;stop_server
           python3 - <<'PY'
           import json,sqlite3
           from pathlib import Path
           c=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db');d=c.execute('select count(*),sum(state="COMPLETED"),sum(state="REVIEW_REQUIRED") from direct_deliveries').fetchone();n=c.execute('select count(*) from lore_instances').fetchone()[0];i=[r[0] for r in c.execute('pragma integrity_check')];f=list(c.execute('pragma foreign_key_check'));c.close();Path('/tmp/wp05-core/evidence/post-recovery-db.json').write_text(json.dumps({'deliveries':list(d),'instances':n,'integrity':i,'foreign_keys':f},indent=2)+'\n');assert tuple(d)==(3,3,0) and n==4 and i==['ok'] and not f
           PY
           start_server /tmp/wp05-core/evidence/server-replay.log
-          TARGET_PID="$(run_bot target replay)";wait_ready target replay "$TARGET_PID";touch /tmp/wp05-core/target-replay.go;finish_bot target replay "$TARGET_PID";sleep 2;stop_server
+          TARGET_PID="$(run_bot target replay)";wait_ready target replay "$TARGET_PID";touch /tmp/wp05-core/target-replay.go;finish_bot target replay;sleep 2;stop_server
           python3 - <<'PY'
           import sqlite3
           c=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db');d=c.execute('select count(*),sum(state="COMPLETED"),sum(state="REVIEW_REQUIRED") from direct_deliveries').fetchone();n=c.execute('select count(*) from lore_instances').fetchone()[0];i=[r[0] for r in c.execute('pragma integrity_check')];f=list(c.execute('pragma foreign_key_check'));c.close();assert tuple(d)==(3,3,0) and n==4 and i==['ok'] and not f
