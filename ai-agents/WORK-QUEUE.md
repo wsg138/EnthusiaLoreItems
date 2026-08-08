@@ -9,7 +9,7 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | IN_PROGRESS | owner removed real Microsoft/Xbox account-auth prerequisite; amended in-scope acceptance/release work resumes on PR #18 |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | resume PR #18; exact-head identity/core live block is permanent and passing, remaining amended matrix/release gates are unfinished |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 verified `v1.0.0` production release |
 
 ## WP-04 completion record
@@ -44,6 +44,10 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - Owner-approved account-auth scope amendment commit: `dc6d6dc01c9a678316e6a0120dd115551f9ca491`.
 - Obsolete authenticated-session workflow removed at `3bd8326c8c9280d338831cfc4c3cc143d41278b3`.
 - Workspace resumed `IN_PROGRESS` after amendment at `a64fbbc64df6608d781fb0e755bc8b12d61942c1`.
+- Permanent exact-head acceptance gates added for Java identity/core, full-inventory delivery, and Floodgate identity. Coherent evidence head `c2e47825adca172db095ee9869b4cf0b0999f752` passed repository CI `31240091012`, Java identity/core `31240091014`, full-inventory `31240091001`, and Floodgate identity `31240091010`.
+- Current credited exact-head live cases from that coherent block: `ACC-ID-001`, `ACC-ID-002`, and `ACC-CORE-001` through `ACC-CORE-005`.
+- Acceptance-harness-only issues fixed while stabilizing that block: Mineflayer completion shape/empty timeout, shell child-process ownership, absent Bedrock `container_open` signal replaced with server-side Bukkit `InventoryView`, and a `topSize=5` substring assertion that incorrectly matched `topSize=54`. None was a LoreItems production defect.
+- Identity/core coherent checkpoint commit: `324c8dc3e74b0309520939350c803a7305a5bda1`.
 
 ## WP-05 owner-approved scope amendment
 Real Microsoft/Xbox account authentication is no longer part of WP-05. Do not collect credentials, request device-code sign-ins, require entitlement checks, or block acceptance on authenticated Java/Bedrock accounts.
@@ -56,8 +60,9 @@ This is a planning amendment, not an acceptance waiver. Every remaining in-scope
 - Completed: 4/6
 - Remaining: 2/6
 - Weighted progress: 75%
-- WP-05 accepted case evidence so far: 2 historical RC PASS cases; no package weight is awarded until the whole amended WP-05 contract completes.
+- WP-05 exact-head live PASS cases currently checkpointed: 7 of 35 (`ACC-ID-001`, `ACC-ID-002`, `ACC-CORE-001..005`); historical `ACC-ENV-001` and `ACC-OPS-001` remain traceability evidence only until final-head rerun.
+- No package weight is awarded until the whole amended WP-05 contract completes.
 - WP-05 confirmed implementation defects: 1 found, 1 fixed and live-regression verified.
 
 ## Exact next action
-Continue WP-05 on PR #18 under the amended no-account-auth scope. Build permanent disposable Paper/Geyser/Floodgate acceptance evidence for every remaining in-scope matrix case, fix any confirmed defect in this package, repeat the full in-scope matrix on the exact final JAR, complete review/release gates, and only then mark WP-06 READY. Do not begin WP-06 in this package.
+Resume this `PARTIAL` WP-05 on PR #18. Build a consolidated disposable-server acceptance block for `ACC-TRACK-001..003`, `ACC-ANOM-001..002`, `ACC-DEST-001..004`, `ACC-API-001`, `ACC-LIFE-001..002`, and applicable operational recovery cases using real Bukkit/server behavior and read-only database assertions; then continue editor, protection, distribution, environment/operations, final full-matrix, review, release, merge, and post-merge gates. Do not begin WP-06.
