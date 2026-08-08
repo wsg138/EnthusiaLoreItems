@@ -78,7 +78,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
             return true;
         }
         if (arguments.length == 0) {
-            sender.sendMessage("Usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump|cleanup ...");
+            sender.sendMessage("Usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump|view|cleanup ...");
             return true;
         }
         AcceptanceAction action = commandActions().get(arguments[0].toLowerCase(Locale.ROOT));
@@ -105,6 +105,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
                 Map.entry("damage", this::damage),
                 Map.entry("api", this::api),
                 Map.entry("dump", this::dump),
+                Map.entry("view", this::view),
                 Map.entry("cleanup", (sender, ignored) -> cleanup(sender)));
     }
 
@@ -247,6 +248,20 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
         int count = dumpContents(player, player.getInventory().getContents(), "DUMP");
         count += dumpContents(player, player.getEnderChest().getContents(), "DUMP_ENDER");
         sender.sendMessage("WP05_ACCEPT DUMP ok player=" + player.getName() + " count=" + count);
+    }
+
+    private void view(CommandSender sender, String[] arguments) {
+        requireLength(arguments, 2, "view <player>");
+        Player player = requirePlayer(arguments[1]);
+        var view = player.getOpenInventory();
+        var top = view.getTopInventory();
+        getLogger().info("WP05_ACCEPT VIEW player=" + player.getName()
+                + " uuid=" + player.getUniqueId()
+                + " topType=" + top.getType()
+                + " topSize=" + top.getSize());
+        sender.sendMessage("WP05_ACCEPT VIEW ok player=" + player.getName()
+                + " topType=" + top.getType()
+                + " topSize=" + top.getSize());
     }
 
     private int dumpContents(Player player, ItemStack[] contents, String marker) {
