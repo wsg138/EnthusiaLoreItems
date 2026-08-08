@@ -47,6 +47,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
 public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements CommandExecutor {
     private static final String PERMISSION = "wp05.acceptance";
+    private static final String ENTITY_MARKER = "wp05-acceptance";
     private static final NamespacedKey VERSION_KEY = key("identity_version");
     private static final NamespacedKey DEFINITION_KEY = key("definition_id");
     private static final NamespacedKey INSTANCE_KEY = key("instance_id");
@@ -138,7 +139,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
             case "armor" -> player.getInventory().setHelmet(tracked);
             case "cursor" -> player.setItemOnCursor(tracked);
             case "ender" -> player.getEnderChest().setItem(0, tracked);
-            case "chest" -> chest(player, 4, tracked).getBlockInventory().setItem(0, tracked);
+            case "chest" -> chest(player, 4).getBlockInventory().setItem(0, tracked);
             case "drop" -> drop(player, tracked);
             case "frame" -> frame(player, tracked, false);
             case "glowframe" -> frame(player, tracked, true);
@@ -245,16 +246,22 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
     private void cleanup(CommandSender sender) {
         for (World world : Bukkit.getWorlds()) {
             for (Item item : world.getEntitiesByClass(Item.class)) {
-                item.remove();
+                if (item.getScoreboardTags().contains(ENTITY_MARKER)) {
+                    item.remove();
+                }
             }
             for (ItemFrame frame : world.getEntitiesByClass(ItemFrame.class)) {
-                frame.remove();
+                if (frame.getScoreboardTags().contains(ENTITY_MARKER)) {
+                    frame.remove();
+                }
             }
             for (GlowItemFrame frame : world.getEntitiesByClass(GlowItemFrame.class)) {
-                frame.remove();
+                if (frame.getScoreboardTags().contains(ENTITY_MARKER)) {
+                    frame.remove();
+                }
             }
             for (ArmorStand stand : world.getEntitiesByClass(ArmorStand.class)) {
-                if (stand.getCustomName() != null && stand.getCustomName().startsWith("WP05-")) {
+                if (stand.getScoreboardTags().contains(ENTITY_MARKER)) {
                     stand.remove();
                 }
             }
@@ -264,8 +271,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
 
     private void drop(Player player, ItemStack tracked) {
         Item item = player.getWorld().dropItem(player.getLocation().clone().add(2.0, 1.0, 0.0), tracked);
-        item.setCustomName("WP05-DROP");
-        item.setCustomNameVisible(false);
+        item.addScoreboardTag(ENTITY_MARKER);
     }
 
     private void frame(Player player, ItemStack tracked, boolean glow) {
@@ -274,16 +280,18 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         support.setType(Material.STONE);
         if (glow) {
             GlowItemFrame frame = player.getWorld().spawn(base, GlowItemFrame.class);
+            frame.addScoreboardTag(ENTITY_MARKER);
             frame.setItem(tracked, false);
         } else {
             ItemFrame frame = player.getWorld().spawn(base, ItemFrame.class);
+            frame.addScoreboardTag(ENTITY_MARKER);
             frame.setItem(tracked, false);
         }
     }
 
     private void armorStand(Player player, ItemStack tracked) {
         ArmorStand stand = player.getWorld().spawn(testBase(player).add(12.0, 0.0, 0.0), ArmorStand.class);
-        stand.setCustomName("WP05-ARMOR-STAND");
+        stand.addScoreboardTag(ENTITY_MARKER);
         stand.getEquipment().setItemInMainHand(tracked);
     }
 
@@ -299,7 +307,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         shulker.getInventory().setItem(0, tracked);
         meta.setBlockState(shulker);
         outer.setItemMeta(meta);
-        chest(player, 14, outer).getBlockInventory().setItem(0, outer);
+        chest(player, 14).getBlockInventory().setItem(0, outer);
     }
 
     private void nestedBundle(Player player, ItemStack tracked) {
@@ -310,10 +318,10 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Com
         }
         bundle.addItem(tracked);
         outer.setItemMeta(bundle);
-        chest(player, 16, outer).getBlockInventory().setItem(0, outer);
+        chest(player, 16).getBlockInventory().setItem(0, outer);
     }
 
-    private Chest chest(Player player, int offset, ItemStack ignored) {
+    private Chest chest(Player player, int offset) {
         Location location = testBase(player).add(offset, 0.0, 0.0);
         Block block = location.getBlock();
         block.setType(Material.CHEST);
