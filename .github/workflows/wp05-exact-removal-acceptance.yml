@@ -189,13 +189,8 @@ jobs:
           echo 'wp05accept dump Wp05DestBot' >&3
           wait_log 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=1' "$ROOT/evidence/server-initial.log" 30
 
-          printf '%s\n' "$PLAYER_UUID" > "$ROOT/evidence/player-uuid.txt"
-          printf '%s\n' "$DEFINITION_ID" > "$ROOT/definition-id.private"
-          printf '%s\n' "$TARGET_ID" > "$ROOT/target-id.private"
-          printf '%s\n' "$SIBLING_ID" > "$ROOT/sibling-id.private"
           stop_bot
           stop_server
-
           start_server "$ROOT/evidence/server-restart.log"
           start_bot
           PLAYER_UUID_RESTART="$(tr -d '\r\n' < "$ROOT/bot.uuid")"
@@ -218,7 +213,7 @@ jobs:
           root=Path('/tmp/wp05-dest-exact')
           c=sqlite3.connect(db);c.row_factory=sqlite3.Row
           versions=[r[0] for r in c.execute('select version from schema_history order by version')]
-          assert versions==list(range(1,8)), versions
+          assert versions==list(range(1,9)), versions
           definition=dict(c.execute("select lookup_key,display_name,current_revision,deleted_at from lore_definitions where lookup_key='acc_dest_exact'").fetchone())
           target_lifecycle=dict(c.execute('select lifecycle_state,terminal_at is not null as terminal from lore_instances where instance_id=?',(target,)).fetchone())
           sibling_lifecycle=dict(c.execute('select lifecycle_state,terminal_at is not null as terminal from lore_instances where instance_id=?',(sibling,)).fetchone())
