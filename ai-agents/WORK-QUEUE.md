@@ -9,7 +9,7 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | resume PR #18; exact-head identity/core live block is permanent and passing, remaining amended matrix/release gates are unfinished |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | IN_PROGRESS | resumed PR #18 after exact-head identity/core checkpoint; remaining amended matrix/release gates are active |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 verified `v1.0.0` production release |
 
 ## WP-04 completion record
@@ -48,6 +48,8 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - Current credited exact-head live cases from that coherent block: `ACC-ID-001`, `ACC-ID-002`, and `ACC-CORE-001` through `ACC-CORE-005`.
 - Acceptance-harness-only issues fixed while stabilizing that block: Mineflayer completion shape/empty timeout, shell child-process ownership, absent Bedrock `container_open` signal replaced with server-side Bukkit `InventoryView`, and a `topSize=5` substring assertion that incorrectly matched `topSize=54`. None was a LoreItems production defect.
 - Identity/core coherent checkpoint commit: `324c8dc3e74b0309520939350c803a7305a5bda1`.
+- PARTIAL handoff head `f1ed851741b96e83ee87be31fd594b99b22fc12b` subsequently passed exact-head CI `31240410420`, Java identity/core `31240410416`, full-inventory `31240410418`, and Floodgate identity `31240410422`.
+- WP-05 resumed `IN_PROGRESS` on 2026-08-08 on the same branch/PR for the remaining matrix; no package split or follow-up package was created.
 
 ## WP-05 owner-approved scope amendment
 Real Microsoft/Xbox account authentication is no longer part of WP-05. Do not collect credentials, request device-code sign-ins, require entitlement checks, or block acceptance on authenticated Java/Bedrock accounts.
@@ -65,4 +67,4 @@ This is a planning amendment, not an acceptance waiver. Every remaining in-scope
 - WP-05 confirmed implementation defects: 1 found, 1 fixed and live-regression verified.
 
 ## Exact next action
-Resume this `PARTIAL` WP-05 on PR #18. Build a consolidated disposable-server acceptance block for `ACC-TRACK-001..003`, `ACC-ANOM-001..002`, `ACC-DEST-001..004`, `ACC-API-001`, `ACC-LIFE-001..002`, and applicable operational recovery cases using real Bukkit/server behavior and read-only database assertions; then continue editor, protection, distribution, environment/operations, final full-matrix, review, release, merge, and post-merge gates. Do not begin WP-06.
+Continue WP-05 on PR #18. Build a consolidated disposable-server acceptance block for `ACC-TRACK-001..003`, `ACC-ANOM-001..002`, `ACC-DEST-001..004`, `ACC-API-001`, `ACC-LIFE-001..002`, and applicable operational recovery cases using real Bukkit/server behavior and read-only database assertions; then continue editor, protection, distribution, environment/operations, final full-matrix, review, release, merge, and post-merge gates. Do not begin WP-06.
