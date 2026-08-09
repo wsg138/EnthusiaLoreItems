@@ -74,7 +74,9 @@ jobs:
           const root='/tmp/wp05-tracking-contract', sleep=ms=>new Promise(r=>setTimeout(r,ms))
           const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
           const waitFile=async f=>{for(let i=0;i<400;i++){if(fs.existsSync(`${root}/${f}`))return;await sleep(100)}throw new Error(`missing marker ${f}`)}
-          const waitBlock=async (bot,name,label)=>{for(let i=0;i<100;i++){const block=bot.findBlock({matching:b=>b.name===name,maxDistance:4});if(block)return block;await sleep(100)}throw new Error(`${label} block not loaded`)}
+          const waitPosition=async (bot,x,y,z,label)=>{for(let i=0;i<120;i++){const p=bot.entity.position;if(Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5){await bot.waitForChunksToLoad();log(`${label} position=${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`);return}await sleep(100)}throw new Error(`${label} teleport not observed`)}
+          const teleport=async (bot,x,y,z,label)=>{bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`);await waitPosition(bot,x,y,z,label)}
+          const waitBlock=async (bot,name,label)=>{for(let i=0;i<150;i++){const block=bot.findBlock({matching:b=>b.name===name,maxDistance:4});if(block)return block;await sleep(100)}throw new Error(`${label} block not loaded`)}
           const tracked=bot=>{
             const items=bot.inventory.items(); if(items.length!==1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`); return items[0]
           }
@@ -82,6 +84,7 @@ jobs:
             const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05TrackBot',version:'1.21.11',auth:'offline'})
             bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`))
             await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)})
+            await bot.waitForChunksToLoad()
             log(`SPAWN1 uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`)
             await waitFile('go-track1')
             let item=tracked(bot)
@@ -93,8 +96,8 @@ jobs:
             item=tracked(bot); await bot.clickWindow(item.slot,0,0); await sleep(700); log('TRACK1 cursor')
             const empty=bot.inventory.firstEmptyInventorySlot(); if(empty==null) throw new Error('no empty inventory slot')
             await bot.clickWindow(empty,0,0); await sleep(700); log('TRACK1 storage-after-cursor')
-            bot.chat('/tp Wp05TrackBot 0 71 0'); await sleep(700)
-            bot.chat('/setblock 1 70 0 minecraft:ender_chest'); await sleep(700)
+            await teleport(bot,0,71,0,'TRACK1 ender-area')
+            bot.chat('/setblock 1 70 0 minecraft:ender_chest')
             const block=await waitBlock(bot,'ender_chest','ender chest')
             const chest=await bot.openContainer(block); await sleep(500)
             item=tracked(bot); await chest.deposit(item.type,null,1); await sleep(800); log('TRACK1 ender-deposit')
@@ -105,23 +108,23 @@ jobs:
             await waitFile('go-reconnect')
             const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05TrackBot',version:'1.21.11',auth:'offline'})
             bot.on('message',m=>log(`CHAT2 ${m.toString()}`));bot.on('error',e=>log(`ERROR2 ${e.stack||e}`))
-            await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)});await sleep(1200);log('TRACK1 reconnected')
+            await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)});await bot.waitForChunksToLoad();await sleep(500);log('TRACK1 reconnected')
             fs.writeFileSync(`${root}/track1-reconnected`,'ok\n')
             await waitFile('go-track2-chest')
-            bot.chat('/tp Wp05TrackBot 10 71 0');await sleep(600)
-            bot.chat('/setblock 11 70 0 minecraft:chest');await sleep(700)
+            await teleport(bot,10,71,0,'TRACK2 chest-area')
+            bot.chat('/setblock 11 70 0 minecraft:chest')
             let item=tracked(bot), block=await waitBlock(bot,'chest','chest')
             let c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(900);log('TRACK2 chest-deposit');await c.withdraw(item.type,null,1);await sleep(700);c.close();log('TRACK2 chest-withdraw')
             fs.writeFileSync(`${root}/track2-chest-done`,'ok\n')
             await waitFile('go-track2-hopper')
-            bot.chat('/tp Wp05TrackBot 20 71 0');await sleep(600);item=tracked(bot)
-            bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper');await sleep(700)
+            await teleport(bot,20,71,0,'TRACK2 hopper-area');item=tracked(bot)
+            bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper')
             block=await waitBlock(bot,'hopper','hopper')
             c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
             await waitFile('go-track3-drop')
-            bot.chat('/tp Wp05TrackBot 30 71 0');await sleep(600);item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
+            await teleport(bot,30,71,0,'TRACK3 drop-area');item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
             await waitFile('go-track3-pickup')
-            bot.chat('/tp Wp05TrackBot 32 71 0');await sleep(1800);log('TRACK3 pickup-wait');fs.writeFileSync(`${root}/track3-pickup-done`,'ok\n')
+            await teleport(bot,32,71,0,'TRACK3 pickup-area');await sleep(1200);log('TRACK3 pickup-wait');fs.writeFileSync(`${root}/track3-pickup-done`,'ok\n')
             await waitFile('bot.stop');bot.quit('tracking acceptance complete')
           }
           ;(async()=>{try{await phaseOne();await phaseTwo()}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));process.exit(1)}})()
