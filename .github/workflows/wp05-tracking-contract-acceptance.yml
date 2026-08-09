@@ -77,7 +77,7 @@ jobs:
           npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
           npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
 
-      - name: Keep Track 3 natural-unload fixture outside spawn tickets
+      - name: Instrument Track 3 natural-unload fixture
         shell: bash
         run: |
           python3 - <<'PY'
@@ -93,6 +93,16 @@ jobs:
           if track3.count(old) != 2:
               raise SystemExit(f'expected exactly two Track 3 spawn moves, found {track3.count(old)}')
           track3 = track3.replace(old, "echo 'setworldspawn 1024 70 0' >&3")
+          checkpoint = 'wait_marker track3-away-done 200\n'
+          if track3.count(checkpoint) != 1:
+              raise SystemExit(f'expected one Track 3 away checkpoint, found {track3.count(checkpoint)}')
+          diagnostics = (
+              "echo 'paper chunkinfo world' >&3\n"
+              "echo 'paper holderinfo world' >&3\n"
+              "echo 'paper debug chunks' >&3\n"
+              "sleep 2\n"
+          )
+          track3 = track3.replace(checkpoint, checkpoint + diagnostics)
           path.write_text(prefix + separator + track3)
           PY
 
@@ -104,6 +114,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          if [[ -d /tmp/wp05-tracking-contract/server/debug ]]; then
+            mkdir -p /tmp/wp05-tracking-contract/evidence/paper-debug
+            cp -a /tmp/wp05-tracking-contract/server/debug/. /tmp/wp05-tracking-contract/evidence/paper-debug/ || true
+          fi
           python3 - <<'PY'
           from pathlib import Path
 
