@@ -27,10 +27,13 @@ Also inspect the WP-06 contract-defined LoreItems branches `docs/wp-06-complete`
    - `docs/architecture.md`;
    - `docs/implementation-plan.md`;
    - `ai-agents/AGENTS.md`;
+   - `ai-agents/SENTINEL-OPERATING-POLICY.md`;
    - `ai-agents/WORKSPACE-STATE.md`;
    - `ai-agents/WORK-QUEUE.md`;
    - every file under `ai-agents/work-packages/`;
-   - `ai-agents/reports/agent-handoffs/latest.md`.
+   - `ai-agents/reports/agent-handoffs/latest.md`;
+   - `.enthusia-test.yml`;
+   - `docs/sentinel-staging.md`.
 3. Reconcile those files with live GitHub. Live commits, branches, PRs, reviews, threads, checks, statuses, and merges outrank snapshots and handoffs.
 4. For each package, determine whether its canonical branch or PR is unfinished. An open or draft canonical PR is unfinished. A canonical branch without a PR is unfinished when its head is not contained in verified live `main` and the package is not `COMPLETE`. A branch already contained in a verified merge is historical.
 5. If unfinished work exists for multiple packages, duplicate canonical PRs exist, or live state otherwise exposes conflicting active package locks, stop without implementation and publish a clear inconsistency report with package, branch, PR, head SHA, recorded status, and conflict.
@@ -47,6 +50,8 @@ Apply this order exactly:
 6. Never select or work on more than one package.
 
 After routing, read the selected package contract again and use its exact scope, acceptance criteria, branch, PR title, dependencies, exclusions, and stopping rule. For WP-06, also read the corresponding live EnthusiaTags requirements, architecture, build, reward, persistence, workflow, and handoff files required by that contract.
+
+When the selected package requires live Paper/Leaf validation, restart validation, staging evidence, or Sentinel-backed acceptance, follow `ai-agents/SENTINEL-OPERATING-POLICY.md`. Before issuing any Sentinel command, also read the current `wsg138/EnthusiaStaff-Staging/docs/sentinel-commands.md` and the exact tested head's `.enthusia-test.yml`. Never assume a profile or command from memory or from another repository.
 
 ## Claim or resume protocol
 
@@ -87,6 +92,9 @@ No official weighted credit is awarded to `PARTIAL`, `IN_PROGRESS`, `IN_REVIEW`,
 - CI failure, review feedback, interruption, or stale evidence returns to the same branch and package.
 - Do not claim completion from code presence, a local build, partial tests, review approval alone, or a merge without live verification.
 - Do not begin work belonging to the exact next package.
+- When Sentinel is applicable, use only the existing production `Enthusia Sentinel` GitHub App/service and only profiles enabled by the exact tested head's manifest and live trusted policy. Never create another App, create a PAT substitute, manually enqueue a Sentinel job, manually edit installed Sentinel policy, or weaken Sentinel resource/cleanup/isolation controls to force a pass.
+- Diagnose a failed Sentinel result before changing code. Fix the component that owns the proven failure and rerun only after a material correction or materially changed external condition.
+- A long-lived package branch must not overwrite newer orchestration or Sentinel onboarding from live `main`. Before merge, deliberately reconcile current `main` and preserve `.enthusia-test.yml`, the `enthusialoreitems-plugin` CI publication, `docs/sentinel-staging.md`, `ai-agents/SENTINEL-OPERATING-POLICY.md`, and newer workflow rules. Never rebase or force-push merely to obtain those files.
 
 ## Durable checkpoints
 
@@ -123,6 +131,8 @@ Use the exact branch and PR title in the selected package contract. The PR body 
 - exact-head evidence table with workflow/check, result, URL, and tested SHA.
 
 Evidence is valid only when permanently visible on GitHub and tied to the exact PR head. Any later commit makes prior check evidence stale.
+
+Sentinel evidence must additionally follow `ai-agents/SENTINEL-OPERATING-POLICY.md`: record the exact command comment, response/check, Sentinel job ID, tested SHA, workflow/artifact identity when reported, terminal result code, and relevant queue/runtime cleanup state. A queued, rejected, cancelled, stale-SHA, resource-gated, or otherwise failed Sentinel job is not a pass.
 
 Before merge:
 
