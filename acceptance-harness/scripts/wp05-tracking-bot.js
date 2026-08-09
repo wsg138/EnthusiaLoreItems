@@ -1,6 +1,7 @@
-const mineflayer = require('mineflayer')
+const moduleRoot = '/tmp/wp05-tracking-contract/bot/node_modules'
+const mineflayer = require(`${moduleRoot}/mineflayer`)
 const fs = require('fs')
-const Vec3 = require('vec3').Vec3
+const Vec3 = require(`${moduleRoot}/vec3`).Vec3
 
 const root = '/tmp/wp05-tracking-contract'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
