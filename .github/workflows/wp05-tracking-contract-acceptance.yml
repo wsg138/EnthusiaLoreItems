@@ -77,6 +77,25 @@ jobs:
           npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
           npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
 
+      - name: Keep Track 3 natural-unload fixture outside spawn tickets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('acceptance-harness/scripts/wp05-tracking-acceptance.sh')
+          text = path.read_text()
+          marker = '# ACC-TRACK-003: natural drop/pickup, ordinary player display placement, controlled death and chunk lifecycle.'
+          prefix, separator, track3 = text.partition(marker)
+          if not separator:
+              raise SystemExit('ACC-TRACK-003 marker missing from tracking harness')
+          old = "echo 'setworldspawn 256 70 0' >&3"
+          if track3.count(old) != 2:
+              raise SystemExit(f'expected exactly two Track 3 spawn moves, found {track3.count(old)}')
+          track3 = track3.replace(old, "echo 'setworldspawn 1024 70 0' >&3")
+          path.write_text(prefix + separator + track3)
+          PY
+
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003
         shell: bash
         run: bash acceptance-harness/scripts/wp05-tracking-acceptance.sh
