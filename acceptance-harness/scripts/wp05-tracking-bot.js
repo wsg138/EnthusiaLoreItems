@@ -145,6 +145,10 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
   }
   for (let i = 0; i < 80; i++) {
     if (bot.inventory.items().length === 0) {
+      if (kind === 'item_frame' || kind === 'glow_item_frame') {
+        bot.chat(`/data merge entity @e[type=minecraft:${kind},x=${x},y=${y},z=${z},distance=..2,limit=1,sort=nearest] {Fixed:1b,Invulnerable:1b}`)
+        await sleep(300)
+      }
       log(`${label} natural-player-placement complete entity=${kind}`)
       return
     }
