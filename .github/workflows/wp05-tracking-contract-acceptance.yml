@@ -93,7 +93,7 @@ jobs:
           if track3.count(old) != 2:
               raise SystemExit(f'expected exactly two Track 3 spawn moves, found {track3.count(old)}')
           track3 = track3.replace(old, "echo 'setworldspawn 1024 70 0' >&3")
-          checkpoint = 'wait_marker track3-away-done 200\n'
+          checkpoint = 'wait_marker track3-away-done 220\n'
           if track3.count(checkpoint) != 1:
               raise SystemExit(f'expected one Track 3 away checkpoint, found {track3.count(checkpoint)}')
           diagnostics = (
