@@ -138,7 +138,11 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
   await bot.equip(item, 'hand')
   await sleep(250)
   const entity = await waitDisplayEntity(bot, kind, x, y, z, label)
-  bot.activateEntity(entity)
+  if (kind === 'armor_stand') {
+    await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
+  } else {
+    await bot.activateEntity(entity)
+  }
   for (let i = 0; i < 80; i++) {
     if (bot.inventory.items().length === 0) {
       log(`${label} natural-player-placement complete entity=${kind}`)
