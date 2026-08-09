@@ -307,7 +307,11 @@ PY
 
 touch "$ROOT/go-track3-pickup"
 wait_marker track3-pickup-done 160
-sleep 1
+# The bot still carries an obsolete spawn-relative helper command from the earlier harness design.
+# Move world spawn away immediately after pickup so the display chunk is held only by ordinary player
+# presence during placement and can unload naturally once the player leaves.
+echo 'setworldspawn 256 70 0' >&3
+sleep .5
 
 # Create empty fixtures only. The real client moves each tracked instance into the entity so normal
 # PlayerItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
@@ -373,12 +377,6 @@ sleep 5
 echo 'setworldspawn 256 70 0' >&3
 touch "$ROOT/go-track3-away"
 wait_marker track3-away-done 220
-# Move both ordinary tickets substantially farther away than the display chunk. Track2 already
-# proves normal unload/reload semantics; this avoids keeping the display chunk inside any spawn/view
-# ticket radius while still relying only on ordinary player presence and setworldspawn.
-echo 'tp Wp05TrackBot 2048 71 0' >&3
-echo 'setworldspawn 2048 70 0' >&3
-sleep 2
 python3 - "$DB" "$EVIDENCE/track3-unload-state.txt" <<'PY'
 import sqlite3,sys,time
 path,evidence=sys.argv[1:3]
