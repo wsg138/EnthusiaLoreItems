@@ -39,6 +39,8 @@ async function waitPosition(bot, x, y, z, label) {
 
 async function teleport(bot, x, y, z, label) {
   bot.chat(`/setblock ${x} ${y - 1} ${z} minecraft:stone`)
+  bot.chat(`/setblock ${x} ${y} ${z} minecraft:air`)
+  bot.chat(`/setblock ${x} ${y + 1} ${z} minecraft:air`)
   await sleep(250)
   bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`)
   await waitPosition(bot, x, y, z, label)
