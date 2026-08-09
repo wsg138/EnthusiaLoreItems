@@ -76,7 +76,7 @@ jobs:
           const waitFile=async f=>{for(let i=0;i<400;i++){if(fs.existsSync(`${root}/${f}`))return;await sleep(100)}throw new Error(`missing marker ${f}`)}
           const waitPosition=async (bot,x,y,z,label)=>{for(let i=0;i<120;i++){const p=bot.entity.position;if(Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5){await bot.waitForChunksToLoad();log(`${label} position=${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`);return}await sleep(100)}throw new Error(`${label} teleport not observed`)}
           const teleport=async (bot,x,y,z,label)=>{bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`);await waitPosition(bot,x,y,z,label)}
-          const waitBlock=async (bot,name,label)=>{for(let i=0;i<150;i++){const block=bot.findBlock({matching:b=>b.name===name,maxDistance:4});if(block)return block;await sleep(100)}throw new Error(`${label} block not loaded`)}
+          const waitBlockAt=async (bot,dx,dy,dz,name,label)=>{const target=bot.entity.position.floored().offset(dx,dy,dz);for(let i=0;i<150;i++){const block=bot.blockAt(target);if(block&&block.name===name)return block;await sleep(100)}const seen=bot.blockAt(target);throw new Error(`${label} block not loaded at ${target.x},${target.y},${target.z}; observed=${seen&&seen.name}`)}
           const tracked=bot=>{
             const items=bot.inventory.items(); if(items.length!==1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`); return items[0]
           }
@@ -98,7 +98,7 @@ jobs:
             await bot.clickWindow(empty,0,0); await sleep(700); log('TRACK1 storage-after-cursor')
             await teleport(bot,0,71,0,'TRACK1 ender-area')
             bot.chat('/setblock 1 70 0 minecraft:ender_chest')
-            const block=await waitBlock(bot,'ender_chest','ender chest')
+            const block=await waitBlockAt(bot,1,-1,0,'ender_chest','ender chest')
             const chest=await bot.openContainer(block); await sleep(500)
             item=tracked(bot); await chest.deposit(item.type,null,1); await sleep(800); log('TRACK1 ender-deposit')
             await chest.withdraw(item.type,null,1); await sleep(800); log('TRACK1 ender-withdraw'); chest.close(); await sleep(500)
@@ -113,13 +113,13 @@ jobs:
             await waitFile('go-track2-chest')
             await teleport(bot,10,71,0,'TRACK2 chest-area')
             bot.chat('/setblock 11 70 0 minecraft:chest')
-            let item=tracked(bot), block=await waitBlock(bot,'chest','chest')
+            let item=tracked(bot), block=await waitBlockAt(bot,1,-1,0,'chest','chest')
             let c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(900);log('TRACK2 chest-deposit');await c.withdraw(item.type,null,1);await sleep(700);c.close();log('TRACK2 chest-withdraw')
             fs.writeFileSync(`${root}/track2-chest-done`,'ok\n')
             await waitFile('go-track2-hopper')
             await teleport(bot,20,71,0,'TRACK2 hopper-area');item=tracked(bot)
             bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper')
-            block=await waitBlock(bot,'hopper','hopper')
+            block=await waitBlockAt(bot,0,-1,0,'hopper','hopper')
             c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
             await waitFile('go-track3-drop')
             await teleport(bot,30,71,0,'TRACK3 drop-area');item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
