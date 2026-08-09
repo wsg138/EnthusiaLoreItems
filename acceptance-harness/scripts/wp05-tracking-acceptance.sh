@@ -276,7 +276,7 @@ PY
 
 echo 'setworldspawn 0 70 0' >&3
 
-# ACC-TRACK-003: natural drop/pickup, displays, armor stand, controlled death and chunk lifecycle.
+# ACC-TRACK-003: natural drop/pickup, ordinary player display placement, controlled death and chunk lifecycle.
 echo 'clear Wp05TrackBot' >&3
 echo 'wp05accept source Wp05TrackBot sword' >&3
 sleep .5
@@ -309,20 +309,57 @@ touch "$ROOT/go-track3-pickup"
 wait_marker track3-pickup-done 160
 sleep 1
 
-# Reuse the naturally dropped/picked instance for the first display; create fresh copies for the others.
-echo 'wp05accept place Wp05TrackBot frame' >&3
-sleep 1
+# Create empty fixtures only. The real client moves each tracked instance into the entity so normal
+# PlayerItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
+echo 'setblock 72 71 1 minecraft:stone' >&3
+echo 'summon minecraft:item_frame 72 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
+touch "$ROOT/go-track3-frame"
+wait_marker track3-frame-done 160
+
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
-echo 'wp05accept place Wp05TrackBot glowframe' >&3
-sleep 1
+echo 'setblock 74 71 1 minecraft:stone' >&3
+echo 'summon minecraft:glow_item_frame 74 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
+touch "$ROOT/go-track3-glowframe"
+wait_marker track3-glowframe-done 160
+
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
-echo 'wp05accept place Wp05TrackBot armorstand' >&3
-sleep 1
-# Death/drop must occur in the same naturally unloadable acceptance chunk.
-echo 'setblock 5 70 0 minecraft:stone' >&3
-echo 'tp Wp05TrackBot 5 71 0' >&3
+echo 'summon minecraft:armor_stand 76 70 0 {ShowArms:1b,Tags:["wp05-acceptance"]}' >&3
+touch "$ROOT/go-track3-armorstand"
+wait_marker track3-armorstand-done 160
+
+python3 - "$DB" <<'PY' | tee -a "$EVIDENCE/case-results.txt"
+import sqlite3,time
+path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+rows=[]
+for _ in range(120):
+    with sqlite3.connect(path) as c:
+        did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
+        rows=c.execute("""
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
+          from instance_current_state s join lore_instances i on i.instance_id=s.instance_id
+          where i.definition_id=? and s.location_type in ('ITEM_FRAME','ARMOR_STAND')
+        """,(did,)).fetchall()
+        if len(rows)>=3 and all(r[0]=='CONFIRMED_NOW' for r in rows):
+            sources=[r[0] for r in c.execute("""
+              select source from instance_observations where definition_id=?
+              and location_type in ('ITEM_FRAME','ARMOR_STAND')
+            """,(did,)).fetchall()]
+            if any('item-frame-change-unique' in source for source in sources) \
+              and any('armor-stand-manipulate-unique' in source for source in sources):
+                print('TRACK3 ordinary display states',rows)
+                print('TRACK3 ordinary display sources',sources)
+                break
+    time.sleep(.25)
+else:
+    raise SystemExit(f'TRACK3 ordinary client display placement did not become authoritative: {rows}')
+print('PASS ACC-TRACK-003 ordinary client frame/glow-frame/armor-stand placement observed authoritatively')
+PY
+
+# Controlled death/drop occurs in the same display chunk so one natural unload covers the isolated fixture.
+echo 'setblock 69 70 0 minecraft:stone' >&3
+echo 'tp Wp05TrackBot 69 71 0' >&3
 sleep 1
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
@@ -333,23 +370,30 @@ sleep 5
 echo 'setworldspawn 256 70 0' >&3
 touch "$ROOT/go-track3-away"
 wait_marker track3-away-done 220
-python3 - "$DB" <<'PY'
-import sqlite3,time
-path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+python3 - "$DB" "$EVIDENCE/track3-unload-state.txt" <<'PY'
+import sqlite3,sys,time
+path,evidence=sys.argv[1:3]
 rows=[]
-for _ in range(140):
+for _ in range(180):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
         rows=c.execute("""
-          select s.state,s.location_type,s.location_key,s.container_path
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
           from instance_current_state s join lore_instances i on i.instance_id=s.instance_id
           where i.definition_id=? and s.location_type in ('ITEM_FRAME','ARMOR_STAND')
         """,(did,)).fetchall()
         if len(rows)>=3 and all(r[0]=='LAST_CONFIRMED' for r in rows):
+            open(evidence,'w').write('TRACK3 unloaded display states '+repr(rows)+'\n')
             print('TRACK3 unloaded display states',rows)
             break
     time.sleep(.25)
 else:
+    with sqlite3.connect(path) as c:
+        obs=c.execute("""
+          select instance_id,location_type,location_key,container_path,confidence,source
+          from instance_observations where definition_id=? order by observation_id desc limit 40
+        """,(did,)).fetchall()
+    open(evidence,'w').write('TRACK3 unload timeout states '+repr(rows)+'\nobservations '+repr(obs)+'\n')
     raise SystemExit(f'TRACK3 displays not retained as LAST_CONFIRMED on unload: {rows}')
 PY
 
@@ -359,7 +403,7 @@ python3 - "$DB" <<'PY' | tee -a "$EVIDENCE/case-results.txt"
 import sqlite3,time
 path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
 rows=[]
-for _ in range(140):
+for _ in range(180):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
         rows=c.execute("""

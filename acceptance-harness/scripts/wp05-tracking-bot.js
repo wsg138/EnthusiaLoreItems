@@ -108,6 +108,47 @@ async function waitForNaturalPickup(bot) {
   throw new Error(`TRACK3 natural pickup did not return the dropped item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
 }
 
+function displayMatches(entity, kind) {
+  if (!entity) return false
+  const name = String(entity.name || '').toLowerCase()
+  const display = String(entity.displayName || '').toLowerCase().replaceAll(' ', '_')
+  if (kind === 'item_frame') return name === 'item_frame' || display === 'item_frame'
+  if (kind === 'glow_item_frame') return name === 'glow_item_frame' || display === 'glow_item_frame'
+  if (kind === 'armor_stand') return name === 'armor_stand' || display === 'armor_stand'
+  return false
+}
+
+async function waitDisplayEntity(bot, kind, x, y, z, label) {
+  for (let i = 0; i < 120; i++) {
+    const entity = Object.values(bot.entities).find(candidate =>
+      displayMatches(candidate, kind)
+      && candidate.position.distanceTo(new Vec3(x, y, z)) < 3)
+    if (entity) {
+      log(`${label} entity=${kind} id=${entity.id} position=${entity.position.x.toFixed(2)},${entity.position.y.toFixed(2)},${entity.position.z.toFixed(2)}`)
+      return entity
+    }
+    await sleep(100)
+  }
+  throw new Error(`${label} ${kind} fixture not visible near ${x},${y},${z}`)
+}
+
+async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
+  await teleport(bot, x - 1, y, z, `${label} approach`)
+  const item = tracked(bot)
+  await bot.equip(item, 'hand')
+  await sleep(250)
+  const entity = await waitDisplayEntity(bot, kind, x, y, z, label)
+  bot.activateEntity(entity)
+  for (let i = 0; i < 80; i++) {
+    if (bot.inventory.items().length === 0) {
+      log(`${label} natural-player-placement complete entity=${kind}`)
+      return
+    }
+    await sleep(100)
+  }
+  throw new Error(`${label} real client interaction did not move tracked item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
+}
+
 async function phaseOne() {
   const bot = mineflayer.createBot({
     host: '127.0.0.1', port: 25565, username: 'Wp05TrackBot', version: '1.21.11', auth: 'offline'
@@ -216,12 +257,25 @@ async function phaseTwo() {
   await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area')
   await waitForNaturalPickup(bot)
 
-  // The display helper places relative to world spawn. Move spawn and the player into a dedicated
-  // chunk so the fixture can later unload naturally once both tickets move to x=256.
+  // Display fixtures are in a dedicated chunk. Only empty entities/support blocks are created by
+  // the shell; the tracked items themselves move via these real client interactions so Paper's
+  // ordinary player frame/armor-stand events authoritatively observe each transition.
   bot.chat('/setworldspawn 64 70 0')
   await teleport(bot, 64, 71, 0, 'TRACK3 display-fixture-area')
   log('TRACK3 pickup-confirmed-and-display-fixture-ready')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')
+
+  await waitFile('go-track3-frame')
+  await placeTrackedIntoDisplay(bot, 'item_frame', 72, 71, 0, 'TRACK3 item-frame')
+  fs.writeFileSync(`${root}/track3-frame-done`, 'ok\n')
+
+  await waitFile('go-track3-glowframe')
+  await placeTrackedIntoDisplay(bot, 'glow_item_frame', 74, 71, 0, 'TRACK3 glow-item-frame')
+  fs.writeFileSync(`${root}/track3-glowframe-done`, 'ok\n')
+
+  await waitFile('go-track3-armorstand')
+  await placeTrackedIntoDisplay(bot, 'armor_stand', 76, 71, 0, 'TRACK3 armor-stand')
+  fs.writeFileSync(`${root}/track3-armorstand-done`, 'ok\n')
 
   await waitFile('go-track3-away')
   await teleport(bot, 256, 71, 0, 'TRACK3 unload-area')
