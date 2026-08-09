@@ -38,6 +38,8 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -237,6 +239,50 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 event.getChunk(),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 "chunk-unload");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        scanLifecycleEntities(
+                event.getEntities(),
+                TrackingObservationUseCase.Presence.PRESENT,
+                "chunk-load-entities");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesUnload(EntitiesUnloadEvent event) {
+        scanLifecycleEntities(
+                event.getEntities(),
+                TrackingObservationUseCase.Presence.LAST_CONFIRMED,
+                "chunk-unload-entities");
+    }
+
+    private void scanLifecycleEntities(
+            List<Entity> entities,
+            TrackingObservationUseCase.Presence presence,
+            String source) {
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        for (Entity entity : entities) {
+            if (!limit.hasRemaining()) {
+                break;
+            }
+            if (entity instanceof Item item) {
+                scanner.submitItem(
+                        item.getItemStack(),
+                        droppedLocation(item),
+                        presence,
+                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                        source + "-item");
+                limit.consume();
+            } else {
+                displayScanner.scan(entity, presence, source, limit);
+            }
+        }
+        if (!limit.hasRemaining()) {
+            metrics.increment("tracking.scan_truncated");
+            plugin.getLogger().fine(
+                    "Lore-item entity lifecycle scan reached its bounded item limit for " + source + '.');
+        }
     }
 
     private void schedulePlayerUnique(UUID playerId, String source) {
