@@ -74,8 +74,9 @@ jobs:
           const root='/tmp/wp05-tracking-contract', sleep=ms=>new Promise(r=>setTimeout(r,ms))
           const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
           const waitFile=async f=>{for(let i=0;i<400;i++){if(fs.existsSync(`${root}/${f}`))return;await sleep(100)}throw new Error(`missing marker ${f}`)}
-          const waitPosition=async (bot,x,y,z,label)=>{for(let i=0;i<120;i++){const p=bot.entity.position;if(Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5){await bot.waitForChunksToLoad();log(`${label} position=${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`);return}await sleep(100)}throw new Error(`${label} teleport not observed`)}
-          const teleport=async (bot,x,y,z,label)=>{bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`);await waitPosition(bot,x,y,z,label)}
+          const near=(p,x,y,z)=>Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5
+          const waitPosition=async (bot,x,y,z,label)=>{for(let i=0;i<120;i++){const p=bot.entity.position;if(near(p,x,y,z)){await bot.waitForChunksToLoad();const settled=bot.entity.position;if(near(settled,x,y,z)){log(`${label} position=${settled.x.toFixed(2)},${settled.y.toFixed(2)},${settled.z.toFixed(2)}`);return}}await sleep(100)}throw new Error(`${label} teleport not stably observed`)}
+          const teleport=async (bot,x,y,z,label)=>{bot.chat(`/setblock ${x} ${y-1} ${z} minecraft:stone`);await sleep(250);bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`);await waitPosition(bot,x,y,z,label)}
           const waitBlockAt=async (bot,x,y,z,name,label)=>{const target=new Vec3(x,y,z);for(let i=0;i<150;i++){const block=bot.blockAt(target);if(block&&block.name===name)return block;await sleep(100)}const seen=bot.blockAt(target);throw new Error(`${label} block not loaded at ${target.x},${target.y},${target.z}; observed=${seen&&seen.name}`)}
           const tracked=bot=>{
             const items=bot.inventory.items(); if(items.length!==1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`); return items[0]
