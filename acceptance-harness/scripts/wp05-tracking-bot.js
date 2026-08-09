@@ -38,18 +38,24 @@ async function waitPosition(bot, x, y, z, label) {
 }
 
 async function ensureDestinationLoaded(bot, x, y, z, label) {
-  if (bot.blockAt(new Vec3(x, y - 1, z))) return
+  const target = new Vec3(x, y - 1, z)
+  if (bot.blockAt(target)) return
   bot.chat(`/tp Wp05TrackBot ${x} ${y + 80} ${z}`)
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 200; i++) {
     const position = bot.entity.position
     if (Math.abs(position.x - x) < 1.5 && Math.abs(position.z - z) < 1.5) {
       await bot.waitForChunksToLoad()
-      log(`${label} destination-loaded position=${bot.entity.position.x.toFixed(2)},${bot.entity.position.y.toFixed(2)},${bot.entity.position.z.toFixed(2)}`)
-      return
+      if (bot.blockAt(target)) {
+        log(`${label} destination-loaded position=${bot.entity.position.x.toFixed(2)},${bot.entity.position.y.toFixed(2)},${bot.entity.position.z.toFixed(2)}`)
+        return
+      }
+      if (i % 20 === 19) {
+        bot.chat(`/tp Wp05TrackBot ${x} ${y + 80} ${z}`)
+      }
     }
     await sleep(100)
   }
-  throw new Error(`${label} destination did not load from ordinary player presence`)
+  throw new Error(`${label} destination chunk data did not become observable from ordinary player presence`)
 }
 
 async function teleport(bot, x, y, z, label) {
