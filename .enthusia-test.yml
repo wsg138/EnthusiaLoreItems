@@ -1,0 +1,15 @@
+schema_version: 1
+plugin:
+  id: enthusialoreitems
+  name: EnthusiaLoreItems
+  main_class: net.enthusia.loreitems.plugin.LoreItemsPlugin
+artifact:
+  name: enthusialoreitems-plugin
+  jar_path: build/libs/EnthusiaLoreItems.jar
+profiles:
+  - startup
+  - restart
+configs: []
+databases: []
+dependencies: []
+actions: []
