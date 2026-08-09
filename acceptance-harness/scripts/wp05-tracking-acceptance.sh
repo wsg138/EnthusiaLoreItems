@@ -325,6 +325,9 @@ wait_marker track3-glowframe-done 160
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
+echo 'setblock 76 69 0 minecraft:stone' >&3
+echo 'setblock 76 70 0 minecraft:air' >&3
+echo 'setblock 76 71 0 minecraft:air' >&3
 echo 'summon minecraft:armor_stand 76 70 0 {ShowArms:1b,Tags:["wp05-acceptance"]}' >&3
 touch "$ROOT/go-track3-armorstand"
 wait_marker track3-armorstand-done 160
