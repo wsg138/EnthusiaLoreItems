@@ -39,7 +39,7 @@ For any LoreItems PR head submitted to Sentinel:
 - the exact current head SHA must have a successful GitHub Actions run that produced the dedicated artifact named `enthusialoreitems-plugin`;
 - the artifact must resolve to exactly the manifest-declared JAR path `build/libs/EnthusiaLoreItems.jar`;
 - Sentinel must resolve the artifact from the exact requested SHA rather than branch-latest, a release download, an arbitrary URL, or a local file;
-- any product or manifest commit after the tested SHA makes the old Sentinel result stale for that new head.
+- any commit after the tested SHA makes the old Sentinel result stale for the new head, including documentation and workflow-only commits.
 
 Do not rebuild an unchanged exact head merely for ceremony when its successful, unexpired exact-SHA artifact remains valid and resolvable.
 
@@ -119,12 +119,14 @@ For every Sentinel result used as package or release evidence, record on GitHub 
 - exact command comment ID/link;
 - Sentinel response comment/check ID/link;
 - Sentinel job ID;
-- exact workflow run/artifact identity when reported;
-- artifact name and ID when available;
+- exact successful workflow run for the tested SHA, including workflow run ID;
+- exact `enthusialoreitems-plugin` artifact for that workflow run, including artifact ID and the manifest-declared JAR path `build/libs/EnthusiaLoreItems.jar`;
 - terminal result code;
 - cycle/lifecycle evidence required by the selected profile;
 - cleanup state, including active queue and runtime residue when relevant;
 - any failed prior attempt that materially explains the final successful retry.
+
+If Sentinel's own response omits workflow or artifact identity, resolve those values directly from GitHub Actions before accepting the Sentinel result as package or release evidence. If the exact successful workflow run, artifact name, artifact ID, or JAR path cannot be resolved for the tested SHA, the Sentinel result is incomplete evidence and must not be counted as a package/release PASS.
 
 Never put credentials, private keys, installation tokens, or other secrets into package evidence.
 
