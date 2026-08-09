@@ -19,14 +19,17 @@ jobs:
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
           java-version: "21"
+
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.14.3"
@@ -36,6 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+
           ROOT=/tmp/wp05-tracking-contract
           mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
           PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
@@ -44,6 +48,7 @@ jobs:
           cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
           sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
           printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+
           cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
           database-busy-timeout-millis: 500
           duplicate-warning-interval-seconds: 300
@@ -51,6 +56,7 @@ jobs:
           shared-containers-allowed: true
           EOF
           cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+
           cd "$ROOT/server"
           curl -fsSL "$PAPER_URL" -o paper.jar
           echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
@@ -65,208 +71,15 @@ jobs:
           view-distance=4
           simulation-distance=4
           EOF
+
           cd "$ROOT/bot"
           npm init -y >/dev/null
           npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
           npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
-          cat > bot.js <<'EOF'
-          const mineflayer=require('mineflayer'), fs=require('fs'), Vec3=require('vec3').Vec3
-          const root='/tmp/wp05-tracking-contract', sleep=ms=>new Promise(r=>setTimeout(r,ms))
-          const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
-          const waitFile=async f=>{for(let i=0;i<400;i++){if(fs.existsSync(`${root}/${f}`))return;await sleep(100)}throw new Error(`missing marker ${f}`)}
-          const near=(p,x,y,z)=>Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5
-          const waitPosition=async (bot,x,y,z,label)=>{for(let i=0;i<120;i++){const p=bot.entity.position;if(near(p,x,y,z)){await bot.waitForChunksToLoad();const settled=bot.entity.position;if(near(settled,x,y,z)){log(`${label} position=${settled.x.toFixed(2)},${settled.y.toFixed(2)},${settled.z.toFixed(2)}`);return}}await sleep(100)}throw new Error(`${label} teleport not stably observed`)}
-          const teleport=async (bot,x,y,z,label)=>{bot.chat(`/setblock ${x} ${y-1} ${z} minecraft:stone`);await sleep(250);bot.chat(`/tp Wp05TrackBot ${x} ${y} ${z}`);await waitPosition(bot,x,y,z,label)}
-          const waitBlockAt=async (bot,x,y,z,name,label)=>{const target=new Vec3(x,y,z);for(let i=0;i<150;i++){const block=bot.blockAt(target);if(block&&block.name===name)return block;await sleep(100)}const seen=bot.blockAt(target);throw new Error(`${label} block not loaded at ${target.x},${target.y},${target.z}; observed=${seen&&seen.name}`)}
-          const tracked=bot=>{
-            const items=bot.inventory.items(); if(items.length!==1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`); return items[0]
-          }
-          async function phaseOne(){
-            const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05TrackBot',version:'1.21.11',auth:'offline'})
-            bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`))
-            await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)})
-            await bot.waitForChunksToLoad()
-            log(`SPAWN1 uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`)
-            await waitFile('go-track1')
-            let item=tracked(bot)
-            await bot.equip(item,'off-hand'); await sleep(700); log('TRACK1 offhand')
-            item=bot.inventory.slots[bot.getEquipmentDestSlot('off-hand')]
-            await bot.unequip('off-hand'); await sleep(700); log('TRACK1 storage-after-offhand')
-            item=tracked(bot); await bot.equip(item,'head'); await sleep(700); log('TRACK1 armor-head')
-            await bot.unequip('head'); await sleep(700); log('TRACK1 storage-after-armor')
-            item=tracked(bot); await bot.clickWindow(item.slot,0,0); await sleep(700); log('TRACK1 cursor')
-            const empty=bot.inventory.firstEmptyInventorySlot(); if(empty==null) throw new Error('no empty inventory slot')
-            await bot.clickWindow(empty,0,0); await sleep(700); log('TRACK1 storage-after-cursor')
-            await teleport(bot,0,71,0,'TRACK1 ender-area')
-            bot.chat('/setblock 1 70 0 minecraft:ender_chest');bot.chat('/setblock 1 71 0 minecraft:air')
-            const block=await waitBlockAt(bot,1,70,0,'ender_chest','ender chest')
-            const chest=await bot.openContainer(block); await sleep(500)
-            item=tracked(bot); await chest.deposit(item.type,null,1); await sleep(800); log('TRACK1 ender-deposit')
-            await chest.withdraw(item.type,null,1); await sleep(800); log('TRACK1 ender-withdraw'); chest.close(); await sleep(500)
-            fs.writeFileSync(`${root}/track1-online-done`,'ok\n'); bot.quit('offline tracking checkpoint')
-          }
-          async function phaseTwo(){
-            await waitFile('go-reconnect')
-            const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05TrackBot',version:'1.21.11',auth:'offline'})
-            bot.on('message',m=>log(`CHAT2 ${m.toString()}`));bot.on('error',e=>log(`ERROR2 ${e.stack||e}`))
-            await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)});await bot.waitForChunksToLoad();await sleep(500);log('TRACK1 reconnected')
-            fs.writeFileSync(`${root}/track1-reconnected`,'ok\n')
-            await waitFile('go-track2-chest')
-            await teleport(bot,10,71,0,'TRACK2 chest-area')
-            bot.chat('/setblock 11 70 0 minecraft:chest');bot.chat('/setblock 11 71 0 minecraft:air')
-            let item=tracked(bot), block=await waitBlockAt(bot,11,70,0,'chest','chest')
-            let c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(900);log('TRACK2 chest-deposit');await c.withdraw(item.type,null,1);await sleep(700);c.close();log('TRACK2 chest-withdraw')
-            fs.writeFileSync(`${root}/track2-chest-done`,'ok\n')
-            await waitFile('go-track2-hopper')
-            await teleport(bot,20,71,0,'TRACK2 hopper-area');item=tracked(bot)
-            bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper');bot.chat('/setblock 20 71 0 minecraft:air')
-            block=await waitBlockAt(bot,20,70,0,'hopper','hopper')
-            c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
-            await waitFile('go-track2-shulker')
-            await teleport(bot,13,71,0,'TRACK2 shulker-area')
-            block=await waitBlockAt(bot,14,70,0,'chest','nested shulker chest');c=await bot.openContainer(block);await sleep(700);c.close();await sleep(700);log('TRACK2 shulker-access');fs.writeFileSync(`${root}/track2-shulker-done`,'ok\n')
-            await waitFile('go-track2-bundle')
-            await teleport(bot,15,71,0,'TRACK2 bundle-area')
-            block=await waitBlockAt(bot,16,70,0,'chest','nested bundle chest');c=await bot.openContainer(block);await sleep(700);c.close();await sleep(700);log('TRACK2 bundle-access');fs.writeFileSync(`${root}/track2-bundle-done`,'ok\n')
-            await waitFile('go-track3-drop')
-            await teleport(bot,30,71,0,'TRACK3 drop-area');item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
-            await waitFile('go-track3-pickup')
-            await teleport(bot,32,71,0,'TRACK3 pickup-area');await sleep(1200);log('TRACK3 pickup-wait');fs.writeFileSync(`${root}/track3-pickup-done`,'ok\n')
-            await waitFile('bot.stop');bot.quit('tracking acceptance complete')
-          }
-          ;(async()=>{try{await phaseOne();await phaseTwo()}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));process.exit(1)}})()
-          EOF
 
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003
         shell: bash
-        run: |
-          set -euo pipefail
-          ROOT=/tmp/wp05-tracking-contract; DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"; cd "$ROOT/server"
-          rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin
-          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server.log" 2>&1 & SERVER_PID=$!
-          cleanup(){ touch "$ROOT/bot.stop" || true; if [[ -n "${BOT_PID:-}" ]];then wait "$BOT_PID" || true;fi; if kill -0 "$SERVER_PID" 2>/dev/null;then echo stop >&3||true;wait "$SERVER_PID"||true;fi; };trap cleanup EXIT
-          for _ in $(seq 1 180);do grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server.log" && grep -q 'WP-05 deterministic acceptance helper is active' "$ROOT/evidence/server.log" && break;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$ROOT/evidence/server.log";exit 1;};sleep 1;done
-          echo 'setworldspawn 0 70 0' >&3
-          (cd "$ROOT/bot" && node bot.js)>"$ROOT/evidence/bot-stdout.log" 2>&1 & BOT_PID=$!
-          for _ in $(seq 1 90);do test -s "$ROOT/bot.uuid"&&break;sleep 1;done;test -s "$ROOT/bot.uuid";echo 'op Wp05TrackBot' >&3;echo 'clear Wp05TrackBot' >&3
-          echo 'wp05accept source Wp05TrackBot helmet' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_contract Track Contract' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3;sleep 1
-          python3 - "$DB" <<'PY'
-          import sqlite3,sys,time
-          db=sys.argv[1]
-          for _ in range(180):
-            with sqlite3.connect(db) as c:
-              r=c.execute("select i.instance_id from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='acc_track_contract' and i.lifecycle_state='ACTIVE'").fetchall()
-              if len(r)==1: open('/tmp/wp05-tracking-contract/evidence/track1-id.txt','w').write(r[0][0]+'\n');break
-            time.sleep(.25)
-          else: raise SystemExit('track1 instance not ready')
-          PY
-          touch "$ROOT/go-track1";for _ in $(seq 1 240);do test -f "$ROOT/track1-online-done"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/track1-online-done";sleep 1
-          python3 - "$DB" <<'PY'
-          import sqlite3,time
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db';iid=open('/tmp/wp05-tracking-contract/evidence/track1-id.txt').read().strip()
-          with sqlite3.connect(db) as c:
-            obs=c.execute('select location_type,container_path,confidence,source from instance_observations where instance_id=? order by observation_id',(iid,)).fetchall()
-            paths={(a,b) for a,b,_,_ in obs}; print('TRACK1 observations',obs)
-            assert any(t=='PLAYER_INVENTORY' and p=='offhand' for t,p in paths),paths
-            assert any(t=='PLAYER_INVENTORY' and p and p.startswith('armor:') for t,p in paths),paths
-            assert any(t=='PLAYER_INVENTORY' and p=='cursor' for t,p in paths),paths
-            assert any(t=='PLAYER_ENDER_CHEST' for t,p in paths),paths
-            state=c.execute('select state,location_type from instance_current_state where instance_id=?',(iid,)).fetchone();assert state and state[0]=='LAST_CONFIRMED',state
-          PY
-          touch "$ROOT/go-reconnect";for _ in $(seq 1 160);do test -f "$ROOT/track1-reconnected"&&break;sleep .25;done;test -f "$ROOT/track1-reconnected";sleep 1
-          python3 - "$DB" <<'PY' | tee "$ROOT/evidence/case-results.txt"
-          import sqlite3
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db';iid=open('/tmp/wp05-tracking-contract/evidence/track1-id.txt').read().strip()
-          with sqlite3.connect(db) as c:
-            state=c.execute('select state,location_type,location_key,container_path from instance_current_state where instance_id=?',(iid,)).fetchone();print(state);assert state and state[0]=='CONFIRMED_NOW' and state[1]=='PLAYER_INVENTORY',state
-            assert c.execute('select count(*) from lore_instances where instance_id=?',(iid,)).fetchone()[0]==1
-          print('PASS ACC-TRACK-001: storage/offhand/armor/cursor/Ender/offline/rejoin identity continuity')
-          PY
-
-          # Fresh sword instance for chest/hopper/nested structural path checks.
-          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_nested Track Nested' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1
-          python3 - "$DB" <<'PY'
-          import sqlite3,time
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
-          for _ in range(120):
-            with sqlite3.connect(db) as c:
-              r=c.execute("select i.instance_id from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='acc_track_nested' and i.lifecycle_state='ACTIVE'").fetchall()
-              if len(r)==1:open('/tmp/wp05-tracking-contract/evidence/track2-id.txt','w').write(r[0][0]+'\n');break
-            time.sleep(.25)
-          else:raise SystemExit('track2 not ready')
-          PY
-          touch "$ROOT/go-track2-chest";for _ in $(seq 1 160);do test -f "$ROOT/track2-chest-done"&&break;sleep .25;done;test -f "$ROOT/track2-chest-done"
-          touch "$ROOT/go-track2-hopper";for _ in $(seq 1 160);do test -f "$ROOT/track2-hopper-done"&&break;sleep .25;done;test -f "$ROOT/track2-hopper-done";sleep 1
-          # Use fresh instances and ordinary player access to exercise nested structural scans deterministically.
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot shulker' >&3;sleep 1
-          touch "$ROOT/go-track2-shulker";for _ in $(seq 1 160);do test -f "$ROOT/track2-shulker-done"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/track2-shulker-done"
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot bundle' >&3;sleep 1
-          touch "$ROOT/go-track2-bundle";for _ in $(seq 1 160);do test -f "$ROOT/track2-bundle-done"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/track2-bundle-done";sleep 1
-          python3 - "$DB" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
-          import sqlite3
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
-          with sqlite3.connect(db) as c:
-            did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_nested'").fetchone()[0]
-            obs=c.execute('select instance_id,location_type,location_key,container_path,source from instance_observations where definition_id=? order by observation_id',(did,)).fetchall();print('TRACK2 observations',obs)
-            assert any(r[1]=='BLOCK_CONTAINER' for r in obs),obs
-            assert any(r[1]=='NESTED_CONTAINER' and r[3] and '/shulker:' in r[3] for r in obs),obs
-            assert any(r[1]=='NESTED_CONTAINER' and r[3] and '/bundle:' in r[3] for r in obs),obs
-            assert c.execute('select count(*) from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id=?',(did,)).fetchone()[0]>=2
-          print('PASS ACC-TRACK-002: chest/hopper/nested shulker+bundle structural tracking on loaded real Paper state')
-          PY
-
-          # Fresh tracked instance for natural drop/pickup, then display/death coverage siblings.
-          echo 'clear Wp05TrackBot' >&3;echo 'wp05accept source Wp05TrackBot sword' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_world Track World' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1
-          touch "$ROOT/go-track3-drop";for _ in $(seq 1 120);do test -f "$ROOT/track3-drop-done"&&break;sleep .25;done;test -f "$ROOT/track3-drop-done"
-          python3 - "$DB" <<'PY'
-          import sqlite3,time
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
-          for _ in range(100):
-            with sqlite3.connect(db) as c:
-              did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
-              if c.execute("select count(*) from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id=? and s.location_type='DROPPED_ITEM'",(did,)).fetchone()[0]>=1:break
-            time.sleep(.2)
-          else:raise SystemExit('normal drop not tracked')
-          PY
-          touch "$ROOT/go-track3-pickup";for _ in $(seq 1 120);do test -f "$ROOT/track3-pickup-done"&&break;sleep .25;done;test -f "$ROOT/track3-pickup-done";sleep 1
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot frame' >&3
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot glowframe' >&3
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot armorstand' >&3;sleep 6
-          # Death/recovery uses a fresh carried instance and a natural PlayerDeathEvent/item spawn path.
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3;sleep 1;echo 'kill Wp05TrackBot' >&3;sleep 4;echo 'tp Wp05TrackBot 30 71 0' >&3;sleep 3
-          python3 - "$DB" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
-          import sqlite3
-          db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
-          with sqlite3.connect(db) as c:
-            did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
-            obs=c.execute('select location_type,container_path,source from instance_observations where definition_id=?',(did,)).fetchall();print('TRACK3 observations',obs)
-            assert any(t=='DROPPED_ITEM' for t,_,_ in obs),obs
-            assert sum(1 for t,_,_ in obs if t=='ITEM_FRAME')>=2,obs
-            assert any(t=='ARMOR_STAND' for t,_,_ in obs),obs
-            assert any('player-death' in s or 'item-spawn' in s for _,_,s in obs),obs
-            assert c.execute('pragma integrity_check').fetchone()[0]=='ok';assert c.execute('pragma foreign_key_check').fetchall()==[]
-          print('PASS ACC-TRACK-003: natural drop/pickup + display/armor-stand + death/drop scanning')
-          PY
-          touch "$ROOT/bot.stop";wait "$BOT_PID";unset BOT_PID;echo stop >&3;wait "$SERVER_PID";exec 3>&-;rm -f server.stdin;trap - EXIT
-
-      - name: Verify restart durability and bounded health
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT=/tmp/wp05-tracking-contract;DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db";cd "$ROOT/server"
-          rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin
-          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server-restart.log" 2>&1 & PID=$!;trap 'echo stop >&3||true;wait "$PID"||true' EXIT
-          for _ in $(seq 1 180);do grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server-restart.log"&&break;kill -0 "$PID" 2>/dev/null||{ cat "$ROOT/evidence/server-restart.log";exit 1;};sleep 1;done;sleep 6
-          python3 - "$DB" <<'PY'
-          import sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:
-            assert [r[0] for r in c.execute('select version from schema_history order by version')]==list(range(1,9))
-            assert c.execute('pragma integrity_check').fetchone()[0]=='ok';assert c.execute('pragma foreign_key_check').fetchall()==[]
-            assert c.execute('select count(*) from instance_current_state').fetchone()[0]>0
-          print('tracking restart/integrity PASS')
-          PY
-          ! grep -E 'Exception ticking world|Could not pass event|Server thread.*ERROR|java\.lang\.(NullPointerException|IllegalStateException)' "$ROOT/evidence/server.log" "$ROOT/evidence/server-restart.log"
-          echo stop >&3;wait "$PID";exec 3>&-;trap - EXIT
+        run: bash acceptance-harness/scripts/wp05-tracking-acceptance.sh
 
       - name: Upload acceptance evidence
         if: always()
