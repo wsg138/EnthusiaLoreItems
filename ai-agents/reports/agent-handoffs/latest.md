@@ -2,37 +2,45 @@
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `IN_PROGRESS`
+- Status: `PARTIAL`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Draft PR: #18 — `WP-05: complete live acceptance and release LoreItems`
 - Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`
-- Exact observed branch head resumed: `f68e7fef1d60a188034ccacbf73c07580da1e167`
-- Prior implementation/evidence head: `e73ddc9d310e49e3c1309d70c1db9bc73cb7427a`
-- Permanent resume checkpoint: `ai-agents/reports/agent-handoffs/2026-08-09-wp-05-resume-tracking-coordinate.md`
+- Exact implementation/evidence head: `50633f1256aa2189f70219b7ebcca4a740e7acb0`
+- Permanent handoff: `ai-agents/reports/agent-handoffs/2026-08-09-wp-05-tracking-lifecycle-progress-partial.md`
 
 ## Live reconciliation
-PR #18 remains the sole unfinished canonical package lock. WP-06 has no primary Tags branch and no LoreItems finalization/API-blocker branch. Main-side READY snapshots are stale and are outranked by the live branch/PR. PR #18 currently has no submitted reviews and zero unresolved inline review threads.
+PR #18 remains the sole unfinished canonical package lock. WP-06 has no primary/finalization/API-blocker lock and remains `BLOCKED`. PR #18 is open, draft, mergeable, has no submitted reviews, and has zero unresolved inline review threads at checkpoint time.
 
-## Current exact-head evidence
-For `f68e7fef1d60a188034ccacbf73c07580da1e167`:
-- CI `31287238034` — success.
-- Floodgate Identity `31287238055` — success.
-- Java Identity/Core `31287238071` — success.
-- ACC-CORE-005 Full Inventory `31287238058` — success.
-- Editor Contract `31287238060` — success.
-- Exact Removal `31287238045` — success.
-- Public API `31287238052` — success.
-- Tracking Contract `31287238063` — failure.
-- CodeRabbit combined status — success.
+## Production findings
+Two confirmed WP-05 production defects remain fixed/regression-verified: prefixed Floodgate recipient binding and the trailing inventory-close-after-quit tracking race. No new production defect was confirmed this session; all new work after resume checkpoint `180a5ea...` is acceptance workflow/harness work.
 
-## Findings retained
-Two confirmed production defects have been fixed/regression-verified in WP-05: prefixed Floodgate recipient binding, and the quit/inventory-close tracking race. The current Tracking Contract failure is harness-only: the workflow derives container Y from Mineflayer's fractional post-teleport position and queries Y=69 for a chest placed at Y=70.
+## Tracking progress
+Exact-head Tracking Contract run `31303340890` on `50633f1...` produced artifact `9035204924`, digest `sha256:b877c96ba230c4bb5d7386d8d9cf2996a0b1d9f62e614cabd947b93a84b78cdb`.
+
+Explicit evidence in that run:
+- PASS `ACC-TRACK-001`.
+- PASS allowed-mode/lifecycle portion of `ACC-TRACK-002`: ordinary chest/hopper, nested `/shulker:0` and `/bundle:0`, natural unload to `LAST_CONFIRMED`, natural reload/reopen to `CONFIRMED_NOW`.
+- NOT COMPLETE `ACC-TRACK-002`: restricted `shared-containers-allowed: false` shulker/bundle rejection still needs live proof.
+- NOT COMPLETE `ACC-TRACK-003`: natural drop was observed, but the bot did not reacquire the same dropped item before the first helper frame placement; that helper failed `no tracked item in player storage`, and display-holder lifecycle assertions therefore did not complete. Treat this as harness sequencing, not a product defect.
+
+## Other exact-head evidence on `50633f1...`
+- Public API `31303340903` — success.
+- Exact Removal `31303340925` — success.
+- Editor Contract `31303340916` — success.
+- Java Identity/Core `31303340947` — success.
+- ACC-CORE-005 Full Inventory `31303340907` — success.
+- Floodgate Identity `31303340901` — failed before product behavior because the external Floodgate download returned HTTP 403.
+- CI `31303340889` — Verify, test reports, repository tooling, and new-code complexity succeeded; required independent exact-head Codacy/review-marker gate failed, so downstream release steps were skipped. Do not bypass or fabricate that gate.
+
+## Harness changes completed this session
+Tracking acceptance is now versioned and materially less timing-dependent: fixed absolute block coordinates, stable/supported teleports, ordinary nested-container access, explicit natural chunk unload/reload, fixed Node dependency resolution, durable queue synchronization, safe access cells, ordinary player-driven chunk destination loading without force-load APIs, and deterministic container access clearing.
 
 ## Remaining work
-All 35 cases must ultimately PASS on the exact final JAR after the final code change. Remaining or not-yet-final-head areas include `ACC-ENV-001`, `ACC-EDIT-003`, `ACC-TRACK-002..003`, `ACC-PROT-001..002`, `ACC-ANOM-001..002`, `ACC-DEST-002..004`, `ACC-DIST-001..005`, `ACC-LIFE-001..002`, and `ACC-OPS-001..005`, followed by complete final-head automated/release/review/sign-off/merge/post-merge/release gates.
+All 35 cases must ultimately PASS on the exact final JAR after the final code change. In addition to tracking, incomplete/not-final areas include `ACC-ENV-001`, `ACC-EDIT-003`, `ACC-PROT-001..002`, `ACC-ANOM-001..002`, `ACC-DEST-002..004`, `ACC-DIST-001..005`, `ACC-LIFE-001..002`, and `ACC-OPS-001..005`, followed by full exact-head WP-04/release/review/sign-off/merge/post-merge/release gates.
 
 ## Blocker
-None verified. WP-05 is active and resumable; WP-06 remains `BLOCKED`.
+No repository blocker verified. Floodgate currently has an external HTTP 403 dependency-download failure only.
 
 ## Exact next action
-Repair `.github/workflows/wp05-tracking-contract-acceptance.yml` to use fixed absolute world coordinates for the generated containers: Ender Chest `(1,70,0)`, chest `(11,70,0)`, hopper `(20,70,0)`. Preserve ordinary-player interactions and acceptance assertions. Rerun `ACC-TRACK-001..003`, persist exact-head evidence, then continue the consolidated `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002` block. Do not begin WP-06.
+Resume this branch/PR from live GitHub. Finish `ACC-TRACK-001..003` on one exact head: make natural pickup deterministic and assert the same instance is back in `PLAYER_INVENTORY`; put frame/glow-frame/armor-stand fixtures in a deliberately unloadable chunk and prove `LAST_CONFIRMED` then `CONFIRMED_NOW`; add ordinary-player restricted shulker/bundle insertion tests with `shared-containers-allowed: false`. Persist exact-head evidence. If fully green, continue `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002`. Do not begin WP-06.
