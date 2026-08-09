@@ -83,6 +83,31 @@ function tracked(bot) {
   return items[0]
 }
 
+function nearestDroppedItem(bot) {
+  return bot.nearestEntity(entity => entity && (
+    entity.name === 'item' || entity.objectType === 'Item' || entity.displayName === 'Item'
+  ))
+}
+
+async function waitForNaturalPickup(bot) {
+  for (let i = 0; i < 120; i++) {
+    const items = bot.inventory.items()
+    if (items.length === 1) {
+      log(`TRACK3 natural-pickup inventory=${items[0].name} slot=${items[0].slot}`)
+      return items[0]
+    }
+    const dropped = nearestDroppedItem(bot)
+    if (dropped) {
+      const position = dropped.position
+      bot.chat(`/tp Wp05TrackBot ${position.x.toFixed(3)} ${position.y.toFixed(3)} ${position.z.toFixed(3)}`)
+      await sleep(400)
+    } else {
+      await sleep(150)
+    }
+  }
+  throw new Error(`TRACK3 natural pickup did not return the dropped item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
+}
+
 async function phaseOne() {
   const bot = mineflayer.createBot({
     host: '127.0.0.1', port: 25565, username: 'Wp05TrackBot', version: '1.21.11', auth: 'offline'
@@ -181,19 +206,28 @@ async function phaseTwo() {
 
   await waitFile('go-track3-drop')
   await teleport(bot, 30, 71, 0, 'TRACK3 drop-area')
+  bot.chat('/fill 27 70 -3 33 70 3 minecraft:stone')
+  bot.chat('/fill 27 71 -3 33 74 3 minecraft:air')
+  await sleep(500)
   item = tracked(bot)
   await bot.tossStack(item); await sleep(1300); log('TRACK3 normal-drop')
   fs.writeFileSync(`${root}/track3-drop-done`, 'ok\n')
   await waitFile('go-track3-pickup')
-  await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area'); await sleep(1500)
-  log('TRACK3 pickup-wait')
+  await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area')
+  await waitForNaturalPickup(bot)
+
+  // The display helper places relative to world spawn. Move spawn and the player into a dedicated
+  // chunk so the fixture can later unload naturally once both tickets move to x=256.
+  bot.chat('/setworldspawn 64 70 0')
+  await teleport(bot, 64, 71, 0, 'TRACK3 display-fixture-area')
+  log('TRACK3 pickup-confirmed-and-display-fixture-ready')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')
 
   await waitFile('go-track3-away')
   await teleport(bot, 256, 71, 0, 'TRACK3 unload-area')
   fs.writeFileSync(`${root}/track3-away-done`, 'ok\n')
   await waitFile('go-track3-return')
-  await teleport(bot, 10, 71, 0, 'TRACK3 reload-area'); await sleep(1000)
+  await teleport(bot, 64, 71, 0, 'TRACK3 reload-area'); await sleep(1000)
   log('TRACK3 reloaded')
   fs.writeFileSync(`${root}/track3-return-done`, 'ok\n')
 

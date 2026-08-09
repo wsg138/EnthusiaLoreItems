@@ -81,6 +81,10 @@ jobs:
         shell: bash
         run: bash acceptance-harness/scripts/wp05-tracking-acceptance.sh
 
+      - name: Execute ACC-TRACK-002 restricted nested-storage phase
+        shell: bash
+        run: bash acceptance-harness/scripts/wp05-tracking-restricted.sh
+
       - name: Upload acceptance evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
