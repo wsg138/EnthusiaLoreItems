@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wp05-tracking-contract-${{ github.event.pull_request.number || github.ref }}
+  group: wp05-tracking-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -80,6 +80,38 @@ jobs:
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003
         shell: bash
         run: bash acceptance-harness/scripts/wp05-tracking-acceptance.sh
+
+      - name: Surface tracking failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('/tmp/wp05-tracking-contract')
+          evidence = root / 'evidence'
+
+          def escape(value: str) -> str:
+              return value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+
+          marker_names = [
+              'track1-online-done', 'track1-reconnected',
+              'track2-chest-done', 'track2-hopper-done', 'track2-shulker-done',
+              'track2-bundle-done', 'track2-away-done', 'track2-return-done',
+              'track3-drop-done', 'track3-pickup-done', 'track3-away-done', 'track3-return-done',
+              'bot.failed',
+          ]
+          marker_state = ', '.join(f'{name}={"present" if (root / name).exists() else "missing"}' for name in marker_names)
+          print(f'::error title=WP-05 tracking marker state::{escape(marker_state)}')
+
+          for path in [root / 'bot.failed', evidence / 'bot.log', evidence / 'bot-stdout.log', evidence / 'case-results.txt', evidence / 'server.log']:
+              if path.exists():
+                  lines = path.read_text(errors='replace').splitlines()[-35:]
+                  text = '\n'.join(lines)
+              else:
+                  text = '<missing>'
+              print(f'::error title=WP-05 tracking diagnostic {path.name}::{escape(text)}')
+          PY
 
       - name: Execute ACC-TRACK-002 restricted nested-storage phase
         shell: bash
