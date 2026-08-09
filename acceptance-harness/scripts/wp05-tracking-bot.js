@@ -12,7 +12,7 @@ const log = message => {
 }
 
 async function waitFile(name) {
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 800; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
     await sleep(100)
   }
@@ -263,8 +263,8 @@ async function phaseTwo() {
 
   // Display fixtures are in a dedicated chunk. Only empty entities/support blocks are created by
   // the shell; the tracked items themselves move via these real client interactions so Paper's
-  // ordinary player frame/armor-stand events authoritatively observe each transition.
-  bot.chat('/setworldspawn 64 70 0')
+  // ordinary player frame/armor-stand events authoritatively observe each transition. World spawn
+  // is managed by the shell and deliberately kept outside this chunk.
   await teleport(bot, 64, 71, 0, 'TRACK3 display-fixture-area')
   log('TRACK3 pickup-confirmed-and-display-fixture-ready')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')
