@@ -41,6 +41,31 @@ wait_marker() {
   return 1
 }
 
+wait_player_copy() {
+  local lookup_key="$1"
+  python3 - "$DB" "$lookup_key" <<'PY'
+import sqlite3,sys,time
+path,key=sys.argv[1:3]
+last=[]
+for _ in range(160):
+    with sqlite3.connect(path) as c:
+        last=c.execute("""
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
+          from instance_current_state s
+          join lore_instances i on i.instance_id=s.instance_id
+          join lore_definitions d on d.definition_id=i.definition_id
+          where d.lookup_key=?
+        """,(key,)).fetchall()
+        if any(state=='CONFIRMED_NOW' and kind=='PLAYER_INVENTORY' for state,kind,_,_,_ in last):
+            print('player copy ready',key,last)
+            break
+    time.sleep(.25)
+else:
+    raise SystemExit(f'queued delivery for {key} never reached player inventory: {last}')
+PY
+  sleep .35
+}
+
 start_server() {
   local logfile="$1"
   rm -f "$SERVER/server.stdin"
@@ -100,9 +125,9 @@ sleep 1
 echo 'clear Wp05TrackBot' >&3
 sleep .5
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3
-sleep 1
+wait_player_copy acc_track_contract
 python3 - "$DB" <<'PY'
-import sqlite3, sys, time
+import sqlite3,sys,time
 path=sys.argv[1]
 for _ in range(180):
     with sqlite3.connect(path) as c:
@@ -162,7 +187,7 @@ sleep 1
 echo 'clear Wp05TrackBot' >&3
 sleep .5
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
-sleep 1
+wait_player_copy acc_track_nested
 
 touch "$ROOT/go-track2-chest"
 wait_marker track2-chest-done 180
@@ -170,14 +195,14 @@ touch "$ROOT/go-track2-hopper"
 wait_marker track2-hopper-done 180
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
-sleep 1
+wait_player_copy acc_track_nested
 echo 'wp05accept place Wp05TrackBot shulker' >&3
 sleep 1
 touch "$ROOT/go-track2-shulker"
 wait_marker track2-shulker-done 180
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
-sleep 1
+wait_player_copy acc_track_nested
 echo 'wp05accept place Wp05TrackBot bundle' >&3
 sleep 1
 touch "$ROOT/go-track2-bundle"
@@ -203,6 +228,7 @@ wait_marker track2-away-done 200
 python3 - "$DB" <<'PY'
 import sqlite3,time
 path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+rows=[]
 for _ in range(120):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_nested'").fetchone()[0]
@@ -225,6 +251,7 @@ wait_marker track2-return-done 200
 python3 - "$DB" <<'PY' | tee -a "$EVIDENCE/case-results.txt"
 import sqlite3,time
 path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+rows=[]
 for _ in range(120):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_nested'").fetchone()[0]
@@ -258,7 +285,7 @@ sleep 1
 echo 'clear Wp05TrackBot' >&3
 sleep .5
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
-sleep 1
+wait_player_copy acc_track_world
 
 touch "$ROOT/go-track3-drop"
 wait_marker track3-drop-done 160
@@ -282,14 +309,15 @@ touch "$ROOT/go-track3-pickup"
 wait_marker track3-pickup-done 160
 sleep 1
 
-echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
-sleep 1
+# Reuse the naturally dropped/picked instance for the first display; create fresh copies for the others.
 echo 'wp05accept place Wp05TrackBot frame' >&3
-echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 sleep 1
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
+wait_player_copy acc_track_world
 echo 'wp05accept place Wp05TrackBot glowframe' >&3
-echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 sleep 1
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
+wait_player_copy acc_track_world
 echo 'wp05accept place Wp05TrackBot armorstand' >&3
 sleep 1
 # Death/drop must occur in the same naturally unloadable acceptance chunk.
@@ -297,7 +325,7 @@ echo 'setblock 5 70 0 minecraft:stone' >&3
 echo 'tp Wp05TrackBot 5 71 0' >&3
 sleep 1
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
-sleep 1
+wait_player_copy acc_track_world
 echo 'kill Wp05TrackBot' >&3
 sleep 5
 
@@ -308,6 +336,7 @@ wait_marker track3-away-done 220
 python3 - "$DB" <<'PY'
 import sqlite3,time
 path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+rows=[]
 for _ in range(140):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
@@ -329,6 +358,7 @@ wait_marker track3-return-done 220
 python3 - "$DB" <<'PY' | tee -a "$EVIDENCE/case-results.txt"
 import sqlite3,time
 path='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
+rows=[]
 for _ in range(140):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
