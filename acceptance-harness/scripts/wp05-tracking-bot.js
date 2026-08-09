@@ -63,6 +63,10 @@ async function teleport(bot, x, y, z, label) {
 }
 
 async function waitBlockAt(bot, x, y, z, name, label) {
+  if (name === 'chest' || name === 'ender_chest' || name === 'hopper') {
+    bot.chat(`/setblock ${x} ${y + 1} ${z} minecraft:air`)
+    await sleep(250)
+  }
   const target = new Vec3(x, y, z)
   for (let i = 0; i < 150; i++) {
     const block = bot.blockAt(target)
@@ -105,7 +109,6 @@ async function phaseOne() {
 
   await teleport(bot, 0, 71, 0, 'TRACK1 ender-area')
   bot.chat('/setblock 1 70 0 minecraft:ender_chest')
-  bot.chat('/setblock 1 71 0 minecraft:air')
   const block = await waitBlockAt(bot, 1, 70, 0, 'ender_chest', 'ender chest')
   const chest = await bot.openContainer(block)
   await sleep(500)
@@ -133,7 +136,6 @@ async function phaseTwo() {
   await waitFile('go-track2-chest')
   await teleport(bot, 10, 71, 0, 'TRACK2 chest-area')
   bot.chat('/setblock 11 70 0 minecraft:chest')
-  bot.chat('/setblock 11 71 0 minecraft:air')
   let item = tracked(bot)
   let block = await waitBlockAt(bot, 11, 70, 0, 'chest', 'chest')
   let container = await bot.openContainer(block)
@@ -146,7 +148,6 @@ async function phaseTwo() {
   item = tracked(bot)
   bot.chat('/setblock 20 69 0 minecraft:chest')
   bot.chat('/setblock 20 70 0 minecraft:hopper')
-  bot.chat('/setblock 20 71 0 minecraft:air')
   block = await waitBlockAt(bot, 20, 70, 0, 'hopper', 'hopper')
   container = await bot.openContainer(block)
   await container.deposit(item.type, null, 1); await sleep(2500); container.close(); log('TRACK2 hopper-transfer')
@@ -184,7 +185,7 @@ async function phaseTwo() {
   await bot.tossStack(item); await sleep(1300); log('TRACK3 normal-drop')
   fs.writeFileSync(`${root}/track3-drop-done`, 'ok\n')
   await waitFile('go-track3-pickup')
-  await teleport(bot, 32, 71, 0, 'TRACK3 pickup-area'); await sleep(1500)
+  await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area'); await sleep(1500)
   log('TRACK3 pickup-wait')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')
 
