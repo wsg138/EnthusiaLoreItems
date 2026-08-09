@@ -132,7 +132,7 @@ Use the exact branch and PR title in the selected package contract. The PR body 
 
 Evidence is valid only when permanently visible on GitHub and tied to the exact PR head. Any later commit makes prior check evidence stale.
 
-Sentinel evidence must additionally follow `ai-agents/SENTINEL-OPERATING-POLICY.md`: record the exact command comment, response/check, Sentinel job ID, tested SHA, workflow/artifact identity when reported, terminal result code, and relevant queue/runtime cleanup state. A queued, rejected, cancelled, stale-SHA, resource-gated, or otherwise failed Sentinel job is not a pass.
+Sentinel evidence must additionally follow `ai-agents/SENTINEL-OPERATING-POLICY.md`: record the exact command comment, response/check, Sentinel job ID, tested SHA, exact successful workflow run ID, exact `enthusialoreitems-plugin` artifact ID/name, the manifest-declared `build/libs/EnthusiaLoreItems.jar` path, terminal result code, and relevant queue/runtime cleanup state. If Sentinel omits workflow/artifact identity, resolve it from GitHub Actions before accepting the result. If any exact artifact identity field cannot be resolved for the tested SHA, the result is incomplete evidence and must not count as a package/release PASS. A queued, rejected, cancelled, stale-SHA, resource-gated, or otherwise failed Sentinel job is not a pass.
 
 Before merge:
 
