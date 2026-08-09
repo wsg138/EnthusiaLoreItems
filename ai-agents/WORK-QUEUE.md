@@ -9,7 +9,7 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged and verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | merged and verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | merged and verified; `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | canonical draft PR #18 retains the lock; acceptance/release work remains resumable |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | canonical draft PR #18 retains the lock; tracking race fix is live-regression verified, matrix/release gates remain |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | requires verified WP-05 production `v1.0.0` release |
 
 ## Progress
@@ -23,19 +23,16 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 - Canonical branch: `agent/wp-05-live-acceptance-release`.
 - Draft PR: #18, `WP-05: complete live acceptance and release LoreItems`.
 - Intentional-stop status: `PARTIAL`.
-- Immediately preceding implementation/evidence head: `05c1d59499b6785d6bf2b665f1f3cfac808de9b4`.
-- Durable checkpoint commit: `30f9fa151381ae3110e715f733f8bf96c2ca5edc`.
-- Permanent checkpoint: `ai-agents/reports/agent-handoffs/2026-08-08-wp-05-ci-tracking-partial.md`.
-- Owner-approved scope amendment remains in force: real Microsoft/Xbox account authentication is out of scope; server-visible Java/Floodgate identity behavior remains required.
+- Exact implementation/evidence head: `e73ddc9d310e49e3c1309d70c1db9bc73cb7427a`.
+- Permanent checkpoint: `ai-agents/reports/agent-handoffs/2026-08-08-wp-05-tracking-race-live-regression-partial.md`.
+- Owner-approved scope amendment remains in force: real Microsoft/Xbox authentication is out of scope; server-visible Java/Floodgate identity behavior remains required.
 
 ## Current WP-05 evidence summary
-Permanent predecessor PASS evidence exists for `ACC-ID-001`, `ACC-ID-002`, and `ACC-CORE-001..005`. Successful predecessor workflows additionally map to `ACC-EDIT-001..002`, `ACC-DEST-001`, and `ACC-API-001`. Those older runs are traceability until the current/final exact head reruns successfully.
+Two production defects have been confirmed in WP-05 and both are fixed/regression-verified:
+1. valid already-prefixed Floodgate recipient names rejected by binding — fix `e00035d937d8a7d51eb00484689c74dd1d6d394a`;
+2. trailing InventoryClose after PlayerQuit re-promoted disconnected inventory from `LAST_CONFIRMED` to `CONFIRMED_NOW` — fix `1d144111d88a1c481e231bd1ba329c58a0fddc20`, automated regression `39e4892562bc441d90c046c79b84d1a1004a2034`, live Paper `ACC-TRACK-001` PASS in run `31287048615` on `e73ddc9d...`.
 
-The 2026-08-08 06:02–06:12 EDT worker fixed two verification defects:
-- `6aa457e499341ad405438961bf4999d74c515627`: shared-container test compile/API mismatch.
-- `05c1d59499b6785d6bf2b665f1f3cfac808de9b4`: tracking acceptance create-source setup plus fatal-bot cleanup hang.
-
-No new LoreItems production defect was confirmed by that worker. The one previously confirmed WP-05 production defect (already-prefixed real Floodgate recipient names rejected by binding) remains fixed and regression-verified.
+Exact-head successful workflows on `e73ddc9d...` include Java Identity/Core `31287048544`, ACC-CORE-005 `31287048549`, Editor `31287048547`, Exact Removal `31287048551`, and Public API `31287048546`. Tracking run `31287048615` explicitly PASSed ACC-TRACK-001, then failed later from a harness-only ACC-TRACK-002 coordinate bug. CI `31287048568` passed Verify/tooling/complexity but stopped at the required independent Codacy review-marker gate. Floodgate run `31287048553` was last observed still executing ACC-ID-002; no success inferred.
 
 ## Exact next action
-Resume WP-05 from the live canonical PR head. Inspect exact-head workflows first; repair any confirmed failure on the same branch. Once current identity/core/editor/tracking/exact-remove/API gates are green, record exact-head credit and build the next consolidated disposable-Paper acceptance block for `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002`. Continue `ACC-EDIT-003`, protection, distribution, environment, backup/recovery/load cases, then rerun all 35 on the exact final JAR and finish review, sign-off, normal merge, post-merge verification, and `v1.0.0` release. Do not begin WP-06.
+Resume WP-05 from the live canonical PR head. Reconcile branch movement and the final Floodgate result, then repair Tracking Contract container lookup to use its fixed absolute world coordinates instead of deriving Y from Mineflayer's fractional post-teleport position. Rerun TRACK-001..003 without weakening assertions. If green, persist exact-head tracking credit and build the next consolidated disposable-Paper acceptance block for `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002`. Continue the remaining matrix and release gates. Do not begin WP-06.
