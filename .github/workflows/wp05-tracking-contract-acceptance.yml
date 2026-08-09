@@ -122,6 +122,12 @@ jobs:
             bot.chat('/setblock 20 69 0 minecraft:chest');bot.chat('/setblock 20 70 0 minecraft:hopper');bot.chat('/setblock 20 71 0 minecraft:air')
             block=await waitBlockAt(bot,20,70,0,'hopper','hopper')
             c=await bot.openContainer(block);await c.deposit(item.type,null,1);await sleep(2500);c.close();log('TRACK2 hopper-transfer');fs.writeFileSync(`${root}/track2-hopper-done`,'ok\n')
+            await waitFile('go-track2-shulker')
+            await teleport(bot,13,71,0,'TRACK2 shulker-area')
+            block=await waitBlockAt(bot,14,70,0,'chest','nested shulker chest');c=await bot.openContainer(block);await sleep(700);c.close();await sleep(700);log('TRACK2 shulker-access');fs.writeFileSync(`${root}/track2-shulker-done`,'ok\n')
+            await waitFile('go-track2-bundle')
+            await teleport(bot,15,71,0,'TRACK2 bundle-area')
+            block=await waitBlockAt(bot,16,70,0,'chest','nested bundle chest');c=await bot.openContainer(block);await sleep(700);c.close();await sleep(700);log('TRACK2 bundle-access');fs.writeFileSync(`${root}/track2-bundle-done`,'ok\n')
             await waitFile('go-track3-drop')
             await teleport(bot,30,71,0,'TRACK3 drop-area');item=tracked(bot);await bot.tossStack(item);await sleep(1300);log('TRACK3 normal-drop');fs.writeFileSync(`${root}/track3-drop-done`,'ok\n')
             await waitFile('go-track3-pickup')
@@ -140,6 +146,7 @@ jobs:
           java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/server.log" 2>&1 & SERVER_PID=$!
           cleanup(){ touch "$ROOT/bot.stop" || true; if [[ -n "${BOT_PID:-}" ]];then wait "$BOT_PID" || true;fi; if kill -0 "$SERVER_PID" 2>/dev/null;then echo stop >&3||true;wait "$SERVER_PID"||true;fi; };trap cleanup EXIT
           for _ in $(seq 1 180);do grep -q 'Queued direct-delivery processing is active.' "$ROOT/evidence/server.log" && grep -q 'WP-05 deterministic acceptance helper is active' "$ROOT/evidence/server.log" && break;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$ROOT/evidence/server.log";exit 1;};sleep 1;done
+          echo 'setworldspawn 0 70 0' >&3
           (cd "$ROOT/bot" && node bot.js)>"$ROOT/evidence/bot-stdout.log" 2>&1 & BOT_PID=$!
           for _ in $(seq 1 90);do test -s "$ROOT/bot.uuid"&&break;sleep 1;done;test -s "$ROOT/bot.uuid";echo 'op Wp05TrackBot' >&3;echo 'clear Wp05TrackBot' >&3
           echo 'wp05accept source Wp05TrackBot helmet' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_contract Track Contract' >&3;sleep 1;echo 'clear Wp05TrackBot' >&3;sleep .5;echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_contract' >&3;sleep 1
@@ -190,11 +197,11 @@ jobs:
           PY
           touch "$ROOT/go-track2-chest";for _ in $(seq 1 160);do test -f "$ROOT/track2-chest-done"&&break;sleep .25;done;test -f "$ROOT/track2-chest-done"
           touch "$ROOT/go-track2-hopper";for _ in $(seq 1 160);do test -f "$ROOT/track2-hopper-done"&&break;sleep .25;done;test -f "$ROOT/track2-hopper-done";sleep 1
-          # Return item from transfer chest to bot through a normal container interaction location.
-          echo 'tp Wp05TrackBot 20 71 0' >&3;echo 'wp05accept place Wp05TrackBot storage' >&3 2>/dev/null || true
-          # Use two more instances to exercise nested shulker and bundle scanning on real loaded chunks.
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot shulker' >&3;sleep 6
-          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot bundle' >&3;sleep 6
+          # Use fresh instances and ordinary player access to exercise nested structural scans deterministically.
+          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot shulker' >&3;sleep 1
+          touch "$ROOT/go-track2-shulker";for _ in $(seq 1 160);do test -f "$ROOT/track2-shulker-done"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/track2-shulker-done"
+          echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3;sleep 1;echo 'wp05accept place Wp05TrackBot bundle' >&3;sleep 1
+          touch "$ROOT/go-track2-bundle";for _ in $(seq 1 160);do test -f "$ROOT/track2-bundle-done"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/track2-bundle-done";sleep 1
           python3 - "$DB" <<'PY' | tee -a "$ROOT/evidence/case-results.txt"
           import sqlite3
           db='/tmp/wp05-tracking-contract/server/plugins/EnthusiaLoreItems/loreitems.db'
