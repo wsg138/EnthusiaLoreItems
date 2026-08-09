@@ -104,3 +104,14 @@ jobs:
           path: |
             /tmp/rc-first/
             /tmp/loreitems-test-reports/
+      - name: Prepare Sentinel plugin artifact
+        run: |
+          mkdir -p /tmp/sentinel-artifact/build/libs
+          cp /tmp/rc-first/EnthusiaLoreItems.jar /tmp/sentinel-artifact/build/libs/EnthusiaLoreItems.jar
+      - name: Upload Sentinel plugin artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: enthusialoreitems-plugin
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/sentinel-artifact/
