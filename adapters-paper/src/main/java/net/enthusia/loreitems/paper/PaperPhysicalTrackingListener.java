@@ -17,7 +17,6 @@ import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Chunk;
-import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
@@ -59,7 +58,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final MetricsPort metrics;
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
-    private final PaperDisplayEntityScanner displayScanner;
+    private final PaperPhysicalEntityScanner entityScanner;
     private final Queue<ScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
 
@@ -83,7 +82,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.coordinator = new PaperTrackingCoordinator(
                 plugin, useCaseSupplier, budgetSupplier, metrics);
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
-        this.displayScanner = new PaperDisplayEntityScanner(scanner);
+        this.entityScanner = new PaperPhysicalEntityScanner(scanner);
         currentBudget();
     }
 
@@ -135,7 +134,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         Item item = event.getItem();
         scanner.submitItem(
                 item.getItemStack(),
-                droppedLocation(item),
+                PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "hopper-pickup-source");
@@ -153,7 +152,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         Item item = event.getItemDrop();
         scanner.submitItem(
                 item.getItemStack(),
-                droppedLocation(item),
+                PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
                 "player-drop");
@@ -168,7 +167,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         Item item = event.getItem();
         scanner.submitItem(
                 item.getItemStack(),
-                droppedLocation(item),
+                PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "player-pickup-source");
@@ -185,7 +184,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
         scanner.submitItem(
                 item.getItemStack(),
-                droppedLocation(item),
+                PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.PRESENT,
                 mode,
                 "item-spawn");
@@ -262,22 +261,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        for (Entity entity : entities) {
-            if (!limit.hasRemaining()) {
-                break;
-            }
-            if (entity instanceof Item item) {
-                scanner.submitItem(
-                        item.getItemStack(),
-                        droppedLocation(item),
-                        presence,
-                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                        source + "-item");
-                limit.consume();
-            } else {
-                displayScanner.scan(entity, presence, source, limit);
-            }
-        }
+        entityScanner.scan(entities, presence, source, limit);
         if (!limit.hasRemaining()) {
             metrics.increment("tracking.scan_truncated");
             plugin.getLogger().fine(
@@ -427,22 +411,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             String source,
             PaperScanLimit limit) {
-        for (Entity entity : chunk.getEntities()) {
-            if (!limit.hasRemaining()) {
-                return;
-            }
-            if (entity instanceof Item item) {
-                scanner.submitItem(
-                        item.getItemStack(),
-                        droppedLocation(item),
-                        presence,
-                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                        source + "-item");
-                limit.consume();
-            } else {
-                displayScanner.scan(entity, presence, source, limit);
-            }
-        }
+        entityScanner.scan(List.of(chunk.getEntities()), presence, source, limit);
     }
 
     private void scanChunkContainers(
@@ -495,16 +464,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 LocationDescriptor.Type.PLAYER_INVENTORY,
                 "player:" + playerId,
                 path);
-    }
-
-    private static LocationDescriptor droppedLocation(Item item) {
-        Location location = item.getLocation();
-        return new LocationDescriptor(
-                LocationDescriptor.Type.DROPPED_ITEM,
-                item.getWorld().getKey() + ":entity:" + item.getUniqueId() + ':'
-                        + location.getBlockX() + ':' + location.getBlockY() + ':'
-                        + location.getBlockZ(),
-                "item-entity");
     }
 
     @Override
