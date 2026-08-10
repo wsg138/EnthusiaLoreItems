@@ -1,0 +1,118 @@
+name: WP-05 Environment and Degraded Startup Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-env-ops001-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  environment-and-degraded-startup:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact head and prepare healthy/degraded Paper environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          R=/tmp/wp05-env-final
+          mkdir -p "$R/healthy/plugins/EnthusiaLoreItems" "$R/degraded/plugins/EnthusiaLoreItems" "$R/evidence"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          for S in healthy degraded;do cp "$P" "$R/$S/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/$S/plugins/WP05AcceptanceHarness.jar";done
+          sha256sum "$P">"$R/evidence/plugin-sha256.txt";sha256sum "$H">"$R/evidence/harness-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt";java -version 2>"$R/evidence/java-version.txt"
+          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o "$R/paper.jar";echo "$PAPER_SHA256  $R/paper.jar"|sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot -o "$R/Geyser-Spigot.jar"
+          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot -o "$R/floodgate-spigot.jar"
+          sha256sum "$R/paper.jar" "$R/Geyser-Spigot.jar" "$R/floodgate-spigot.jar">"$R/evidence/environment-sha256.txt"
+          for S in healthy degraded;do
+            cp "$R/paper.jar" "$R/$S/paper.jar";cp "$R/Geyser-Spigot.jar" "$R/$S/plugins/Geyser-Spigot.jar";cp "$R/floodgate-spigot.jar" "$R/$S/plugins/floodgate-spigot.jar";printf 'eula=true\n'>"$R/$S/eula.txt"
+            cat >"$R/$S/server.properties" <<EOF
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=$([ "$S" = healthy ] && echo 25565 || echo 25566)
+          motd=WP05 final environment $S
+          EOF
+            cat >"$R/$S/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 5000
+          database-queue-capacity: 256
+          database-shutdown-timeout-seconds: 10
+          delivery-claim-batch-size: 32
+          delivery-claim-lease-seconds: 30
+          duplicate-warning-interval-seconds: 300
+          default-page-size: 45
+          max-page-size: 100
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          done
+          cp "$R/healthy/plugins/EnthusiaLoreItems/config.yml" "$R/evidence/loreitems-config.yml"
+          mkdir "$R/degraded/plugins/EnthusiaLoreItems/loreitems.db"
+
+      - name: Execute ACC-ENV-001 and ACC-OPS-001
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/wp05-env-final;E="$R/evidence"
+          start(){ local dir="$1" log="$2" port="$3";cd "$dir";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui --port "$port" <server.stdin>"$log" 2>&1 & PID=$!;}
+          stop(){ echo stop >&3;wait "$PID";exec 3>&-;rm -f server.stdin;}
+          wait_log(){ local p="$1" l="$2" n="${3:-240}";for _ in $(seq 1 "$n");do grep -Fq "$p" "$l"&&return;kill -0 "$PID" 2>/dev/null||{ cat "$l";return 1;};sleep .25;done;echo "missing $p" >&2;tail -n 200 "$l" >&2;return 1;}
+          START="$(date -u +%FT%TZ)"
+          # Healthy final-head environment baseline.
+          H="$R/healthy";HL="$E/healthy-server.log";start "$H" "$HL" 25565;wait_log 'Durable storage is active' "$HL";wait_log 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$HL";wait_log 'WP-05 deterministic acceptance helper is active' "$HL";wait_log '[Geyser-Spigot]' "$HL";wait_log '[floodgate]' "$HL";echo 'loreitems destructive-metrics' >&3;echo 'loreitems recovery 1' >&3;echo 'loredistribution campaigns 1' >&3;echo 'execute if entity @e[type=item] run say WP05_ENV_UNEXPECTED_ITEM' >&3;sleep 2;stop
+          python3 - "$H/plugins/EnthusiaLoreItems/loreitems.db" <<'PY' | tee "$E/healthy-database.json"
+          import json,sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              journal=c.execute('pragma journal_mode').fetchone()[0];integrity=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];versions=[r[0] for r in c.execute('select version from schema_history order by version')];tables=('lore_definitions','lore_instances','direct_deliveries','pending_mutations','distribution_campaigns','distribution_recipients','instance_anomalies','destructive_operations','destructive_targets','deleted_definition_markers','audit_events');counts={t:c.execute(f'select count(*) from {t}').fetchone()[0] for t in tables};assert journal.lower()=='wal' and integrity=='ok' and not fk and versions==list(range(1,9)) and all(v==0 for v in counts.values()),(journal,integrity,fk,versions,counts)
+          print(json.dumps({'journal_mode':journal,'integrity':integrity,'foreign_key_violations':fk,'schema_versions':versions,'counts':counts},indent=2,sort_keys=True))
+          PY
+          ! grep -Fq WP05_ENV_UNEXPECTED_ITEM "$HL"
+          # Reversible degraded startup: expected DB path is a directory.
+          D="$R/degraded";DL="$E/degraded-server.log";start "$D" "$DL" 25566;wait_log 'entered degraded read-only mode' "$DL";wait_log 'WP-05 deterministic acceptance helper is active' "$DL";B="$(grep -Fc 'WP05_ACCEPT API result operation=acc-ops-001-final' "$DL"||true)";echo 'wp05accept api definitely_missing_definition 00000000-0000-0000-0000-000000000001 acc-ops-001-final' >&3;for _ in $(seq 1 120);do test "$(grep -Fc 'WP05_ACCEPT API result operation=acc-ops-001-final' "$DL"||true)" -gt "$B"&&break;sleep .25;done;grep -F 'WP05_ACCEPT API result operation=acc-ops-001-final' "$DL"|grep -F 'status=SERVICE_UNAVAILABLE';echo 'loreitems give definitely_missing_definition 00000000-0000-0000-0000-000000000001' >&3;echo 'loredistribution campaigns 1' >&3;echo 'execute if entity @e[type=item] run say WP05_OPS001_UNEXPECTED_ITEM' >&3;sleep 2;stop
+          test -d "$D/plugins/EnthusiaLoreItems/loreitems.db";! grep -Fq 'Durable storage is active' "$DL";! grep -Fq WP05_OPS001_UNEXPECTED_ITEM "$DL"
+          find "$D/plugins/EnthusiaLoreItems" -maxdepth 2 -printf '%y %P\n'|sort>"$E/degraded-filesystem.txt"
+          # Correct only the induced condition and prove normal recovery.
+          rmdir "$D/plugins/EnthusiaLoreItems/loreitems.db";RL="$E/recovered-server.log";start "$D" "$RL" 25566;wait_log 'Durable storage is active' "$RL";wait_log 'WP-05 deterministic acceptance helper is active' "$RL";B="$(grep -Fc 'WP05_ACCEPT API result operation=acc-ops-001-final' "$RL"||true)";echo 'wp05accept api definitely_missing_definition 00000000-0000-0000-0000-000000000001 acc-ops-001-final' >&3;for _ in $(seq 1 120);do test "$(grep -Fc 'WP05_ACCEPT API result operation=acc-ops-001-final' "$RL"||true)" -gt "$B"&&break;sleep .25;done;grep -F 'WP05_ACCEPT API result operation=acc-ops-001-final' "$RL"|grep -F 'status=UNKNOWN_DEFINITION';stop
+          python3 - "$D/plugins/EnthusiaLoreItems/loreitems.db" <<'PY' | tee "$E/recovered-database.json"
+          import json,sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];versions=[r[0] for r in c.execute('select version from schema_history order by version')];counts={t:c.execute(f'select count(*) from {t}').fetchone()[0] for t in ('lore_definitions','lore_instances','direct_deliveries','pending_mutations','distribution_campaigns','destructive_operations','audit_events')};external=[list(r) for r in c.execute('select external_operation_id,outcome,delivery_id from external_delivery_requests')];assert i=='ok' and not fk and versions==list(range(1,9)) and all(v==0 for v in counts.values()) and external==[['acc-ops-001-final','UNKNOWN_DEFINITION',None]],(i,fk,versions,counts,external)
+          print(json.dumps({'integrity':i,'foreign_key_violations':fk,'schema_versions':versions,'counts':counts,'external_delivery_requests':external},indent=2,sort_keys=True))
+          PY
+          END="$(date -u +%FT%TZ)";sha256sum "$H/plugins/EnthusiaLoreItems/loreitems.db" "$D/plugins/EnthusiaLoreItems/loreitems.db" "$H/plugins/EnthusiaLoreItems/config.yml">"$E/final-sha256.txt"
+          cat >"$E/result.json" <<EOF
+          {"source_head":"${{ github.event.pull_request.head.sha || github.sha }}","started_at":"$START","finished_at":"$END","cases":{"ACC-ENV-001":"PASS","ACC-OPS-001":"PASS"},"paper":"1.21.11-116","java":"21","geyser_enabled":true,"floodgate_enabled":true,"healthy_schema_v8":true,"degraded_api_service_unavailable":true,"healthy_recovery_unknown_definition":true,"unexpected_physical_items":false}
+          EOF
+
+      - name: Upload final environment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wp05-env-ops001-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-env-final/evidence
+          if-no-files-found: error
+          retention-days: 90
