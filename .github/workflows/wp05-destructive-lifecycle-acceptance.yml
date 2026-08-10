@@ -1,0 +1,512 @@
+name: WP-05 Destructive Lifecycle Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-dest-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  destructive-lifecycle:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare disposable Paper server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-dest-lifecycle
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          duplicate-warning-interval-seconds: 300
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 destructive lifecycle acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const root='/tmp/wp05-dest-lifecycle'
+          const username=process.argv[2]
+          if(!username) throw new Error('username required')
+          const safe=username.toLowerCase()
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username,version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          bot.on('message',m=>log(`CHAT ${m.toString()}`))
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`);fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`)})
+          const timer=setInterval(()=>{if(fs.existsSync(`${root}/${safe}.stop`)){clearInterval(timer);bot.quit('acceptance transition')}},100)
+          EOF
+
+      - name: Execute ACC-DEST-002, ACC-DEST-004, ACC-LIFE-001 and ACC-LIFE-002
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-dest-lifecycle
+          DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"
+          cd "$ROOT/server"
+
+          start_server() {
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 180); do
+              if grep -q 'Queued direct-delivery processing is active.' "$log" &&
+                 grep -q 'WP-05 deterministic acceptance helper is active' "$log"; then
+                return 0
+              fi
+              kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; return 1; }
+              sleep 1
+            done
+            cat "$log"
+            return 1
+          }
+
+          stop_server() {
+            echo stop >&3
+            wait "$SERVER_PID"
+            exec 3>&-
+            rm -f server.stdin
+          }
+
+          start_bot() {
+            local name="$1" safe
+            safe="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            rm -f "$ROOT/$safe.uuid" "$ROOT/$safe.stop"
+            (cd "$ROOT/bot" && node bot.js "$name") >"$ROOT/evidence/bot-${safe}-stdout.log" 2>&1 &
+            local pid=$!
+            printf '%s\n' "$pid" > "$ROOT/$safe.pid"
+            for _ in $(seq 1 90); do
+              test -s "$ROOT/$safe.uuid" && return 0
+              kill -0 "$pid" 2>/dev/null || { cat "$ROOT/evidence/bot-${safe}-stdout.log"; return 1; }
+              sleep 1
+            done
+            return 1
+          }
+
+          stop_bot() {
+            local name="$1" safe pid
+            safe="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            pid="$(cat "$ROOT/$safe.pid")"
+            touch "$ROOT/$safe.stop"
+            wait "$pid" || true
+            rm -f "$ROOT/$safe.pid"
+          }
+
+          wait_sql() {
+            local expression="$1" limit="${2:-60}"
+            for _ in $(seq 1 "$limit"); do
+              if python3 - "$DB" "$expression" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          try:
+              row=c.execute(sys.argv[2]).fetchone()
+              raise SystemExit(0 if row and row[0] else 1)
+          finally:
+              c.close()
+          PY
+              then return 0; fi
+              sleep 1
+            done
+            echo "SQL condition timed out: $expression" >&2
+            python3 - "$DB" <<'PY' >&2
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1]); c.row_factory=sqlite3.Row
+          for table in ('destructive_operations','destructive_targets','lore_instances','instance_current_state'):
+              print(table, [dict(r) for r in c.execute(f'select * from {table}').fetchall()])
+          c.close()
+          PY
+            return 1
+          }
+
+          count_log() {
+            local pattern="$1" log="$2"
+            grep -Fc "$pattern" "$log" 2>/dev/null || true
+          }
+
+          wait_log_count() {
+            local pattern="$1" log="$2" expected="$3" limit="${4:-60}"
+            for _ in $(seq 1 "$limit"); do
+              local current
+              current="$(count_log "$pattern" "$log")"
+              test "$current" -ge "$expected" && return 0
+              sleep 1
+            done
+            echo "log count timed out: pattern=$pattern expected=$expected log=$log" >&2
+            tail -n 300 "$log" >&2
+            return 1
+          }
+
+          dump_expect() {
+            local player="$1" expected="$2" log="$3" before
+            before="$(count_log "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log")"
+            echo "wp05accept dump $player" >&3
+            wait_log_count "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log" "$((before+1))" 45
+          }
+
+          definition_id() {
+            local lookup="$1"
+            python3 - "$DB" "$lookup" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          row=c.execute("select definition_id from lore_definitions where lookup_key=? and deleted_at is null",(sys.argv[2],)).fetchone()
+          assert row, sys.argv[2]
+          print(row[0]); c.close()
+          PY
+          }
+
+          operation_id() {
+            local definition="$1"
+            python3 - "$DB" "$definition" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          rows=c.execute("select operation_id from destructive_operations where definition_id=? and operation_type='PURGE_DEFINITION'",(sys.argv[2],)).fetchall()
+          assert len(rows)==1, rows
+          print(rows[0][0]); c.close()
+          PY
+          }
+
+          player_instance() {
+            local definition="$1" player_uuid="$2"
+            python3 - "$DB" "$definition" "$player_uuid" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          key='player:'+sys.argv[3]
+          rows=c.execute("""
+            select i.instance_id
+            from lore_instances i
+            join instance_current_state s on s.instance_id=i.instance_id
+            where i.definition_id=? and i.lifecycle_state='ACTIVE'
+              and s.location_type='PLAYER_INVENTORY' and s.location_key=?
+            order by i.instance_id
+          """,(sys.argv[2],key)).fetchall()
+          assert len(rows)==1, rows
+          print(rows[0][0]); c.close()
+          PY
+          }
+
+          create_pair() {
+            local lookup="$1" display="$2" a="$3" b="$4" log="$5"
+            echo "wp05accept source $a sword" >&3
+            sleep 1
+            echo "wp05accept perform $a loreitems create $lookup $display" >&3
+            wait_sql "select count(*)=1 from lore_definitions where lookup_key='$lookup' and deleted_at is null" 45
+            echo "wp05accept perform $a loreitems adopt $lookup" >&3
+            wait_sql "select count(*)=1 from lore_instances where definition_id=(select definition_id from lore_definitions where lookup_key='$lookup') and lifecycle_state='ACTIVE'" 45
+            echo "wp05accept perform $a loreitems give $lookup $b" >&3
+            wait_sql "select count(*)=2 from lore_instances where definition_id=(select definition_id from lore_definitions where lookup_key='$lookup') and lifecycle_state='ACTIVE'" 60
+            wait_sql "select count(*)=1 from direct_deliveries d join lore_instances i on i.instance_id=d.instance_id join lore_definitions f on f.definition_id=i.definition_id where f.lookup_key='$lookup' and d.state='COMPLETED'" 60
+            dump_expect "$a" 1 "$log"
+            dump_expect "$b" 1 "$log"
+          }
+
+          preview_and_confirm_purge() {
+            local definition="$1" log="$2" inaccessible="$3" before_preview before_confirm token
+            before_preview="$(count_log "targets=2, inaccessible=$inaccessible" "$log")"
+            before_confirm="$(count_log 'Confirm with: /loreitems confirm-purge ' "$log")"
+            echo "loreitems purge $definition" >&3
+            wait_log_count "targets=2, inaccessible=$inaccessible" "$log" "$((before_preview+1))" 45
+            wait_log_count 'Confirm with: /loreitems confirm-purge ' "$log" "$((before_confirm+1))" 45
+            token="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$log" | tail -n1 | sed -E 's/.*confirm-purge ([^ ]+).*/\1/' | tr -d '\r')"
+            test -n "$token"
+            echo "loreitems confirm-purge $token" >&3
+          }
+
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # ACC-DEST-002 + ACC-DEST-004 + ACC-LIFE-002:
+          # one accessible and one offline target, durable pause, clean restart, natural access.
+          LOG1="$ROOT/evidence/server-dest-initial.log"
+          start_server "$LOG1"
+          start_bot Wp05DestA
+          start_bot Wp05DestB
+          A_UUID="$(tr -d '\r\n' < "$ROOT/wp05desta.uuid")"
+          B_UUID="$(tr -d '\r\n' < "$ROOT/wp05destb.uuid")"
+          echo 'op Wp05DestA' >&3
+          echo 'op Wp05DestB' >&3
+          create_pair acc_dest_deferred 'Deferred Purge Acceptance' Wp05DestA Wp05DestB "$LOG1"
+          DEF1="$(definition_id acc_dest_deferred)"
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF1' and s.location_type='PLAYER_INVENTORY' and s.location_key='player:$A_UUID' and s.state='CONFIRMED_NOW'" 45
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF1' and s.location_type='PLAYER_INVENTORY' and s.location_key='player:$B_UUID' and s.state='CONFIRMED_NOW'" 45
+          A_INSTANCE="$(player_instance "$DEF1" "$A_UUID")"
+          B_INSTANCE="$(player_instance "$DEF1" "$B_UUID")"
+          test "$A_INSTANCE" != "$B_INSTANCE"
+
+          stop_bot Wp05DestB
+          wait_sql "select count(*)=1 from instance_current_state where instance_id='$B_INSTANCE' and state='LAST_CONFIRMED' and location_type='PLAYER_INVENTORY' and location_key='player:$B_UUID'" 45
+
+          preview_and_confirm_purge "$DEF1" "$LOG1" 1
+          wait_sql "select count(*)=1 from destructive_operations where definition_id='$DEF1' and operation_type='PURGE_DEFINITION' and target_count=2" 45
+          OP1="$(operation_id "$DEF1")"
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$A_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 75
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$A_INSTANCE' and lifecycle_state='REMOVED'" 45
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$B_INSTANCE' and state in ('PENDING','CLAIMED','APPLIED','VERIFIED')" 45
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$B_INSTANCE' and lifecycle_state='ACTIVE'" 45
+          dump_expect Wp05DestA 0 "$LOG1"
+
+          echo "loreitems pause-operation $OP1" >&3
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='PAUSED'" 45
+          python3 - "$DB" "$OP1" "$B_INSTANCE" > "$ROOT/evidence/paused-target-snapshot.txt" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          row=c.execute("select state,effect_state,attempt_count from destructive_targets where operation_id=? and instance_id=?",(sys.argv[2],sys.argv[3])).fetchone()
+          assert row and row[0] not in ('COMPLETED','ABORTED','REVIEW_REQUIRED'), row
+          print('|'.join(map(str,row))); c.close()
+          PY
+
+          stop_bot Wp05DestA
+          stop_server
+
+          LOG2="$ROOT/evidence/server-dest-restart.log"
+          start_server "$LOG2"
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='PAUSED'" 30
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$A_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 30
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$B_INSTANCE' and state not in ('COMPLETED','ABORTED','REVIEW_REQUIRED')" 30
+
+          start_bot Wp05DestB
+          B_UUID_RESTART="$(tr -d '\r\n' < "$ROOT/wp05destb.uuid")"
+          test "$B_UUID_RESTART" = "$B_UUID"
+          sleep 5
+          dump_expect Wp05DestB 1 "$LOG2"
+          python3 - "$DB" "$OP1" "$B_INSTANCE" "$ROOT/evidence/paused-target-snapshot.txt" <<'PY'
+          import sqlite3,sys,pathlib
+          c=sqlite3.connect(sys.argv[1])
+          row=c.execute("select state,effect_state,attempt_count from destructive_targets where operation_id=? and instance_id=?",(sys.argv[2],sys.argv[3])).fetchone()
+          before=pathlib.Path(sys.argv[4]).read_text().strip()
+          assert row and '|'.join(map(str,row))==before, (row,before)
+          op=c.execute("select state from destructive_operations where operation_id=?",(sys.argv[2],)).fetchone()
+          assert op==('PAUSED',), op
+          c.close()
+          PY
+          stop_bot Wp05DestB
+
+          echo "loreitems resume-operation $OP1" >&3
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='ACTIVE'" 45
+          start_bot Wp05DestB
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$B_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 90
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$B_INSTANCE' and lifecycle_state='REMOVED'" 45
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='COMPLETED' and terminal_at is not null" 45
+          dump_expect Wp05DestB 0 "$LOG2"
+          stop_bot Wp05DestB
+          stop_server
+
+          # ACC-LIFE-001:
+          # keep queued destructive work across native Paper reload and converge after natural access.
+          LOG3="$ROOT/evidence/server-native-reload.log"
+          start_server "$LOG3"
+          start_bot Wp05ReloadA
+          start_bot Wp05ReloadB
+          RA_UUID="$(tr -d '\r\n' < "$ROOT/wp05reloada.uuid")"
+          RB_UUID="$(tr -d '\r\n' < "$ROOT/wp05reloadb.uuid")"
+          echo 'op Wp05ReloadA' >&3
+          echo 'op Wp05ReloadB' >&3
+          create_pair acc_life_reload 'Native Reload Acceptance' Wp05ReloadA Wp05ReloadB "$LOG3"
+          DEF2="$(definition_id acc_life_reload)"
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF2' and s.location_key='player:$RA_UUID' and s.state='CONFIRMED_NOW'" 45
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF2' and s.location_key='player:$RB_UUID' and s.state='CONFIRMED_NOW'" 45
+          RA_INSTANCE="$(player_instance "$DEF2" "$RA_UUID")"
+          RB_INSTANCE="$(player_instance "$DEF2" "$RB_UUID")"
+
+          stop_bot Wp05ReloadB
+          wait_sql "select count(*)=1 from instance_current_state where instance_id='$RB_INSTANCE' and state='LAST_CONFIRMED' and location_key='player:$RB_UUID'" 45
+          preview_and_confirm_purge "$DEF2" "$LOG3" 1
+          wait_sql "select count(*)=1 from destructive_operations where definition_id='$DEF2' and operation_type='PURGE_DEFINITION' and target_count=2" 45
+          OP2="$(operation_id "$DEF2")"
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RA_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 75
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state not in ('COMPLETED','ABORTED','REVIEW_REQUIRED')" 45
+          dump_expect Wp05ReloadA 0 "$LOG3"
+
+          STARTUP_BEFORE="$(count_log 'Queued direct-delivery processing is active.' "$LOG3")"
+          HELPER_BEFORE="$(count_log 'WP-05 deterministic acceptance helper is active' "$LOG3")"
+          test "$STARTUP_BEFORE" = "1"
+          test "$HELPER_BEFORE" = "1"
+          echo 'reload confirm' >&3
+          wait_log_count 'Queued direct-delivery processing is active.' "$LOG3" 2 90
+          wait_log_count 'WP-05 deterministic acceptance helper is active' "$LOG3" 2 90
+          test "$(count_log 'Queued direct-delivery processing is active.' "$LOG3")" = "2"
+          test "$(count_log 'WP-05 deterministic acceptance helper is active' "$LOG3")" = "2"
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP2' and state='ACTIVE'" 45
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RA_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 45
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state not in ('COMPLETED','ABORTED','REVIEW_REQUIRED')" 45
+
+          start_bot Wp05ReloadB
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 90
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$RB_INSTANCE' and lifecycle_state='REMOVED'" 45
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP2' and state='COMPLETED' and terminal_at is not null" 45
+          dump_expect Wp05ReloadB 0 "$LOG3"
+          stop_bot Wp05ReloadB
+          stop_bot Wp05ReloadA
+          stop_server
+
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          python3 - "$DB" "$START" "$END" "$OP1" "$OP2" "$A_INSTANCE" "$B_INSTANCE" "$RA_INSTANCE" "$RB_INSTANCE" <<'PY'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db,start,end,op1,op2,a,b,ra,rb=sys.argv[1:]
+          root=Path('/tmp/wp05-dest-lifecycle')
+          c=sqlite3.connect(db); c.row_factory=sqlite3.Row
+          versions=[r[0] for r in c.execute('select version from schema_history order by version')]
+          assert versions==list(range(1,9)), versions
+          integrity=[r[0] for r in c.execute('pragma integrity_check')]
+          foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
+          assert integrity==['ok'], integrity
+          assert not foreign, foreign
+
+          operations={}
+          targets={}
+          for label,op,instances in (
+              ('deferred_pause_restart',op1,(a,b)),
+              ('native_reload',op2,(ra,rb)),
+          ):
+              operation=dict(c.execute("""
+                select operation_type,state,target_count,terminal_at is not null as terminal
+                from destructive_operations where operation_id=?
+              """,(op,)).fetchone())
+              assert operation=={
+                  'operation_type':'PURGE_DEFINITION',
+                  'state':'COMPLETED',
+                  'target_count':2,
+                  'terminal':1,
+              }, (label,operation)
+              operations[label]=operation
+              rows=[]
+              for instance in instances:
+                  target=dict(c.execute("""
+                    select instance_id,state,effect_state,attempt_count,
+                           before_fingerprint is not null as has_before,
+                           last_error
+                    from destructive_targets where operation_id=? and instance_id=?
+                  """,(op,instance)).fetchone())
+                  assert target['state']=='COMPLETED' and target['effect_state']=='REMOVED_OBSERVED', (label,target)
+                  assert target['attempt_count']>=1, (label,target)
+                  assert target['has_before']==1, (label,target)
+                  assert target['last_error'] is None, (label,target)
+                  lifecycle=dict(c.execute("""
+                    select lifecycle_state,terminal_at is not null as terminal
+                    from lore_instances where instance_id=?
+                  """,(instance,)).fetchone())
+                  assert lifecycle=={'lifecycle_state':'REMOVED','terminal':1}, (label,instance,lifecycle)
+                  rows.append(target)
+              targets[label]=rows
+              review=c.execute("select count(*) from destructive_targets where operation_id=? and state='REVIEW_REQUIRED'",(op,)).fetchone()[0]
+              assert review==0, (label,review)
+              audits=[r[0] for r in c.execute("select event_type from audit_events where aggregate_id=? order by audit_id",(op,))]
+              assert audits.count('destructive_target_removed')==2, (label,audits)
+              assert 'destructive_operation_paused' in audits if label=='deferred_pause_restart' else True
+              assert 'destructive_operation_resumed' in audits if label=='deferred_pause_restart' else True
+
+          logs={
+              'dest_initial':(root/'evidence/server-dest-initial.log').read_text(errors='replace'),
+              'dest_restart':(root/'evidence/server-dest-restart.log').read_text(errors='replace'),
+              'native_reload':(root/'evidence/server-native-reload.log').read_text(errors='replace'),
+          }
+          assert 'targets=2, inaccessible=1' in logs['dest_initial']
+          assert 'targets=2, inaccessible=1' in logs['native_reload']
+          assert logs['native_reload'].count('Queued direct-delivery processing is active.')==2
+          assert logs['native_reload'].count('WP-05 deterministic acceptance helper is active')==2
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestA count=0' in logs['dest_initial']
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=1' in logs['dest_restart']
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=0' in logs['dest_restart']
+          assert 'WP05_ACCEPT DUMP ok player=Wp05ReloadA count=0' in logs['native_reload']
+          assert 'WP05_ACCEPT DUMP ok player=Wp05ReloadB count=0' in logs['native_reload']
+          c.close()
+
+          result={
+              'source_head':(root/'evidence/source-head.txt').read_text().strip(),
+              'started_at':start,
+              'finished_at':end,
+              'cases':['ACC-DEST-002','ACC-DEST-004','ACC-LIFE-001','ACC-LIFE-002'],
+              'schema_versions':versions,
+              'integrity':integrity,
+              'foreign_key_violations':foreign,
+              'operations':operations,
+              'targets':targets,
+              'evidence':{
+                  'deferred_preview':'targets=2, inaccessible=1',
+                  'pause_snapshot':(root/'evidence/paused-target-snapshot.txt').read_text().strip(),
+                  'native_reload_runtime_start_count':2,
+              },
+              'verdict':'PASS',
+          }
+          (root/'evidence/result.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          ROOT=/tmp/wp05-dest-lifecycle
+          mkdir -p "$ROOT/evidence"
+          if test -f "$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"; then
+            python3 - "$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db" >"$ROOT/evidence/failure-db.txt" 2>&1 <<'PY' || true
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1]); c.row_factory=sqlite3.Row
+          for table in ('schema_history','lore_definitions','lore_instances','instance_current_state','direct_deliveries','destructive_operations','destructive_targets','audit_events'):
+              try:
+                  print(f'## {table}')
+                  for row in c.execute(f'select * from {table}'):
+                      print(dict(row))
+              except Exception as exc:
+                  print(type(exc).__name__, exc)
+          print('integrity',list(c.execute('pragma integrity_check')))
+          print('foreign',list(c.execute('pragma foreign_key_check')))
+          c.close()
+          PY
+          fi
+          ps aux >"$ROOT/evidence/failure-processes.txt" 2>&1 || true
+
+      - name: Upload destructive lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-destructive-lifecycle-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-dest-lifecycle/evidence
+          if-no-files-found: error
