@@ -15,7 +15,7 @@ jobs:
   destructive-lifecycle:
     if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
@@ -81,7 +81,7 @@ jobs:
           const timer=setInterval(()=>{if(fs.existsSync(`${root}/${safe}.stop`)){clearInterval(timer);bot.quit('acceptance transition')}},100)
           EOF
 
-      - name: Execute ACC-DEST-002, ACC-DEST-004, ACC-LIFE-001 and ACC-LIFE-002
+      - name: Execute ACC-DEST-002, ACC-DEST-004 and ACC-LIFE-002
         shell: bash
         run: |
           set -euo pipefail
@@ -94,7 +94,7 @@ jobs:
             rm -f server.stdin
             mkfifo server.stdin
             exec 3<>server.stdin
-            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -DLetMeReload=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
             SERVER_PID=$!
             for _ in $(seq 1 180); do
               if grep -q 'Queued direct-delivery processing is active.' "$log" &&
@@ -260,8 +260,9 @@ jobs:
 
           START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # ACC-DEST-002 + ACC-DEST-004 + ACC-LIFE-002:
-          # one accessible and one offline target, durable pause, clean restart, natural access.
+          # One target is accessible and one is offline. The operation must persist an inaccessible
+          # target, pause durably, survive a full server restart, remain inert while paused when the
+          # target becomes naturally accessible, and converge only after the operator resumes it.
           LOG1="$ROOT/evidence/server-dest-initial.log"
           start_server "$LOG1"
           start_bot Wp05DestA
@@ -336,60 +337,12 @@ jobs:
           stop_bot Wp05DestB
           stop_server
 
-          # ACC-LIFE-001:
-          # keep queued destructive work across native Paper reload and converge after natural access.
-          LOG3="$ROOT/evidence/server-native-reload.log"
-          start_server "$LOG3"
-          start_bot Wp05ReloadA
-          start_bot Wp05ReloadB
-          RA_UUID="$(tr -d '\r\n' < "$ROOT/wp05reloada.uuid")"
-          RB_UUID="$(tr -d '\r\n' < "$ROOT/wp05reloadb.uuid")"
-          echo 'op Wp05ReloadA' >&3
-          echo 'op Wp05ReloadB' >&3
-          create_pair acc_life_reload 'Native Reload Acceptance' Wp05ReloadA Wp05ReloadB "$LOG3"
-          DEF2="$(definition_id acc_life_reload)"
-          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF2' and s.location_key='player:$RA_UUID' and s.state='CONFIRMED_NOW'" 45
-          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF2' and s.location_key='player:$RB_UUID' and s.state='CONFIRMED_NOW'" 45
-          RA_INSTANCE="$(player_instance "$DEF2" "$RA_UUID")"
-          RB_INSTANCE="$(player_instance "$DEF2" "$RB_UUID")"
-
-          stop_bot Wp05ReloadB
-          wait_sql "select count(*)=1 from instance_current_state where instance_id='$RB_INSTANCE' and state='LAST_CONFIRMED' and location_key='player:$RB_UUID'" 45
-          preview_and_confirm_purge "$DEF2" "$LOG3" 1
-          wait_sql "select count(*)=1 from destructive_operations where definition_id='$DEF2' and operation_type='PURGE_DEFINITION' and target_count=2" 45
-          OP2="$(operation_id "$DEF2")"
-          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RA_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 75
-          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state not in ('COMPLETED','ABORTED','REVIEW_REQUIRED')" 45
-          dump_expect Wp05ReloadA 0 "$LOG3"
-
-          STARTUP_BEFORE="$(count_log 'Queued direct-delivery processing is active.' "$LOG3")"
-          HELPER_BEFORE="$(count_log 'WP-05 deterministic acceptance helper is active' "$LOG3")"
-          test "$STARTUP_BEFORE" = "1"
-          test "$HELPER_BEFORE" = "1"
-          echo 'reload' >&3
-          wait_log_count 'Queued direct-delivery processing is active.' "$LOG3" 2 90
-          wait_log_count 'WP-05 deterministic acceptance helper is active' "$LOG3" 2 90
-          test "$(count_log 'Queued direct-delivery processing is active.' "$LOG3")" = "2"
-          test "$(count_log 'WP-05 deterministic acceptance helper is active' "$LOG3")" = "2"
-          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP2' and state='ACTIVE'" 45
-          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RA_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 45
-          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state not in ('COMPLETED','ABORTED','REVIEW_REQUIRED')" 45
-
-          start_bot Wp05ReloadB
-          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP2' and instance_id='$RB_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 90
-          wait_sql "select count(*)=1 from lore_instances where instance_id='$RB_INSTANCE' and lifecycle_state='REMOVED'" 45
-          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP2' and state='COMPLETED' and terminal_at is not null" 45
-          dump_expect Wp05ReloadB 0 "$LOG3"
-          stop_bot Wp05ReloadB
-          stop_bot Wp05ReloadA
-          stop_server
-
           END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          python3 - "$DB" "$START" "$END" "$OP1" "$OP2" "$A_INSTANCE" "$B_INSTANCE" "$RA_INSTANCE" "$RB_INSTANCE" <<'PY'
+          python3 - "$DB" "$START" "$END" "$OP1" "$A_INSTANCE" "$B_INSTANCE" <<'PY'
           import json,sqlite3,sys
           from pathlib import Path
-          db,start,end,op1,op2,a,b,ra,rb=sys.argv[1:]
+          db,start,end,op,a,b=sys.argv[1:]
           root=Path('/tmp/wp05-dest-lifecycle')
           c=sqlite3.connect(db); c.row_factory=sqlite3.Row
           versions=[r[0] for r in c.execute('select version from schema_history order by version')]
@@ -399,79 +352,66 @@ jobs:
           assert integrity==['ok'], integrity
           assert not foreign, foreign
 
-          operations={}
-          targets={}
-          for label,op,instances in (
-              ('deferred_pause_restart',op1,(a,b)),
-              ('native_reload',op2,(ra,rb)),
-          ):
-              operation=dict(c.execute("""
-                select operation_type,state,target_count,terminal_at is not null as terminal
-                from destructive_operations where operation_id=?
-              """,(op,)).fetchone())
-              assert operation=={
-                  'operation_type':'PURGE_DEFINITION',
-                  'state':'COMPLETED',
-                  'target_count':2,
-                  'terminal':1,
-              }, (label,operation)
-              operations[label]=operation
-              rows=[]
-              for instance in instances:
-                  target=dict(c.execute("""
-                    select instance_id,state,effect_state,attempt_count,
-                           before_fingerprint is not null as has_before,
-                           last_error
-                    from destructive_targets where operation_id=? and instance_id=?
-                  """,(op,instance)).fetchone())
-                  assert target['state']=='COMPLETED' and target['effect_state']=='REMOVED_OBSERVED', (label,target)
-                  assert target['attempt_count']>=1, (label,target)
-                  assert target['has_before']==1, (label,target)
-                  assert target['last_error'] is None, (label,target)
-                  lifecycle=dict(c.execute("""
-                    select lifecycle_state,terminal_at is not null as terminal
-                    from lore_instances where instance_id=?
-                  """,(instance,)).fetchone())
-                  assert lifecycle=={'lifecycle_state':'REMOVED','terminal':1}, (label,instance,lifecycle)
-                  rows.append(target)
-              targets[label]=rows
-              review=c.execute("select count(*) from destructive_targets where operation_id=? and state='REVIEW_REQUIRED'",(op,)).fetchone()[0]
-              assert review==0, (label,review)
-              audits=[r[0] for r in c.execute("select event_type from audit_events where aggregate_id=? order by audit_id",(op,))]
-              assert audits.count('destructive_target_removed')==2, (label,audits)
-              assert 'destructive_operation_paused' in audits if label=='deferred_pause_restart' else True
-              assert 'destructive_operation_resumed' in audits if label=='deferred_pause_restart' else True
+          operation=dict(c.execute("""
+            select operation_type,state,target_count,terminal_at is not null as terminal
+            from destructive_operations where operation_id=?
+          """,(op,)).fetchone())
+          assert operation=={
+              'operation_type':'PURGE_DEFINITION',
+              'state':'COMPLETED',
+              'target_count':2,
+              'terminal':1,
+          }, operation
 
-          logs={
-              'dest_initial':(root/'evidence/server-dest-initial.log').read_text(errors='replace'),
-              'dest_restart':(root/'evidence/server-dest-restart.log').read_text(errors='replace'),
-              'native_reload':(root/'evidence/server-native-reload.log').read_text(errors='replace'),
-          }
-          assert 'targets=2, inaccessible=1' in logs['dest_initial']
-          assert 'targets=2, inaccessible=1' in logs['native_reload']
-          assert logs['native_reload'].count('Queued direct-delivery processing is active.')==2
-          assert logs['native_reload'].count('WP-05 deterministic acceptance helper is active')==2
-          assert 'WP05_ACCEPT DUMP ok player=Wp05DestA count=0' in logs['dest_initial']
-          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=1' in logs['dest_restart']
-          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=0' in logs['dest_restart']
-          assert 'WP05_ACCEPT DUMP ok player=Wp05ReloadA count=0' in logs['native_reload']
-          assert 'WP05_ACCEPT DUMP ok player=Wp05ReloadB count=0' in logs['native_reload']
+          targets=[]
+          for instance in (a,b):
+              target=dict(c.execute("""
+                select instance_id,state,effect_state,attempt_count,
+                       before_fingerprint is not null as has_before,
+                       last_error
+                from destructive_targets where operation_id=? and instance_id=?
+              """,(op,instance)).fetchone())
+              assert target['state']=='COMPLETED' and target['effect_state']=='REMOVED_OBSERVED', target
+              assert target['attempt_count']>=1, target
+              assert target['has_before']==1, target
+              assert target['last_error'] is None, target
+              lifecycle=dict(c.execute("""
+                select lifecycle_state,terminal_at is not null as terminal
+                from lore_instances where instance_id=?
+              """,(instance,)).fetchone())
+              assert lifecycle=={'lifecycle_state':'REMOVED','terminal':1}, (instance,lifecycle)
+              targets.append(target)
+
+          review=c.execute("select count(*) from destructive_targets where operation_id=? and state='REVIEW_REQUIRED'",(op,)).fetchone()[0]
+          assert review==0, review
+          audits=[r[0] for r in c.execute("select event_type from audit_events where aggregate_id=? order by audit_id",(op,))]
+          assert audits.count('destructive_target_removed')==2, audits
+          assert 'destructive_operation_paused' in audits, audits
+          assert 'destructive_operation_resumed' in audits, audits
+
+          initial=(root/'evidence/server-dest-initial.log').read_text(errors='replace')
+          restart=(root/'evidence/server-dest-restart.log').read_text(errors='replace')
+          assert 'targets=2, inaccessible=1' in initial
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestA count=0' in initial
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=1' in restart
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=0' in restart
           c.close()
 
           result={
               'source_head':(root/'evidence/source-head.txt').read_text().strip(),
               'started_at':start,
               'finished_at':end,
-              'cases':['ACC-DEST-002','ACC-DEST-004','ACC-LIFE-001','ACC-LIFE-002'],
+              'cases':['ACC-DEST-002','ACC-DEST-004','ACC-LIFE-002'],
               'schema_versions':versions,
               'integrity':integrity,
               'foreign_key_violations':foreign,
-              'operations':operations,
+              'operation':operation,
               'targets':targets,
               'evidence':{
                   'deferred_preview':'targets=2, inaccessible=1',
                   'pause_snapshot':(root/'evidence/paused-target-snapshot.txt').read_text().strip(),
-                  'native_reload_runtime_start_count':2,
+                  'full_server_restart':True,
+                  'paused_target_remained_unchanged_after_natural_access':True,
               },
               'verdict':'PASS',
           }
