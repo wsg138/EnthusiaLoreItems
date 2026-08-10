@@ -23,10 +23,10 @@ import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCa
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
 import org.bukkit.command.PluginCommand;
-import org.bukkit.plugin.JavaPlugin;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.ServicesManager;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
