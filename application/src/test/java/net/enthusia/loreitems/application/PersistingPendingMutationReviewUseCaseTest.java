@@ -41,7 +41,7 @@ class PersistingPendingMutationReviewUseCaseTest {
         assertEquals(MUTATION_ID.toString(), audit.aggregateId());
         assertEquals("mutation_review_retried", audit.eventType());
         assertEquals("STAFF", audit.actorType());
-        assertEquals(NOW.toEpochMilli(), audit.createdAtEpochMillis());
+        assertEquals(NOW.toEpochMilli(), audit.occurredAtEpochMillis());
         assertTrue(audit.detailJson().contains("physical item still has revision 1"));
     }
 
