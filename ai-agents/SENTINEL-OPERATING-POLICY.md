@@ -23,7 +23,7 @@ LoreItems is authorized under immutable repository ID `1320758587` and canonical
 
 The existing `Enthusia Sentinel` GitHub App installation repository selector is an owner-controlled account setting. The owner may use either `Only select repositories` or `All repositories`. Workers must respect the owner's current choice and must not automatically broaden or narrow it.
 
-Sentinel execution authorization is independent of App installation visibility. A repository must be enabled by immutable numeric ID/canonical name in trusted Sentinel policy, and production Sentinel must use short-lived installation tokens scoped to the repositories currently enabled by that policy. App visibility alone never authorizes execution.
+Sentinel execution authorization is independent of App installation visibility. A repository must be enabled by immutable numeric ID/canonical name in trusted Sentinel policy, and production Sentinel must use short-lived installation tokens scoped to repositories already trusted by control-plane policy. The token stays inside Sentinel; it is never exposed to a PR, repository, plugin process, or sandbox. App visibility alone never authorizes execution.
 
 Workers must preserve these boundaries:
 
@@ -64,7 +64,9 @@ Do not manually enqueue jobs, write directly to Sentinel's queue, or replace the
 
 A valid production chain is:
 
-GitHub PR/comment -> existing Enthusia Sentinel App -> policy-scoped short-lived installation token -> outbound Sentinel polling -> repository/requester authorization -> exact PR head -> exact manifest -> exact successful artifact -> durable queue -> rootless Paper execution -> cleanup -> GitHub result.
+trusted Sentinel policy loads immutable enabled repository IDs -> controller mints a short-lived installation token scoped only to that trusted repository set -> outbound Sentinel polling is limited to those trusted repositories -> repository/requester/profile authorization -> exact PR head -> exact manifest -> exact successful artifact -> durable queue -> rootless Paper execution -> cleanup -> GitHub result.
+
+The controller-only installation token is required to read GitHub and identify the request; it is not handed to the requesting repository or test process. An App-visible repository that is absent from trusted Sentinel policy is outside the token scope and is not polled or executable.
 
 ## Result semantics
 
