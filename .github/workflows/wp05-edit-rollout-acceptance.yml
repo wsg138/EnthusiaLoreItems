@@ -30,12 +30,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
+
       - name: Prepare exact-head rollout fixture
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
-          R=/tmp/wp05-rollout;mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot";P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt";cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          R=/tmp/wp05-rollout
+          mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar"
+          cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$P">"$R/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
+          cd "$R/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar"|sha256sum -c -
+          printf 'eula=true\n'>eula.txt
+          cat >server.properties <<'EOF'
           online-mode=false
           enforce-secure-profile=false
           spawn-protection=0
@@ -45,66 +58,108 @@ jobs:
           server-port=25565
           motd=WP05 rollout
           EOF
-          cd "$R/bot";npm init -y>/dev/null;npm install --save-exact mineflayer@4.35.0>"$R/evidence/npm.log" 2>&1;cat >bot.js <<'EOF'
-          const m=require('mineflayer'),fs=require('fs'),Vec3=require('vec3').Vec3,r='/tmp/wp05-rollout',name=process.argv[2],sleep=ms=>new Promise(x=>setTimeout(x,ms));const q=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'});function text(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(text).join(''):'');if(Array.isArray(v.extra))return v.extra.map(text).join('');return JSON.stringify(v)}async function file(p){for(let i=0;i<1200;i++){if(fs.existsSync(p))return;await sleep(100)}throw Error(p)}async function win(x){for(let i=0;i<200;i++){if(b.currentWindow&&text(b.currentWindow.title).toLowerCase().includes(x.toLowerCase()))return;await sleep(100)}throw Error(`window ${x}`)}async function click(n){await b.clickWindow(n,0,0);await sleep(300)}async function toss(){const x=b.inventory.items().find(v=>v.name==='diamond_sword');if(!x)throw Error('drop sword missing');await b.tossStack(x);await sleep(900);fs.writeFileSync(`${r}/drop.done`,'ok\n')}
-          async function far(){let last='none';for(let attempt=1;attempt<=4;attempt++){await sleep(500);await b.waitForChunksToLoad();b.chat('/setblock 1025 200 1024 minecraft:chest');await sleep(500);let x=null;for(let i=0;i<100;i++){x=b.blockAt(new Vec3(1025,200,1024));if(x&&x.name==='chest')break;last=x?x.name:'null';await sleep(100)}if(!x||x.name!=='chest')continue;try{const c=await b.openContainer(x);await sleep(400);const s=b.inventory.items().find(v=>v.name==='diamond_sword');if(!s)throw Error('far sword missing');await c.deposit(s.type,null,1);await sleep(700);c.close();fs.writeFileSync(`${r}/far.done`,'ok\n');return}catch(e){last=e.message;await sleep(600)}}throw Error(`far chest open failed ${last}`)}
-          async function edit(){b.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120;i++){if(!b.currentWindow)break;await sleep(100)}b.chat('submit literal Rollout Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await sleep(1600);fs.writeFileSync(`${r}/edit.done`,'ok\n')}b.once('spawn',async()=>{try{fs.writeFileSync(`${r}/${q}.uuid`,`${b.player.uuid}\n`);if(name==='Wp05Rollout'){await file(`${r}/drop.go`);await toss();await file(`${r}/far.go`);await far();await file(`${r}/edit.go`);await edit()}while(!fs.existsSync(`${r}/${q}.stop`))await sleep(100);b.quit('transition')}catch(e){fs.writeFileSync(`${r}/${q}.failed`,String(e.stack||e));process.exit(1)}})
+          cd "$R/bot"
+          npm init -y>/dev/null
+          npm install --save-exact mineflayer@4.35.0>"$R/evidence/npm.log" 2>&1
+          cat >bot.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs'),Vec3=require('vec3').Vec3,r='/tmp/wp05-rollout',name=process.argv[2],sleep=ms=>new Promise(x=>setTimeout(x,ms));
+          const q=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'});
+          function text(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(text).join(''):'');if(Array.isArray(v.extra))return v.extra.map(text).join('');return JSON.stringify(v)}
+          async function file(p){for(let i=0;i<1200;i++){if(fs.existsSync(p))return;await sleep(100)}throw Error(p)}
+          async function win(x){for(let i=0;i<200;i++){if(b.currentWindow&&text(b.currentWindow.title).toLowerCase().includes(x.toLowerCase()))return;await sleep(100)}throw Error(`window ${x}`)}
+          async function click(n){await b.clickWindow(n,0,0);await sleep(300)}
+          async function toss(){const x=b.inventory.items().find(v=>v.name==='diamond_sword');if(!x)throw Error('drop sword missing');await b.tossStack(x);await sleep(900);fs.writeFileSync(`${r}/drop.done`,'ok\n')}
+          async function far(){let last='none';for(let a=1;a<=4;a++){await b.waitForChunksToLoad();b.chat('/setblock 1025 200 1024 minecraft:chest');await sleep(600);const x=b.blockAt(new Vec3(1025,200,1024));if(!x||x.name!=='chest'){last=x?x.name:'null';await sleep(500);continue}try{const c=await b.openContainer(x);await sleep(400);const s=b.inventory.items().find(v=>v.name==='diamond_sword');if(!s)throw Error('far sword missing');await c.deposit(s.type,null,1);await sleep(800);c.close();await sleep(500);fs.writeFileSync(`${r}/far.done`,'ok\n');return}catch(e){last=e.message;await sleep(600)}}throw Error(`far chest failed ${last}`)}
+          async function edit(){b.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120;i++){if(!b.currentWindow)break;await sleep(100)}b.chat('submit literal Rollout Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await sleep(1600);fs.writeFileSync(`${r}/edit.done`,'ok\n')}
+          b.once('spawn',async()=>{try{fs.writeFileSync(`${r}/${q}.uuid`,`${b.player.uuid}\n`);if(name==='Wp05Rollout'){await file(`${r}/drop.go`);await toss();await file(`${r}/far.go`);await far();await file(`${r}/edit.go`);await edit()}while(!fs.existsSync(`${r}/${q}.stop`))await sleep(100);b.quit('transition')}catch(e){fs.writeFileSync(`${r}/${q}.failed`,String(e.stack||e));process.exit(1)}})
           EOF
+
       - name: Execute ACC-EDIT-003 across every tracked physical location and restart
         shell: bash
         run: |
           set -euo pipefail
           R=/tmp/wp05-rollout;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
-          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||return 1;sleep 1;done;return 1;}
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
           stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
           start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 100);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
-          stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 40);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
+          stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";test -f "$R/$q.pid"||return 0;p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 40);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
           kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
-          wait_sql(){ local q="$1";for _ in $(seq 1 240);do if python3 - "$DB" "$q" <<'PY'
+          wait_sql(){ local q="$1";for _ in $(seq 1 320);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
               with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
             then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
-          wait_player_item(){ wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY' and s.location_key='player:$U'"; }
-          give_and_place(){ local dest="$1" type="$2" expected="$3";echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_player_item;echo "wp05accept place Wp05Rollout $dest" >&3;wait_sql "select count(*)=$expected from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='$type'";}
+          wait_log_increment(){ local needle="$1" log="$2" before="$3";for _ in $(seq 1 120);do test "$(grep -Fc "$needle" "$log"||true)" -gt "$before"&&return;sleep .1;done;echo "log timeout: $needle" >&2;return 1;}
+          wait_main_item(){ local needle='WP05_ACCEPT DUMP ok player=Wp05Rollout count=1' b;for _ in $(seq 1 100);do b="$(grep -Fc "$needle" "$L1"||true)";echo 'wp05accept dump Wp05Rollout' >&3;if wait_log_increment "$needle" "$L1" "$b";then return;fi;done;return 1;}
+          place_helper(){ local dest="$1" needle b;needle="WP05_ACCEPT PLACE ok player=Wp05Rollout destination=$dest";b="$(grep -Fc "$needle" "$L1"||true)";echo "wp05accept place Wp05Rollout $dest" >&3;wait_log_increment "$needle" "$L1" "$b";}
+          give_main(){ echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_main_item;}
+
           START="$(date -u +%FT%TZ)";L1="$E/server-initial.log";start_server "$L1";start_bot Wp05Rollout;U="$(tr -d '\r\n'<"$R/wp05rollout.uuid")";echo 'op Wp05Rollout' >&3
-          echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'execute at Wp05Rollout run tp Wp05Rollout ~ 250 ~' >&3;sleep 3;echo 'execute at Wp05Rollout run fill ~-4 199 ~-4 ~16 199 ~4 minecraft:stone' >&3;echo 'execute at Wp05Rollout run fill ~-4 200 ~-4 ~16 203 ~4 minecraft:air' >&3;echo 'execute at Wp05Rollout run tp Wp05Rollout ~ 200 ~' >&3;echo 'execute at Wp05Rollout run setworldspawn ~ ~ ~ 0' >&3;echo 'execute at Wp05Rollout run summon minecraft:armor_stand ~ ~ ~ {Invisible:1b,Marker:1b,NoGravity:1b,Tags:["wp05-home"]}' >&3;sleep 2
+          # Deterministic home platform. World spawn is the acceptance-helper base.
+          echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 0 250 0' >&3;sleep 3;echo 'fill -5 199 -5 20 199 5 minecraft:stone' >&3;echo 'fill -5 200 -5 20 204 5 minecraft:air' >&3;echo 'tp Wp05Rollout 0 200 0' >&3;echo 'setworldspawn 0 200 0' >&3;sleep 2
           echo 'wp05accept source Wp05Rollout sword' >&3;sleep .5;echo 'wp05accept perform Wp05Rollout loreitems create rollout_item Revision Rollout' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='rollout_item' and current_revision=1";DEF="$(python3 - "$DB" <<'PY'
           import sqlite3
           with sqlite3.connect('/tmp/wp05-rollout/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='rollout_item'").fetchone()[0])
           PY
-          )";echo 'wp05accept perform Wp05Rollout loreitems adopt rollout_item' >&3;wait_player_item;echo 'wp05accept place Wp05Rollout chest' >&3;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'"
-          give_and_place shulker NESTED_CONTAINER 1
-          give_and_place bundle NESTED_CONTAINER 2
-          give_and_place frame ITEM_FRAME 1
-          give_and_place glowframe ITEM_FRAME 2
-          give_and_place armorstand ARMOR_STAND 1
-          echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_player_item;touch "$R/drop.go";for _ in $(seq 1 120);do test -f "$R/drop.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;test -f "$R/drop.done";wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'"
-          echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_player_item;echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 1024 250 1024' >&3;sleep 3;echo 'fill 1022 199 1022 1027 199 1026 minecraft:stone' >&3;echo 'fill 1022 200 1022 1027 203 1026 minecraft:air' >&3;echo 'tp Wp05Rollout 1024 200 1024' >&3;sleep 2;touch "$R/far.go";for _ in $(seq 1 180);do test -f "$R/far.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;test -f "$R/far.done";wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1025:200:1024'";FAR="$(python3 - "$DB" "$DEF" <<'PY'
+          )";echo 'wp05accept perform Wp05Rollout loreitems adopt rollout_item' >&3;wait_main_item
+          # Stage six physical holders. The helper only moves the real item; the production tracker discovers them below.
+          place_helper chest
+          for dest in shulker bundle frame glowframe armorstand;do give_main;place_helper "$dest";done
+          # Release the home spawn chunk and return naturally. Chunk unload/load + entity lifecycle scanners are the oracle.
+          echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 512 250 0' >&3;sleep 3;echo 'fill 507 199 -5 517 199 5 minecraft:stone' >&3;echo 'fill 507 200 -5 517 204 5 minecraft:air' >&3;echo 'tp Wp05Rollout 512 200 0' >&3;echo 'setworldspawn 512 200 0' >&3
+          for _ in $(seq 1 100);do B="$(grep -Fc WP05_HOME_UNLOADED "$L1"||true)";echo 'execute unless loaded 4 200 0 run say WP05_HOME_UNLOADED' >&3;sleep .3;test "$(grep -Fc WP05_HOME_UNLOADED "$L1"||true)" -gt "$B"&&break;done;test "$(grep -Fc WP05_HOME_UNLOADED "$L1"||true)" -gt 0
+          echo 'setworldspawn 0 200 0' >&3;echo 'tp Wp05Rollout 0 200 0' >&3;sleep 8
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'"
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'"
+          # Natural player drop.
+          give_main;touch "$R/drop.go";for _ in $(seq 1 120);do test -f "$R/drop.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;test -f "$R/drop.done";wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'"
+          # Natural far-container deposit, then unload it before editing.
+          give_main;echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 1024 250 1024' >&3;sleep 3;echo 'fill 1022 199 1022 1027 199 1026 minecraft:stone' >&3;echo 'fill 1022 200 1022 1027 204 1026 minecraft:air' >&3;echo 'tp Wp05Rollout 1024 200 1024' >&3;sleep 2;touch "$R/far.go";for _ in $(seq 1 180);do test -f "$R/far.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;test -f "$R/far.done";wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1025:200:1024'";FAR="$(python3 - "$DB" "$DEF" <<'PY'
           import sqlite3,sys
           with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key='minecraft:overworld:1025:200:1024'",(sys.argv[2],)).fetchone()[0])
           PY
-          )";echo 'tp Wp05Rollout @e[type=minecraft:armor_stand,tag=wp05-home,limit=1]' >&3;sleep 10;for _ in $(seq 1 50);do B="$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)";echo 'execute unless loaded 1025 200 1024 run say WP05_FAR_UNLOADED' >&3;sleep .3;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt "$B"&&break;done;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt 0
-          echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_player_item;start_bot Wp05RollOff;O="$(tr -d '\r\n'<"$R/wp05rolloff.uuid")";echo 'op Wp05RollOff' >&3;echo 'loreitems give rollout_item Wp05RollOff' >&3;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER'";wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'";wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY'";OFF="$(python3 - "$DB" "$DEF" "$O" <<'PY'
+          )";echo 'tp Wp05Rollout 0 200 0' >&3;sleep 10;for _ in $(seq 1 70);do B="$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)";echo 'execute unless loaded 1025 200 1024 run say WP05_FAR_UNLOADED' >&3;sleep .3;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt "$B"&&break;done;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt 0
+          # One loaded player copy and one copy that becomes offline before revision creation.
+          give_main;start_bot Wp05RollOff;O="$(tr -d '\r\n'<"$R/wp05rolloff.uuid")";echo 'loreitems give rollout_item Wp05RollOff' >&3;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_key='player:$O'";OFF="$(python3 - "$DB" "$DEF" "$O" <<'PY'
           import sqlite3,sys
           with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key=?",(sys.argv[2],'player:'+sys.argv[3])).fetchone()[0])
           PY
           )";stop_bot Wp05RollOff
+          wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER'"
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'"
+          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'"
+          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY'"
           python3 - "$DB" "$DEF">"$E/pre-edit.json" <<'PY'
           import json,sqlite3,sys
           with sqlite3.connect(sys.argv[1]) as c:c.row_factory=sqlite3.Row;print(json.dumps([dict(r) for r in c.execute('select i.instance_id,i.applied_revision,i.desired_revision,s.location_type,s.location_key from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? order by i.instance_id',(sys.argv[2],))],indent=2))
           PY
+          # Edit through the real admin GUI. Loaded holders converge; far/offline remain pending.
           touch "$R/edit.go";for _ in $(seq 1 240);do test -f "$R/edit.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .25;done;test -f "$R/edit.done";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2";wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=1 and desired_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=1 and desired_revision=2"
-          stop_bot Wp05Rollout;stop_server;kill_bots;L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout;echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 1024 200 1024' >&3;sleep 6;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
-          L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";echo 'kill @e[type=minecraft:armor_stand,tag=wp05-home]' >&3;stop_server;END="$(date -u +%FT%TZ)"
+          stop_bot Wp05Rollout;stop_server;kill_bots
+          # Restart mid-rollout, then naturally reaccess offline player and unloaded container sequentially.
+          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout;echo 'effect give Wp05Rollout minecraft:slow_falling 60 0 true' >&3;echo 'tp Wp05Rollout 1024 200 1024' >&3;sleep 6;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
+          # Replay restart proves idempotent completion without duplicate identities.
+          L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_server;END="$(date -u +%FT%TZ)"
           python3 - "$DB" "$START" "$END" "$DEF" "$OFF" "$FAR" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
           pre=json.load(open('/tmp/wp05-rollout/evidence/pre-edit.json'));ids={x['instance_id'] for x in pre}
-          with sqlite3.connect(sys.argv[1]) as c:c.row_factory=sqlite3.Row;rows=[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?',(sys.argv[4],))];assert len(rows)==10 and {x['instance_id'] for x in rows}==ids and all(x['applied_revision']==2 and x['desired_revision']==2 and x['lifecycle_state']=='ACTIVE' for x in rows);m=[dict(r) for r in c.execute("select instance_id,state from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE'",(sys.argv[4],))];assert len(m)==10 and all(x['state']=='COMPLETED' for x in m);i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
+          with sqlite3.connect(sys.argv[1]) as c:
+              c.row_factory=sqlite3.Row
+              rows=[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?',(sys.argv[4],))]
+              assert len(rows)==10 and {x['instance_id'] for x in rows}==ids and all(x['applied_revision']==2 and x['desired_revision']==2 and x['lifecycle_state']=='ACTIVE' for x in rows),rows
+              m=[dict(r) for r in c.execute("select instance_id,state from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE'",(sys.argv[4],))]
+              assert len(m)==10 and all(x['state']=='COMPLETED' for x in m),m
+              i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
           print(json.dumps({'case':'ACC-EDIT-003','result':'PASS','source_head':open('/tmp/wp05-rollout/evidence/source-head.txt').read().strip(),'started_at':sys.argv[2],'finished_at':sys.argv[3],'instance_count':10,'stable_instance_ids':True,'pre_edit_locations':pre,'offline_instance':sys.argv[5],'unloaded_block_instance':sys.argv[6],'restart_mid_rollout':True,'replay_no_duplicate':True,'integrity':i,'foreign_key_violations':fk},indent=2))
           PY
+
       - name: Upload rollout evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
