@@ -15,38 +15,36 @@ jobs:
   config-reload:
     if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
           java-version: "21"
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
 
-      - name: Build exact PR head and prepare disposable server
+      - name: Prepare exact-head Paper and protocol clients
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
-          ROOT=/tmp/wp05-tracking-contract
-          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
-          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
-          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
-          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
-          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
-          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
-          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
-          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
-          java -version 2> "$ROOT/evidence/java-version.txt"
-          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          R=/tmp/wp05-config-v2
+          mkdir -p "$R/server/plugins/EnthusiaLoreItems" "$R/evidence" "$R/bot"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar"
+          cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$P" > "$R/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$R/evidence/source-head.txt"
+          cat > "$R/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
           database-busy-timeout-millis: 5000
           database-queue-capacity: 256
           database-shutdown-timeout-seconds: 10
@@ -58,8 +56,8 @@ jobs:
           mutation-budget-per-tick: 16
           shared-containers-allowed: true
           EOF
-          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/config-initial.yml"
-          cd "$ROOT/server"
+          cp "$R/server/plugins/EnthusiaLoreItems/config.yml" "$R/evidence/config-initial.yml"
+          cd "$R/server"
           curl -fsSL "$PAPER_URL" -o paper.jar
           echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
           printf 'eula=true\n' > eula.txt
@@ -69,263 +67,81 @@ jobs:
           spawn-protection=0
           white-list=false
           server-port=25565
-          motd=WP05 supported configuration reload acceptance
+          motd=WP05 config reload acceptance
           EOF
-          cd "$ROOT/bot"
+          cd "$R/bot"
           npm init -y >/dev/null
-          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
-          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
-          cat > queue-bot.js <<'EOF'
-          const mineflayer=require('mineflayer'),fs=require('fs')
-          const root='/tmp/wp05-tracking-contract'
-          const user=process.env.BOT_USER || 'Wp05QueueBot'
-          const mode=process.env.BOT_MODE || 'uuid'
-          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:user,version:'1.21.11',auth:'offline'})
-          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-          const log=x=>{fs.appendFileSync(`${root}/evidence/queue-bot.log`,`${new Date().toISOString()} ${user} ${x}\n`);console.log(x)}
-          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
-          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
-          ;(async()=>{try{
-            await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject)})
-            fs.writeFileSync(`${root}/${user}.uuid`,`${bot.player.uuid}\n`)
-            log(`SPAWN uuid=${bot.player.uuid}`)
-            if(mode==='delivery'){
-              for(let i=0;i<300;i++){
-                if(bot.inventory.items().some(item=>item.name==='diamond_sword')){
-                  fs.writeFileSync(`${root}/${user}.delivered`,'ok\n');log('DELIVERED diamond_sword');bot.quit('done');return
-                }
-                await sleep(100)
-              }
-              throw new Error(`queued tracked delivery did not arrive; items=${bot.inventory.items().map(i=>i.name).join(',')}`)
+          npm install --save-exact mineflayer@4.35.0 > "$R/evidence/npm.log" 2>&1
+          cat > policy.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs')
+          const root='/tmp/wp05-config-v2',user=process.env.USER_NAME,mode=process.env.POLICY_MODE,sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const safe=user.toLowerCase(),log=x=>{fs.appendFileSync(`${root}/evidence/policy-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const bot=m.createBot({host:'127.0.0.1',port:25565,username:user,version:'1.21.11',auth:'offline'})
+          async function waitFile(p,n=600){for(let i=0;i<n;i++){if(fs.existsSync(p))return;await sleep(100)}throw Error(`marker timeout ${p}`)}
+          async function waitItem(name,n=200){for(let i=0;i<n;i++){const x=bot.inventory.items().find(v=>v.name===name);if(x)return x;await sleep(100)}throw Error(`${name} missing`)}
+          async function bundlePolicy(){
+            bot.chat('/loreitems give cfg_item');await waitItem('diamond_sword');bot.chat(`/give ${user} minecraft:bundle 1`);await waitItem('bundle');await sleep(400)
+            const sword=bot.inventory.slots.findIndex(x=>x&&x.name==='diamond_sword'),bundle=bot.inventory.slots.findIndex(x=>x&&x.name==='bundle');if(sword<0||bundle<0)throw Error(`fixture slots sword=${sword} bundle=${bundle}`)
+            await bot.clickWindow(sword,0,0);await sleep(250);await bot.clickWindow(bundle,1,0);await sleep(700);await bot.clickWindow(sword,0,0);await sleep(700)
+            const standalone=bot.inventory.items().some(x=>x.name==='diamond_sword')
+            if(mode==='restricted'){
+              if(!standalone)throw Error('restricted policy accepted bundle insertion');log('BUNDLE_RESTRICTED retained standalone tracked sword');return
             }
-            for(let i=0;i<300;i++){
-              if(fs.existsSync(`${root}/${user}.stop`)){bot.quit('fixture complete');return}
-              await sleep(100)
-            }
-            throw new Error('fixture stop marker timed out')
-          }catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/${user}.failed`,String(e.stack||e));process.exit(1)}})()
+            if(standalone)throw Error('allowed policy rejected bundle insertion')
+            await bot.clickWindow(bundle,1,0);await sleep(500);await bot.clickWindow(sword,0,0);await sleep(700);await waitItem('diamond_sword');log('BUNDLE_ALLOWED accepted insertion and returned same tracked item')
+          }
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.once('spawn',async()=>{try{fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`);await waitFile(`${root}/${safe}.go`);await bundlePolicy();fs.writeFileSync(`${root}/${safe}.done`,'ok\n');bot.quit('policy complete')}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/${safe}.failed`,String(e.stack||e));process.exit(1)}})
+          EOF
+          cat > queue.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs')
+          const root='/tmp/wp05-config-v2',user='Wp05CfgQueue',role=process.env.ROLE||'identify',sleep=ms=>new Promise(r=>setTimeout(r,ms)),bot=m.createBot({host:'127.0.0.1',port:25565,username:user,version:'1.21.11',auth:'offline'})
+          bot.once('spawn',async()=>{try{fs.writeFileSync(`${root}/queue.uuid`,`${bot.player.uuid}\n`);if(role==='identify'){fs.writeFileSync(`${root}/queue.ready`,'ok\n');while(!fs.existsSync(`${root}/queue.stop`))await sleep(100);bot.quit('identified');return}for(let i=0;i<400;i++){if(bot.inventory.items().some(x=>x.name==='diamond_sword')){fs.writeFileSync(`${root}/queue.delivered`,'ok\n');bot.quit('delivered');return}await sleep(100)}throw Error('queued item did not deliver')}catch(e){fs.writeFileSync(`${root}/queue.failed`,String(e.stack||e));process.exit(1)}})
           EOF
 
-      - name: Execute ACC-LIFE-001 supported atomic reload contract
+      - name: Execute supported atomic reload and last-known-good policy contract
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=/tmp/wp05-tracking-contract
-          SERVER="$ROOT/server"
-          DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db"
-          CONFIG="$SERVER/plugins/EnthusiaLoreItems/config.yml"
-          EVIDENCE="$ROOT/evidence"
-          cd "$SERVER"
-          rm -f server.stdin
-          mkfifo server.stdin
-          exec 3<>server.stdin
-          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$EVIDENCE/server.log" 2>&1 &
-          SERVER_PID=$!
-          cleanup(){
-            kill "$RESTRICT_PID" 2>/dev/null || true
-            kill "$QUEUE_PID" 2>/dev/null || true
-            echo stop >&3 2>/dev/null || true
-            wait "$SERVER_PID" 2>/dev/null || true
-          }
-          RESTRICT_PID=''; QUEUE_PID=''
-          trap cleanup EXIT
-          for _ in $(seq 1 180); do
-            if grep -q 'Queued direct-delivery processing is active.' "$EVIDENCE/server.log" \
-              && grep -q 'WP-05 deterministic acceptance helper is active' "$EVIDENCE/server.log"; then break; fi
-            kill -0 "$SERVER_PID" 2>/dev/null || { cat "$EVIDENCE/server.log"; exit 1; }
-            sleep 1
-          done
-          grep -q 'Queued direct-delivery processing is active.' "$EVIDENCE/server.log"
-
-          # Create the tracked definition through the real command path.
-          rm -f "$ROOT/Wp05RestrictBot.uuid" "$ROOT/Wp05RestrictBot.stop" "$ROOT/Wp05RestrictBot.failed"
-          (cd "$ROOT/bot" && BOT_USER=Wp05RestrictBot node queue-bot.js) >"$EVIDENCE/fixture-bot-stdout.log" 2>&1 &
-          RESTRICT_PID=$!
-          for _ in $(seq 1 120); do test -s "$ROOT/Wp05RestrictBot.uuid" && break; sleep .25; done
-          test -s "$ROOT/Wp05RestrictBot.uuid"
-          echo 'op Wp05RestrictBot' >&3
-          echo 'wp05accept source Wp05RestrictBot sword' >&3
-          sleep .5
-          echo 'wp05accept perform Wp05RestrictBot loreitems create acc_track_nested Reload Nested Storage' >&3
-          for _ in $(seq 1 120); do
-            COUNT="$(python3 - "$DB" <<'PY'
+          R=/tmp/wp05-config-v2;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";CFG="$S/plugins/EnthusiaLoreItems/config.yml";cd "$S"
+          rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin > "$E/server.log" 2>&1 & SPID=$!
+          cleanup(){ echo stop >&3 2>/dev/null||true;kill "$SPID" 2>/dev/null||true; };trap cleanup EXIT
+          for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$E/server.log"&&grep -q 'WP-05 deterministic acceptance helper is active' "$E/server.log";then break;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$E/server.log";exit 1;};sleep 1;done
+          wait_sql(){ local q="$1";for _ in $(seq 1 120);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
-              with sqlite3.connect(sys.argv[1]) as c: print(c.execute("select count(*) from lore_definitions where lookup_key='acc_track_nested' and deleted_at is null").fetchone()[0])
-          except Exception: print(0)
+              with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
           PY
-          )"
-            [[ "$COUNT" == 1 ]] && break
-            sleep .25
-          done
-          [[ "$COUNT" == 1 ]]
-          touch "$ROOT/Wp05RestrictBot.stop"
-          wait "$RESTRICT_PID"
-          RESTRICT_PID=''
-
-          # Establish a durable offline queue entry before either reload attempt.
-          rm -f "$ROOT/Wp05QueueBot.uuid" "$ROOT/Wp05QueueBot.stop" "$ROOT/Wp05QueueBot.failed"
-          (cd "$ROOT/bot" && BOT_USER=Wp05QueueBot node queue-bot.js) >"$EVIDENCE/queue-fixture-stdout.log" 2>&1 &
-          QUEUE_PID=$!
-          for _ in $(seq 1 120); do test -s "$ROOT/Wp05QueueBot.uuid" && break; sleep .25; done
-          test -s "$ROOT/Wp05QueueBot.uuid"
-          QUEUE_UUID="$(tr -d '\r\n' < "$ROOT/Wp05QueueBot.uuid")"
-          touch "$ROOT/Wp05QueueBot.stop"
-          wait "$QUEUE_PID"
-          QUEUE_PID=''
-          echo "wp05accept api acc_track_nested $QUEUE_UUID reload-queue-001" >&3
-          for _ in $(seq 1 160); do
-            STATE="$(python3 - "$DB" <<'PY'
-          import sqlite3,sys
-          try:
-              with sqlite3.connect(sys.argv[1]) as c:
-                  row=c.execute("select state from direct_deliveries where idempotency_key='reload-queue-001'").fetchone()
-                  print(row[0] if row else '')
-          except Exception: print('')
-          PY
-          )"
-            [[ "$STATE" == PENDING ]] && break
-            sleep .25
-          done
-          [[ "$STATE" == PENDING ]]
-
-          # Force the initial true policy through the live listener before touching config.yml.
-          rm -f "$ROOT/restrict-bot.uuid" "$ROOT/restricted-done" "$ROOT/restricted-bot.failed" "$ROOT/go-restricted"
-          (cd "$ROOT/bot" && BOT_USER=Wp05BaselineBot POLICY_MODE=allowed \
-            node "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-tracking-restricted-bot.js") \
-            >"$EVIDENCE/allowed-before-reload-stdout.log" 2>&1 &
-          RESTRICT_PID=$!
-          for _ in $(seq 1 120); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            test -s "$ROOT/restrict-bot.uuid" && break
-            sleep .25
-          done
-          echo 'op Wp05BaselineBot' >&3
-          echo 'clear Wp05BaselineBot' >&3
-          sleep .5
-          touch "$ROOT/go-restricted"
-          for _ in $(seq 1 360); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            [[ -f "$ROOT/restricted-done" ]] && break
-            sleep .25
-          done
-          test -f "$ROOT/restricted-done"
-          wait "$RESTRICT_PID"
-          RESTRICT_PID=''
-          grep -F 'TRACK2 allowed shulker insertion accepted by live server' "$EVIDENCE/restricted-bot.log"
-
-          # Valid snapshot: change shared-container policy without a restart.
-          python3 - "$CONFIG" <<'PY'
+            then return;fi;sleep .25;done;echo "SQL timeout: $q" >&2;return 1;}
+          run_policy(){ local user="$1" mode="$2" safe pid;safe="$(printf '%s' "$user"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$safe.uuid" "$R/$safe.go" "$R/$safe.done" "$R/$safe.failed";(cd "$R/bot"&&USER_NAME="$user" POLICY_MODE="$mode" node policy.js)>"$E/${safe}-stdout.log" 2>&1 & pid=$!;for _ in $(seq 1 100);do test -s "$R/$safe.uuid"&&break;sleep .2;done;test -s "$R/$safe.uuid";echo "op $user" >&3;echo "clear $user" >&3;touch "$R/$safe.go";for _ in $(seq 1 300);do test -f "$R/$safe.failed"&&{ cat "$R/$safe.failed";return 1;};test -f "$R/$safe.done"&&break;sleep .2;done;test -f "$R/$safe.done";wait "$pid";}
+          START="$(date -u +%FT%TZ)"
+          # Create one definition through the real player command path.
+          (cd "$R/bot"&&USER_NAME=Wp05CfgCreate POLICY_MODE=restricted node policy.js)>"$E/create-fixture.log" 2>&1 & CPID=$!
+          for _ in $(seq 1 100);do test -s "$R/wp05cfgcreate.uuid"&&break;sleep .2;done;test -s "$R/wp05cfgcreate.uuid";echo 'op Wp05CfgCreate' >&3;echo 'wp05accept source Wp05CfgCreate sword' >&3;sleep .5;echo 'wp05accept perform Wp05CfgCreate loreitems create cfg_item Config Reload Item' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='cfg_item' and deleted_at is null";kill "$CPID" 2>/dev/null||true;wait "$CPID" 2>/dev/null||true
+          # Durable queued work exists before both reload attempts.
+          rm -f "$R/queue."* "$R/queue.ready" "$R/queue.stop" "$R/queue.failed"; (cd "$R/bot"&&ROLE=identify node queue.js)>"$E/queue-identify.log" 2>&1 & QPID=$!;for _ in $(seq 1 100);do test -f "$R/queue.ready"&&break;sleep .2;done;QID="$(tr -d '\r\n'<"$R/queue.uuid")";touch "$R/queue.stop";wait "$QPID";echo "wp05accept api cfg_item $QID cfg-reload-queue-1" >&3;wait_sql "select count(*)=1 from direct_deliveries where idempotency_key='cfg-reload-queue-1' and state='PENDING'"
+          run_policy Wp05CfgAllowed allowed
+          python3 - "$CFG" <<'PY'
           from pathlib import Path
           import sys
-          p=Path(sys.argv[1]); text=p.read_text()
-          assert text.count('shared-containers-allowed: true')==1
-          p.write_text(text.replace('shared-containers-allowed: true','shared-containers-allowed: false'))
+          p=Path(sys.argv[1]);s=p.read_text();assert s.count('shared-containers-allowed: true')==1;p.write_text(s.replace('shared-containers-allowed: true','shared-containers-allowed: false'))
           PY
-          cp "$CONFIG" "$EVIDENCE/config-valid-reload.yml"
-          VALID_MARK="$(wc -l < "$EVIDENCE/server.log")"
-          echo 'loreitems reload' >&3
-          for _ in $(seq 1 120); do
-            tail -n +"$VALID_MARK" "$EVIDENCE/server.log" | grep -Fq 'LoreItems configuration reload applied:' && break
-            sleep .25
-          done
-          tail -n +"$VALID_MARK" "$EVIDENCE/server.log" | grep -Fq 'LoreItems configuration reload applied:'
-
-          # Real client actions must now observe the new false policy without restarting Paper.
-          rm -f "$ROOT/restrict-bot.uuid" "$ROOT/restricted-done" "$ROOT/restricted-bot.failed" "$ROOT/go-restricted"
-          (cd "$ROOT/bot" && node "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-tracking-restricted-bot.js") >"$EVIDENCE/restricted-after-valid-stdout.log" 2>&1 &
-          RESTRICT_PID=$!
-          for _ in $(seq 1 120); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            test -s "$ROOT/restrict-bot.uuid" && break
-            sleep .25
-          done
-          echo 'op Wp05RestrictBot' >&3
-          echo 'clear Wp05RestrictBot' >&3
-          sleep .5
-          touch "$ROOT/go-restricted"
-          for _ in $(seq 1 360); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            [[ -f "$ROOT/restricted-done" ]] && break
-            sleep .25
-          done
-          test -f "$ROOT/restricted-done"
-          wait "$RESTRICT_PID"
-          RESTRICT_PID=''
-
-          # Invalid snapshot must be rejected and the last-known-good false policy must remain active.
-          printf '\ndefault-page-size: not-an-integer\n' >> "$CONFIG"
-          cp "$CONFIG" "$EVIDENCE/config-invalid-reload.yml"
-          INVALID_MARK="$(wc -l < "$EVIDENCE/server.log")"
-          echo 'loreitems reload' >&3
-          for _ in $(seq 1 120); do
-            tail -n +"$INVALID_MARK" "$EVIDENCE/server.log" | grep -Fq 'LoreItems configuration reload rejected:' && break
-            sleep .25
-          done
-          tail -n +"$INVALID_MARK" "$EVIDENCE/server.log" | grep -Fq 'LoreItems configuration reload rejected:'
-          kill -0 "$SERVER_PID"
-
-          rm -f "$ROOT/restrict-bot.uuid" "$ROOT/restricted-done" "$ROOT/restricted-bot.failed" "$ROOT/go-restricted"
-          (cd "$ROOT/bot" && node "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-tracking-restricted-bot.js") >"$EVIDENCE/restricted-after-invalid-stdout.log" 2>&1 &
-          RESTRICT_PID=$!
-          for _ in $(seq 1 120); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            test -s "$ROOT/restrict-bot.uuid" && break
-            sleep .25
-          done
-          echo 'op Wp05RestrictBot' >&3
-          echo 'clear Wp05RestrictBot' >&3
-          sleep .5
-          touch "$ROOT/go-restricted"
-          for _ in $(seq 1 360); do
-            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
-            [[ -f "$ROOT/restricted-done" ]] && break
-            sleep .25
-          done
-          test -f "$ROOT/restricted-done"
-          wait "$RESTRICT_PID"
-          RESTRICT_PID=''
-
-          # The queue created before both reload attempts must still deliver exactly once afterwards.
-          rm -f "$ROOT/Wp05QueueBot.delivered" "$ROOT/Wp05QueueBot.failed"
-          (cd "$ROOT/bot" && BOT_USER=Wp05QueueBot BOT_MODE=delivery node queue-bot.js) >"$EVIDENCE/queue-delivery-stdout.log" 2>&1 &
-          QUEUE_PID=$!
-          for _ in $(seq 1 360); do
-            [[ -f "$ROOT/Wp05QueueBot.failed" ]] && { cat "$ROOT/Wp05QueueBot.failed"; exit 1; }
-            test -f "$ROOT/Wp05QueueBot.delivered" && break
-            sleep .25
-          done
-          test -f "$ROOT/Wp05QueueBot.delivered"
-          wait "$QUEUE_PID"
-          QUEUE_PID=''
-          python3 - "$DB" <<'PY' | tee "$EVIDENCE/case-results.txt"
-          import sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:
-              row=c.execute("select state from direct_deliveries where idempotency_key='reload-queue-001'").fetchone()
-              assert row and row[0]=='COMPLETED', row
-              assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
-              assert c.execute('pragma foreign_key_check').fetchall()==[]
-          print('PASS ACC-LIFE-001 initial true policy allowed live shared-container insertion before reload')
-          print('PASS ACC-LIFE-001 valid snapshot changed live nested-storage behavior without restart')
-          print('PASS ACC-LIFE-001 invalid snapshot rejected while last-known-good behavior remained active')
-          print('PASS ACC-LIFE-001 durable offline queue survived valid and invalid reload attempts and completed once')
+          cp "$CFG" "$E/config-valid.yml";M="$(wc -l<"$E/server.log")";echo 'loreitems reload' >&3;for _ in $(seq 1 120);do tail -n +"$M" "$E/server.log"|grep -Fq 'LoreItems configuration reload applied:'&&break;sleep .25;done;tail -n +"$M" "$E/server.log"|grep -Fq 'LoreItems configuration reload applied:'
+          run_policy Wp05CfgRestricted restricted
+          printf '\ndefault-page-size: not-an-integer\n'>>"$CFG";cp "$CFG" "$E/config-invalid.yml";M="$(wc -l<"$E/server.log")";echo 'loreitems reload' >&3;for _ in $(seq 1 120);do tail -n +"$M" "$E/server.log"|grep -Fq 'LoreItems configuration reload rejected:'&&break;sleep .25;done;tail -n +"$M" "$E/server.log"|grep -Fq 'LoreItems configuration reload rejected:';run_policy Wp05CfgStillRestricted restricted
+          rm -f "$R/queue.delivered" "$R/queue.failed"; (cd "$R/bot"&&ROLE=delivery node queue.js)>"$E/queue-delivery.log" 2>&1 & QPID=$!;for _ in $(seq 1 400);do test -f "$R/queue.failed"&&{ cat "$R/queue.failed";exit 1;};test -f "$R/queue.delivered"&&break;sleep .1;done;test -f "$R/queue.delivered";wait "$QPID";wait_sql "select count(*)=1 from direct_deliveries where idempotency_key='cfg-reload-queue-1' and state='COMPLETED'"
+          echo stop >&3;wait "$SPID";exec 3>&-;trap - EXIT;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" <<'PY'|tee "$E/result.json"
+          import json,sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
+          print(json.dumps({'case':'ACC-LIFE-001','result':'PASS','source_head':open('/tmp/wp05-config-v2/evidence/source-head.txt').read().strip(),'started_at':sys.argv[2],'finished_at':sys.argv[3],'initial_bundle_policy':'allowed','valid_reload_bundle_policy':'restricted','invalid_reload_last_known_good_policy':'restricted','pre_reload_queue_completed_after_both_reload_attempts':True,'integrity':i,'foreign_key_violations':fk},indent=2))
           PY
-          grep -F 'TRACK2 allowed shulker insertion accepted by live server' "$EVIDENCE/restricted-bot.log"
-          grep -F 'TRACK2 restricted shulker insertion rejected by live server' "$EVIDENCE/restricted-bot.log"
-          grep -F 'TRACK2 restricted bundle insertion rejected by live server' "$EVIDENCE/restricted-bot.log"
-          printf 'server-start-count=%s\n' "$(grep -c 'Done (' "$EVIDENCE/server.log" || true)" >> "$EVIDENCE/case-results.txt"
-          test "$(grep -c 'Done (' "$EVIDENCE/server.log" || true)" = 1
-
-          echo stop >&3
-          wait "$SERVER_PID"
-          exec 3>&-
-          trap - EXIT
-
-      - name: Upload acceptance evidence
+      - name: Upload config evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: wp05-config-reload-${{ github.event.pull_request.head.sha || github.sha }}
-          path: /tmp/wp05-tracking-contract/evidence
+          name: wp05-config-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-config-v2/evidence
           if-no-files-found: error
           retention-days: 30

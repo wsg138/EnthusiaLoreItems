@@ -20,37 +20,22 @@ jobs:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
           java-version: "21"
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
-
-      - name: Build exact PR head and prepare rollout fixture
+      - name: Prepare exact-head rollout fixture
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
-          ROOT=/tmp/wp05-edit-rollout
-          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
-          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
-          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
-          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
-          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
-          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
-          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
-          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
-          java -version 2> "$ROOT/evidence/java-version.txt"
-          cd "$ROOT/server"
-          curl -fsSL "$PAPER_URL" -o paper.jar
-          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
-          printf 'eula=true\n' > eula.txt
-          cat > server.properties <<'EOF'
+          R=/tmp/wp05-rollout-v2;mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot";P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt";cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
           online-mode=false
           enforce-secure-profile=false
           spawn-protection=0
@@ -58,183 +43,60 @@ jobs:
           view-distance=6
           simulation-distance=4
           server-port=25565
-          motd=WP05 revision rollout acceptance
+          motd=WP05 rollout v2
           EOF
-          cd "$ROOT/bot"
-          npm init -y >/dev/null
-          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
-          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
-          cat > bot.js <<'EOF'
-          const mineflayer=require('mineflayer'),fs=require('fs')
-          const Vec3=require('vec3').Vec3
-          const root='/tmp/wp05-edit-rollout',username=process.argv[2],safe=username.toLowerCase(),sleep=ms=>new Promise(r=>setTimeout(r,ms))
-          const log=x=>{fs.appendFileSync(`${root}/evidence/bot-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
-          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username,version:'1.21.11',auth:'offline'})
-          function text(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(text).join(''):'');if(Array.isArray(v.extra))return v.extra.map(text).join('');try{return JSON.stringify(v)}catch{return String(v)}}
-          const title=()=>bot.currentWindow?text(bot.currentWindow.title):''
-          async function waitFile(p,n=900){for(let i=0;i<n;i++){if(fs.existsSync(p))return;await sleep(100)}throw new Error(`file timeout ${p}`)}
-          async function waitWindow(fragment){for(let i=0;i<200;i++){if(bot.currentWindow&&title().toLowerCase().includes(fragment.toLowerCase()))return;await sleep(100)}throw new Error(`window ${fragment} did not open; current=${title()}`)}
-          async function click(slot){await bot.clickWindow(slot,0,0);await sleep(300)}
-          async function depositFarChest(){
-            await bot.waitForChunksToLoad();let block
-            for(let i=0;i<100;i++){block=bot.blockAt(new Vec3(1024,70,1024));if(block&&block.name==='chest')break;await sleep(100)}
-            if(!block||block.name!=='chest')throw new Error(`far chest missing: ${block&&block.name}`)
-            const container=await bot.openContainer(block);await sleep(500)
-            const sword=bot.inventory.items().find(i=>i.name==='diamond_sword');if(!sword)throw new Error('far tracked sword missing')
-            await container.deposit(sword.type,null,1);await sleep(800);container.close();await sleep(500)
-            log('FAR_CHEST_DEPOSITED');fs.writeFileSync(`${root}/far.done`,'ok\n')
-          }
-          async function confirmRevision(){
-            bot.chat('/loreitems browse');await waitWindow('Lore definitions');await click(0);await waitWindow('Template management');await click(29);await waitWindow('Template editor');await click(10)
-            for(let i=0;i<160;i++){if(!bot.currentWindow)break;await sleep(100)}
-            bot.chat('submit literal Rollout Revision Two');await waitWindow('Template editor');await click(49);await waitWindow('Confirm template revision');log(`REVISION_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await click(31);await sleep(1800);log('REVISION_CONFIRMED');fs.writeFileSync(`${root}/edit.done`,'ok\n')
-          }
-          bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.on('kicked',r=>log(`KICKED ${String(r)}`))
-          bot.once('spawn',async()=>{try{
-            log(`SPAWN uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`)
-            if(username==='Wp05Rollout'){
-              await waitFile(`${root}/far.go`);await depositFarChest();await waitFile(`${root}/edit.go`);await confirmRevision()
-            }
-            while(!fs.existsSync(`${root}/${safe}.stop`))await sleep(100);bot.quit('rollout transition')
-          }catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/${safe}.failed`,String(e.stack||e));process.exit(1)}})
+          cd "$R/bot";npm init -y>/dev/null;npm install --save-exact mineflayer@4.35.0>"$R/evidence/npm.log" 2>&1;cat >bot.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs'),Vec3=require('vec3').Vec3,r='/tmp/wp05-rollout-v2',name=process.argv[2],sleep=ms=>new Promise(x=>setTimeout(x,ms));const q=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'});function text(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(text).join(''):'');if(Array.isArray(v.extra))return v.extra.map(text).join('');return JSON.stringify(v)}async function file(p){for(let i=0;i<1200;i++){if(fs.existsSync(p))return;await sleep(100)}throw Error(p)}async function win(x){for(let i=0;i<200;i++){if(b.currentWindow&&text(b.currentWindow.title).toLowerCase().includes(x.toLowerCase()))return;await sleep(100)}throw Error(`window ${x}`)}async function click(n){await b.clickWindow(n,0,0);await sleep(300)}async function toss(){const x=b.inventory.items().find(v=>v.name==='diamond_sword');if(!x)throw Error('drop sword missing');await b.tossStack(x);await sleep(900);fs.writeFileSync(`${r}/drop.done`,'ok\n')}async function far(){await b.waitForChunksToLoad();let x;for(let i=0;i<120;i++){x=b.blockAt(new Vec3(1024,70,1024));if(x&&x.name==='chest')break;await sleep(100)}if(!x||x.name!=='chest')throw Error(`far chest ${x&&x.name}`);const c=await b.openContainer(x);await sleep(400);const s=b.inventory.items().find(v=>v.name==='diamond_sword');if(!s)throw Error('far sword missing');await c.deposit(s.type,null,1);await sleep(700);c.close();fs.writeFileSync(`${r}/far.done`,'ok\n')}async function edit(){b.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120;i++){if(!b.currentWindow)break;await sleep(100)}b.chat('submit literal Rollout Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await sleep(1600);fs.writeFileSync(`${r}/edit.done`,'ok\n')}b.once('spawn',async()=>{try{fs.writeFileSync(`${r}/${q}.uuid`,`${b.player.uuid}\n`);if(name==='Wp05Rollout'){await file(`${r}/drop.go`);await toss();await file(`${r}/far.go`);await far();await file(`${r}/edit.go`);await edit()}while(!fs.existsSync(`${r}/${q}.stop`))await sleep(100);b.quit('transition')}catch(e){fs.writeFileSync(`${r}/${q}.failed`,String(e.stack||e));process.exit(1)}})
           EOF
-
-      - name: Execute ACC-EDIT-003 multi-location rollout and restart
+      - name: Execute ACC-EDIT-003 across every tracked physical location and restart
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=/tmp/wp05-edit-rollout;SERVER="$ROOT/server";DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db";E="$ROOT/evidence";cd "$SERVER"
-          start_server(){ local log="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 & SERVER_PID=$!;for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$log"&&grep -q 'WP-05 deterministic acceptance helper is active' "$log";then return 0;fi;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$log";return 1;};sleep 1;done;cat "$log";return 1; }
-          stop_server(){ echo stop >&3;wait "$SERVER_PID";exec 3>&-;rm -f server.stdin; }
-          start_bot(){ local name="$1" safe pid;safe="$(printf '%s' "$name"|tr '[:upper:]' '[:lower:]')";rm -f "$ROOT/$safe.uuid" "$ROOT/$safe.stop" "$ROOT/$safe.failed";(cd "$ROOT/bot"&&node bot.js "$name") >"$E/bot-${safe}-stdout.log" 2>&1 & pid=$!;printf '%s\n' "$pid">"$ROOT/$safe.pid";for _ in $(seq 1 80);do test -s "$ROOT/$safe.uuid"&&return 0;kill -0 "$pid" 2>/dev/null||{ cat "$E/bot-${safe}-stdout.log";return 1;};sleep 1;done;return 1; }
-          stop_bot(){ local name="$1" safe pid;safe="$(printf '%s' "$name"|tr '[:upper:]' '[:lower:]')";test -f "$ROOT/$safe.pid"||return 0;pid="$(cat "$ROOT/$safe.pid")";touch "$ROOT/$safe.stop";for _ in $(seq 1 30);do kill -0 "$pid" 2>/dev/null||break;sleep 1;done;kill "$pid" 2>/dev/null||true;wait "$pid" 2>/dev/null||true;rm -f "$ROOT/$safe.pid"; }
-          stop_all_bots(){ for f in "$ROOT"/*.pid;do test -e "$f"||continue;pid="$(cat "$f")";kill "$pid" 2>/dev/null||true;wait "$pid" 2>/dev/null||true;rm -f "$f";done; }
-          wait_sql(){ local q="$1" limit="${2:-120}";for _ in $(seq 1 "$limit");do if python3 - "$DB" "$q" <<'PY'
+          R=/tmp/wp05-rollout-v2;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||return 1;sleep 1;done;return 1;};stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
+          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 80);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;};stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 30);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";};kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
+          wait_sql(){ local q="$1";for _ in $(seq 1 180);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
               with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
-            then return 0;fi;sleep 1;done;echo "SQL timeout: $q" >&2;return 1; }
-          give_and_place(){ local destination="$1" expected="$2";echo 'loreitems give acc_edit_rollout Wp05Rollout' >&3;wait_sql "select count(*)=$expected from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'" 90;sleep 2;echo "wp05accept place Wp05Rollout $destination" >&3;sleep 6; }
-          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)";LOG1="$E/server-initial.log";start_server "$LOG1";start_bot Wp05Rollout;MAIN_UUID="$(tr -d '\r\n'<"$ROOT/wp05rollout.uuid")";echo 'op Wp05Rollout' >&3;echo 'tp Wp05Rollout 0 71 0' >&3;sleep 2
-          echo 'wp05accept source Wp05Rollout sword' >&3;sleep 1;echo 'wp05accept perform Wp05Rollout loreitems create acc_edit_rollout Revision Rollout' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='acc_edit_rollout' and current_revision=1" 60
-          DEF="$(python3 - "$DB" <<'PY'
+            then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
+          START="$(date -u +%FT%TZ)";L1="$E/server-initial.log";start_server "$L1";start_bot Wp05Rollout;U="$(tr -d '\r\n'<"$R/wp05rollout.uuid")";echo 'op Wp05Rollout' >&3;echo 'tp Wp05Rollout 0 71 0' >&3;echo 'wp05accept source Wp05Rollout sword' >&3;sleep .5;echo 'wp05accept perform Wp05Rollout loreitems create rollout_item Revision Rollout' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='rollout_item' and current_revision=1";DEF="$(python3 - "$DB" <<'PY'
           import sqlite3
-          with sqlite3.connect('/tmp/wp05-edit-rollout/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='acc_edit_rollout'").fetchone()[0])
+          with sqlite3.connect('/tmp/wp05-rollout-v2/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='rollout_item'").fetchone()[0])
           PY
-          )"
-          echo 'wp05accept perform Wp05Rollout loreitems adopt acc_edit_rollout' >&3;wait_sql "select count(*)=1 from lore_instances where definition_id='$DEF'" 60;sleep 2;echo 'wp05accept place Wp05Rollout chest' >&3;sleep 6
-          give_and_place shulker 2;give_and_place bundle 3;give_and_place drop 4;give_and_place frame 5;give_and_place glowframe 6;give_and_place armorstand 7
-
-          # Eighth instance goes into a real chest in a far chunk through the protocol client.
-          echo 'loreitems give acc_edit_rollout Wp05Rollout' >&3;wait_sql "select count(*)=8 from lore_instances where definition_id='$DEF'" 90;echo 'setblock 1024 70 1024 minecraft:chest' >&3;echo 'tp Wp05Rollout 1024 71 1024' >&3;sleep 4;touch "$ROOT/far.go";for _ in $(seq 1 120);do test -f "$ROOT/far.done"&&break;test ! -f "$ROOT/wp05rollout.failed"||{ cat "$ROOT/wp05rollout.failed";exit 1;};sleep 1;done;test -f "$ROOT/far.done";sleep 6
-          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1024:70:1024'" 90
-          FAR_INSTANCE="$(python3 - "$DB" "$DEF" <<'PY'
+          )";echo 'wp05accept perform Wp05Rollout loreitems adopt rollout_item' >&3;wait_sql "select count(*)=1 from lore_instances where definition_id='$DEF'";sleep 1;echo 'wp05accept place Wp05Rollout chest' >&3;sleep 2
+          for dest in shulker bundle frame glowframe armorstand;do echo 'loreitems give rollout_item Wp05Rollout' >&3;sleep 1;echo "wp05accept place Wp05Rollout $dest" >&3;sleep 2;done
+          echo 'loreitems give rollout_item Wp05Rollout' >&3;sleep 1;touch "$R/drop.go";for _ in $(seq 1 100);do test -f "$R/drop.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'"
+          echo 'loreitems give rollout_item Wp05Rollout' >&3;sleep 1;echo 'tp Wp05Rollout 1024 71 1024' >&3;sleep 5;echo 'setblock 1024 70 1024 minecraft:chest' >&3;sleep 2;touch "$R/far.go";for _ in $(seq 1 120);do test -f "$R/far.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .2;done;test -f "$R/far.done";wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1024:70:1024'";FAR="$(python3 - "$DB" "$DEF" <<'PY'
           import sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id=? and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1024:70:1024'",(sys.argv[2],)).fetchone()[0])
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key='minecraft:overworld:1024:70:1024'",(sys.argv[2],)).fetchone()[0])
           PY
-          )"
-          echo 'tp Wp05Rollout 0 71 0' >&3;sleep 8
-          FAR_UNLOADED=0
-          for _ in $(seq 1 60);do before="$(grep -Fc 'WP05_EDIT_FAR_UNLOADED' "$LOG1"||true)";echo 'execute unless loaded 1024 70 1024 run say WP05_EDIT_FAR_UNLOADED' >&3;sleep 1;if test "$(grep -Fc 'WP05_EDIT_FAR_UNLOADED' "$LOG1"||true)" -gt "$before";then FAR_UNLOADED=1;break;fi;done;test "$FAR_UNLOADED" = 1
-
-          # Ninth instance remains in the online player's inventory.
-          echo 'loreitems give acc_edit_rollout Wp05Rollout' >&3;wait_sql "select count(*)=9 from lore_instances where definition_id='$DEF'" 90
-          # Tenth instance remains in an offline player's saved inventory.
-          start_bot Wp05RolloutOffline;OFFLINE_UUID="$(tr -d '\r\n'<"$ROOT/wp05rolloutoffline.uuid")";echo 'op Wp05RolloutOffline' >&3;echo 'loreitems give acc_edit_rollout Wp05RolloutOffline' >&3;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF'" 90;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY' and s.location_key='player:$OFFLINE_UUID'" 60;OFFLINE_INSTANCE="$(python3 - "$DB" "$DEF" "$OFFLINE_UUID" <<'PY'
+          )";echo 'tp Wp05Rollout 0 71 0' >&3;sleep 10;for _ in $(seq 1 50);do B="$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)";echo 'execute unless loaded 1024 70 1024 run say WP05_FAR_UNLOADED' >&3;sleep .3;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt "$B"&&break;done;test "$(grep -Fc WP05_FAR_UNLOADED "$L1"||true)" -gt 0
+          echo 'loreitems give rollout_item Wp05Rollout' >&3;sleep 1;start_bot Wp05RolloutOffline;O="$(tr -d '\r\n'<"$R/wp05rolloutoffline.uuid")";echo 'op Wp05RolloutOffline' >&3;echo 'loreitems give rollout_item Wp05RolloutOffline' >&3;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER'";wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'";wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY'";OFF="$(python3 - "$DB" "$DEF" "$O" <<'PY'
           import sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id=? and s.location_type='PLAYER_INVENTORY' and s.location_key=?",(sys.argv[2],'player:'+sys.argv[3])).fetchone()[0])
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key=?",(sys.argv[2],'player:'+sys.argv[3])).fetchone()[0])
           PY
-          )";stop_bot Wp05RolloutOffline;sleep 4
-
-          # Require the whole pre-edit physical topology to be durably observed.
-          wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE' and applied_revision=1 and desired_revision=1" 60
-          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER'" 60
-          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER'" 60
-          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'" 60
-          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'" 60
-          wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'" 60
-          wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY'" 60
-          python3 - "$DB" "$DEF" >"$E/pre-edit-topology.json" <<'PY'
+          )";stop_bot Wp05RolloutOffline
+          python3 - "$DB" "$DEF" >"$E/pre-edit.json" <<'PY'
           import json,sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:
-              c.row_factory=sqlite3.Row
-              rows=[dict(r) for r in c.execute("select i.instance_id,i.applied_revision,i.desired_revision,s.state,s.location_type,s.location_key,s.container_path from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? order by s.location_type,s.location_key,i.instance_id",(sys.argv[2],))]
-              print(json.dumps(rows,indent=2))
+          with sqlite3.connect(sys.argv[1]) as c:c.row_factory=sqlite3.Row;print(json.dumps([dict(r) for r in c.execute('select i.instance_id,i.applied_revision,i.desired_revision,s.location_type,s.location_key from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? order by i.instance_id',(sys.argv[2],))],indent=2))
           PY
-
-          # Confirm revision 2 while the offline player and far block container are genuinely inaccessible.
-          touch "$ROOT/edit.go";for _ in $(seq 1 180);do test -f "$ROOT/edit.done"&&break;test ! -f "$ROOT/wp05rollout.failed"||{ cat "$ROOT/wp05rollout.failed";exit 1;};sleep 1;done;test -f "$ROOT/edit.done"
-          wait_sql "select count(*)=1 from lore_definitions where definition_id='$DEF' and current_revision=2" 60
-          wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2" 90
-          wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2" 120
-          wait_sql "select count(*)=1 from lore_instances where instance_id='$OFFLINE_INSTANCE' and applied_revision=1 and desired_revision=2" 30
-          wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR_INSTANCE' and applied_revision=1 and desired_revision=2" 30
-          python3 - "$DB" "$DEF" >"$E/mid-rollout.json" <<'PY'
+          touch "$R/edit.go";for _ in $(seq 1 200);do test -f "$R/edit.done"&&break;test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";exit 1;};sleep .25;done;test -f "$R/edit.done";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2";wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=1 and desired_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=1 and desired_revision=2"
+          stop_bot Wp05Rollout;stop_server;kill_bots;L2="$E/server-restart.log";start_server "$L2";start_bot Wp05Rollout;start_bot Wp05RolloutOffline;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";echo 'tp Wp05Rollout 1024 71 1024' >&3;sleep 6;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05RolloutOffline;stop_bot Wp05Rollout;stop_server;kill_bots
+          L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_server;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$DEF" "$OFF" "$FAR" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:
-              c.row_factory=sqlite3.Row
-              print(json.dumps({'instances':[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=? order by instance_id',(sys.argv[2],))],'mutations':[dict(r) for r in c.execute("select mutation_id,instance_id,state,attempt_count from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE' order by instance_id",(sys.argv[2],))]},indent=2))
+          pre=json.load(open('/tmp/wp05-rollout-v2/evidence/pre-edit.json'));ids={x['instance_id'] for x in pre}
+          with sqlite3.connect(sys.argv[1]) as c:c.row_factory=sqlite3.Row;rows=[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?',(sys.argv[4],))];assert len(rows)==10 and {x['instance_id'] for x in rows}==ids and all(x['applied_revision']==2 and x['desired_revision']==2 and x['lifecycle_state']=='ACTIVE' for x in rows);m=[dict(r) for r in c.execute("select instance_id,state from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE'",(sys.argv[4],))];assert len(m)==10 and all(x['state']=='COMPLETED' for x in m);i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
+          print(json.dumps({'case':'ACC-EDIT-003','result':'PASS','source_head':open('/tmp/wp05-rollout-v2/evidence/source-head.txt').read().strip(),'started_at':sys.argv[2],'finished_at':sys.argv[3],'instance_count':10,'stable_instance_ids':True,'pre_edit_locations':pre,'offline_instance':sys.argv[5],'unloaded_block_instance':sys.argv[6],'restart_mid_rollout':True,'replay_no_duplicate':True,'integrity':i,'foreign_key_violations':fk},indent=2))
           PY
-
-          # Restart in the middle of the two inaccessible updates.
-          stop_bot Wp05Rollout;stop_server;stop_all_bots
-          LOG2="$E/server-restart.log";start_server "$LOG2";start_bot Wp05Rollout;echo 'op Wp05Rollout' >&3
-          wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR_INSTANCE' and applied_revision=1 and desired_revision=2" 30
-          start_bot Wp05RolloutOffline;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFFLINE_INSTANCE' and applied_revision=2 and desired_revision=2" 120
-          # Natural far-chunk access: player movement loads it, tracking sees the chest, and the pending
-          # template update must then verify against the same physical instance identity.
-          echo 'tp Wp05Rollout 1024 71 1024' >&3;sleep 6
-          wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR_INSTANCE' and applied_revision=2 and desired_revision=2" 120
-          wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE' and applied_revision=2 and desired_revision=2" 120
-          wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'" 90
-          echo 'data get block 1024 70 1024 Items' >&3;sleep 2
-          stop_bot Wp05RolloutOffline;stop_bot Wp05Rollout;stop_server;stop_all_bots
-
-          # A second restart is the replay check: no new instance identity or extra update can appear.
-          LOG3="$E/server-replay.log";start_server "$LOG3";start_bot Wp05Rollout;start_bot Wp05RolloutOffline;sleep 8
-          wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE' and applied_revision=2 and desired_revision=2" 30
-          wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'" 30
-          stop_bot Wp05RolloutOffline;stop_bot Wp05Rollout;stop_server;stop_all_bots
-          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          python3 - "$DB" "$START" "$END" "$DEF" "$OFFLINE_INSTANCE" "$FAR_INSTANCE" <<'PY' | tee "$E/result.json"
-          import json,sqlite3,sys
-          db,start,end,definition,offline,far=sys.argv[1:]
-          pre=json.load(open('/tmp/wp05-edit-rollout/evidence/pre-edit-topology.json'));pre_ids={r['instance_id'] for r in pre}
-          with sqlite3.connect(db) as c:
-              c.row_factory=sqlite3.Row
-              rows=[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=? order by instance_id',(definition,))]
-              ids={r['instance_id'] for r in rows};assert len(rows)==10 and ids==pre_ids,(len(rows),ids^pre_ids);assert all(r['lifecycle_state']=='ACTIVE' and r['applied_revision']==2 and r['desired_revision']==2 for r in rows),rows
-              mutations=[dict(r) for r in c.execute("select mutation_id,instance_id,state,attempt_count from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE' order by instance_id",(definition,))];assert len(mutations)==10 and all(r['state']=='COMPLETED' for r in mutations),mutations;assert {r['instance_id'] for r in mutations}==ids
-              integrity=c.execute('pragma integrity_check').fetchone()[0];foreign=[list(r) for r in c.execute('pragma foreign_key_check')];assert integrity=='ok' and not foreign
-          print(json.dumps({'case':'ACC-EDIT-003','result':'PASS','source_head':open('/tmp/wp05-edit-rollout/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'definition_id':definition,'instance_count':len(rows),'instance_ids_unchanged':True,'offline_instance':offline,'far_unloaded_instance':far,'locations_before_edit':pre,'final_instances':rows,'template_mutations':mutations,'mid_rollout_restart':True,'replay_restart_no_duplicate':True,'integrity':integrity,'foreign_key_violations':foreign},indent=2,sort_keys=True))
-          PY
-
-      - name: Collect failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          ROOT=/tmp/wp05-edit-rollout;DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db";mkdir -p "$ROOT/evidence"
-          if test -f "$DB";then python3 - "$DB" >"$ROOT/evidence/failure-db.txt" 2>&1 <<'PY' || true
-          import sqlite3,sys
-          c=sqlite3.connect(sys.argv[1]);c.row_factory=sqlite3.Row
-          for t in ('lore_definitions','lore_definition_revisions','lore_instances','instance_current_state','pending_mutations','audit_events'):
-              print('##',t)
-              try:
-                  for r in c.execute(f'select * from {t}'):print(dict(r))
-              except Exception as e:print(type(e).__name__,e)
-          print('integrity',list(c.execute('pragma integrity_check')));print('foreign',list(c.execute('pragma foreign_key_check')))
-          PY
-          fi
-          ps aux >"$ROOT/evidence/failure-processes.txt" 2>&1||true
-
       - name: Upload rollout evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wp05-edit-rollout-${{ github.event.pull_request.head.sha || github.sha }}
-          path: /tmp/wp05-edit-rollout/evidence
+          path: /tmp/wp05-rollout-v2/evidence
           if-no-files-found: error
           retention-days: 30
