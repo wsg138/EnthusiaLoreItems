@@ -51,6 +51,10 @@ function windowSlot(bot, name) {
 
 async function verifyShulkerRestriction(bot) {
   bot.chat('/tp Wp05RestrictBot 0 71 0')
+  // Paper can acknowledge a teleport before the destination chunk has completed loading.
+  // Wait for the client to receive the destination before asking the server to place the fixture.
+  await sleep(500)
+  await bot.waitForChunksToLoad()
   bot.chat('/setblock 1 70 0 minecraft:shulker_box')
   await sleep(500)
   const block = await waitBlock(bot, 1, 70, 0, 'shulker_box')
