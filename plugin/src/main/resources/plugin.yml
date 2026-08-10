@@ -9,6 +9,10 @@ commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
     usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|remove|purge|delete|operations|targets|destructive-metrics|pause-operation|resume-operation|resolve-removal ...
+  loreitemsreview:
+    description: Resolves REVIEW_REQUIRED lore-item mutations after staff evidence review.
+    usage: /loreitemsreview <mutation-uuid> <mutation-type> <retry|cancel> <evidence>
+    permission: enthusia.loreitems.admin.recovery.review
   loredistribution:
     description: Validates, starts, inspects, and controls one-use lore-item distribution campaigns.
     usage: /loredistribution reload|inspect|preview|confirm|campaigns|status|recipients|pause|resume|cancel|reconcile ...
@@ -24,6 +28,9 @@ permissions:
     default: op
   enthusia.loreitems.admin.audit:
     description: Views active lore-item anomalies, audit evidence, recovery work, and template status.
+    default: op
+  enthusia.loreitems.admin.recovery.review:
+    description: Resolves REVIEW_REQUIRED item mutations using reviewed evidence.
     default: op
   enthusia.loreitems.admin.edit:
     description: Creates and confirms lore-item template revisions through the GUI/chat editor.
