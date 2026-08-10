@@ -1,0 +1,131 @@
+name: WP-05 Mixed Work Lifecycle Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-mixed-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mixed-work-reload-shutdown:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.14.3"
+      - name: Prepare exact-head server and clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          R=/tmp/wp05-life;mkdir -p "$R/server/plugins/EnthusiaLoreItems" "$R/evidence" "$R/bot"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
+          cat >"$R/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 5000
+          database-queue-capacity: 32
+          database-shutdown-timeout-seconds: 3
+          delivery-claim-batch-size: 8
+          delivery-claim-lease-seconds: 30
+          duplicate-warning-interval-seconds: 300
+          default-page-size: 45
+          max-page-size: 100
+          mutation-budget-per-tick: 2
+          shared-containers-allowed: true
+          EOF
+          cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 mixed lifecycle
+          EOF
+          cd "$R/bot";npm init -y >/dev/null;npm install --save-exact mineflayer@4.35.0 >"$R/evidence/npm.log" 2>&1;cat >bot.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs'),r='/tmp/wp05-life',name=process.argv[2],s=ms=>new Promise(x=>setTimeout(x,ms));const safe=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'}),log=x=>{fs.appendFileSync(`${r}/evidence/bot-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          function txt(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(txt).join(''):'');if(Array.isArray(v.extra))return v.extra.map(txt).join('');return JSON.stringify(v)}
+          async function waitFile(p){for(let i=0;i<1200;i++){if(fs.existsSync(p))return;await s(100)}throw new Error(`timeout ${p}`)};async function win(x){for(let i=0;i<200;i++){if(b.currentWindow&&txt(b.currentWindow.title).toLowerCase().includes(x.toLowerCase()))return;await s(100)}throw new Error(`window ${x}`)};async function click(n){await b.clickWindow(n,0,0);await s(300)}
+          async function edit(){b.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120;i++){if(!b.currentWindow)break;await s(100)}b.chat('submit literal Lifecycle Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await s(1500);fs.writeFileSync(`${r}/edit.done`,'ok\n');log('EDIT_DONE')}
+          b.on('message',x=>log(`CHAT ${x.toString()}`));b.on('error',e=>log(`ERROR ${e.stack||e}`));b.once('spawn',async()=>{try{fs.writeFileSync(`${r}/${safe}.uuid`,`${b.player.uuid}\n`);log(`SPAWN ${b.player.uuid}`);if(name==='Wp05LifeAdmin'){await waitFile(`${r}/edit.go`);await edit()}while(!fs.existsSync(`${r}/${safe}.stop`))await s(100);b.quit('transition')}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${r}/${safe}.failed`,String(e.stack||e));process.exit(1)}})
+          EOF
+      - name: Execute ACC-LIFE-001 and ACC-LIFE-002
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/wp05-life;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";CFG="$S/plugins/EnthusiaLoreItems/config.yml";GROUPS="$S/plugins/EnthusiaLoreItems/groups";cd "$S"
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l"&&grep -q 'Queued direct-delivery processing is active.' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;return 1;};stop_server(){ local before after;before="$(date +%s%3N)";echo stop >&3;wait "$SPID";after="$(date +%s%3N)";SHUTDOWN_MS=$((after-before));exec 3>&-;rm -f server.stdin;}
+          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/bot-$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 60);do test -s "$R/$q.uuid"&&return;kill -0 "$p" 2>/dev/null||return 1;sleep 1;done;return 1;};stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 20);do kill -0 "$p" 2>/dev/null||break;sleep 1;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";};kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
+          wait_sql(){ local q="$1" limit="${2:-120}";for _ in $(seq 1 "$limit");do if python3 - "$DB" "$q" <<'PY'
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
+          PY
+            then return;fi;sleep 1;done;echo "SQL timeout: $q" >&2;return 1;}
+          START="$(date -u +%FT%TZ)";L1="$E/server-before-reload.log";start_server "$L1";for N in Wp05LifeAdmin Wp05LifeUpdate Wp05LifeDestruct Wp05LifeDelivery Wp05LifeCampaign;do start_bot "$N";done;echo 'op Wp05LifeAdmin' >&3
+          UUUID="$(tr -d '\r\n'<"$R/wp05lifeupdate.uuid")";XUUID="$(tr -d '\r\n'<"$R/wp05lifedestruct.uuid")";DUUID="$(tr -d '\r\n'<"$R/wp05lifedelivery.uuid")";CUUID="$(tr -d '\r\n'<"$R/wp05lifecampaign.uuid")"
+          # Update instance: deliver revision 1 while online, then make player inaccessible and confirm revision 2.
+          echo 'wp05accept source Wp05LifeAdmin sword' >&3;sleep 1;echo 'wp05accept perform Wp05LifeAdmin loreitems create life_update Lifecycle Update' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='life_update' and current_revision=1";echo 'loreitems give life_update Wp05LifeUpdate' >&3;wait_sql "select count(*)=1 from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.lifecycle_state='ACTIVE' and s.location_key='player:$UUUID' and i.applied_revision=1";stop_bot Wp05LifeUpdate;touch "$R/edit.go";for _ in $(seq 1 180);do test -f "$R/edit.done"&&break;test ! -f "$R/wp05lifeadmin.failed"||{ cat "$R/wp05lifeadmin.failed";exit 1;};sleep 1;done;test -f "$R/edit.done";wait_sql "select count(*)=1 from lore_definitions where lookup_key='life_update' and current_revision=2";wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update' and i.applied_revision=1 and i.desired_revision=2"
+          # Destructive target: deliver while accessible, then purge after logout so operation remains active.
+          echo 'wp05accept source Wp05LifeAdmin pickaxe' >&3;sleep 1;echo 'wp05accept perform Wp05LifeAdmin loreitems create life_destruct Lifecycle Destructive' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='life_destruct'";echo 'loreitems give life_destruct Wp05LifeDestruct' >&3;wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='life_destruct' and s.location_key='player:$XUUID'";stop_bot Wp05LifeDestruct;XDEF="$(python3 - "$DB" <<'PY'
+          import sqlite3
+          with sqlite3.connect('/tmp/wp05-life/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='life_destruct'").fetchone()[0])
+          PY
+          )";echo "loreitems purge $XDEF" >&3;sleep 2;TOK="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$L1"|tail -n1|sed -E 's/.*confirm-purge ([^ ]+).*/\1/')";test -n "$TOK";echo "loreitems confirm-purge $TOK" >&3;wait_sql "select count(*)=1 from destructive_operations where definition_id='$XDEF' and state in ('ACTIVE','PAUSED')";XOP="$(python3 - "$DB" "$XDEF" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute('select operation_id from destructive_operations where definition_id=? order by created_at desc limit 1',(sys.argv[2],)).fetchone()[0])
+          PY
+          )"
+          # Pending direct delivery and active campaign are both bound to known offline players.
+          stop_bot Wp05LifeDelivery;stop_bot Wp05LifeCampaign
+          echo 'wp05accept source Wp05LifeAdmin shovel' >&3;sleep 1;echo 'wp05accept perform Wp05LifeAdmin loreitems create life_delivery Lifecycle Delivery' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='life_delivery'";echo 'loreitems give life_delivery Wp05LifeDelivery' >&3;wait_sql "select count(*)=1 from direct_deliveries where player_id='$DUUID' and state in ('PENDING','CLAIMED')"
+          echo 'wp05accept source Wp05LifeAdmin hoe' >&3;sleep 1;echo 'wp05accept perform Wp05LifeAdmin loreitems create life_campaign Lifecycle Campaign' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='life_campaign'";mkdir -p "$GROUPS/completed" "$GROUPS/cancelled";cat >"$GROUPS/life.yml" <<'EOF'
+          display-name: Lifecycle Campaign
+          players:
+            - Wp05LifeCampaign
+          EOF
+          echo 'loredistribution reload' >&3;sleep 2;echo 'loredistribution preview life.yml life_campaign' >&3;sleep 2;CID="$(grep -F 'Campaign: ' "$L1"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='ACTIVE'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and player_id='$CUUID' and state='QUEUED_OFFLINE'"
+          # Valid atomic reload, then invalid candidate. Keep all four durable state machines pending throughout.
+          cp "$CFG" "$E/config-before.yml";sed -i 's/shared-containers-allowed: true/shared-containers-allowed: false/' "$CFG";cp "$CFG" "$E/config-valid.yml";M="$(wc -l<"$L1")";echo 'loreitems reload' >&3;for _ in $(seq 1 60);do tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload applied:'&&break;sleep 1;done;tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload applied:'
+          cp "$CFG" "$E/config-last-good.yml";printf '\ndefault-page-size: invalid\n'>>"$CFG";cp "$CFG" "$E/config-invalid.yml";M="$(wc -l<"$L1")";echo 'loreitems reload' >&3;for _ in $(seq 1 60);do tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload rejected:'&&break;sleep 1;done;tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload rejected:'
+          wait_sql "select count(*)=1 from direct_deliveries where player_id='$DUUID' and state in ('PENDING','CLAIMED')";wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update' and i.applied_revision=1 and i.desired_revision=2";wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='ACTIVE'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='ACTIVE'"
+          # Restore a syntactically valid file for the subsequent process restart without changing the live snapshot again.
+          cp "$E/config-last-good.yml" "$CFG";stop_bot Wp05LifeAdmin;stop_server;kill_bots;printf '%s\n' "$SHUTDOWN_MS">"$E/shutdown-ms.txt";test "$SHUTDOWN_MS" -lt 20000
+          # Restart still sees all four pending workloads. Natural player access then completes each exactly once.
+          L2="$E/server-after-restart.log";start_server "$L2";wait_sql "select count(*)=1 from direct_deliveries where player_id='$DUUID' and state in ('PENDING','CLAIMED')";wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='ACTIVE'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='ACTIVE'"
+          for N in Wp05LifeUpdate Wp05LifeDestruct Wp05LifeDelivery Wp05LifeCampaign;do start_bot "$N";done
+          wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update' and i.applied_revision=2 and i.desired_revision=2";wait_sql "select count(*)=1 from pending_mutations m join lore_definitions d on d.definition_id=m.definition_id where d.lookup_key='life_update' and m.mutation_type='TEMPLATE_UPDATE' and m.state='COMPLETED'"
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='COMPLETED'";wait_sql "select count(*)=1 from direct_deliveries where player_id='$DUUID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and state='DELIVERED'";sleep 4
+          for N in Wp05LifeUpdate Wp05LifeDestruct Wp05LifeDelivery Wp05LifeCampaign;do stop_bot "$N";done;stop_server;kill_bots;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$SHUTDOWN_MS" "$XOP" "$CID" <<'PY' | tee "$E/result.json"
+          import json,sqlite3,sys
+          db,start,end,shutdown,op,cid=sys.argv[1:]
+          with sqlite3.connect(db) as c:
+              i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
+              state={'destructive':c.execute('select state from destructive_operations where operation_id=?',(op,)).fetchone()[0],'campaign':c.execute('select state from distribution_campaigns where campaign_id=?',(cid,)).fetchone()[0]};assert state=={'destructive':'COMPLETED','campaign':'COMPLETED'}
+          print(json.dumps({'cases':{'ACC-LIFE-001':'PASS','ACC-LIFE-002':'PASS'},'source_head':open('/tmp/wp05-life/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'valid_reload_applied_with_four_pending_state_machines':True,'invalid_reload_retained_last_good_snapshot':True,'shutdown_millis':int(shutdown),'configured_database_shutdown_timeout_seconds':3,'restart_preserved_pending_work':True,'natural_reaccess_converged_delivery_update_destructive_campaign':True,'final_states':state,'integrity':i,'foreign_key_violations':fk},indent=2))
+          PY
+      - name: Upload lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wp05-mixed-lifecycle-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-life/evidence
+          if-no-files-found: error
+          retention-days: 30
