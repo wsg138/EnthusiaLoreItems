@@ -6,44 +6,36 @@
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Draft PR: #18 — `WP-05: complete live acceptance and release LoreItems`
 - Refreshed live `main`: `70a636a25d12d755342d90d6846b86a0e56e865b`
-- Exact implementation/evidence head being checkpointed: `031855c7bc6e7ad27c6bb8d839bcdfea8acb8b31`
-- Current checkpoint: `ai-agents/reports/agent-handoffs/2026-08-09-wp-05-stable-tracking-quality-checkpoint.md`
+- Exact implementation/evidence head being resumed: `bd92e412836da2ffd9bb20fbc91c2bea1dd3991e`
+- Resume basis: sole unfinished canonical package lock; WP-01..WP-04 branch heads are contained in live `main`; WP-06 canonical/finalization/blocker branches are absent and EnthusiaTags has no open PR.
 
-## Current exact-head evidence
-All currently configured exact-head workflows are green on `031855c7...`:
-- CI `31344195749` — success through Gradle/tests, repository tooling, Lizard, exact-head Codacy zero annotations, deterministic WP-04 profile, RC validation, immutable evidence, reproducibility, and Sentinel artifact publication.
-- Public API `31344195727` — success.
-- Java Identity/Core `31344195754` — success.
-- Exact Removal `31344195726` — success.
-- Editor Contract `31344195752` — success.
-- ACC-CORE-005 `31344195762` — success.
-- Floodgate Identity `31344195724` — success.
-- Tracking Contract `31344195728` — success.
+## Completed acceptance criteria / evidence
+- Previously durable and exact-head verified: Java identity/core, Floodgate server-visible identity, Public API, full-inventory delivery, editor contract, exact removal, and full tracking contract (`ACC-TRACK-001..003`).
+- `ACC-ANOM-001` is implemented as a real disposable Paper acceptance workflow proving duplicate + malformed detection, immediate and five-minute warning, staff inspection, supported duplicate resolution, copy preservation, SQLite integrity, and foreign-key integrity.
+- `ACC-ANOM-002` is implemented as a real disposable Paper acceptance workflow proving a post-physical template-update durability fault is fenced, becomes `REVIEW_REQUIRED` after restart, is operator-inspected, and is safely retried/reconciled without blind duplicate physical mutation.
+- On exact resumed head `bd92e412...`, all currently configured PR workflows completed successfully: CI `31347395418`; Public API `31347395408`; Ambiguous Mutation Recovery `31347395394`; Exact Removal `31347395406`; Java Identity/Core `31347395402`; Mutation Review Contract `31347395403`; ACC-CORE-005 `31347395393`; Editor Contract `31347395392`; Floodgate Identity `31347395387`; Tracking Contract `31347395411`; Anomaly Contract `31347395390`.
+- Commit status `CodeRabbit` is `success` on `bd92e412...`.
+- PR #18 has no submitted reviews and zero unresolved review threads as of resume reconciliation.
 
-Artifacts:
-- CI plugin `9046795430`, digest `sha256:2fa1663813c44b12e53498ed6901b76b72bafdcf9fbd0c5ca2f9c3ebf1ca608a`.
-- WP-04 verification `9046794871`, digest `sha256:6f66f3a2d8ab1d5d38f9b2b4aa86ea3204cac982a89e762d3564ef358e73be19`.
-- Tracking `9046809567`, digest `sha256:3180f12720dce027e6cf0fee85f880a23cfd03cef04ca9c8294413d22feb2336`.
+## Remaining acceptance criteria
+WP-05 remains indivisible and incomplete. The next deterministic cluster is `ACC-DEST-002..004` and `ACC-LIFE-001..002`, followed by the other still-unfinished matrix areas including `ACC-ENV-001`, `ACC-EDIT-003`, `ACC-PROT-001..002`, `ACC-DIST-001..005`, and `ACC-OPS-001..005`. The full in-scope matrix must be rerun on the final post-code-change JAR.
 
-Tracking cases are fully green: `ACC-TRACK-001`, allowed/restricted `ACC-TRACK-002`, and full `ACC-TRACK-003`, including entity lifecycle unload/reload retention and restart integrity.
+Package-level gates still required: final applicable Sentinel startup/restart evidence, full exact-head automated/release verification, clean RC-to-final upgrade plus backup/restore/rollback rehearsal, independent harsh code review, separate evidence audit, owner/operator sign-off, normal merge commit, post-merge `main` verification, and verified production `v1.0.0` tag/release/assets.
 
-## Production findings fixed
-1. Already-prefixed Floodgate recipient binding — `e00035d937d8a7d51eb00484689c74dd1d6d394a`.
-2. Quit/InventoryClose tracking race — `1d144111d88a1c481e231bd1ba329c58a0fddc20`; regression `39e4892562bc441d90c046c79b84d1a1004a2034`.
-3. Paper entity lifecycle tracking gap — `f2203d43e37c1c23edebd4618cf4aa0b0f3e4626`, with bounded entity lifecycle handlers and exact-head live regression evidence.
+## Tests run / exact results during reconciliation
+- GitHub exact-head workflow inspection on `bd92e412...`: 11/11 currently configured PR workflow runs `completed/success`.
+- GitHub commit status: CodeRabbit `success`.
+- PR reviews: none submitted.
+- PR review threads: zero.
+- No local build was run; the execution environment has no direct GitHub network path, so repository-native GitHub Actions are the authoritative executable evidence.
 
-Quality remediation preserved all behavior: entity scanning and deferred requests were extracted, only the two Node-only acceptance bots were excluded from incompatible browser/legacy Codacy JavaScript policies, the final real Java-test Codacy finding was fixed normally, and the client fixture wait was hardened without weakening acceptance semantics.
-
-## Review state
-PR #18 has no submitted reviews and no inline review threads. Independent harsh review and separate evidence audit are still required later; this clean state is not their substitute.
-
-## Remaining boundary
-WP-05 remains indivisible and incomplete. Remaining live cases include `ACC-ENV-001`, `ACC-EDIT-003`, `ACC-PROT-001..002`, `ACC-ANOM-001..002`, `ACC-DEST-002..004`, `ACC-DIST-001..005`, `ACC-LIFE-001..002`, and `ACC-OPS-001..005`.
-
-Final applicable Sentinel startup/restart evidence, independent review/evidence audit, owner/operator sign-off, normal merge, post-merge `main`, and production `v1.0.0` release/assets remain required.
+## Known findings
+- Confirmed production defects already fixed/regression-verified: prefixed Floodgate recipient binding; quit/InventoryClose tracking race; Paper entity lifecycle tracking gap.
+- No new production defect is established by this resume checkpoint.
+- Main-branch queue/workspace snapshots remain stale (`WP-05 READY`), but live PR/branch state is authoritative.
 
 ## Blocker
 None verified. WP-05 is actionable.
 
 ## Exact next action
-Implement and execute the next missing deterministic live acceptance cluster beginning with `ACC-ANOM-001..002`, then `ACC-DEST-002..004` and `ACC-LIFE-001..002`. Fix any confirmed mismatch within WP-05 and rerun affected/full safety checks. Do not begin WP-06.
+Continue on this exact canonical branch with `ACC-DEST-002..004` and `ACC-LIFE-001..002`. Preserve persisted-intent-before-side-effect semantics, exact-target verification, review-required ambiguity handling, bounded work, no force loading, and restart/reload safety. Fix any confirmed mismatch in WP-05 and rerun affected safety regressions. Do not begin WP-06.
