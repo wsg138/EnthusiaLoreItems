@@ -96,6 +96,8 @@ jobs:
             await waitFile('go-drop');await drop()
             await waitFile('go-far');await chestDeposit(1025,200,1024,'far')
             await waitFile('edit.go');await teleport(0,201,0,'edit-home');await edit()
+          }else if(name==='Wp05Rollout'&&role==='far-access'){
+            await waitFile('far-reaccess.go');await nestedAccess(1025,200,1024,'far-reaccess')
           }
           await waitFile(`${safe}.stop`);bot.quit('rollout complete')}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/${safe}.failed`,String(e.stack||e));process.exit(1)}})
           EOF
@@ -150,7 +152,7 @@ jobs:
           PY
           touch "$R/edit.go";wait_marker edit.done;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2";wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=1 and desired_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=1 and desired_revision=2"
           stop_bot Wp05Rollout;stop_server;kill_bots
-          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff passive;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout passive;echo 'op Wp05Rollout' >&3;echo 'effect give Wp05Rollout minecraft:slow_falling 600 0 true' >&3;echo 'tp Wp05Rollout 1024 201 1024' >&3;sleep 7;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
+          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff passive;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout far-access;echo 'op Wp05Rollout' >&3;touch "$R/far-reaccess.go";wait_marker far-reaccess.done;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
           L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_server;END="$(date -u +%FT%TZ)"
           python3 - "$DB" "$START" "$END" "$DEF" "$OFF" "$FAR" <<'PY' | tee "$E/result.json"
           import json,sqlite3,sys
