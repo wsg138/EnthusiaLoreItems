@@ -40,15 +40,15 @@ jobs:
           import json
           p=json.load(open('/tmp/wp05-load/evidence/wp04-profile.json'))
           assert p['passed'] is True,p
-          assert p['dataset']['players']==100
-          assert p['dataset']['trackedInstances']==25000
-          assert p['dataset']['pendingMutations']==10000
-          assert p['dataset']['campaigns']==10
-          assert p['dataset']['recipientsPerCampaign']==2000
-          assert p['dataset']['adminQueries']==100
-          assert p['queueHighWaterMark']<=p['configuration']['queueCapacity']
-          assert p['mainThreadTaskDuration']['maxMs']<=50
-          assert p['mainThreadTaskDuration']['p99Ms']<=10
+          assert p['scenarios']['onlinePlayers']==100
+          assert p['scenarios']['trackedInstances']==25000
+          assert p['scenarios']['pendingMixedMutations']==10000
+          assert p['scenarios']['activeCampaigns']==10
+          assert p['scenarios']['recipientsPerCampaign']==2000
+          assert p['scenarios']['simultaneousAdministrativeQueries']==100
+          assert p['metrics']['queueHighWaterMark']<=p['configuration']['queueCapacity']
+          assert p['metrics']['mainThreadTaskDuration']['maxMs']<=50
+          assert p['metrics']['mainThreadTaskDuration']['p99Ms']<=10
           PY
       - name: Build exact-head live Paper load fixture
         shell: bash
