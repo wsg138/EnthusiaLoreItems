@@ -14,12 +14,13 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     private static final String CREATE_SUBCOMMAND = "create";
     private static final String ADOPT_SUBCOMMAND = "adopt";
     private static final String GIVE_SUBCOMMAND = "give";
+    private static final String RELOAD_SUBCOMMAND = "reload";
     private static final String ANOMALIES_SUBCOMMAND = "anomalies";
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
     private static final String BROWSE_SUBCOMMAND = "browse";
     private static final String USAGE =
-            "Usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|"
+            "Usage: /loreitems create|adopt|give|reload|browse|anomalies|audit|recovery|"
                     + "remove|purge|delete|operations|targets|destructive-metrics|"
                     + "pause-operation|resume-operation|resolve-removal ...";
 
@@ -28,12 +29,13 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     private final GiveLoreItemCommandExecutor giveExecutor;
     private final LoreItemsAdministrationCommandExecutor administrationExecutor;
     private final LoreItemsDestructiveCommandExecutor destructiveExecutor;
+    private final FoundationConfigurationReloadCommandExecutor reloadExecutor;
 
     public LoreItemsCommandExecutor(
             CreateDefinitionCommandExecutor createExecutor,
             AdoptHeldItemCommandExecutor adoptExecutor,
             GiveLoreItemCommandExecutor giveExecutor) {
-        this(createExecutor, adoptExecutor, giveExecutor, null, null);
+        this(createExecutor, adoptExecutor, giveExecutor, null, null, null);
     }
 
     public LoreItemsCommandExecutor(
@@ -48,7 +50,25 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
                 administrationExecutor,
                 administrationExecutor == null
                         ? null
-                        : administrationExecutor.destructiveCommandExecutor());
+                        : administrationExecutor.destructiveCommandExecutor(),
+                null);
+    }
+
+    public LoreItemsCommandExecutor(
+            CreateDefinitionCommandExecutor createExecutor,
+            AdoptHeldItemCommandExecutor adoptExecutor,
+            GiveLoreItemCommandExecutor giveExecutor,
+            LoreItemsAdministrationCommandExecutor administrationExecutor,
+            FoundationConfigurationReloadCommandExecutor reloadExecutor) {
+        this(
+                createExecutor,
+                adoptExecutor,
+                giveExecutor,
+                administrationExecutor,
+                administrationExecutor == null
+                        ? null
+                        : administrationExecutor.destructiveCommandExecutor(),
+                reloadExecutor);
     }
 
     public LoreItemsCommandExecutor(
@@ -57,11 +77,28 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             GiveLoreItemCommandExecutor giveExecutor,
             LoreItemsAdministrationCommandExecutor administrationExecutor,
             LoreItemsDestructiveCommandExecutor destructiveExecutor) {
+        this(
+                createExecutor,
+                adoptExecutor,
+                giveExecutor,
+                administrationExecutor,
+                destructiveExecutor,
+                null);
+    }
+
+    public LoreItemsCommandExecutor(
+            CreateDefinitionCommandExecutor createExecutor,
+            AdoptHeldItemCommandExecutor adoptExecutor,
+            GiveLoreItemCommandExecutor giveExecutor,
+            LoreItemsAdministrationCommandExecutor administrationExecutor,
+            LoreItemsDestructiveCommandExecutor destructiveExecutor,
+            FoundationConfigurationReloadCommandExecutor reloadExecutor) {
         this.createExecutor = Objects.requireNonNull(createExecutor, "createExecutor");
         this.adoptExecutor = Objects.requireNonNull(adoptExecutor, "adoptExecutor");
         this.giveExecutor = Objects.requireNonNull(giveExecutor, "giveExecutor");
         this.administrationExecutor = administrationExecutor;
         this.destructiveExecutor = destructiveExecutor;
+        this.reloadExecutor = reloadExecutor;
     }
 
     @Override
@@ -83,6 +120,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             case CREATE_SUBCOMMAND -> createExecutor.onCommand(sender, command, label, arguments);
             case ADOPT_SUBCOMMAND -> adoptExecutor.onCommand(sender, command, label, arguments);
             case GIVE_SUBCOMMAND -> giveExecutor.onCommand(sender, command, label, arguments);
+            case RELOAD_SUBCOMMAND -> executeReload(sender, arguments);
             case BROWSE_SUBCOMMAND, ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND,
                     RECOVERY_SUBCOMMAND ->
                     executeAdministration(sender, command, label, arguments);
@@ -105,7 +143,8 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
                     sender,
                     arguments[0],
                     administrationExecutor != null,
-                    destructiveExecutor != null);
+                    destructiveExecutor != null,
+                    reloadExecutor != null);
         }
         if (destructiveExecutor != null
                 && arguments.length > 1
@@ -116,12 +155,12 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     }
 
     static List<String> topLevelCompletions(CommandSender sender, String input) {
-        return topLevelCompletions(sender, input, true, true);
+        return topLevelCompletions(sender, input, true, true, true);
     }
 
     static List<String> topLevelCompletions(
             CommandSender sender, String input, boolean administrationAvailable) {
-        return topLevelCompletions(sender, input, administrationAvailable, false);
+        return topLevelCompletions(sender, input, administrationAvailable, false, false);
     }
 
     static List<String> topLevelCompletions(
@@ -129,12 +168,29 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             String input,
             boolean administrationAvailable,
             boolean destructiveAvailable) {
+        return topLevelCompletions(
+                sender, input, administrationAvailable, destructiveAvailable, false);
+    }
+
+    static List<String> topLevelCompletions(
+            CommandSender sender,
+            String input,
+            boolean administrationAvailable,
+            boolean destructiveAvailable,
+            boolean reloadAvailable) {
         Objects.requireNonNull(sender, "sender");
         String prefix = Objects.requireNonNull(input, "input").toLowerCase(Locale.ROOT);
         List<String> candidates = new ArrayList<>();
         addIfAllowed(candidates, sender, CREATE_SUBCOMMAND, "enthusia.loreitems.admin.create");
         addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
         addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
+        if (reloadAvailable) {
+            addIfAllowed(
+                    candidates,
+                    sender,
+                    RELOAD_SUBCOMMAND,
+                    FoundationConfigurationReloadCommandExecutor.RELOAD_PERMISSION);
+        }
         if (administrationAvailable) {
             if (LoreItemsAdministrationCommandExecutor.canBrowse(sender)) {
                 candidates.add(BROWSE_SUBCOMMAND);
@@ -169,6 +225,14 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         if (sender.hasPermission(permission)) {
             values.add(value);
         }
+    }
+
+    private boolean executeReload(CommandSender sender, String[] arguments) {
+        if (reloadExecutor == null || arguments.length != 1) {
+            sender.sendMessage("Usage: /loreitems reload");
+            return true;
+        }
+        return reloadExecutor.execute(sender);
     }
 
     private boolean executeAdministration(
