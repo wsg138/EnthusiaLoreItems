@@ -189,6 +189,31 @@ jobs:
           done
           [[ "$STATE" == PENDING ]]
 
+          # Force the initial true policy through the live listener before touching config.yml.
+          rm -f "$ROOT/restrict-bot.uuid" "$ROOT/restricted-done" "$ROOT/restricted-bot.failed" "$ROOT/go-restricted"
+          (cd "$ROOT/bot" && BOT_USER=Wp05BaselineBot POLICY_MODE=allowed \
+            node "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-tracking-restricted-bot.js") \
+            >"$EVIDENCE/allowed-before-reload-stdout.log" 2>&1 &
+          RESTRICT_PID=$!
+          for _ in $(seq 1 120); do
+            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
+            test -s "$ROOT/restrict-bot.uuid" && break
+            sleep .25
+          done
+          echo 'op Wp05BaselineBot' >&3
+          echo 'clear Wp05BaselineBot' >&3
+          sleep .5
+          touch "$ROOT/go-restricted"
+          for _ in $(seq 1 360); do
+            [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
+            [[ -f "$ROOT/restricted-done" ]] && break
+            sleep .25
+          done
+          test -f "$ROOT/restricted-done"
+          wait "$RESTRICT_PID"
+          RESTRICT_PID=''
+          grep -F 'TRACK2 allowed shulker insertion accepted by live server' "$EVIDENCE/restricted-bot.log"
+
           # Valid snapshot: change shared-container policy without a restart.
           python3 - "$CONFIG" <<'PY'
           from pathlib import Path
@@ -217,6 +242,7 @@ jobs:
           done
           echo 'op Wp05RestrictBot' >&3
           echo 'clear Wp05RestrictBot' >&3
+          sleep .5
           touch "$ROOT/go-restricted"
           for _ in $(seq 1 360); do
             [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
@@ -249,6 +275,7 @@ jobs:
           done
           echo 'op Wp05RestrictBot' >&3
           echo 'clear Wp05RestrictBot' >&3
+          sleep .5
           touch "$ROOT/go-restricted"
           for _ in $(seq 1 360); do
             [[ -f "$ROOT/restricted-bot.failed" ]] && { cat "$ROOT/restricted-bot.failed"; exit 1; }
@@ -278,10 +305,12 @@ jobs:
               assert row and row[0]=='COMPLETED', row
               assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
               assert c.execute('pragma foreign_key_check').fetchall()==[]
+          print('PASS ACC-LIFE-001 initial true policy allowed live shared-container insertion before reload')
           print('PASS ACC-LIFE-001 valid snapshot changed live nested-storage behavior without restart')
           print('PASS ACC-LIFE-001 invalid snapshot rejected while last-known-good behavior remained active')
           print('PASS ACC-LIFE-001 durable offline queue survived valid and invalid reload attempts and completed once')
           PY
+          grep -F 'TRACK2 allowed shulker insertion accepted by live server' "$EVIDENCE/restricted-bot.log"
           grep -F 'TRACK2 restricted shulker insertion rejected by live server' "$EVIDENCE/restricted-bot.log"
           grep -F 'TRACK2 restricted bundle insertion rejected by live server' "$EVIDENCE/restricted-bot.log"
           printf 'server-start-count=%s\n' "$(grep -c 'Done (' "$EVIDENCE/server.log" || true)" >> "$EVIDENCE/case-results.txt"
