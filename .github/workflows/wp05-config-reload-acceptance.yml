@@ -179,21 +179,21 @@ jobs:
           import sqlite3,sys
           try:
               with sqlite3.connect(sys.argv[1]) as c:
-                  row=c.execute("select state from direct_deliveries where external_operation_id='reload-queue-001'").fetchone()
+                  row=c.execute("select state from direct_deliveries where idempotency_key='reload-queue-001'").fetchone()
                   print(row[0] if row else '')
           except Exception: print('')
           PY
           )"
-            [[ "$STATE" == PENDING || "$STATE" == DEFERRED ]] && break
+            [[ "$STATE" == PENDING ]] && break
             sleep .25
           done
-          [[ "$STATE" == PENDING || "$STATE" == DEFERRED ]]
+          [[ "$STATE" == PENDING ]]
 
           # Valid snapshot: change shared-container policy without a restart.
           python3 - "$CONFIG" <<'PY'
           from pathlib import Path
           import sys
-          p=Path(sys.argv[1]); text=p.read_text();
+          p=Path(sys.argv[1]); text=p.read_text()
           assert text.count('shared-containers-allowed: true')==1
           p.write_text(text.replace('shared-containers-allowed: true','shared-containers-allowed: false'))
           PY
@@ -274,7 +274,7 @@ jobs:
           python3 - "$DB" <<'PY' | tee "$EVIDENCE/case-results.txt"
           import sqlite3,sys
           with sqlite3.connect(sys.argv[1]) as c:
-              row=c.execute("select state from direct_deliveries where external_operation_id='reload-queue-001'").fetchone()
+              row=c.execute("select state from direct_deliveries where idempotency_key='reload-queue-001'").fetchone()
               assert row and row[0]=='COMPLETED', row
               assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
               assert c.execute('pragma foreign_key_check').fetchall()==[]
