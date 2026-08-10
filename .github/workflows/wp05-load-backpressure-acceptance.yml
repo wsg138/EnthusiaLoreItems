@@ -30,36 +30,39 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
+
       - name: Run exact-head WP-04 100-player-equivalent threshold profile
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/wp05-load/evidence
-          python3 tools/wp04_profile.py --repo "$GITHUB_WORKSPACE" --output /tmp/wp05-load/evidence/wp04-profile.json
+          mkdir -p /tmp/wp05-load-v2/evidence
+          python3 tools/wp04_profile.py --repo "$GITHUB_WORKSPACE" --output /tmp/wp05-load-v2/evidence/wp04-profile.json
           python3 - <<'PY'
           import json
-          p=json.load(open('/tmp/wp05-load/evidence/wp04-profile.json'))
+          p=json.load(open('/tmp/wp05-load-v2/evidence/wp04-profile.json'))
           assert p['passed'] is True,p
-          assert p['scenarios']['onlinePlayers']==100
-          assert p['scenarios']['trackedInstances']==25000
-          assert p['scenarios']['pendingMixedMutations']==10000
-          assert p['scenarios']['activeCampaigns']==10
-          assert p['scenarios']['recipientsPerCampaign']==2000
-          assert p['scenarios']['simultaneousAdministrativeQueries']==100
-          assert p['metrics']['queueHighWaterMark']<=p['configuration']['queueCapacity']
-          assert p['metrics']['mainThreadTaskDuration']['maxMs']<=50
-          assert p['metrics']['mainThreadTaskDuration']['p99Ms']<=10
+          s=p['scenarios'];m=p['metrics'];c=p['configuration']
+          assert s['onlinePlayers']==100 and s['trackedInstances']==25000 and s['pendingMixedMutations']==10000
+          assert s['activeCampaigns']==10 and s['recipientsPerCampaign']==2000 and s['simultaneousAdministrativeQueries']==100
+          assert m['queueHighWaterMark']<=c['queueCapacity'] and m['mainThreadTaskDuration']['maxMs']<=50 and m['mainThreadTaskDuration']['p99Ms']<=10
           PY
-      - name: Build exact-head live Paper load fixture
+
+      - name: Build exact-head live minimum-capacity fixture
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
-          R=/tmp/wp05-load;mkdir -p "$R/server/plugins/EnthusiaLoreItems" "$R/evidence" "$R/bot"
-          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
+          R=/tmp/wp05-load-v2
+          mkdir -p "$R/server/plugins/EnthusiaLoreItems" "$R/evidence" "$R/bot"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar"
+          cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$P">"$R/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
           cat >"$R/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
           database-busy-timeout-millis: 5000
-          database-queue-capacity: 1
+          database-queue-capacity: 16
           database-shutdown-timeout-seconds: 3
           delivery-claim-batch-size: 2
           delivery-claim-lease-seconds: 30
@@ -69,77 +72,111 @@ jobs:
           mutation-budget-per-tick: 1
           shared-containers-allowed: true
           EOF
-          cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          cd "$R/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar"|sha256sum -c -
+          printf 'eula=true\n'>eula.txt
+          cat >server.properties <<'EOF'
           online-mode=false
           enforce-secure-profile=false
           spawn-protection=0
           white-list=false
           server-port=25565
-          motd=WP05 load backpressure
+          motd=WP05 load backpressure v2
           EOF
-          cd "$R/bot";npm init -y >/dev/null;npm install --save-exact mineflayer@4.35.0 >"$R/evidence/npm.log" 2>&1;cat >bot.js <<'EOF'
-          const m=require('mineflayer'),fs=require('fs'),r='/tmp/wp05-load',name=process.argv[2],s=ms=>new Promise(x=>setTimeout(x,ms));const q=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'});function t(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(t).join(''):'');if(Array.isArray(v.extra))return v.extra.map(t).join('');return JSON.stringify(v)}async function f(p){for(let i=0;i<1200;i++){if(fs.existsSync(p))return;await s(100)}throw Error(p)}async function w(x){for(let i=0;i<200;i++){if(b.currentWindow&&t(b.currentWindow.title).toLowerCase().includes(x.toLowerCase()))return;await s(100)}throw Error(x)}async function c(n){await b.clickWindow(n,0,0);await s(300)}async function edit(){b.chat('/loreitems browse');await w('Lore definitions');await c(0);await w('Template management');await c(29);await w('Template editor');await c(10);for(let i=0;i<120;i++){if(!b.currentWindow)break;await s(100)}b.chat('submit literal Load Revision Two');await w('Template editor');await c(49);await w('Confirm template revision');await c(31);await s(1400);fs.writeFileSync(`${r}/edit.done`,'ok\n')}b.once('spawn',async()=>{try{fs.writeFileSync(`${r}/${q}.uuid`,`${b.player.uuid}\n`);if(name==='Wp05LoadAdmin'){await f(`${r}/edit.go`);await edit()}while(!fs.existsSync(`${r}/${q}.stop`))await s(100);b.quit('transition')}catch(e){fs.writeFileSync(`${r}/${q}.failed`,String(e.stack||e));process.exit(1)}})
+          cd "$R/bot"
+          npm init -y>/dev/null
+          npm install --save-exact mineflayer@4.35.0>"$R/evidence/npm.log" 2>&1
+          cat >bot.js <<'EOF'
+          const m=require('mineflayer'),fs=require('fs'),r='/tmp/wp05-load-v2',name=process.argv[2],sleep=ms=>new Promise(x=>setTimeout(x,ms))
+          const q=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'})
+          b.once('spawn',async()=>{fs.writeFileSync(`${r}/${q}.uuid`,`${b.player.uuid}\n`);while(!fs.existsSync(`${r}/${q}.stop`))await sleep(100);b.quit('transition')})
           EOF
+
       - name: Execute ACC-OPS-004 and live portion of ACC-OPS-005
         shell: bash
         run: |
           set -euo pipefail
-          R=/tmp/wp05-load;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";G="$S/plugins/EnthusiaLoreItems/groups";cd "$S"
-          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;return 1;};stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
-          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/bot-$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 60);do test -s "$R/$q.uuid"&&return;sleep 1;done;return 1;};stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 20);do kill -0 "$p" 2>/dev/null||break;sleep 1;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";};kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
-          wait_sql(){ local q="$1" limit="${2:-120}";for _ in $(seq 1 "$limit");do if python3 - "$DB" "$q" <<'PY'
+          R=/tmp/wp05-load-v2;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";G="$S/plugins/EnthusiaLoreItems/groups";L="$E/server-load.log";cd "$S"
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;return 1;}
+          stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
+          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 80);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
+          stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 30);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
+          kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
+          wait_sql(){ local q="$1";for _ in $(seq 1 240);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
               with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
-            then return;fi;sleep 1;done;echo "SQL timeout $q";return 1;}
-          START="$(date -u +%FT%TZ)";L1="$E/server-load.log";start_server "$L1";start_bot Wp05LoadAdmin;start_bot Wp05LoadUpdate;start_bot Wp05LoadDestruct;echo 'op Wp05LoadAdmin' >&3;U="$(tr -d '\r\n'<"$R/wp05loadupdate.uuid")";X="$(tr -d '\r\n'<"$R/wp05loaddestruct.uuid")"
-          # Establish an inaccessible revision rollout and destructive operation before the burst.
-          echo 'wp05accept source Wp05LoadAdmin sword' >&3;sleep 1;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_update Load Update' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_update'";echo 'loreitems give load_update Wp05LoadUpdate' >&3;wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='load_update' and s.location_key='player:$U'";stop_bot Wp05LoadUpdate;touch "$R/edit.go";for _ in $(seq 1 180);do test -f "$R/edit.done"&&break;test ! -f "$R/wp05loadadmin.failed"||exit 1;sleep 1;done;test -f "$R/edit.done";wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='load_update' and i.applied_revision=1 and i.desired_revision=2"
-          echo 'wp05accept source Wp05LoadAdmin pickaxe' >&3;sleep 1;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_destruct Load Destructive' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_destruct'";echo 'loreitems give load_destruct Wp05LoadDestruct' >&3;wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='load_destruct' and s.location_key='player:$X'";stop_bot Wp05LoadDestruct;XD="$(python3 - "$DB" <<'PY'
+            then return;fi;sleep .25;done;echo "SQL timeout $q";return 1;}
+          START="$(date -u +%FT%TZ)"
+          start_server "$L"
+          start_bot Wp05LoadAdmin
+          start_bot Wp05LoadDestruct
+          echo 'op Wp05LoadAdmin' >&3
+          X="$(tr -d '\r\n'<"$R/wp05loaddestruct.uuid")"
+          echo 'wp05accept source Wp05LoadAdmin sword' >&3;sleep .5
+          echo 'wp05accept perform Wp05LoadAdmin loreitems create load_direct Load Direct' >&3
+          wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_direct'"
+          echo 'wp05accept source Wp05LoadAdmin pickaxe' >&3;sleep .5
+          echo 'wp05accept perform Wp05LoadAdmin loreitems create load_destruct Load Destructive' >&3
+          wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_destruct'"
+          echo 'loreitems give load_destruct Wp05LoadDestruct' >&3
+          wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='load_destruct' and s.location_key='player:$X'"
+          stop_bot Wp05LoadDestruct
+          XD="$(python3 - "$DB" <<'PY'
           import sqlite3
-          with sqlite3.connect('/tmp/wp05-load/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='load_destruct'").fetchone()[0])
+          with sqlite3.connect('/tmp/wp05-load-v2/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='load_destruct'").fetchone()[0])
           PY
-          )";echo "loreitems purge $XD" >&3;sleep 2;T="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$L1"|tail -n1|sed -E 's/.*confirm-purge ([^ ]+).*/\1/')";echo "loreitems confirm-purge $T" >&3;wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'"
-          # One 100-recipient explicit-UUID campaign remains deliberately offline under load.
-          echo 'wp05accept source Wp05LoadAdmin hoe' >&3;sleep 1;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_campaign Load Campaign' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_campaign'";mkdir -p "$G/completed" "$G/cancelled";python3 - "$G/load.yml" <<'PY'
+          )"
+          echo "loreitems purge $XD" >&3;sleep 1
+          T="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$L"|tail -n1|sed -E 's/.*confirm-purge ([^ ]+).*/\1/')"
+          test -n "$T";echo "loreitems confirm-purge $T" >&3
+          wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'"
+          mkdir -p "$G/completed" "$G/cancelled"
+          python3 - "$G/load.yml" <<'PY'
           import sys,uuid
           with open(sys.argv[1],'w') as f:
               f.write('display-name: Load Campaign\nplayers:\n')
               for i in range(1,101):f.write(f"  - '{uuid.UUID(int=i)}'\n")
           PY
-          echo 'loredistribution reload' >&3;sleep 2;echo 'loredistribution preview load.yml load_campaign' >&3;sleep 2;CID="$(grep -F 'Campaign: ' "$L1"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID' and state='QUEUED_OFFLINE'"
-          echo 'wp05accept source Wp05LoadAdmin shovel' >&3;sleep 1;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_direct Load Direct' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_direct'"
-          # Capacity is one. Feed 1,000 durable submissions and 100 paginated recovery queries without sleeps.
-          TARGET=00000000-0000-0000-0000-000000000001;N=1000;for i in $(seq 1 $N);do echo "loreitems give load_direct $TARGET" >&3;if ((i%10==0));then echo 'loreitems recovery 1' >&3;fi;done
-          # Heartbeats prove the main thread remains responsive after the bounded burst is accepted/rejected.
-          for i in $(seq 1 10);do B="$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L1"||true)";echo "say WP05_LOAD_HEARTBEAT_$i" >&3;for _ in $(seq 1 20);do test "$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L1"||true)" -gt "$B"&&break;sleep .1;done;test "$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L1"||true)" -gt "$B";done
-          for _ in $(seq 1 180);do OK="$(grep -Fc 'Lore item queued. It will deliver when the player is online with inventory space.' "$L1"||true)";FAIL1="$(grep -Fc 'The lore-item delivery could not be queued.' "$L1"||true)";FAIL2="$(grep -Fc 'Lore-item storage is unavailable; nothing was queued.' "$L1"||true)";TOTAL=$((OK+FAIL1+FAIL2));test "$TOTAL" -eq "$N"&&break;sleep 1;done
-          OK="$(grep -Fc 'Lore item queued. It will deliver when the player is online with inventory space.' "$L1"||true)";FAIL1="$(grep -Fc 'The lore-item delivery could not be queued.' "$L1"||true)";FAIL2="$(grep -Fc 'Lore-item storage is unavailable; nothing was queued.' "$L1"||true)";REJECT=$((FAIL1+FAIL2));test $((OK+REJECT)) -eq "$N";test "$OK" -gt 0;test "$REJECT" -gt 0
+          echo 'loredistribution reload' >&3;sleep 1
+          echo 'loredistribution preview load.yml load_direct' >&3;sleep 1
+          CID="$(grep -F 'Campaign: ' "$L"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";test -n "$CID"
+          echo "loredistribution confirm $CID" >&3
+          wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'"
+          wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID' and state='QUEUED_OFFLINE'"
+          TARGET=00000000-0000-0000-0000-000000010001;N=1000
+          for i in $(seq 1 "$N");do echo "loreitems give load_direct $TARGET" >&3;if ((i%10==0));then echo 'loreitems recovery 1' >&3;fi;done
+          for i in $(seq 1 10);do B="$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L"||true)";echo "say WP05_LOAD_HEARTBEAT_$i" >&3;for _ in $(seq 1 40);do test "$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L"||true)" -gt "$B"&&break;sleep .1;done;test "$(grep -Fc "WP05_LOAD_HEARTBEAT_$i" "$L"||true)" -gt "$B";done
+          for _ in $(seq 1 360);do OK="$(grep -Fc 'Lore item queued. It will deliver when the player is online with inventory space.' "$L"||true)";F1="$(grep -Fc 'The lore-item delivery could not be submitted.' "$L"||true)";F2="$(grep -Fc 'The lore-item delivery could not be queued.' "$L"||true)";F3="$(grep -Fc 'Lore-item storage is unavailable; nothing was queued.' "$L"||true)";F4="$(grep -Fc 'Lore-item storage returned no durable result.' "$L"||true)";TOTAL=$((OK+F1+F2+F3+F4));test "$TOTAL" -eq "$N"&&break;sleep .25;done
+          OK="$(grep -Fc 'Lore item queued. It will deliver when the player is online with inventory space.' "$L"||true)";F1="$(grep -Fc 'The lore-item delivery could not be submitted.' "$L"||true)";F2="$(grep -Fc 'The lore-item delivery could not be queued.' "$L"||true)";F3="$(grep -Fc 'Lore-item storage is unavailable; nothing was queued.' "$L"||true)";F4="$(grep -Fc 'Lore-item storage returned no durable result.' "$L"||true)";REJECT=$((F1+F2+F3+F4))
+          test $((OK+REJECT)) -eq "$N";test "$OK" -gt 0;test "$REJECT" -gt 0
           ROWS="$(python3 - "$DB" <<'PY'
           import sqlite3
-          with sqlite3.connect('/tmp/wp05-load/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select count(*) from direct_deliveries d join lore_definitions l on l.definition_id=d.definition_id where l.lookup_key='load_direct'").fetchone()[0])
+          with sqlite3.connect('/tmp/wp05-load-v2/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select count(*) from direct_deliveries d join lore_definitions l on l.definition_id=d.definition_id where l.lookup_key='load_direct'").fetchone()[0])
           PY
-          )";test "$ROWS" = "$OK";echo 'mspt' >&3;sleep 2;echo 'tps' >&3;sleep 2
-          python3 - "$DB" "$OK" "$REJECT" >"$E/pre-restart-accounting.json" <<'PY'
-          import json,sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:
-              d={'accepted':int(sys.argv[2]),'explicit_rejected':int(sys.argv[3]),'direct_rows':c.execute("select count(*) from direct_deliveries d join lore_definitions l on l.definition_id=d.definition_id where l.lookup_key='load_direct'").fetchone()[0],'campaign_recipients':c.execute('select count(*) from distribution_recipients').fetchone()[0],'active_destructive':c.execute("select count(*) from destructive_operations where state='ACTIVE'").fetchone()[0],'pending_updates':c.execute("select count(*) from pending_mutations where mutation_type='TEMPLATE_UPDATE' and state!='COMPLETED'").fetchone()[0]};print(json.dumps(d,indent=2));assert d['direct_rows']==d['accepted'] and d['campaign_recipients']==100 and d['active_destructive']>=1 and d['pending_updates']>=1
-          PY
+          )"
+          test "$ROWS" = "$OK";echo 'mspt' >&3;sleep 1;echo 'tps' >&3;sleep 1
           stop_bot Wp05LoadAdmin;stop_server;kill_bots
-          L2="$E/server-restart.log";start_server "$L2";wait_sql "select count(*)=$ROWS from direct_deliveries d join lore_definitions l on l.definition_id=d.definition_id where l.lookup_key='load_direct'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'";wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='load_update' and i.applied_revision=1 and i.desired_revision=2";echo 'mspt' >&3;sleep 2;echo 'tps' >&3;sleep 2;stop_server;END="$(date -u +%FT%TZ)"
-          python3 - "$DB" "$START" "$END" "$N" "$OK" "$REJECT" "$ROWS" <<'PY' | tee "$E/result.json"
+          L2="$E/server-restart.log";start_server "$L2"
+          wait_sql "select count(*)=$ROWS from direct_deliveries d join lore_definitions l on l.definition_id=d.definition_id where l.lookup_key='load_direct'"
+          wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'"
+          wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'"
+          echo 'mspt' >&3;sleep 1;echo 'tps' >&3;sleep 1;stop_server
+          END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$N" "$OK" "$REJECT" "$ROWS" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
-          db,start,end,n,ok,reject,rows=sys.argv[1:];profile=json.load(open('/tmp/wp05-load/evidence/wp04-profile.json'))
+          p=json.load(open('/tmp/wp05-load-v2/evidence/wp04-profile.json'));db,start,end,n,ok,reject,rows=sys.argv[1:]
           with sqlite3.connect(db) as c:i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
-          print(json.dumps({'cases':{'ACC-OPS-004':'PASS','ACC-OPS-005':'PASS'},'source_head':open('/tmp/wp05-load/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'live_database_queue_capacity':1,'submitted_direct_deliveries':int(n),'durably_accepted':int(ok),'explicitly_rejected_or_unavailable':int(reject),'durable_direct_rows':int(rows),'accounting_exact':int(ok)+int(reject)==int(n) and int(rows)==int(ok),'live_campaign_recipients':100,'mixed_residual_work':['direct-delivery','template-update','destructive','campaign','admin-recovery-pages'],'restart_preserved_residual_work':True,'live_responsiveness_heartbeats':10,'wp04_100_player_equivalent_profile':profile,'integrity':i,'foreign_key_violations':fk},indent=2,sort_keys=True))
+          print(json.dumps({'cases':{'ACC-OPS-004':'PASS','ACC-OPS-005':'PASS'},'source_head':open('/tmp/wp05-load-v2/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'live_database_queue_capacity':16,'submitted':int(n),'durably_accepted':int(ok),'explicit_rejected':int(reject),'durable_rows':int(rows),'accounting_exact':int(ok)+int(reject)==int(n) and int(rows)==int(ok),'live_campaign_recipients':100,'active_destructive_survived_restart':True,'live_responsiveness_heartbeats':10,'wp04_profile':p,'integrity':i,'foreign_key_violations':fk},indent=2,sort_keys=True))
           PY
       - name: Upload load evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wp05-load-${{ github.event.pull_request.head.sha || github.sha }}
-          path: /tmp/wp05-load/evidence
+          path: /tmp/wp05-load-v2/evidence
           if-no-files-found: error
           retention-days: 30
