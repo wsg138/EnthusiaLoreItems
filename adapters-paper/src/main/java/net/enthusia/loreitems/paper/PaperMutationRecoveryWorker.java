@@ -49,7 +49,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
-    private LoreItemsMutationReviewCommandExecutor reviewCommandExecutor;
+    private Optional<LoreItemsMutationReviewCommandExecutor> reviewCommandExecutor = Optional.empty();
     private boolean destructiveServicesRegistered;
     private volatile boolean closed;
 
@@ -230,15 +230,12 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                         this::wakeAccessible);
         command.setExecutor(executor);
         command.setTabCompleter(executor);
-        reviewCommandExecutor = executor;
+        reviewCommandExecutor = Optional.of(executor);
     }
 
     private void closeReviewCommand() {
-        LoreItemsMutationReviewCommandExecutor executor = reviewCommandExecutor;
-        if (executor != null) {
-            executor.close();
-            reviewCommandExecutor = null;
-        }
+        reviewCommandExecutor.ifPresent(LoreItemsMutationReviewCommandExecutor::close);
+        reviewCommandExecutor = Optional.empty();
     }
 
     private void registerDestructiveServices() {
