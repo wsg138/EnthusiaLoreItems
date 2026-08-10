@@ -59,7 +59,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
-    private final Queue<ScanRequest> scans = new ArrayDeque<>();
+    private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
 
     private BukkitTask scanTask;
@@ -92,7 +92,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         plugin.getServer().getOnlinePlayers().forEach(player ->
-                enqueue(ScanRequest.player(player.getUniqueId(), true, "tracking-start")));
+                enqueue(PaperTrackingScanRequest.player(
+                        player.getUniqueId(), true, "tracking-start")));
         seedLoadedChunks();
         scanTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::drain, 1L, 1L);
@@ -102,7 +103,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        enqueue(ScanRequest.player(event.getPlayer().getUniqueId(), true, "player-join"));
+        enqueue(PaperTrackingScanRequest.player(
+                event.getPlayer().getUniqueId(), true, "player-join"));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -226,8 +228,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChunkLoad(ChunkLoadEvent event) {
-        enqueue(ScanRequest.chunk(
-                ChunkReference.capture(event.getChunk()),
+        enqueue(PaperTrackingScanRequest.chunk(
+                event.getChunk(),
                 TrackingObservationUseCase.Presence.PRESENT,
                 "chunk-load"));
     }
@@ -270,18 +272,13 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private void schedulePlayerUnique(UUID playerId, String source) {
-        scheduleNextTick(() -> {
-            Player player = plugin.getServer().getPlayer(playerId);
-            if (player != null) {
-                scanner.scanPlayerUnique(player, source);
-            }
-        });
+        scheduleNextTick(() -> scanPlayer(playerId, true, source));
     }
 
     private void drain() {
         int budget = currentBudget();
         for (int count = 0; count < budget; count++) {
-            ScanRequest request = scans.poll();
+            PaperTrackingScanRequest request = scans.poll();
             if (request == null) {
                 break;
             }
@@ -314,8 +311,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 attempts++;
                 continue;
             }
-            enqueue(ScanRequest.chunk(
-                    ChunkReference.capture(snapshot[chunkCursor]),
+            enqueue(PaperTrackingScanRequest.chunk(
+                    snapshot[chunkCursor],
                     TrackingObservationUseCase.Presence.PRESENT,
                     "periodic-loaded-chunk"));
             chunkCursor++;
@@ -340,7 +337,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         seededChunks = EMPTY_CHUNKS;
     }
 
-    private void enqueue(ScanRequest request) {
+    private void enqueue(PaperTrackingScanRequest request) {
         if (closed) {
             return;
         }
@@ -390,6 +387,22 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         reference.key(),
                         identity,
                         source)));
+    }
+
+    void scanPlayer(UUID playerId, boolean unique, String source) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        if (unique) {
+            scanner.scanPlayerUnique(player, source);
+        } else {
+            scanner.scanPlayer(
+                    player,
+                    TrackingObservationUseCase.Presence.PRESENT,
+                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                    source);
+        }
     }
 
     void scanChunk(
@@ -480,65 +493,5 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         scanSaturated = false;
         coordinator.close();
         HandlerList.unregisterAll(this);
-    }
-
-    private record ChunkReference(UUID worldId, int x, int z) {
-        private static ChunkReference capture(Chunk chunk) {
-            return new ChunkReference(
-                    chunk.getWorld().getUID(), chunk.getX(), chunk.getZ());
-        }
-    }
-
-    private record ScanRequest(
-            UUID playerId,
-            boolean unique,
-            ChunkReference chunk,
-            TrackingObservationUseCase.Presence presence,
-            String source) {
-        private static ScanRequest player(UUID playerId, boolean unique, String source) {
-            return new ScanRequest(
-                    playerId,
-                    unique,
-                    null,
-                    TrackingObservationUseCase.Presence.PRESENT,
-                    source);
-        }
-
-        private static ScanRequest chunk(
-                ChunkReference chunk,
-                TrackingObservationUseCase.Presence presence,
-                String source) {
-            return new ScanRequest(null, false, chunk, presence, source);
-        }
-
-        private void run(Plugin plugin, PaperPhysicalTrackingListener listener) {
-            if (playerId != null) {
-                runPlayer(plugin, listener);
-                return;
-            }
-            World world = plugin.getServer().getWorld(chunk.worldId());
-            if (world != null && world.isChunkLoaded(chunk.x(), chunk.z())) {
-                listener.scanChunk(
-                        world.getChunkAt(chunk.x(), chunk.z()),
-                        presence,
-                        source);
-            }
-        }
-
-        private void runPlayer(Plugin plugin, PaperPhysicalTrackingListener listener) {
-            Player player = plugin.getServer().getPlayer(playerId);
-            if (player == null) {
-                return;
-            }
-            if (unique) {
-                listener.scanner.scanPlayerUnique(player, source);
-            } else {
-                listener.scanner.scanPlayer(
-                        player,
-                        presence,
-                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                        source);
-            }
-        }
     }
 }
