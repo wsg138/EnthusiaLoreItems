@@ -8,6 +8,7 @@ import java.util.concurrent.CompletionStage;
 /** Audit-backed orchestration for resolving fenced REVIEW_REQUIRED mutations. */
 public final class PersistingPendingMutationReviewUseCase
         implements PendingMutationReviewUseCase {
+    private static final int FIRST_CONTROL_CHARACTER = 0x20;
     private static final String AGGREGATE_TYPE = "pending_mutation";
     private static final String ACTOR_TYPE = "STAFF";
 
@@ -72,24 +73,33 @@ public final class PersistingPendingMutationReviewUseCase
     private static String escapeJson(String value) {
         StringBuilder escaped = new StringBuilder(value.length() + 16);
         for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            switch (character) {
-                case '"' -> escaped.append("\\\"");
-                case '\\' -> escaped.append("\\\\");
-                case '\b' -> escaped.append("\\b");
-                case '\f' -> escaped.append("\\f");
-                case '\n' -> escaped.append("\\n");
-                case '\r' -> escaped.append("\\r");
-                case '\t' -> escaped.append("\\t");
-                default -> {
-                    if (character < 0x20) {
-                        escaped.append(String.format("\\u%04x", (int) character));
-                    } else {
-                        escaped.append(character);
-                    }
-                }
-            }
+            appendEscaped(escaped, value.charAt(index));
         }
         return escaped.toString();
+    }
+
+    private static void appendEscaped(StringBuilder escaped, char character) {
+        switch (character) {
+            case '"' -> escaped.append("\\\"");
+            case '\\' -> escaped.append("\\\\");
+            case '\b' -> escaped.append("\\b");
+            case '\f' -> escaped.append("\\f");
+            case '\n' -> escaped.append("\\n");
+            case '\r' -> escaped.append("\\r");
+            case '\t' -> escaped.append("\\t");
+            default -> appendLiteralOrControl(escaped, character);
+        }
+    }
+
+    private static void appendLiteralOrControl(StringBuilder escaped, char character) {
+        if (character < FIRST_CONTROL_CHARACTER) {
+            escaped.append("\\u")
+                    .append(Character.forDigit((character >>> 12) & 0xF, 16))
+                    .append(Character.forDigit((character >>> 8) & 0xF, 16))
+                    .append(Character.forDigit((character >>> 4) & 0xF, 16))
+                    .append(Character.forDigit(character & 0xF, 16));
+        } else {
+            escaped.append(character);
+        }
     }
 }
