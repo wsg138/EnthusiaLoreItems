@@ -28,6 +28,7 @@ import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperSharedContainerRestrictionTest {
+    private static final String SHARED_CONTAINERS_ALLOWED = "shared-containers-allowed";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
@@ -56,7 +57,7 @@ class PaperSharedContainerRestrictionTest {
 
     @Test
     void restrictedModeBlocksTrackedInsertionIntoOpenShulker() {
-        plugin.getConfig().set("shared-containers-allowed", false);
+        plugin.getConfig().set(SHARED_CONTAINERS_ALLOWED, false);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
         InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(trackedItem());
@@ -74,7 +75,7 @@ class PaperSharedContainerRestrictionTest {
 
     @Test
     void allowedModeLeavesTrackedShulkerInsertionUntouched() {
-        plugin.getConfig().set("shared-containers-allowed", true);
+        plugin.getConfig().set(SHARED_CONTAINERS_ALLOWED, true);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
         InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(trackedItem());
@@ -92,7 +93,7 @@ class PaperSharedContainerRestrictionTest {
 
     @Test
     void restrictedModeBlocksTrackedInsertionIntoBundleItem() {
-        plugin.getConfig().set("shared-containers-allowed", false);
+        plugin.getConfig().set(SHARED_CONTAINERS_ALLOWED, false);
         Inventory inventory = server.createInventory(null, 9);
         inventory.setItem(0, ItemStack.of(Material.BUNDLE));
         InventoryView view = player.openInventory(inventory);
@@ -111,7 +112,7 @@ class PaperSharedContainerRestrictionTest {
 
     @Test
     void restrictedModeDoesNotBlockTakingTrackedItemOutOfShulker() {
-        plugin.getConfig().set("shared-containers-allowed", false);
+        plugin.getConfig().set(SHARED_CONTAINERS_ALLOWED, false);
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
         shulker.setItem(0, trackedItem());
         InventoryView view = player.openInventory(shulker);
