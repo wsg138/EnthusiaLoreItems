@@ -68,12 +68,21 @@ jobs:
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
           sleep .25;done;return 1;}
+          wait_inst(){ local k="$1";for _ in $(seq 1 120);do python3 - "$DB" "$k" <<'PY'&&return||true
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:
+                  row=c.execute("select count(*) from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key=? and i.lifecycle_state='ACTIVE'",(sys.argv[2],)).fetchone()
+                  raise SystemExit(0 if row and row[0]==1 else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
+          PY
+          sleep .25;done;return 1;}
           run_case(){ local n="$1" mode="$2" key="$3" kind="$4" q pid;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.ready" "$R/$q.go" "$R/$q.done" "$R/$q.failed" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n" "$mode")>"$E/$q-stdout.log" 2>&1 & pid=$!;for _ in $(seq 1 100);do test -f "$R/$q.ready"&&break;sleep .2;done;test -f "$R/$q.ready";echo "op $n" >&3
             case "$kind" in
-              craft) echo "item replace entity $n weapon.mainhand with minecraft:oak_planks 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Craft" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;echo "give $n minecraft:oak_planks 2" >&3;;
-              smelt) echo "item replace entity $n weapon.mainhand with minecraft:raw_iron 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Smelt" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;echo "give $n minecraft:coal 1" >&3;;
-              grind) echo "item replace entity $n weapon.mainhand with minecraft:diamond_sword 1" >&3;echo "enchant $n minecraft:sharpness 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Grind" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;;
-              smith) echo "item replace entity $n weapon.mainhand with minecraft:diamond_sword 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Smith" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;echo "give $n minecraft:netherite_upgrade_smithing_template 1" >&3;echo "give $n minecraft:netherite_ingot 1" >&3;;
+              craft) echo "item replace entity $n weapon.mainhand with minecraft:oak_planks 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Craft" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;wait_inst "$key";echo "give $n minecraft:oak_planks 2" >&3;;
+              smelt) echo "item replace entity $n weapon.mainhand with minecraft:raw_iron 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Smelt" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;wait_inst "$key";echo "give $n minecraft:coal 1" >&3;;
+              grind) echo "item replace entity $n weapon.mainhand with minecraft:diamond_sword 1" >&3;echo "enchant $n minecraft:sharpness 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Grind" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;wait_inst "$key";;
+              smith) echo "item replace entity $n weapon.mainhand with minecraft:diamond_sword 1" >&3;echo "wp05accept perform $n loreitems create $key Protected Smith" >&3;wait_def "$key";echo "wp05accept perform $n loreitems adopt $key" >&3;wait_inst "$key";echo "give $n minecraft:netherite_upgrade_smithing_template 1" >&3;echo "give $n minecraft:netherite_ingot 1" >&3;;
             esac
             sleep 2;touch "$R/$q.go";for _ in $(seq 1 300);do test -f "$R/$q.failed"&&{ cat "$R/$q.failed";return 1;};test -f "$R/$q.done"&&break;sleep .2;done;test -f "$R/$q.done";B="$(grep -Fc "WP05_ACCEPT DUMP ok player=$n count=1" "$L"||true)";echo "wp05accept dump $n" >&3;for _ in $(seq 1 80);do test "$(grep -Fc "WP05_ACCEPT DUMP ok player=$n count=1" "$L"||true)" -gt "$B"&&break;sleep .25;done;test "$(grep -Fc "WP05_ACCEPT DUMP ok player=$n count=1" "$L"||true)" -gt "$B";touch "$R/$q.stop";wait "$pid";}
           START="$(date -u +%FT%TZ)";run_case Wp05Craft craft prot_craft craft;run_case Wp05Smelt smelt prot_smelt smelt;run_case Wp05Grind grind prot_grind grind;run_case Wp05Smith smith prot_smith smith
