@@ -191,7 +191,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin {
         Player player = requirePlayer(arguments[1]);
         ItemStack malformed = requireTrackedStorageItem(player).clone();
         ItemMeta meta = requireMeta(malformed);
-        meta.getPersistentDataContainer().remove(REVISION_KEY);
+        meta.getPersistentDataContainer().remove(VERSION_KEY);
         applyMeta(malformed, meta);
         if (!player.getInventory().addItem(malformed).isEmpty()) {
             throw new IllegalStateException("no storage slot for malformed copy");
