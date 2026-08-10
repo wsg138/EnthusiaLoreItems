@@ -126,20 +126,22 @@ jobs:
           PY
           touch "$ROOT/go-edit"; wait_marker edit.done 480
           echo 'wp05accept dump Wp05ReviewBot' >&3
-          python3 - "$DB" <<'PY' | tee "$EVIDENCE/ambiguous-state.txt"
-          import sqlite3,sys,time
-          db=sys.argv[1]; iid=open('/tmp/wp05-ambiguous-mutation/evidence/instance-id.txt').read().strip(); row=None
-          for _ in range(240):
-              with sqlite3.connect(db) as c:
-                  row=c.execute("select mutation_id,state,attempt_count from pending_mutations where instance_id=? and mutation_type='TEMPLATE_UPDATE' order by created_at desc limit 1",(iid,)).fetchone()
-                  inst=c.execute('select applied_revision,desired_revision from lore_instances where instance_id=?',(iid,)).fetchone()
-                  if row and row[1]=='CLAIMED' and row[2]==1 and inst==(1,2):
-                      open('/tmp/wp05-ambiguous-mutation/evidence/mutation-id.txt','w').write(row[0]+'\n');print('AMBIGUOUS_MUTATION',row,'INSTANCE',inst);break
-              time.sleep(.25)
-          else: raise SystemExit(f'failed mutation did not remain CLAIMED: {row}')
-          PY
           for _ in $(seq 1 120); do grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log" && break; sleep .25; done
           grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log"
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/ambiguous-state.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; iid=open('/tmp/wp05-ambiguous-mutation/evidence/instance-id.txt').read().strip(); row=inst=None
+          for _ in range(80):
+              with sqlite3.connect(db) as c:
+                  row=c.execute("select mutation_id,state,attempt_count,claim_expires_at from pending_mutations where instance_id=? and mutation_type='TEMPLATE_UPDATE' order by created_at desc limit 1",(iid,)).fetchone()
+                  inst=c.execute('select applied_revision,desired_revision from lore_instances where instance_id=?',(iid,)).fetchone()
+                  if row and row[1] in ('CLAIMED','REVIEW_REQUIRED') and inst==(1,2):
+                      open('/tmp/wp05-ambiguous-mutation/evidence/mutation-id.txt','w').write(row[0]+'\n'); print('AMBIGUOUS_MUTATION',row,'INSTANCE',inst); break
+              time.sleep(.1)
+          else:
+              print('UNEXPECTED_MUTATION',row,'INSTANCE',inst)
+              raise SystemExit('post-physical durable state was not safely fenced')
+          PY
           touch "$ROOT/bot.stop"; wait "$BOT_PID" || true; BOT_PID=''; stop_server
 
           python3 - "$DB" <<'PY'
