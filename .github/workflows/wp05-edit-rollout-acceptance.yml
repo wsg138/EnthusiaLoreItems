@@ -63,7 +63,7 @@ jobs:
           npm install --save-exact mineflayer@4.35.0 > "$R/evidence/npm.log" 2>&1
           cat > bot.js <<'EOF'
           const mineflayer=require('mineflayer'),fs=require('fs'),Vec3=require('vec3').Vec3
-          const root='/tmp/wp05-rollout',name=process.argv[2],sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const root='/tmp/wp05-rollout',name=process.argv[2],role=process.env.ROLE||'scenario',sleep=ms=>new Promise(r=>setTimeout(r,ms))
           const safe=name.toLowerCase(),log=x=>{fs.appendFileSync(`${root}/evidence/${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
           const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'})
           const near=(p,x,y,z)=>Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5
@@ -86,7 +86,7 @@ jobs:
           async function click(slot){await bot.clickWindow(slot,0,0);await sleep(300)}
           async function edit(){bot.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120&&bot.currentWindow;i++)await sleep(100);bot.chat('submit literal Rollout Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await sleep(1800);fs.writeFileSync(`${root}/edit.done`,'ok\n');log('edit complete')}
           bot.on('error',e=>log(`ERROR ${e.stack||e}`))
-          bot.once('spawn',async()=>{try{fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`);if(name==='Wp05Rollout'){
+          bot.once('spawn',async()=>{try{fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`);if(name==='Wp05Rollout'&&role==='scenario'){
             await waitFile('go-chest');await chestDeposit(4,200,0,'chest')
             await waitFile('go-shulker');await nestedAccess(14,200,0,'shulker')
             await waitFile('go-bundle');await nestedAccess(16,200,0,'bundle')
@@ -107,7 +107,7 @@ jobs:
           R=/tmp/wp05-rollout;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
           start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
           stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
-          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 120);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
+          start_bot(){ local n="$1" role="${2:-scenario}" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&ROLE="$role" node bot.js "$n")>"$E/$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 120);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
           stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";test -f "$R/$q.pid"||return 0;p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 50);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
           kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
           wait_marker(){ local f="$1" n="${2:-240}";for _ in $(seq 1 "$n");do test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";return 1;};test -f "$R/$f"&&return;sleep .25;done;echo "marker timeout $f" >&2;return 1;}
@@ -154,7 +154,7 @@ jobs:
           PY
           touch "$R/edit.go";wait_marker edit.done;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2";wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=1 and desired_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=1 and desired_revision=2"
           stop_bot Wp05Rollout;stop_server;kill_bots
-          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout;echo 'op Wp05Rollout' >&3;echo 'effect give Wp05Rollout minecraft:slow_falling 15 0 true' >&3;echo 'tp Wp05Rollout 1024 201 1024' >&3;sleep 7;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
+          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff passive;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout passive;echo 'op Wp05Rollout' >&3;echo 'effect give Wp05Rollout minecraft:slow_falling 15 0 true' >&3;echo 'tp Wp05Rollout 1024 201 1024' >&3;sleep 7;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
           L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_server;END="$(date -u +%FT%TZ)"
           python3 - "$DB" "$START" "$END" "$DEF" "$OFF" "$FAR" <<'PY' | tee "$E/result.json"
           import json,sqlite3,sys
