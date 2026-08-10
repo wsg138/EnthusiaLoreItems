@@ -94,7 +94,7 @@ jobs:
             rm -f server.stdin
             mkfifo server.stdin
             exec 3<>server.stdin
-            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -DLetMeReload=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
             SERVER_PID=$!
             for _ in $(seq 1 180); do
               if grep -q 'Queued direct-delivery processing is active.' "$log" &&
@@ -366,7 +366,7 @@ jobs:
           HELPER_BEFORE="$(count_log 'WP-05 deterministic acceptance helper is active' "$LOG3")"
           test "$STARTUP_BEFORE" = "1"
           test "$HELPER_BEFORE" = "1"
-          echo 'reload confirm' >&3
+          echo 'reload' >&3
           wait_log_count 'Queued direct-delivery processing is active.' "$LOG3" 2 90
           wait_log_count 'WP-05 deterministic acceptance helper is active' "$LOG3" 2 90
           test "$(count_log 'Queued direct-delivery processing is active.' "$LOG3")" = "2"
