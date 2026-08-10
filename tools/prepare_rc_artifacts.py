@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the shaded RC jar and generate deterministic release metadata."""
+"""Validate the shaded release jar and generate deterministic release metadata."""
 from __future__ import annotations
 
 import argparse
@@ -58,10 +58,10 @@ def verify_jar(jar: Path, version: str) -> None:
         names = set(archive.namelist())
         missing = sorted(REQUIRED_ENTRIES - names)
         if missing:
-            raise SystemExit(f"RC jar missing required entries: {missing}")
+            raise SystemExit(f"release jar missing required entries: {missing}")
         plugin_yml = archive.read("plugin.yml").decode("utf-8")
         if f"version: {version}" not in plugin_yml and f"version: '{version}'" not in plugin_yml:
-            raise SystemExit(f"plugin.yml does not contain RC version {version}")
+            raise SystemExit(f"plugin.yml does not contain release version {version}")
 
 
 def main() -> int:
@@ -69,7 +69,7 @@ def main() -> int:
     parser.add_argument("--jar", type=Path, required=True)
     parser.add_argument("--dependencies", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--version", default="1.0.0-rc.1")
+    parser.add_argument("--version", required=True)
     args = parser.parse_args()
 
     jar = args.jar.resolve()
@@ -106,7 +106,7 @@ def main() -> int:
     (output / "bom.cyclonedx.json").write_text(
         json.dumps(bom, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    print(f"validated {jar.name}; sha256={digest}; components={len(bom['components'])}")
+    print(f"validated {jar.name}; version={args.version}; sha256={digest}; components={len(bom['components'])}")
     return 0
 
 

@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
+      FINAL_TAG: v1.0.0
+    steps:
+      - name: Resolve publication state
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
+            test -n "${TAG_SHA}"
+            VERIFIED_RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TAG_SHA}&event=push&status=success&per_page=20" \
+              --jq '.workflow_runs[] | select(.name == "CI" and .head_branch == "main") | .id' | head -n 1)"
+            test -n "${VERIFIED_RUN_ID}"
+            echo "released=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>/dev/null || true)"
+          if [ -n "${TAG_SHA}" ]; then
+            COMPARE_STATUS="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TAG_SHA}...main" --jq '.status')"
+            test "${COMPARE_STATUS}" = "ahead" -o "${COMPARE_STATUS}" = "identical"
+            RECOVERY_RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TAG_SHA}&event=push&status=success&per_page=20" \
+              --jq '.workflow_runs[] | select(.name == "CI" and .head_branch == "main") | .id' | head -n 1)"
+            test -n "${RECOVERY_RUN_ID}"
+            echo "target_sha=${TAG_SHA}" >> "${GITHUB_OUTPUT}"
+            echo "ci_run_id=${RECOVERY_RUN_ID}" >> "${GITHUB_OUTPUT}"
+            echo "tag_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "released=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"
+          echo "target_sha=${EVENT_TARGET_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "ci_run_id=${EVENT_CI_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          echo "tag_exists=false" >> "${GITHUB_OUTPUT}"
+          echo "released=false" >> "${GITHUB_OUTPUT}"
+
+      - name: Download exact CI verification artifact
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          CI_RUN_ID: ${{ steps.state.outputs.ci_run_id }}
+        run: |
+          mkdir -p /tmp/evidence
+          gh run download "${CI_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "wp04-verification-${TARGET_SHA}" \
+            --dir /tmp/evidence
+
+      - name: Validate immutable production evidence and approvals
+        if: steps.state.outputs.released != 'true'
+        env:
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          for file in \
+            EnthusiaLoreItems.jar \
+            EnthusiaLoreItems.jar.sha256 \
+            bom.cyclonedx.json \
+            gradle-dependencies.txt \
+            normalized-entry-manifest.txt \
+            wp04-profile.json \
+            EnthusiaLoreItems-test-reports.tar.gz \
+            release-notes.md \
+            rollback-instructions.md \
+            acceptance-index.md; do
+            test -f "${BUNDLE}/${file}"
+          done
+          (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
+          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0' >/dev/null
+          jq -e '.metadata.component.version == "1.0.0"' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
+          jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
+          grep -F 'Overall status: **PASS**' "${BUNDLE}/acceptance-index.md" >/dev/null
+          grep -F 'Evidence audit: **APPROVED**' "${BUNDLE}/acceptance-index.md" >/dev/null
+          grep -F 'Owner/operator sign-off: **APPROVED**' "${BUNDLE}/acceptance-index.md" >/dev/null
+
+      - name: Create exact production tag
+        if: steps.state.outputs.released != 'true' && steps.state.outputs.tag_exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${FINAL_TAG}" \
+            -f sha="${TARGET_SHA}" >/dev/null
+
+      - name: Publish production release from verified CI bundle
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          gh release create "${FINAL_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${TARGET_SHA}" \
+            --title "EnthusiaLoreItems 1.0.0" \
+            --notes-file "${BUNDLE}/release-notes.md" \
+            "${BUNDLE}/EnthusiaLoreItems.jar" \
+            "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
+            "${BUNDLE}/bom.cyclonedx.json" \
+            "${BUNDLE}/gradle-dependencies.txt" \
+            "${BUNDLE}/normalized-entry-manifest.txt" \
+            "${BUNDLE}/wp04-profile.json" \
+            "${BUNDLE}/EnthusiaLoreItems-test-reports.tar.gz" \
+            "${BUNDLE}/acceptance-index.md" \
+            "${BUNDLE}/rollback-instructions.md"
+
+      - name: Verify immutable tag and release assets
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+        run: |
+          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
+          test "${TAG_SHA}" = "${TARGET_SHA}"
+          gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
+            --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
+          ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt acceptance-index.md rollback-instructions.md; do
+            grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
+          done
