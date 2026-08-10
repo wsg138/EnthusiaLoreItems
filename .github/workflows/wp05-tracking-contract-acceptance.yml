@@ -127,31 +127,10 @@ jobs:
           display_guard = "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 120; i++) {"
           if bot_text.count(display_guard) != 1:
               raise SystemExit(f'expected one display fixture visibility loop, found {bot_text.count(display_guard)}')
-          bot_text = bot_text.replace(
-              display_guard,
-              "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 300; i++) {")
+          bot_text = bot_text.replace(display_guard, "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 300; i++) {")
 
-          interaction = """  if (kind === 'armor_stand') {
-    await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
-  } else {
-    await bot.activateEntity(entity)
-  }
-  for (let i = 0; i < 80; i++) {"""
-          replacement = """  for (let attempt = 1; attempt <= 4; attempt++) {
-    if (kind === 'armor_stand') {
-      await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
-    } else {
-      await bot.activateEntity(entity)
-    }
-    for (let i = 0; i < 25; i++) {
-      if (trackedInventoryItems(bot).length === 0) break
-      await sleep(100)
-    }
-    if (trackedInventoryItems(bot).length === 0) break
-    log(`${label} placement retry=${attempt} entity=${kind}`)
-    await sleep(250)
-  }
-  for (let i = 0; i < 80; i++) {"""
+          interaction = "  if (kind === 'armor_stand') {\n    await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))\n  } else {\n    await bot.activateEntity(entity)\n  }\n  for (let i = 0; i < 80; i++) {"
+          replacement = "  for (let attempt = 1; attempt <= 4; attempt++) {\n    if (kind === 'armor_stand') {\n      await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))\n    } else {\n      await bot.activateEntity(entity)\n    }\n    for (let i = 0; i < 25; i++) {\n      if (trackedInventoryItems(bot).length === 0) break\n      await sleep(100)\n    }\n    if (trackedInventoryItems(bot).length === 0) break\n    log(`${label} placement retry=${attempt} entity=${kind}`)\n    await sleep(250)\n  }\n  for (let i = 0; i < 80; i++) {"
           if bot_text.count(interaction) != 1:
               raise SystemExit(f'expected one display interaction block, found {bot_text.count(interaction)}')
           bot_text = bot_text.replace(interaction, replacement)
@@ -159,9 +138,7 @@ jobs:
           deprecated_item_guard = "entity.name === 'item' || entity.objectType === 'Item' || entity.displayName === 'Item'"
           if bot_text.count(deprecated_item_guard) != 1:
               raise SystemExit(f'expected one dropped-item identity guard, found {bot_text.count(deprecated_item_guard)}')
-          bot_text = bot_text.replace(
-              deprecated_item_guard,
-              "entity.name === 'item' || entity.displayName === 'Item'")
+          bot_text = bot_text.replace(deprecated_item_guard, "entity.name === 'item' || entity.displayName === 'Item'")
           bot.write_text(bot_text)
           PY
 
