@@ -5,6 +5,7 @@ const Vec3 = require(`${moduleRoot}/vec3`).Vec3
 
 const root = '/tmp/wp05-tracking-contract'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const TRACKED_MATERIALS = new Set(['leather_helmet', 'diamond_sword'])
 const log = message => {
   const line = `${new Date().toISOString()} ${message}`
   fs.appendFileSync(`${root}/evidence/bot.log`, `${line}\n`)
@@ -83,9 +84,15 @@ async function waitBlockAt(bot, x, y, z, name, label) {
   throw new Error(`${label} block not loaded at ${x},${y},${z}; observed=${seen && seen.name}`)
 }
 
+function trackedInventoryItems(bot) {
+  return bot.inventory.items().filter(item => TRACKED_MATERIALS.has(item.name))
+}
+
 function tracked(bot) {
-  const items = bot.inventory.items()
-  if (items.length !== 1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`)
+  const items = trackedInventoryItems(bot)
+  if (items.length !== 1) {
+    throw new Error(`expected exactly one lore test item, got ${items.length}; inventory=${bot.inventory.items().map(item => `${item.name}:${item.count}`).join(',')}`)
+  }
   return items[0]
 }
 
@@ -97,7 +104,7 @@ function nearestDroppedItem(bot) {
 
 async function waitForNaturalPickup(bot) {
   for (let i = 0; i < 120; i++) {
-    const items = bot.inventory.items()
+    const items = trackedInventoryItems(bot)
     if (items.length === 1) {
       log(`TRACK3 natural-pickup inventory=${items[0].name} slot=${items[0].slot}`)
       return items[0]
@@ -111,7 +118,7 @@ async function waitForNaturalPickup(bot) {
       await sleep(150)
     }
   }
-  throw new Error(`TRACK3 natural pickup did not return the dropped item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
+  throw new Error(`TRACK3 natural pickup did not return the lore test item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
 }
 
 function displayMatches(entity, kind) {
@@ -150,7 +157,7 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
     await bot.activateEntity(entity)
   }
   for (let i = 0; i < 80; i++) {
-    if (bot.inventory.items().length === 0) {
+    if (trackedInventoryItems(bot).length === 0) {
       if (kind === 'item_frame' || kind === 'glow_item_frame') {
         bot.chat(`/data merge entity @e[type=minecraft:${kind},x=${x},y=${y},z=${z},distance=..2,limit=1,sort=nearest] {Fixed:1b,Invulnerable:1b}`)
         await sleep(300)
@@ -160,7 +167,7 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
     }
     await sleep(100)
   }
-  throw new Error(`${label} real client interaction did not move tracked item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
+  throw new Error(`${label} real client interaction did not move lore test item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
 }
 
 async function phaseOne() {
@@ -271,10 +278,6 @@ async function phaseTwo() {
   await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area')
   await waitForNaturalPickup(bot)
 
-  // Display fixtures are in a dedicated chunk. Only empty entities/support blocks are created by
-  // the shell; the tracked items themselves move via these real client interactions so Paper's
-  // ordinary player frame/armor-stand events authoritatively observe each transition. World spawn
-  // is managed by the shell and deliberately kept outside this chunk.
   await teleport(bot, 64, 71, 0, 'TRACK3 display-fixture-area')
   log('TRACK3 pickup-confirmed-and-display-fixture-ready')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')
