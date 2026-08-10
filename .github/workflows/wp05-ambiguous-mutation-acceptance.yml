@@ -122,7 +122,7 @@ jobs:
               time.sleep(.25)
           else: raise SystemExit('initial review instance not ready')
           with sqlite3.connect(db) as c:
-              c.executescript("""CREATE TRIGGER wp05_fail_post_physical BEFORE UPDATE OF state ON pending_mutations WHEN OLD.mutation_type='TEMPLATE_UPDATE' AND OLD.state='CLAIMED' AND NEW.state IN ('COMPLETED','REVIEW_REQUIRED') BEGIN SELECT RAISE(ABORT,'wp05 injected post-physical durable failure'); END;""")
+              c.executescript("""CREATE TRIGGER wp05_fail_post_physical BEFORE UPDATE OF state ON pending_mutations WHEN OLD.mutation_type='TEMPLATE_UPDATE' AND NEW.state IN ('COMPLETED','REVIEW_REQUIRED') BEGIN SELECT RAISE(ABORT,'wp05 injected post-physical durable failure'); END;""")
           PY
           touch "$ROOT/go-edit"; wait_marker edit.done 480
           echo 'wp05accept dump Wp05ReviewBot' >&3
