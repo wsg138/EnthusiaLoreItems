@@ -100,6 +100,9 @@ jobs:
           const waitFile = async name => {
             for (let i = 0; i < 3600; i++) {
               if (fs.existsSync(`${root}/${name}`)) return
+              if (name !== 'bot.stop' && fs.existsSync(`${root}/bot.stop`)) {
+                throw new Error(`stopped while waiting for marker ${name}`)
+              }
               await sleep(100)
             }
             throw new Error(`missing marker ${name}`)
@@ -315,7 +318,7 @@ jobs:
           print('PASS ACC-ANOM-001: duplicate + malformed detection, immediate and five-minute warning, staff inspection, supported duplicate resolution, copies preserved')
           PY
 
-          test "$(grep -c 'WP05_ACCEPT DUMP ok player=Wp05AnomBot count=2' "$EVIDENCE/server.log")" -ge 2
+          test "$(grep -c 'WP05_ACCEPT DUMP ok player=Wp05AnomBot count=3' "$EVIDENCE/server.log")" -ge 2
           grep -q 'DUPLICATE_RESOLUTION_GUI_COMPLETED' "$EVIDENCE/bot.log"
           touch "$ROOT/bot.stop"
           wait "$BOT_PID"
