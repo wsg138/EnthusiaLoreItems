@@ -62,15 +62,31 @@ function emptyPlayerWindowSlot(bot) {
   throw new Error(`no empty player inventory slot is visible in the open window start=${start} end=${end}`)
 }
 
+async function refreshShulkerFixture(bot, x, y, z) {
+  bot.chat(`/setblock ${x} ${y} ${z} minecraft:air`)
+  await sleep(350)
+  bot.chat(`/setblock ${x} ${y} ${z} minecraft:shulker_box`)
+  await sleep(700)
+  await bot.waitForChunksToLoad()
+  return waitBlock(bot, x, y, z, 'shulker_box')
+}
+
 async function openContainerWithRetry(bot, x, y, z) {
   let lastError
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const block = await waitBlock(bot, x, y, z, 'shulker_box')
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const block = attempt === 1
+      ? await waitBlock(bot, x, y, z, 'shulker_box')
+      : await refreshShulkerFixture(bot, x, y, z)
     try {
-      return await bot.openContainer(block)
+      const container = await bot.openContainer(block)
+      log(`shulker open attempt ${attempt} succeeded`)
+      return container
     } catch (error) {
       lastError = error
       log(`shulker open attempt ${attempt} failed: ${error.stack || error}`)
+      if (bot.currentWindow) {
+        try { bot.closeWindow(bot.currentWindow) } catch (_) {}
+      }
       await sleep(750)
       await bot.waitForChunksToLoad()
     }
