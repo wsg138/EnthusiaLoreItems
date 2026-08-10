@@ -1,0 +1,282 @@
+name: WP-05 Distribution Campaign Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-distribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  distribution-contract:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare Paper fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-distribution
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 5000
+          database-queue-capacity: 256
+          database-shutdown-timeout-seconds: 10
+          delivery-claim-batch-size: 32
+          delivery-claim-lease-seconds: 30
+          duplicate-warning-interval-seconds: 300
+          default-page-size: 45
+          max-page-size: 100
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 distribution acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'),fs=require('fs')
+          const root='/tmp/wp05-distribution',username=process.argv[2],sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          if(!username)throw new Error('username required')
+          const safe=username.toLowerCase(),log=x=>{fs.appendFileSync(`${root}/evidence/bot-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username,version:'1.21.11',auth:'offline'})
+          bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`)})
+          ;(async()=>{for(let i=0;i<7200;i++){if(fs.existsSync(`${root}/${safe}.stop`)){bot.quit('acceptance transition');return}await sleep(100)}process.exit(2)})()
+          EOF
+
+      - name: Execute ACC-DIST-001 through ACC-DIST-005 Java/UUID/unresolved paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-distribution;SERVER="$ROOT/server";E="$ROOT/evidence";DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db";GROUPS="$SERVER/plugins/EnthusiaLoreItems/groups";cd "$SERVER"
+          start_server(){ local log="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 & SERVER_PID=$!;for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$log"&&grep -q 'WP-05 deterministic acceptance helper is active' "$log";then return 0;fi;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$log";return 1;};sleep 1;done;cat "$log";return 1; }
+          stop_server(){ echo stop >&3;wait "$SERVER_PID";exec 3>&-;rm -f server.stdin; }
+          start_bot(){ local name="$1" safe pid;safe="$(printf '%s' "$name"|tr '[:upper:]' '[:lower:]')";rm -f "$ROOT/$safe.uuid" "$ROOT/$safe.stop";(cd "$ROOT/bot"&&node bot.js "$name") >"$E/bot-${safe}-stdout.log" 2>&1 & pid=$!;printf '%s\n' "$pid">"$ROOT/$safe.pid";for _ in $(seq 1 60);do test -s "$ROOT/$safe.uuid"&&return 0;kill -0 "$pid" 2>/dev/null||{ cat "$E/bot-${safe}-stdout.log";return 1;};sleep 1;done;return 1; }
+          stop_bot(){ local name="$1" safe pid;safe="$(printf '%s' "$name"|tr '[:upper:]' '[:lower:]')";test -f "$ROOT/$safe.pid"||return 0;pid="$(cat "$ROOT/$safe.pid")";touch "$ROOT/$safe.stop";for _ in $(seq 1 20);do kill -0 "$pid" 2>/dev/null||break;sleep 1;done;kill "$pid" 2>/dev/null||true;wait "$pid" 2>/dev/null||true;rm -f "$ROOT/$safe.pid"; }
+          kill_bots(){ for f in "$ROOT"/*.pid;do test -e "$f"||continue;pid="$(cat "$f")";kill "$pid" 2>/dev/null||true;wait "$pid" 2>/dev/null||true;rm -f "$f";done; }
+          wait_sql(){ local q="$1" limit="${2:-90}";for _ in $(seq 1 "$limit");do if python3 - "$DB" "$q" <<'PY'
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
+          PY
+            then return 0;fi;sleep 1;done;echo "SQL timeout: $q" >&2;return 1; }
+          count_log(){ grep -Fc "$1" "$2" 2>/dev/null||true; }
+          wait_log(){ local pattern="$1" log="$2" before="${3:-0}" limit="${4:-60}";for _ in $(seq 1 "$limit");do test "$(count_log "$pattern" "$log")" -gt "$before"&&return 0;sleep 1;done;echo "log timeout: $pattern" >&2;tail -n 250 "$log" >&2;return 1; }
+          reload_expect(){ local source="$1" log="$2" before;before="$(count_log "VALID $source" "$log")";echo 'loredistribution reload' >&3;wait_log "VALID $source" "$log" "$before"; }
+          preview(){ local source="$1" log="$2" before;before="$(count_log 'Distribution preview' "$log")";echo "loredistribution preview $source acc_dist_main" >&3;wait_log 'Distribution preview' "$log" "$before";grep -F 'Campaign: ' "$log"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/'|tr -d '\r'; }
+          dump_expect(){ local player="$1" expected="$2" log="$3" before;before="$(count_log "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log")";echo "wp05accept dump $player" >&3;wait_log "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log" "$before"; }
+
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)";LOG1="$E/server-initial.log";start_server "$LOG1";start_bot Wp05DistAdmin;echo 'op Wp05DistAdmin' >&3
+          echo 'wp05accept source Wp05DistAdmin sword' >&3;sleep 1;echo 'wp05accept perform Wp05DistAdmin loreitems create acc_dist_main Distribution Acceptance' >&3
+          wait_sql "select count(*)=1 from lore_definitions where lookup_key='acc_dist_main' and deleted_at is null" 60
+          mkdir -p "$GROUPS/completed" "$GROUPS/cancelled"
+
+          # Fail-closed group validation.
+          cat >"$GROUPS/invalid-malformed.yml" <<'EOF'
+          display-name: [unterminated
+          players:
+            - Someone
+          EOF
+          cat >"$GROUPS/invalid-unknown.yml" <<'EOF'
+          display-name: Unknown Key
+          players:
+            - Someone
+          surprise: rejected
+          EOF
+          cat >"$GROUPS/invalid-duplicate.yml" <<'EOF'
+          display-name: Duplicate Recipient
+          players:
+            - Wp05CaseDup
+            - wp05casedup
+          EOF
+          B0="$(count_log 'INVALID invalid-malformed.yml' "$LOG1")";B1="$(count_log 'INVALID invalid-unknown.yml' "$LOG1")";B2="$(count_log 'INVALID invalid-duplicate.yml' "$LOG1")";echo 'loredistribution reload' >&3
+          wait_log 'INVALID invalid-malformed.yml' "$LOG1" "$B0";wait_log 'INVALID invalid-unknown.yml' "$LOG1" "$B1";wait_log 'INVALID invalid-duplicate.yml' "$LOG1" "$B2"
+
+          # Preview is immutable: mutate the live source after preview without reloading the catalog.
+          cat >"$GROUPS/dist-mutable.yml" <<'EOF'
+          display-name: Mutable Preview
+          players:
+            - Wp05DistAdmin
+          EOF
+          reload_expect dist-mutable.yml "$LOG1";MUTABLE_ID="$(preview dist-mutable.yml "$LOG1")";test -n "$MUTABLE_ID"
+          cat >"$GROUPS/dist-mutable.yml" <<'EOF'
+          display-name: Mutated After Preview
+          players:
+            - Wp05DistAdmin
+          EOF
+          C0="$(count_log 'The group source changed or disappeared after preview; no campaign was started.' "$LOG1")";echo "loredistribution confirm $MUTABLE_ID" >&3;wait_log 'The group source changed or disappeared after preview; no campaign was started.' "$LOG1" "$C0";wait_sql "select count(*)=0 from distribution_campaigns" 15
+          cat >"$GROUPS/dist-mutable.yml" <<'EOF'
+          display-name: Mutable Preview
+          players:
+            - Wp05DistAdmin
+          EOF
+          reload_expect dist-mutable.yml "$LOG1";VALID_ID="$(preview dist-mutable.yml "$LOG1")";echo "loredistribution confirm $VALID_ID" >&3
+          wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$VALID_ID' and state='COMPLETED'" 90
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$VALID_ID' and state='DELIVERED' and instance_id is not null" 90
+          COMPLETED="$GROUPS/completed/dist-mutable.completed-$VALID_ID.yml";for _ in $(seq 1 60);do test -f "$COMPLETED"&&break;sleep 1;done;test -f "$COMPLETED"
+          cp "$COMPLETED" "$GROUPS/dist-mutable.yml";reload_expect dist-mutable.yml "$LOG1";REPLAY_ID="$(preview dist-mutable.yml "$LOG1")"
+          U0="$(count_log 'This exact source fingerprint already belongs to a durable campaign.' "$LOG1")";echo "loredistribution confirm $REPLAY_ID" >&3;wait_log 'This exact source fingerprint already belongs to a durable campaign.' "$LOG1" "$U0";wait_sql "select count(*)=1 from distribution_campaigns where source_name='dist-mutable.yml'" 20;rm -f "$GROUPS/dist-mutable.yml"
+
+          # Prepare known names, an explicit UUID, a full inventory, an offline player, and one never-seen name.
+          for NAME in Wp05Free Wp05Full Wp05Offline Wp05Explicit;do start_bot "$NAME";done
+          EXPLICIT_UUID="$(tr -d '\r\n'<"$ROOT/wp05explicit.uuid")";stop_bot Wp05Offline
+          for i in $(seq 0 8);do echo "item replace entity Wp05Full hotbar.$i with minecraft:stone 64" >&3;done
+          for i in $(seq 0 26);do echo "item replace entity Wp05Full inventory.$i with minecraft:stone 64" >&3;done;sleep 2
+          cat >"$GROUPS/dist-main.yml" <<EOF
+          display-name: Delivery State Matrix
+          players:
+            - Wp05Free
+            - Wp05Full
+            - Wp05Offline
+            - $EXPLICIT_UUID
+            - Wp05Future
+          EOF
+          cp "$GROUPS/dist-main.yml" "$E/dist-main-source.yml";reload_expect dist-main.yml "$LOG1";MAIN_ID="$(preview dist-main.yml "$LOG1")";echo "loredistribution confirm $MAIN_ID" >&3
+          wait_sql "select count(*)=5 from distribution_recipients where campaign_id='$MAIN_ID'" 60
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Future' and state='UNRESOLVED' and player_id is null" 60
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Full' and state='QUEUED_INVENTORY_FULL'" 90
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Offline' and state='QUEUED_OFFLINE'" 90
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='$EXPLICIT_UUID' and player_id='$EXPLICIT_UUID' and state='DELIVERED'" 90
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Free' and state='DELIVERED'" 90
+          stop_server;kill_bots
+
+          # Restart preserves queued state. Release one physical slot and expose offline/unseen identities naturally.
+          LOG2="$E/server-main-restart.log";start_server "$LOG2";start_bot Wp05Free;start_bot Wp05Full;start_bot Wp05Explicit
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Full' and state='QUEUED_INVENTORY_FULL'" 30
+          echo 'item replace entity Wp05Full hotbar.0 with minecraft:air' >&3;start_bot Wp05Offline;start_bot Wp05Future;FUTURE_UUID="$(tr -d '\r\n'<"$ROOT/wp05future.uuid")"
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$MAIN_ID' and original_value='Wp05Future' and player_id='$FUTURE_UUID' and state='DELIVERED'" 120
+          wait_sql "select count(*)=5 from distribution_recipients where campaign_id='$MAIN_ID' and state='DELIVERED' and instance_id is not null" 120
+          wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$MAIN_ID' and state='COMPLETED'" 60
+          for NAME in Wp05Free Wp05Full Wp05Offline Wp05Explicit Wp05Future;do dump_expect "$NAME" 1 "$LOG2";done
+          MAIN_TERMINAL="$GROUPS/completed/dist-main.completed-$MAIN_ID.yml";for _ in $(seq 1 60);do test -f "$MAIN_TERMINAL"&&break;sleep 1;done;test -f "$MAIN_TERMINAL"
+          stop_server;kill_bots
+
+          # Replay restart proves no second campaign delivery or duplicate identity.
+          LOG3="$E/server-replay.log";start_server "$LOG3";for NAME in Wp05Free Wp05Full Wp05Offline Wp05Explicit Wp05Future;do start_bot "$NAME";done;sleep 5
+          wait_sql "select count(*)=5 from distribution_recipients where campaign_id='$MAIN_ID' and state='DELIVERED'" 30
+          wait_sql "select count(distinct instance_id)=5 from distribution_recipients where campaign_id='$MAIN_ID'" 30
+          for NAME in Wp05Free Wp05Full Wp05Offline Wp05Explicit Wp05Future;do dump_expect "$NAME" 1 "$LOG3";stop_bot "$NAME";done
+
+          # Pause/restart/resume/cancel plus DB-authoritative marker repair.
+          for NAME in Wp05Cancel1 Wp05Cancel2 Wp05Cancel3;do start_bot "$NAME";stop_bot "$NAME";done
+          cat >"$GROUPS/dist-control.yml" <<'EOF'
+          display-name: Control And Reconcile
+          players:
+            - Wp05Cancel1
+            - Wp05Cancel2
+            - Wp05Cancel3
+          EOF
+          reload_expect dist-control.yml "$LOG3";CONTROL_ID="$(preview dist-control.yml "$LOG3")";echo "loredistribution confirm $CONTROL_ID" >&3
+          wait_sql "select count(*)=3 from distribution_recipients where campaign_id='$CONTROL_ID' and state='QUEUED_OFFLINE'" 90
+          echo "loredistribution pause $CONTROL_ID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CONTROL_ID' and state='PAUSED'" 60
+          ACTIVE="$GROUPS/dist-control.active-$CONTROL_ID.yml";for _ in $(seq 1 60);do test -f "$ACTIVE"&&break;sleep 1;done;test -f "$ACTIVE"
+          FP="$(python3 - "$DB" "$CONTROL_ID" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute('select source_fingerprint from distribution_campaigns where campaign_id=?',(sys.argv[2],)).fetchone()[0])
+          PY
+          )";rm "$ACTIVE"
+          cat >"$GROUPS/dist-control.yml" <<'EOF'
+          display-name: CHANGED REPLACEMENT MUST REMAIN
+          players:
+            - Wp05DistAdmin
+          EOF
+          sha256sum "$GROUPS/dist-control.yml">"$E/replacement-before.sha256";R0="$(count_log "$CONTROL_ID PAUSED RECONCILED" "$LOG3")";echo 'loredistribution reconcile' >&3;wait_log "$CONTROL_ID PAUSED RECONCILED" "$LOG3" "$R0" 90
+          test -f "$ACTIVE";test -f "$GROUPS/dist-control.yml";sha256sum "$GROUPS/dist-control.yml">"$E/replacement-after.sha256";cmp "$E/replacement-before.sha256" "$E/replacement-after.sha256"
+          grep -F "campaign-id: $CONTROL_ID" "$ACTIVE";grep -F "source-name: dist-control.yml" "$ACTIVE";grep -F "source-fingerprint: $FP" "$ACTIVE";cp "$ACTIVE" "$E/recovered-active-marker.yml"
+          stop_server;kill_bots
+
+          LOG4="$E/server-control-restart.log";start_server "$LOG4";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CONTROL_ID' and state='PAUSED'" 30;wait_sql "select count(*)=0 from distribution_recipients where campaign_id='$CONTROL_ID' and state='DELIVERED'" 30
+          echo "loredistribution resume $CONTROL_ID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CONTROL_ID' and state='ACTIVE'" 60;start_bot Wp05Cancel1
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CONTROL_ID' and original_value='Wp05Cancel1' and state='DELIVERED'" 120;stop_bot Wp05Cancel1
+          echo "loredistribution cancel $CONTROL_ID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CONTROL_ID' and state='CANCELLED'" 60;wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CONTROL_ID' and state='DELIVERED'" 30;wait_sql "select count(*)=2 from distribution_recipients where campaign_id='$CONTROL_ID' and state='CANCELLED'" 30
+          echo 'loredistribution reconcile' >&3;CANCELLED="$GROUPS/cancelled/dist-control.cancelled-$CONTROL_ID.yml";for _ in $(seq 1 90);do test -f "$CANCELLED"&&break;sleep 1;done;test -f "$CANCELLED";test -f "$GROUPS/dist-control.yml"
+          stop_server;kill_bots
+
+          LOG5="$E/server-final-restart.log";start_server "$LOG5";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CONTROL_ID' and state='CANCELLED'" 30;wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CONTROL_ID' and state='DELIVERED'" 30;wait_sql "select count(*)=2 from distribution_recipients where campaign_id='$CONTROL_ID' and state='CANCELLED'" 30;sleep 4;stop_server;kill_bots
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          python3 - "$DB" "$START" "$END" "$VALID_ID" "$MAIN_ID" "$CONTROL_ID" "$EXPLICIT_UUID" "$FUTURE_UUID" <<'PY' | tee "$E/result.json"
+          import json,sqlite3,sys
+          db,start,end,valid,main,control,explicit,future=sys.argv[1:]
+          with sqlite3.connect(db) as c:
+              c.row_factory=sqlite3.Row
+              integrity=c.execute('pragma integrity_check').fetchone()[0];foreign=[list(r) for r in c.execute('pragma foreign_key_check')];assert integrity=='ok' and not foreign
+              main_rows=[dict(r) for r in c.execute('select snapshot_index,original_value,player_id,state,instance_id,attempt_count from distribution_recipients where campaign_id=? order by snapshot_index',(main,))]
+              control_rows=[dict(r) for r in c.execute('select snapshot_index,original_value,player_id,state,instance_id,attempt_count from distribution_recipients where campaign_id=? order by snapshot_index',(control,))]
+              assert len(main_rows)==5 and all(r['state']=='DELIVERED' and r['instance_id'] for r in main_rows),main_rows
+              assert next(r for r in main_rows if r['original_value']==explicit)['player_id']==explicit
+              assert next(r for r in main_rows if r['original_value']=='Wp05Future')['player_id']==future
+              assert len({r['instance_id'] for r in main_rows})==5
+              assert len(control_rows)==3 and sum(r['state']=='DELIVERED' for r in control_rows)==1 and sum(r['state']=='CANCELLED' for r in control_rows)==2
+              states={r['campaign_id']:r['state'] for r in c.execute('select campaign_id,state from distribution_campaigns where campaign_id in (?,?,?)',(valid,main,control))};assert states=={valid:'COMPLETED',main:'COMPLETED',control:'CANCELLED'},states
+          print(json.dumps({'cases':{'ACC-DIST-001':'PASS','ACC-DIST-002-java-uuid-unresolved':'PASS','ACC-DIST-003':'PASS','ACC-DIST-004':'PASS','ACC-DIST-005':'PASS'},'source_head':open('/tmp/wp05-distribution/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'campaigns':states,'main_recipients':main_rows,'control_recipients':control_rows,'explicit_uuid':explicit,'future_bound_uuid':future,'integrity':integrity,'foreign_key_violations':foreign},indent=2,sort_keys=True))
+          PY
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          ROOT=/tmp/wp05-distribution;DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db";mkdir -p "$ROOT/evidence"
+          if test -f "$DB";then python3 - "$DB" >"$ROOT/evidence/failure-db.txt" 2>&1 <<'PY' || true
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1]);c.row_factory=sqlite3.Row
+          for t in ('lore_definitions','lore_instances','distribution_campaigns','distribution_campaign_revision_snapshots','distribution_recipients','audit_events'):
+              print('##',t)
+              try:
+                  for r in c.execute(f'select * from {t}'):print(dict(r))
+              except Exception as e:print(type(e).__name__,e)
+          print('integrity',list(c.execute('pragma integrity_check')));print('foreign',list(c.execute('pragma foreign_key_check')))
+          PY
+          fi
+          find "$ROOT/server/plugins/EnthusiaLoreItems/groups" -maxdepth 2 -type f -print -exec sha256sum {} \; >"$ROOT/evidence/failure-markers.txt" 2>&1 || true
+
+      - name: Upload distribution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-distribution-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-distribution/evidence
+          if-no-files-found: error
+          retention-days: 30
