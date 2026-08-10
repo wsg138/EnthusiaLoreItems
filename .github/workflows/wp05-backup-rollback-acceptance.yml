@@ -67,9 +67,9 @@ jobs:
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
             then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
-          START="$(date -u +%FT%TZ)";L1="$E/server-baseline.log";start_server "$L1";start_bot Wp05BackupAdmin;start_bot Wp05BackupOffline;echo 'op Wp05BackupAdmin' >&3;OFF_UUID="$(tr -d '\r\n'<"$R/wp05backupoffline.uuid")";stop_bot Wp05BackupOffline
+          START="$(date -u +%FT%TZ)";L1="$E/server-baseline.log";start_server "$L1";start_bot Wp05BackupAdmin;start_bot Wp05BackupOff;echo 'op Wp05BackupAdmin' >&3;OFF_UUID="$(tr -d '\r\n'<"$R/wp05backupoff.uuid")";stop_bot Wp05BackupOff
           echo 'wp05accept source Wp05BackupAdmin sword' >&3;sleep .5;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_backup_live Backup Live' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_backup_live' and deleted_at is null"
-          echo 'wp05accept perform Wp05BackupAdmin loreitems give ops_backup_live Wp05BackupOffline' >&3;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='PENDING'"
+          echo 'wp05accept perform Wp05BackupAdmin loreitems give ops_backup_live Wp05BackupOff' >&3;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='PENDING'"
           mkdir -p plugins/EnthusiaLoreItems/groups/completed plugins/EnthusiaLoreItems/groups/cancelled;cat >plugins/EnthusiaLoreItems/groups/backup-history.yml <<'EOF'
           display-name: Backup History
           players:
@@ -90,13 +90,21 @@ jobs:
           PY
           L2="$E/server-changed.log";start_server "$L2";start_bot Wp05BackupAdmin;echo 'op Wp05BackupAdmin' >&3;echo 'wp05accept source Wp05BackupAdmin food' >&3;sleep .5;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_post_backup Post Backup Change' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_post_backup' and deleted_at is null";stop_bot Wp05BackupAdmin;stop_server;cp -a plugins/EnthusiaLoreItems "$R/changed-EnthusiaLoreItems";tar -C "$R" -cf "$E/post-backup-changed.tar" changed-EnthusiaLoreItems
           rm -rf plugins/EnthusiaLoreItems;cp -a "$R/backup-EnthusiaLoreItems" plugins/EnthusiaLoreItems;cp "$R/backup-EnthusiaLoreItems.jar" plugins/EnthusiaLoreItems.jar;RESTORED_SHA="$(sha256sum plugins/EnthusiaLoreItems/loreitems.db|awk '{print $1}')";test "$RESTORED_SHA" = "$BASE_DB_SHA";cmp "$R/backup-EnthusiaLoreItems.jar" plugins/EnthusiaLoreItems.jar
-          L3="$E/server-restored.log";start_server "$L3";wait_sql "select count(*)=0 from lore_definitions where lookup_key='ops_post_backup'";wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";start_bot Wp05BackupOffline;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='COMPLETED'";stop_bot Wp05BackupOffline;stop_server;END="$(date -u +%FT%TZ)"
+          L3="$E/server-restored.log";start_server "$L3";wait_sql "select count(*)=0 from lore_definitions where lookup_key='ops_post_backup'";wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";start_bot Wp05BackupOff;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='COMPLETED'";stop_bot Wp05BackupOff;stop_server;END="$(date -u +%FT%TZ)"
           python3 - "$DB" "$START" "$END" "$BASE_DB_SHA" "$RESTORED_SHA" <<'PY'|tee "$E/result-ops002.json"
           import json,sqlite3,sys
           db,start,end,a,b=sys.argv[1:]
           with sqlite3.connect(db) as c:i=c.execute('pragma integrity_check').fetchone()[0];f=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not f
           print(json.dumps({'case':'ACC-OPS-002','result':'PASS','source_head':open('/tmp/wp05-backup/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'stopped_backup_db_sha256':a,'restored_prestart_db_sha256':b,'byte_identical_restore_before_start':a==b,'post_backup_change_absent':True,'pending_delivery_resumed_naturally':True,'deleted_marker_restored':True,'campaign_history_restored':True,'integrity':i,'foreign_key_violations':f},indent=2))
           PY
+      - name: Upload offline backup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wp05-offline-backup-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-backup/evidence
+          if-no-files-found: error
+          retention-days: 30
 
   release-rollback:
     if: github.event.pull_request.number == 18
@@ -159,10 +167,3 @@ jobs:
           path: /tmp/wp05-rollback/evidence
           if-no-files-found: error
           retention-days: 30
-
-  upload-offline-evidence:
-    if: always() && github.event.pull_request.number == 18
-    needs: offline-backup-restore
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo 'Offline backup evidence is uploaded by the producing job in a later consolidated audit.'
