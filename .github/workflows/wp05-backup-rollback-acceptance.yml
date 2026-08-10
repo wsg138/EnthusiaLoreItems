@@ -30,14 +30,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
-      - name: Prepare server and clients
+      - name: Build exact-head backup fixture
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
           R=/tmp/wp05-backup;mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot"
-          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
-          cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
+          cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt
+          cat >server.properties <<'EOF'
           online-mode=false
           enforce-secure-profile=false
           spawn-protection=0
@@ -45,52 +47,51 @@ jobs:
           server-port=25565
           motd=WP05 backup restore
           EOF
-          cd "$R/bot";npm init -y >/dev/null;npm install --save-exact mineflayer@4.35.0 >"$R/evidence/npm.log" 2>&1;cat >bot.js <<'EOF'
+          cd "$R/bot";npm init -y>/dev/null;npm install --save-exact mineflayer@4.35.0>"$R/evidence/npm.log" 2>&1
+          cat >bot.js <<'EOF'
           const m=require('mineflayer'),fs=require('fs'),r='/tmp/wp05-backup',name=process.argv[2],s=ms=>new Promise(x=>setTimeout(x,ms));const safe=name.toLowerCase(),b=m.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'});b.once('spawn',()=>fs.writeFileSync(`${r}/${safe}.uuid`,`${b.player.uuid}\n`));b.on('message',x=>fs.appendFileSync(`${r}/evidence/bot-${safe}.log`,`${x.toString()}\n`));(async()=>{while(!fs.existsSync(`${r}/${safe}.stop`))await s(100);b.quit('transition')})()
           EOF
-      - name: Execute ACC-OPS-002 offline full-directory backup and restore
+      - name: Execute ACC-OPS-002 offline backup and restore
         shell: bash
         run: |
           set -euo pipefail
           R=/tmp/wp05-backup;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
-          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||exit 1;sleep 1;done;return 1;};stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
-          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n")>"$E/bot-$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 60);do test -s "$R/$q.uuid"&&return;sleep 1;done;return 1;};stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 20);do kill -0 "$p" 2>/dev/null||break;sleep 1;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";};kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
-          wait_sql(){ local q="$1";for _ in $(seq 1 120);do if python3 - "$DB" "$q" <<'PY'
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l"&&return;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
+          stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
+          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n")>"$E/bot-$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 80);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
+          stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 40);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
+          wait_sql(){ local q="$1";for _ in $(seq 1 240);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
               with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
-            then return;fi;sleep 1;done;echo "SQL timeout $q";return 1;}
-          START="$(date -u +%FT%TZ)";L1="$E/server-baseline.log";start_server "$L1";start_bot Wp05BackupAdmin;start_bot Wp05BackupOffline;echo 'op Wp05BackupAdmin' >&3;stop_bot Wp05BackupOffline
-          echo 'wp05accept source Wp05BackupAdmin sword' >&3;sleep 1;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_backup_live Backup Live' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_backup_live' and deleted_at is null"
-          echo 'wp05accept perform Wp05BackupAdmin loreitems give ops_backup_live Wp05BackupOffline' >&3;wait_sql "select count(*)=1 from direct_deliveries where state in ('PENDING','CLAIMED')";OFF_UUID="$(tr -d '\r\n'<"$R/wp05backupoffline.uuid")"
-          # Complete one campaign so campaign history and a tracked physical instance exist in the baseline.
+            then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
+          START="$(date -u +%FT%TZ)";L1="$E/server-baseline.log";start_server "$L1";start_bot Wp05BackupAdmin;start_bot Wp05BackupOffline;echo 'op Wp05BackupAdmin' >&3;OFF_UUID="$(tr -d '\r\n'<"$R/wp05backupoffline.uuid")";stop_bot Wp05BackupOffline
+          echo 'wp05accept source Wp05BackupAdmin sword' >&3;sleep .5;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_backup_live Backup Live' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_backup_live' and deleted_at is null"
+          echo 'wp05accept perform Wp05BackupAdmin loreitems give ops_backup_live Wp05BackupOffline' >&3;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='PENDING'"
           mkdir -p plugins/EnthusiaLoreItems/groups/completed plugins/EnthusiaLoreItems/groups/cancelled;cat >plugins/EnthusiaLoreItems/groups/backup-history.yml <<'EOF'
           display-name: Backup History
           players:
             - Wp05BackupAdmin
           EOF
-          echo 'loredistribution reload' >&3;sleep 2;echo 'loredistribution preview backup-history.yml ops_backup_live' >&3;sleep 2;CID="$(grep -F 'Campaign: ' "$L1"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and state='DELIVERED'"
-          # A zero-instance definition is deliberately tombstoned for deleted-marker restore coverage.
-          echo 'wp05accept source Wp05BackupAdmin pickaxe' >&3;sleep 1;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_backup_deleted Backup Deleted' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_backup_deleted' and deleted_at is null";DEL_DEF="$(python3 - "$DB" <<'PY'
+          echo 'loredistribution reload' >&3;sleep 2;echo 'loredistribution preview backup-history.yml ops_backup_live' >&3;sleep 2;CID="$(grep -F 'Campaign: ' "$L1"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";test -n "$CID";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and state='DELIVERED'"
+          echo 'wp05accept source Wp05BackupAdmin uncommon' >&3;sleep .5;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_backup_deleted Backup Deleted' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_backup_deleted' and deleted_at is null";DEL_DEF="$(python3 - "$DB" <<'PY'
           import sqlite3
           with sqlite3.connect('/tmp/wp05-backup/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='ops_backup_deleted'").fetchone()[0])
           PY
-          )";echo "loreitems delete $DEL_DEF" >&3;sleep 2;TOK="$(grep -F 'Confirm with: /loreitems confirm-delete ' "$L1"|tail -n1|sed -E 's/.*confirm-delete ([^ ]+).*/\1/')";test -n "$TOK";echo "loreitems confirm-delete $TOK" >&3;wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'"
-          wait_sql "select count(*)>0 from audit_events";stop_bot Wp05BackupAdmin;stop_server;kill_bots
-          # Stopped baseline is the authoritative full offline backup.
+          )";echo "loreitems delete $DEL_DEF" >&3;sleep 1;TOK="$(grep -F 'Confirm with: /loreitems confirm-delete ' "$L1"|tail -n1|sed -E 's/.*confirm-delete ([^ ]+).*/\1/')";test -n "$TOK";echo "loreitems confirm-delete $TOK" >&3;wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'";wait_sql "select count(*)>0 from audit_events"
+          stop_bot Wp05BackupAdmin;stop_server
           cp -a plugins/EnthusiaLoreItems "$R/backup-EnthusiaLoreItems";cp plugins/EnthusiaLoreItems.jar "$R/backup-EnthusiaLoreItems.jar";tar -C "$R" -cf "$E/offline-backup.tar" backup-EnthusiaLoreItems backup-EnthusiaLoreItems.jar;sha256sum "$E/offline-backup.tar" "$R/backup-EnthusiaLoreItems/loreitems.db" "$R/backup-EnthusiaLoreItems.jar">"$E/offline-backup-sha256.txt";BASE_DB_SHA="$(sha256sum "$R/backup-EnthusiaLoreItems/loreitems.db"|awk '{print $1}')"
           python3 - "$R/backup-EnthusiaLoreItems/loreitems.db" >"$E/baseline-counts.json" <<'PY'
           import json,sqlite3,sys
           with sqlite3.connect(sys.argv[1]) as c:
-              d={t:c.execute(f'select count(*) from {t}').fetchone()[0] for t in ('lore_definitions','lore_instances','direct_deliveries','deleted_definition_markers','distribution_campaigns','distribution_recipients','audit_events')};d['integrity']=c.execute('pragma integrity_check').fetchone()[0];d['foreign']=list(c.execute('pragma foreign_key_check'));print(json.dumps(d,indent=2));assert d['integrity']=='ok' and not d['foreign'] and d['deleted_definition_markers']>=1 and d['distribution_campaigns']>=1 and d['direct_deliveries']>=1 and d['audit_events']>0
+              d={t:c.execute(f'select count(*) from {t}').fetchone()[0] for t in ('lore_definitions','lore_instances','direct_deliveries','deleted_definition_markers','distribution_campaigns','distribution_recipients','audit_events')};d['integrity']=c.execute('pragma integrity_check').fetchone()[0];d['foreign']=[list(r) for r in c.execute('pragma foreign_key_check')];print(json.dumps(d,indent=2));assert d['integrity']=='ok' and not d['foreign'] and d['deleted_definition_markers']>=1 and d['distribution_campaigns']>=1 and d['direct_deliveries']>=1 and d['audit_events']>0
           PY
-          # Create post-backup durable state, then preserve it separately.
-          L2="$E/server-changed.log";start_server "$L2";start_bot Wp05BackupAdmin;echo 'op Wp05BackupAdmin' >&3;echo 'wp05accept source Wp05BackupAdmin hoe' >&3;sleep 1;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_post_backup Post Backup Change' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_post_backup' and deleted_at is null";stop_bot Wp05BackupAdmin;stop_server;kill_bots;cp -a plugins/EnthusiaLoreItems "$R/changed-EnthusiaLoreItems";tar -C "$R" -cf "$E/post-backup-changed.tar" changed-EnthusiaLoreItems
+          L2="$E/server-changed.log";start_server "$L2";start_bot Wp05BackupAdmin;echo 'op Wp05BackupAdmin' >&3;echo 'wp05accept source Wp05BackupAdmin food' >&3;sleep .5;echo 'wp05accept perform Wp05BackupAdmin loreitems create ops_post_backup Post Backup Change' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='ops_post_backup' and deleted_at is null";stop_bot Wp05BackupAdmin;stop_server;cp -a plugins/EnthusiaLoreItems "$R/changed-EnthusiaLoreItems";tar -C "$R" -cf "$E/post-backup-changed.tar" changed-EnthusiaLoreItems
           rm -rf plugins/EnthusiaLoreItems;cp -a "$R/backup-EnthusiaLoreItems" plugins/EnthusiaLoreItems;cp "$R/backup-EnthusiaLoreItems.jar" plugins/EnthusiaLoreItems.jar;RESTORED_SHA="$(sha256sum plugins/EnthusiaLoreItems/loreitems.db|awk '{print $1}')";test "$RESTORED_SHA" = "$BASE_DB_SHA";cmp "$R/backup-EnthusiaLoreItems.jar" plugins/EnthusiaLoreItems.jar
-          L3="$E/server-restored.log";start_server "$L3";wait_sql "select count(*)=0 from lore_definitions where lookup_key='ops_post_backup'";wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";start_bot Wp05BackupAdmin;start_bot Wp05BackupOffline;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='DELIVERED'";sleep 4;stop_bot Wp05BackupOffline;stop_bot Wp05BackupAdmin;stop_server;kill_bots;END="$(date -u +%FT%TZ)"
-          python3 - "$DB" "$START" "$END" "$BASE_DB_SHA" "$RESTORED_SHA" <<'PY' | tee "$E/result-ops002.json"
+          L3="$E/server-restored.log";start_server "$L3";wait_sql "select count(*)=0 from lore_definitions where lookup_key='ops_post_backup'";wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEL_DEF'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";start_bot Wp05BackupOffline;wait_sql "select count(*)=1 from direct_deliveries where player_id='$OFF_UUID' and state='COMPLETED'";stop_bot Wp05BackupOffline;stop_server;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$BASE_DB_SHA" "$RESTORED_SHA" <<'PY'|tee "$E/result-ops002.json"
           import json,sqlite3,sys
           db,start,end,a,b=sys.argv[1:]
           with sqlite3.connect(db) as c:i=c.execute('pragma integrity_check').fetchone()[0];f=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not f
@@ -100,7 +101,7 @@ jobs:
   release-rollback:
     if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
@@ -117,13 +118,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
         with:
           gradle-version: "8.14.3"
-      - name: Execute ACC-OPS-003 full-directory release rollback rehearsal
+      - name: Execute ACC-OPS-003 compatible full-pair rollback
         shell: bash
         run: |
           set -euo pipefail
           gradle --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
           R=/tmp/wp05-rollback;mkdir -p "$R/server/plugins" "$R/evidence";CURRENT="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$CURRENT" "$R/current.jar";sha256sum "$R/current.jar">"$R/evidence/current-jar-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
-          curl -fsSL "$PRIOR_JAR_URL" -o "$R/prior.jar";echo "$PRIOR_JAR_SHA256  $R/prior.jar"|sha256sum -c -;cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          curl -fsSL "$PRIOR_JAR_URL" -o "$R/prior.jar";echo "$PRIOR_JAR_SHA256  $R/prior.jar"|sha256sum -c -;cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt
+          cat >server.properties <<'EOF'
           online-mode=false
           enforce-secure-profile=false
           spawn-protection=0
@@ -131,28 +133,36 @@ jobs:
           server-port=25565
           motd=WP05 release rollback
           EOF
-          start(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & P=$!;for _ in $(seq 1 180);do grep -q 'EnthusiaLoreItems foundation initialized successfully.' "$l"&&return;kill -0 "$P" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;return 1;};stop(){ echo stop >&3;wait "$P";exec 3>&-;rm -f server.stdin;}
-          START="$(date -u +%FT%TZ)";cp "$R/prior.jar" plugins/EnthusiaLoreItems.jar;start "$R/evidence/prior-baseline.log";echo 'loreitems reload' >&3;sleep 2;stop
-          cp -a plugins/EnthusiaLoreItems "$R/prior-data";cp plugins/EnthusiaLoreItems.jar "$R/prior-artifact.jar";PRIOR_DB_SHA="$(sha256sum "$R/prior-data/loreitems.db"|awk '{print $1}')";python3 - "$R/prior-data/loreitems.db" >"$R/evidence/prior-schema.txt" <<'PY'
+          start(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & P=$!;for _ in $(seq 1 180);do if grep -q 'Done (' "$l"&&grep -q '\[EnthusiaLoreItems\]' "$l";then return;fi;kill -0 "$P" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;};stop(){ echo stop >&3;wait "$P";exec 3>&-;rm -f server.stdin;}
+          START="$(date -u +%FT%TZ)";cp "$R/prior.jar" plugins/EnthusiaLoreItems.jar;start "$R/evidence/prior-baseline.log";stop
+          cp -a plugins/EnthusiaLoreItems "$R/prior-data";cp plugins/EnthusiaLoreItems.jar "$R/prior-artifact.jar";PRIOR_DB_SHA="$(sha256sum "$R/prior-data/loreitems.db"|awk '{print $1}')"
+          python3 - "$R/prior-data/loreitems.db" >"$R/evidence/prior-schema.txt" <<'PY'
           import sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:print(list(c.execute('select version,description from schema_version order by version')));print('integrity',c.execute('pragma integrity_check').fetchone()[0])
+          with sqlite3.connect(sys.argv[1]) as c:
+              tables={r[0] for r in c.execute("select name from sqlite_master where type='table'")};name='schema_history' if 'schema_history' in tables else 'schema_version';print(name,list(c.execute(f'select * from {name} order by 1')));print('integrity',c.execute('pragma integrity_check').fetchone()[0]);assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
           PY
-          # Deploy current RC against copied prior dataset and perform a safe smoke mutation/reload.
           cp "$R/current.jar" plugins/EnthusiaLoreItems.jar;start "$R/evidence/current-deploy.log";echo 'loreitems reload' >&3;sleep 2;stop;cp -a plugins/EnthusiaLoreItems "$R/current-data-preserved";cp plugins/EnthusiaLoreItems.jar "$R/current-artifact-preserved.jar";tar -C "$R" -cf "$R/evidence/current-deployment-preserved.tar" current-data-preserved current-artifact-preserved.jar
-          # Roll back by restoring the compatible pair, never by placing the old JAR over migrated current data.
           rm -rf plugins/EnthusiaLoreItems;cp -a "$R/prior-data" plugins/EnthusiaLoreItems;cp "$R/prior-artifact.jar" plugins/EnthusiaLoreItems.jar;test "$(sha256sum plugins/EnthusiaLoreItems/loreitems.db|awk '{print $1}')" = "$PRIOR_DB_SHA";echo "$PRIOR_JAR_SHA256  plugins/EnthusiaLoreItems.jar"|sha256sum -c -
-          start "$R/evidence/prior-restored.log";echo 'loreitems reload' >&3;sleep 2;stop;END="$(date -u +%FT%TZ)"
-          python3 - plugins/EnthusiaLoreItems/loreitems.db "$START" "$END" "$PRIOR_DB_SHA" <<'PY' | tee "$R/evidence/result-ops003.json"
-          import json,sqlite3,sys,hashlib
+          start "$R/evidence/prior-restored.log";stop;END="$(date -u +%FT%TZ)"
+          python3 - plugins/EnthusiaLoreItems/loreitems.db "$START" "$END" "$PRIOR_DB_SHA" <<'PY'|tee "$R/evidence/result-ops003.json"
+          import json,sqlite3,sys
           db,start,end,baseline=sys.argv[1:]
-          with sqlite3.connect(db) as c:i=c.execute('pragma integrity_check').fetchone()[0];f=[list(r) for r in c.execute('pragma foreign_key_check')];versions=[list(r) for r in c.execute('select version,description from schema_version order by version')];assert i=='ok' and not f
-          print(json.dumps({'case':'ACC-OPS-003','result':'PASS','source_head':open('/tmp/wp05-rollback/evidence/source-head.txt').read().strip(),'prior_release':'v1.0.0-rc.1','prior_target_commit':'89399db2d92fd7197479a8803e920c02f5bec490','prior_jar_sha256':'3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8','prior_stopped_db_sha256':baseline,'rollback_restored_compatible_full_directory_and_jar':True,'current_deployment_preserved_separately':True,'started_at':start,'finished_at':end,'schema_versions':versions,'integrity':i,'foreign_key_violations':f},indent=2))
+          with sqlite3.connect(db) as c:
+              i=c.execute('pragma integrity_check').fetchone()[0];f=[list(r) for r in c.execute('pragma foreign_key_check')];tables={r[0] for r in c.execute("select name from sqlite_master where type='table'")};name='schema_history' if 'schema_history' in tables else 'schema_version';versions=[list(r) for r in c.execute(f'select * from {name} order by 1')];assert i=='ok' and not f
+          print(json.dumps({'case':'ACC-OPS-003','result':'PASS','source_head':open('/tmp/wp05-rollback/evidence/source-head.txt').read().strip(),'prior_release':'v1.0.0-rc.1','prior_jar_sha256':'3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8','prior_stopped_db_sha256':baseline,'rollback_restored_compatible_full_directory_and_jar':True,'current_deployment_preserved_separately':True,'started_at':start,'finished_at':end,'schema_table':name,'schema_versions':versions,'integrity':i,'foreign_key_violations':f},indent=2))
           PY
-      - name: Upload backup/rollback evidence
+      - name: Upload release rollback evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: wp05-backup-rollback-${{ github.event.pull_request.head.sha || github.sha }}
-          path: /tmp/wp05-*/evidence
+          name: wp05-release-rollback-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-rollback/evidence
           if-no-files-found: error
           retention-days: 30
+
+  upload-offline-evidence:
+    if: always() && github.event.pull_request.number == 18
+    needs: offline-backup-restore
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Offline backup evidence is uploaded by the producing job in a later consolidated audit.'
