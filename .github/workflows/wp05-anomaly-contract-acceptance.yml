@@ -1,0 +1,336 @@
+name: WP-05 Anomaly Contract Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-anomaly-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  anomaly-contract:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact head and prepare disposable Paper server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+
+          ROOT=/tmp/wp05-anomaly-contract
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 anomaly contract acceptance
+          view-distance=4
+          simulation-distance=4
+          EOF
+
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 > "$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer = require('/tmp/wp05-anomaly-contract/bot/node_modules/mineflayer')
+          const fs = require('fs')
+          const root = '/tmp/wp05-anomaly-contract'
+          const mode = process.argv[2]
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+          const log = message => {
+            const line = `${new Date().toISOString()} ${message}`
+            fs.appendFileSync(`${root}/evidence/bot.log`, `${line}\n`)
+            console.log(message)
+          }
+          const componentText = value => {
+            if (value == null) return ''
+            if (typeof value === 'string') return value
+            if (Array.isArray(value)) return value.map(componentText).join('')
+            if (typeof value.text === 'string') return value.text + (Array.isArray(value.extra) ? value.extra.map(componentText).join('') : '')
+            if (typeof value.value === 'string') return value.value
+            if (Array.isArray(value.extra)) return value.extra.map(componentText).join('')
+            try { return JSON.stringify(value) } catch { return String(value) }
+          }
+          const waitFile = async name => {
+            for (let i = 0; i < 3600; i++) {
+              if (fs.existsSync(`${root}/${name}`)) return
+              await sleep(100)
+            }
+            throw new Error(`missing marker ${name}`)
+          }
+          const bot = mineflayer.createBot({ host: '127.0.0.1', username: 'Wp05AnomBot', version: '1.21.11' })
+          const title = () => bot.currentWindow ? componentText(bot.currentWindow.title) : ''
+          const waitWindow = async fragment => {
+            for (let i = 0; i < 240; i++) {
+              if (bot.currentWindow && title().toLowerCase().includes(fragment.toLowerCase())) return
+              await sleep(100)
+            }
+            throw new Error(`window '${fragment}' not open; current=${title()}`)
+          }
+          const click = async slot => { await bot.clickWindow(slot, 0, 0); await sleep(400) }
+          const resolveDuplicate = async () => {
+            bot.chat('/loreitems browse')
+            await waitWindow('Lore definitions')
+            await click(0)
+            await waitWindow('Template management')
+            await click(33)
+            await waitWindow('Lore instances')
+            await click(0)
+            await waitWindow('Lore location evidence')
+            const choices = bot.currentWindow.slots.slice(0, 45).map((item, slot) => ({ slot, name: item && item.name })).filter(entry => entry.name)
+            log(`EVIDENCE_SLOTS ${JSON.stringify(choices)}`)
+            const conflict = choices.find(entry => entry.name === 'redstone')
+            if (!conflict) throw new Error('no selectable conflicting observation was rendered')
+            await click(conflict.slot)
+            await waitWindow('Confirm lore location')
+            log(`DUPLICATE_CONFIRM slot=${conflict.slot}`)
+            await click(22)
+            await waitWindow('Lore location evidence')
+            log('DUPLICATE_RESOLUTION_GUI_COMPLETED')
+          }
+          bot.on('message', message => log(`CHAT ${message.toString()}`))
+          bot.on('error', error => log(`ERROR ${error.stack || error}`))
+          bot.on('kicked', reason => log(`KICKED ${String(reason)}`))
+          bot.once('spawn', async () => {
+            try {
+              log(`SPAWN mode=${mode} uuid=${bot.player.uuid}`)
+              fs.writeFileSync(`${root}/bot.uuid`, `${bot.player.uuid}\n`)
+              if (mode === 'seed') {
+                fs.writeFileSync(`${root}/seed.ready`, 'ok\n')
+                await waitFile('go-seed-quit')
+                bot.quit('anomaly reconnect')
+                return
+              }
+              if (mode !== 'admin') throw new Error(`unknown mode ${mode}`)
+              fs.writeFileSync(`${root}/admin.ready`, 'ok\n')
+              await waitFile('go-inspect')
+              const instanceId = fs.readFileSync(`${root}/evidence/instance-id.txt`, 'utf8').trim()
+              bot.chat('/loreitems anomalies')
+              await sleep(1600)
+              bot.chat(`/loreitems audit ${instanceId}`)
+              await sleep(2200)
+              fs.writeFileSync(`${root}/inspect.done`, 'ok\n')
+              await waitFile('go-resolve')
+              await resolveDuplicate()
+              fs.writeFileSync(`${root}/resolve.done`, 'ok\n')
+              await waitFile('bot.stop')
+              bot.quit('anomaly acceptance complete')
+            } catch (error) {
+              log(`FATAL ${error.stack || error}`)
+              fs.writeFileSync(`${root}/bot.failed`, String(error.stack || error))
+              bot.quit('anomaly acceptance failed')
+            }
+          })
+          EOF
+
+      - name: Execute ACC-ANOM-001
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-anomaly-contract
+          SERVER="$ROOT/server"
+          DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db"
+          EVIDENCE="$ROOT/evidence"
+          SERVER_PID=''
+          BOT_PID=''
+
+          wait_marker() {
+            local marker="$1" tries="${2:-240}"
+            for _ in $(seq 1 "$tries"); do
+              if [[ -f "$ROOT/bot.failed" ]]; then cat "$ROOT/bot.failed" >&2; return 1; fi
+              [[ -f "$ROOT/$marker" ]] && return 0
+              sleep .25
+            done
+            echo "marker timed out: $marker" >&2
+            return 1
+          }
+          cleanup() {
+            touch "$ROOT/bot.stop" || true
+            if [[ -n "$BOT_PID" ]]; then wait "$BOT_PID" || true; fi
+            if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then echo stop >&3 || true; wait "$SERVER_PID" || true; fi
+          }
+          trap cleanup EXIT
+
+          cd "$SERVER"
+          rm -f server.stdin
+          mkfifo server.stdin
+          exec 3<>server.stdin
+          java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin > "$EVIDENCE/server.log" 2>&1 &
+          SERVER_PID=$!
+          for _ in $(seq 1 180); do
+            if grep -q 'Queued direct-delivery processing is active.' "$EVIDENCE/server.log" && grep -q 'WP-05 deterministic acceptance helper is active' "$EVIDENCE/server.log"; then break; fi
+            kill -0 "$SERVER_PID" 2>/dev/null || { cat "$EVIDENCE/server.log"; exit 1; }
+            sleep 1
+          done
+
+          (cd "$ROOT/bot" && node bot.js seed) > "$EVIDENCE/bot-seed-stdout.log" 2>&1 & BOT_PID=$!
+          wait_marker seed.ready 360
+          echo 'op Wp05AnomBot' >&3
+          echo 'clear Wp05AnomBot' >&3
+          echo 'wp05accept source Wp05AnomBot sword' >&3
+          sleep .5
+          echo 'wp05accept perform Wp05AnomBot loreitems create acc_anom_contract Anomaly Contract' >&3
+          sleep 1
+          echo 'clear Wp05AnomBot' >&3
+          echo 'wp05accept perform Wp05AnomBot loreitems give acc_anom_contract' >&3
+
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(200):
+              with sqlite3.connect(db) as c:
+                  row=c.execute("""
+                    select i.instance_id,s.state,s.location_type
+                    from lore_instances i
+                    join lore_definitions d on d.definition_id=i.definition_id
+                    join instance_current_state s on s.instance_id=i.instance_id
+                    where d.lookup_key='acc_anom_contract' and i.lifecycle_state='ACTIVE'
+                  """).fetchone()
+                  if row and row[1]=='CONFIRMED_NOW' and row[2]=='PLAYER_INVENTORY':
+                      open('/tmp/wp05-anomaly-contract/evidence/instance-id.txt','w').write(row[0]+'\n')
+                      break
+              time.sleep(.25)
+          else: raise SystemExit('initial anomaly-contract instance did not reach player inventory')
+          PY
+
+          echo 'wp05accept duplicate Wp05AnomBot' >&3
+          echo 'wp05accept malform Wp05AnomBot' >&3
+          sleep 1
+          echo 'wp05accept dump Wp05AnomBot' >&3
+          sleep .5
+          touch "$ROOT/go-seed-quit"
+          wait "$BOT_PID"
+          BOT_PID=''
+
+          rm -f "$ROOT/admin.ready" "$ROOT/inspect.done" "$ROOT/resolve.done" "$ROOT/bot.failed"
+          (cd "$ROOT/bot" && node bot.js admin) > "$EVIDENCE/bot-admin-stdout.log" 2>&1 & BOT_PID=$!
+          wait_marker admin.ready 360
+
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/pre-resolution-state.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; iid=open('/tmp/wp05-anomaly-contract/evidence/instance-id.txt').read().strip(); rows=[]
+          for _ in range(240):
+              with sqlite3.connect(db) as c:
+                  rows=c.execute("select anomaly_type,status,detail,state_revision from instance_anomalies where instance_id=? order by anomaly_type",(iid,)).fetchall()
+                  active={kind for kind,status,_,_ in rows if status in ('OPEN','ACKNOWLEDGED')}
+                  state=c.execute('select state,location_type,location_key,container_path from instance_current_state where instance_id=?',(iid,)).fetchone()
+                  if {'DUPLICATE_INSTANCE','MALFORMED_STACK'} <= active and state and state[0]=='CONFLICTING':
+                      print('ANOMALIES',rows); print('STATE',state); break
+              time.sleep(.25)
+          else: raise SystemExit(f'duplicate/malformed anomalies did not converge: {rows}')
+          PY
+
+          for _ in $(seq 1 120); do grep -q 'unresolved identity anomalies require review' "$EVIDENCE/server.log" && break; sleep .25; done
+          grep -q 'unresolved identity anomalies require review' "$EVIDENCE/server.log"
+          INITIAL_WARNINGS="$(grep -c 'unresolved identity anomalies require review' "$EVIDENCE/server.log")"
+          printf 'initial warnings=%s\n' "$INITIAL_WARNINGS" | tee "$EVIDENCE/warning-counts.txt"
+
+          touch "$ROOT/go-inspect"
+          wait_marker inspect.done 360
+          grep -q 'DUPLICATE_INSTANCE OPEN' "$EVIDENCE/bot.log"
+          grep -q 'MALFORMED_STACK OPEN' "$EVIDENCE/bot.log"
+          grep -q 'STATE CONFLICTING' "$EVIDENCE/bot.log"
+          grep -q 'ANOMALY DUPLICATE_INSTANCE OPEN' "$EVIDENCE/bot.log"
+          grep -q 'ANOMALY MALFORMED_STACK OPEN' "$EVIDENCE/bot.log"
+
+          sleep 305
+          LATER_WARNINGS="$(grep -c 'unresolved identity anomalies require review' "$EVIDENCE/server.log")"
+          printf 'later warnings=%s\n' "$LATER_WARNINGS" | tee -a "$EVIDENCE/warning-counts.txt"
+          if (( LATER_WARNINGS <= INITIAL_WARNINGS )); then
+            echo 'five-minute warning did not repeat while anomalies remained unresolved' >&2
+            exit 1
+          fi
+
+          touch "$ROOT/go-resolve"
+          wait_marker resolve.done 480
+          echo 'wp05accept dump Wp05AnomBot' >&3
+          sleep 1
+
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/case-results.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; iid=open('/tmp/wp05-anomaly-contract/evidence/instance-id.txt').read().strip(); rows=[]
+          for _ in range(160):
+              with sqlite3.connect(db) as c:
+                  rows=c.execute("select anomaly_type,status,resolution_detail from instance_anomalies where instance_id=? order by anomaly_type",(iid,)).fetchall()
+                  states={kind:status for kind,status,_ in rows}
+                  current=c.execute('select state,location_type,location_key,container_path from instance_current_state where instance_id=?',(iid,)).fetchone()
+                  selected=c.execute("select count(*) from audit_events where aggregate_type='lore_instance' and aggregate_id=? and event_type='duplicate_location_selected'",(iid,)).fetchone()[0]
+                  instance_count=c.execute('select count(*) from lore_instances where instance_id=?',(iid,)).fetchone()[0]
+                  if states.get('DUPLICATE_INSTANCE')=='RESOLVED' and states.get('MALFORMED_STACK') in ('OPEN','ACKNOWLEDGED') and current and current[0]=='CONFIRMED_NOW' and selected>=1:
+                      assert instance_count==1,instance_count
+                      assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
+                      assert c.execute('pragma foreign_key_check').fetchall()==[]
+                      print('POST_RESOLUTION_ANOMALIES',rows)
+                      print('POST_RESOLUTION_STATE',current)
+                      print('DUPLICATE_SELECTION_AUDIT_COUNT',selected)
+                      break
+              time.sleep(.25)
+          else: raise SystemExit(f'supported duplicate resolution did not converge: {rows}')
+          print('PASS ACC-ANOM-001: duplicate + malformed detection, immediate and five-minute warning, staff inspection, supported duplicate resolution, copies preserved')
+          PY
+
+          test "$(grep -c 'WP05_ACCEPT DUMP ok player=Wp05AnomBot count=2' "$EVIDENCE/server.log")" -ge 2
+          grep -q 'DUPLICATE_RESOLUTION_GUI_COMPLETED' "$EVIDENCE/bot.log"
+          touch "$ROOT/bot.stop"
+          wait "$BOT_PID"
+          BOT_PID=''
+          echo stop >&3
+          wait "$SERVER_PID"
+          SERVER_PID=''
+          exec 3>&-
+          trap - EXIT
+
+      - name: Upload anomaly evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-anomaly-contract-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-anomaly-contract/evidence
+          if-no-files-found: error
+          retention-days: 30
