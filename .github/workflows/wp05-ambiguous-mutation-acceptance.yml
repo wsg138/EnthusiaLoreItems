@@ -1,0 +1,204 @@
+name: WP-05 Ambiguous Mutation Recovery Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-ambiguous-mutation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ambiguous-mutation:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact head and prepare disposable server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-ambiguous-mutation
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 ambiguous mutation acceptance
+          view-distance=4
+          simulation-distance=4
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 > "$ROOT/evidence/npm-install.log" 2>&1
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'),fs=require('fs')
+          const root='/tmp/wp05-ambiguous-mutation',mode=process.argv[2]
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          function text(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(text).join(''):'');if(typeof v.value==='string')return v.value;if(Array.isArray(v.extra))return v.extra.map(text).join('');try{return JSON.stringify(v)}catch{return String(v)}}
+          const waitFile=async n=>{for(let i=0;i<2400;i++){if(fs.existsSync(`${root}/${n}`))return;if(n!=='bot.stop'&&fs.existsSync(`${root}/bot.stop`))throw new Error(`stopped waiting ${n}`);await sleep(100)}throw new Error(`missing marker ${n}`)}
+          const bot=mineflayer.createBot({host:'127.0.0.1',username:'Wp05ReviewBot',version:'1.21.11'})
+          const title=()=>bot.currentWindow?text(bot.currentWindow.title):''
+          const waitWindow=async f=>{for(let i=0;i<240;i++){if(bot.currentWindow&&title().toLowerCase().includes(f.toLowerCase()))return;await sleep(100)}throw new Error(`window ${f} not open; current=${title()}`)}
+          const waitNoWindow=async()=>{for(let i=0;i<160;i++){if(!bot.currentWindow)return;await sleep(100)}throw new Error('window did not close')}
+          const click=async s=>{await bot.clickWindow(s,0,0);await sleep(300)}
+          async function makeRevision(){
+            bot.chat('/loreitems browse');await waitWindow('Lore definitions');await click(0);await waitWindow('Template management');await click(29);await waitWindow('Template editor')
+            await click(10);await waitNoWindow();bot.chat('submit literal Review Revision Two');await waitWindow('Template editor');await click(49);await waitWindow('Confirm template revision');await click(31);await sleep(1600);log('REVISION_TWO_CONFIRMED')
+          }
+          bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',async()=>{try{
+            log(`SPAWN mode=${mode} uuid=${bot.player.uuid}`);fs.writeFileSync(`${root}/${mode}.ready`,'ok\n')
+            if(mode==='update'){await waitFile('go-edit');await makeRevision();fs.writeFileSync(`${root}/edit.done`,'ok\n')}
+            else if(mode==='review'){await waitFile('go-inspect');bot.chat('/loreitems recovery');await sleep(1800);fs.writeFileSync(`${root}/inspect.done`,'ok\n');await waitFile('go-retry');const id=fs.readFileSync(`${root}/evidence/mutation-id.txt`,'utf8').trim();bot.chat(`/loreitemsreview ${id} TEMPLATE_UPDATE retry physical revision 2 observed; durable completion failed`);await sleep(2500);fs.writeFileSync(`${root}/retry.done`,'ok\n')}
+            else throw new Error(`unknown mode ${mode}`)
+            await waitFile('bot.stop');bot.quit('done')
+          }catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));bot.quit('failed')}})
+          EOF
+
+      - name: Execute ACC-ANOM-002 ambiguous mutation recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-ambiguous-mutation; SERVER="$ROOT/server"; DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db"; EVIDENCE="$ROOT/evidence"
+          SERVER_PID=''; BOT_PID=''
+          wait_marker(){ local m="$1" n="${2:-360}"; for _ in $(seq 1 "$n"); do [[ ! -f "$ROOT/bot.failed" ]] || { cat "$ROOT/bot.failed" >&2; return 1; }; [[ -f "$ROOT/$m" ]] && return 0; sleep .25; done; echo "marker timed out: $m" >&2; return 1; }
+          start_server(){ local log="$1"; cd "$SERVER"; rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin; java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 & SERVER_PID=$!; for _ in $(seq 1 180); do grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log" && return; kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; exit 1; }; sleep 1; done; echo 'server readiness timed out' >&2; exit 1; }
+          stop_server(){ if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then echo stop >&3 || true; wait "$SERVER_PID" || true; fi; exec 3>&- || true; SERVER_PID=''; rm -f "$SERVER/server.stdin"; }
+          cleanup(){ touch "$ROOT/bot.stop" || true; [[ -z "$BOT_PID" ]] || wait "$BOT_PID" || true; stop_server; }
+          trap cleanup EXIT
+
+          start_server "$EVIDENCE/server-before-restart.log"
+          (cd "$ROOT/bot" && node bot.js update) > "$EVIDENCE/bot-update-stdout.log" 2>&1 & BOT_PID=$!; wait_marker update.ready
+          echo 'op Wp05ReviewBot' >&3; echo 'clear Wp05ReviewBot' >&3; echo 'wp05accept source Wp05ReviewBot sword' >&3; sleep .5; echo 'wp05accept perform Wp05ReviewBot loreitems create acc_review_contract Review Contract' >&3; sleep 1; echo 'clear Wp05ReviewBot' >&3; echo 'wp05accept perform Wp05ReviewBot loreitems give acc_review_contract' >&3
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys,time
+          db=sys.argv[1]
+          for _ in range(200):
+              with sqlite3.connect(db) as c:
+                  row=c.execute("""select i.instance_id,i.applied_revision,i.desired_revision,s.state from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='acc_review_contract'""").fetchone()
+                  if row and row[1:]==(1,1,'CONFIRMED_NOW'):
+                      open('/tmp/wp05-ambiguous-mutation/evidence/instance-id.txt','w').write(row[0]+'\n');break
+              time.sleep(.25)
+          else: raise SystemExit('initial review instance not ready')
+          with sqlite3.connect(db) as c:
+              c.executescript("""CREATE TRIGGER wp05_fail_post_physical BEFORE UPDATE OF state ON pending_mutations WHEN OLD.mutation_type='TEMPLATE_UPDATE' AND OLD.state='CLAIMED' AND NEW.state IN ('COMPLETED','REVIEW_REQUIRED') BEGIN SELECT RAISE(ABORT,'wp05 injected post-physical durable failure'); END;""")
+          PY
+          touch "$ROOT/go-edit"; wait_marker edit.done 480
+          echo 'wp05accept dump Wp05ReviewBot' >&3
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/ambiguous-state.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; iid=open('/tmp/wp05-ambiguous-mutation/evidence/instance-id.txt').read().strip(); row=None
+          for _ in range(240):
+              with sqlite3.connect(db) as c:
+                  row=c.execute("select mutation_id,state,attempt_count from pending_mutations where instance_id=? and mutation_type='TEMPLATE_UPDATE' order by created_at desc limit 1",(iid,)).fetchone()
+                  inst=c.execute('select applied_revision,desired_revision from lore_instances where instance_id=?',(iid,)).fetchone()
+                  if row and row[1]=='CLAIMED' and row[2]==1 and inst==(1,2):
+                      open('/tmp/wp05-ambiguous-mutation/evidence/mutation-id.txt','w').write(row[0]+'\n');print('AMBIGUOUS_MUTATION',row,'INSTANCE',inst);break
+              time.sleep(.25)
+          else: raise SystemExit(f'failed mutation did not remain CLAIMED: {row}')
+          PY
+          for _ in $(seq 1 120); do grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log" && break; sleep .25; done
+          grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log"
+          touch "$ROOT/bot.stop"; wait "$BOT_PID" || true; BOT_PID=''; stop_server
+
+          python3 - "$DB" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c: c.execute('DROP TRIGGER wp05_fail_post_physical'); c.commit()
+          PY
+          rm -f "$ROOT/bot.stop" "$ROOT/bot.failed" "$ROOT/review.ready" "$ROOT/inspect.done" "$ROOT/retry.done"
+          start_server "$EVIDENCE/server-after-restart.log"
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/review-state.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; mid=open('/tmp/wp05-ambiguous-mutation/evidence/mutation-id.txt').read().strip(); row=None
+          for _ in range(360):
+              with sqlite3.connect(db) as c:
+                  row=c.execute('select state,attempt_count from pending_mutations where mutation_id=?',(mid,)).fetchone()
+                  if row and row[0]=='REVIEW_REQUIRED': print('REVIEW_REQUIRED',row); break
+              time.sleep(.25)
+          else: raise SystemExit(f'expired ambiguous mutation did not enter review: {row}')
+          PY
+          (cd "$ROOT/bot" && node bot.js review) > "$EVIDENCE/bot-review-stdout.log" 2>&1 & BOT_PID=$!; wait_marker review.ready
+          echo 'op Wp05ReviewBot' >&3; touch "$ROOT/go-inspect"; wait_marker inspect.done
+          grep -q 'REVIEW_REQUIRED' "$EVIDENCE/bot.log"
+          touch "$ROOT/go-retry"; wait_marker retry.done
+          grep -q 'returned to the pending queue' "$EVIDENCE/bot.log"
+          python3 - "$DB" <<'PY' | tee "$EVIDENCE/case-results.txt"
+          import sqlite3,sys,time
+          db=sys.argv[1]; mid=open('/tmp/wp05-ambiguous-mutation/evidence/mutation-id.txt').read().strip(); iid=open('/tmp/wp05-ambiguous-mutation/evidence/instance-id.txt').read().strip(); state=None
+          for _ in range(300):
+              with sqlite3.connect(db) as c:
+                  state=c.execute('select state,attempt_count from pending_mutations where mutation_id=?',(mid,)).fetchone(); inst=c.execute('select applied_revision,desired_revision,lifecycle_state from lore_instances where instance_id=?',(iid,)).fetchone()
+                  audit=c.execute("select count(*) from audit_events where aggregate_type='pending_mutation' and aggregate_id=? and event_type='mutation_review_retried'",(mid,)).fetchone()[0]
+                  if state and state[0]=='COMPLETED' and state[1]>=2 and inst==(2,2,'ACTIVE') and audit==1:
+                      assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; assert c.execute('pragma foreign_key_check').fetchall()==[]; print('FINAL_MUTATION',state,'INSTANCE',inst,'RETRY_AUDIT',audit); break
+              time.sleep(.25)
+          else: raise SystemExit(f'retried mutation did not reconcile safely: {state}')
+          print('PASS ACC-ANOM-002: post-physical durable failure -> restart REVIEW_REQUIRED -> inspected evidence -> bounded retry reconciled already-applied item without blind repeat')
+          PY
+          echo 'wp05accept dump Wp05ReviewBot' >&3; sleep 1
+          grep -q 'WP05_ACCEPT DUMP ok player=Wp05ReviewBot count=1' "$EVIDENCE/server-after-restart.log"
+          grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-after-restart.log"
+          touch "$ROOT/bot.stop"; wait "$BOT_PID" || true; BOT_PID=''; stop_server; trap - EXIT
+
+      - name: Surface ambiguity diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/wp05-ambiguous-mutation/evidence')
+          for path in [root/'bot.log',root/'ambiguous-state.txt',root/'review-state.txt',root/'case-results.txt',root/'server-before-restart.log',root/'server-after-restart.log']:
+              text='\n'.join(path.read_text(errors='replace').splitlines()[-45:]) if path.exists() else '<missing>'
+              esc=text.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print(f'::error title=WP-05 ambiguity {path.name}::{esc}')
+          PY
+
+      - name: Upload ambiguity evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-ambiguous-mutation-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-ambiguous-mutation/evidence
+          if-no-files-found: error
+          retention-days: 30
