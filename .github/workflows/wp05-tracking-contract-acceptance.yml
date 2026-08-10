@@ -162,6 +162,12 @@ jobs:
               raise SystemExit(f'expected one bot marker wait guard, found {bot_text.count(wait_guard)}')
           bot_text = bot_text.replace(wait_guard, 'for (let i = 0; i < 2400; i++) {')
 
+          loader_guard = "async function ensureDestinationLoaded(bot, x, y, z, label) {\n  const target = new Vec3(x, y - 1, z)"
+          loader_replacement = "async function ensureDestinationLoaded(bot, x, y, z, label) {\n  bot.chat('/effect give Wp05TrackBot minecraft:slow_falling 30 0 true')\n  await sleep(250)\n  const target = new Vec3(x, y - 1, z)"
+          if bot_text.count(loader_guard) != 1:
+              raise SystemExit(f'expected one destination-loader guard, found {bot_text.count(loader_guard)}')
+          bot_text = bot_text.replace(loader_guard, loader_replacement)
+
           display_guard = "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 120; i++) {"
           if bot_text.count(display_guard) != 1:
               raise SystemExit(f'expected one display fixture visibility loop, found {bot_text.count(display_guard)}')
