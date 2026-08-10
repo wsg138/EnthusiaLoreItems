@@ -197,7 +197,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             protection = new PaperTrackedItemProtectionListener(
                     this,
                     voidLossDelegate::get,
-                    () -> configuration.get().current().mutationBudgetPerTick());
+                    () -> configuration.get().current().mutationBudgetPerTick(),
+                    () -> configuration.get().current().sharedContainersAllowed());
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
