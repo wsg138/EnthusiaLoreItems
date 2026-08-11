@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -92,9 +93,9 @@ jobs:
         run: |
           set -euo pipefail
           R=/tmp/wp05-load;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";G="$S/plugins/EnthusiaLoreItems/groups";L="$E/server-load.log";cd "$S"
-          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
           stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
-          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 100);do test -s "$R/$q.uuid"&&return;sleep .2;done;return 1;}
+          start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 100);do test -s "$R/$q.uuid"&&return;sleep .2;done;test -s "$R/$q.uuid";}
           stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 40);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
           wait_sql(){ local q="$1";for _ in $(seq 1 320);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
@@ -103,7 +104,8 @@ jobs:
           except sqlite3.OperationalError:raise SystemExit(1)
           PY
             then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
-          START="$(date -u +%FT%TZ)"; start_server "$L"; start_bot Wp05LoadAdmin; start_bot Wp05LoadDestruct; echo 'op Wp05LoadAdmin' >&3; X="$(tr -d '\r\n'<"$R/wp05loaddestruct.uuid")"
+          wait_new_log(){ local pattern="$1" base="$2" limit="${3:-120}";for _ in $(seq 1 "$limit");do test "$(grep -Fc "$pattern" "$L"||true)" -gt "$base"&&return;sleep .25;done;echo "log timeout: $pattern" >&2;tail -n 160 "$L" >&2;return 1;}
+          START="$(date -u +%FT%TZ)"; start_server "$L"; start_bot Wp05LoadAdmin; start_bot Wp05LoadDestruct; echo 'op Wp05LoadAdmin' >&3; X="$(tr -d '\r\n'<"$R/wp05loaddestruct.uuid")";test -n "$X"
           echo 'wp05accept source Wp05LoadAdmin sword' >&3;sleep .5;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_direct Load Direct' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_direct'"
           echo 'wp05accept source Wp05LoadAdmin helmet' >&3;sleep .5;echo 'wp05accept perform Wp05LoadAdmin loreitems create load_destruct Load Destructive' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='load_destruct'"
           echo 'loreitems give load_destruct Wp05LoadDestruct' >&3;wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id join instance_current_state s on s.instance_id=i.instance_id where d.lookup_key='load_destruct' and s.location_key='player:$X'";stop_bot Wp05LoadDestruct
@@ -111,14 +113,14 @@ jobs:
           import sqlite3
           with sqlite3.connect('/tmp/wp05-load/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='load_destruct'").fetchone()[0])
           PY
-          )";echo "loreitems purge $XD" >&3;sleep 1;T="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$L"|tail -n1|sed -E 's/.*confirm-purge ([^ ]+).*/\1/')";test -n "$T";echo "loreitems confirm-purge $T" >&3;wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'"
+          )";CONFIRM_BASE="$(grep -Fc 'Confirm with: /loreitems confirm-purge ' "$L"||true)";echo "loreitems purge $XD" >&3;wait_new_log 'Confirm with: /loreitems confirm-purge ' "$CONFIRM_BASE";T="$(grep -F 'Confirm with: /loreitems confirm-purge ' "$L"|tail -n1|sed -E 's/.*confirm-purge ([^ ]+).*/\1/')";test -n "$T";echo "loreitems confirm-purge $T" >&3;wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'"
           mkdir -p "$G/completed" "$G/cancelled";python3 - "$G/load.yml" <<'PY'
           import sys,uuid
           with open(sys.argv[1],'w') as f:
               f.write('display-name: Load Campaign\nplayers:\n')
               for i in range(1,101):f.write(f"  - '{uuid.UUID(int=i)}'\n")
           PY
-          echo 'loredistribution reload' >&3;sleep 2;echo 'loredistribution preview load.yml load_direct' >&3;sleep 2;CID="$(grep -F 'Campaign: ' "$L"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";test -n "$CID";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID' and state='QUEUED_OFFLINE'"
+          RELOAD_BASE="$(grep -Fc 'VALID load.yml' "$L"||true)";echo 'loredistribution reload' >&3;wait_new_log 'VALID load.yml' "$RELOAD_BASE" 160;PREVIEW_BASE="$(grep -Fc 'Distribution preview' "$L"||true)";echo 'loredistribution preview load.yml load_direct' >&3;wait_new_log 'Distribution preview' "$PREVIEW_BASE" 160;CID="$(grep -F 'Campaign: ' "$L"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";test -n "$CID";echo "loredistribution confirm $CID" >&3;wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID' and state='QUEUED_OFFLINE'"
           TARGET=00000000-0000-0000-0000-000000010001;N=500
           BASE_OK="$(grep -Fc 'Lore item queued. It will deliver when the player is online with inventory space.' "$L"||true)";BASE_F1="$(grep -Fc 'The lore-item delivery could not be submitted.' "$L"||true)";BASE_F2="$(grep -Fc 'The lore-item delivery could not be queued.' "$L"||true)";BASE_F3="$(grep -Fc 'Lore-item storage is unavailable; nothing was queued.' "$L"||true)"
           for i in $(seq 1 "$N");do echo "loreitems give load_direct $TARGET" >&3;if ((i%10==0));then echo 'loreitems recovery 1' >&3;echo 'loredistribution reconcile 1' >&3;fi;done
@@ -130,14 +132,14 @@ jobs:
           with sqlite3.connect('/tmp/wp05-load/server/plugins/EnthusiaLoreItems/loreitems.db') as c:
               print(c.execute("select count(*) from direct_deliveries d join lore_instances i on i.instance_id=d.instance_id join lore_definitions l on l.definition_id=i.definition_id where l.lookup_key='load_direct'").fetchone()[0])
           PY
-          )";test "$ROWS" = "$OK";echo 'mspt' >&3;sleep 1;echo 'tps' >&3;sleep 1
+          )";test "$ROWS" = "$OK";MSPT_BASE="$(grep -Fci 'MSPT' "$L"||true)";echo 'mspt' >&3;for _ in $(seq 1 40);do test "$(grep -Fci 'MSPT' "$L"||true)" -gt "$MSPT_BASE"&&break;sleep .25;done;test "$(grep -Fci 'MSPT' "$L"||true)" -gt "$MSPT_BASE";TPS_BASE="$(grep -Fci 'TPS' "$L"||true)";echo 'tps' >&3;for _ in $(seq 1 40);do test "$(grep -Fci 'TPS' "$L"||true)" -gt "$TPS_BASE"&&break;sleep .25;done;test "$(grep -Fci 'TPS' "$L"||true)" -gt "$TPS_BASE"
           stop_bot Wp05LoadAdmin;stop_server
-          L2="$E/server-restart.log";start_server "$L2";wait_sql "select count(*)=$ROWS from direct_deliveries d join lore_instances i on i.instance_id=d.instance_id join lore_definitions l on l.definition_id=i.definition_id where l.lookup_key='load_direct'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'";echo 'mspt' >&3;sleep 1;echo 'tps' >&3;sleep 1;stop_server
+          L2="$E/server-restart.log";L="$L2";start_server "$L2";wait_sql "select count(*)=$ROWS from direct_deliveries d join lore_instances i on i.instance_id=d.instance_id join lore_definitions l on l.definition_id=i.definition_id where l.lookup_key='load_direct'";wait_sql "select count(*)=100 from distribution_recipients where campaign_id='$CID'";wait_sql "select count(*)=1 from destructive_operations where definition_id='$XD' and state='ACTIVE'";MSPT_BASE="$(grep -Fci 'MSPT' "$L2"||true)";echo 'mspt' >&3;for _ in $(seq 1 40);do test "$(grep -Fci 'MSPT' "$L2"||true)" -gt "$MSPT_BASE"&&break;sleep .25;done;test "$(grep -Fci 'MSPT' "$L2"||true)" -gt "$MSPT_BASE";TPS_BASE="$(grep -Fci 'TPS' "$L2"||true)";echo 'tps' >&3;for _ in $(seq 1 40);do test "$(grep -Fci 'TPS' "$L2"||true)" -gt "$TPS_BASE"&&break;sleep .25;done;test "$(grep -Fci 'TPS' "$L2"||true)" -gt "$TPS_BASE";stop_server
           END="$(date -u +%FT%TZ)";python3 - "$DB" "$START" "$END" "$N" "$OK" "$REJECT" "$ROWS" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
           p=json.load(open('/tmp/wp05-load/evidence/wp04-profile.json'));db,start,end,n,ok,reject,rows=sys.argv[1:]
           with sqlite3.connect(db) as c:i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
-          print(json.dumps({'cases':{'ACC-OPS-004':'PASS','ACC-OPS-005':'PASS'},'source_head':open('/tmp/wp05-load/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'live_database_queue_capacity':16,'submitted':int(n),'durably_accepted':int(ok),'explicit_rejected':int(reject),'durable_rows':int(rows),'accounting_exact':int(ok)+int(reject)==int(n) and int(rows)==int(ok),'live_campaign_recipients':100,'active_destructive_survived_restart':True,'live_responsiveness_heartbeats':10,'wp04_profile':p,'integrity':i,'foreign_key_violations':fk},indent=2,sort_keys=True))
+          print(json.dumps({'cases':{'ACC-OPS-004':'PASS','ACC-OPS-005':'PASS'},'source_head':open('/tmp/wp05-load/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'live_database_queue_capacity':16,'submitted':int(n),'durably_accepted':int(ok),'explicit_rejected':int(reject),'durable_rows':int(rows),'accounting_exact':int(ok)+int(reject)==int(n) and int(rows)==int(ok),'live_campaign_recipients':100,'active_destructive_survived_restart':True,'live_responsiveness_heartbeats':10,'live_mspt_tps_commands_observed':True,'wp04_profile':p,'integrity':i,'foreign_key_violations':fk},indent=2,sort_keys=True))
           PY
 
       - name: Upload load evidence
