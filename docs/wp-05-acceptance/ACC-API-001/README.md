@@ -15,6 +15,13 @@ Result: **PASS**
 
 The protocol client used offline authentication solely to provide a deterministic server-visible UUID/name boundary. It did not exercise Microsoft/Xbox authentication and this evidence makes no such claim.
 
+## Expected results
+- A valid first `queueDelivery` call returns `ACCEPTED_QUEUED`, persists exactly one request/delivery, and eventually completes once.
+- Reusing the same operation ID before or after restart returns `ALREADY_ACCEPTED` without duplicating durable intent.
+- An unknown definition returns `UNKNOWN_DEFINITION` with no delivery, while syntactically invalid input returns `VALIDATION_FAILURE` without reaching durable request storage.
+- A temporary SQLite write lock returns `SERVICE_UNAVAILABLE`; retrying the same operation after the lock is released may then be accepted exactly once.
+- Restart preserves operation-id idempotency and the database finishes with `integrity_check=ok` and no foreign-key violations.
+
 ## Live sequence and observed results
 1. The independent acceptance helper resolved the registered `LoreItemsServiceV1` from Bukkit's `ServicesManager`.
 2. `api-op-1` against active definition `acc_api_live` returned `ACCEPTED_QUEUED` and created one durable request/delivery.
@@ -27,6 +34,12 @@ The protocol client used offline authentication solely to provide a deterministi
 9. The server and independent helper were stopped and restarted. The same protocol client rejoined with the same server-visible UUID.
 10. Replaying `api-op-1` after restart again returned `ALREADY_ACCEPTED`; durable request counts remained one per accepted operation.
 11. Final `PRAGMA integrity_check` returned `ok`; `PRAGMA foreign_key_check` returned no rows.
+
+## Cleanup
+- The disposable Paper process and protocol client were stopped after the post-restart assertions.
+- The temporary SQLite lock was explicitly released before the retry path was exercised.
+- All test state lived under the GitHub-hosted runner's disposable workspace/server directory; no production or shared service was modified.
+- The workflow uploaded the retained evidence artifact and the runner teardown removed the disposable filesystem/process state automatically.
 
 ## SQLite schema evidence
 The artifact also records `PRAGMA user_version = 0`; LoreItems intentionally does **not** use that SQLite field as its migration ledger. The exact tested source defines migrations V1 through V7 in `MigrationRunner`. `SQLiteStorageRuntime.start()` calls `migrationRunner.migrate(connection)` before it can transition to `READ_WRITE`, and the test log reached the writable-storage activation path before any API call. Therefore the runtime schema for this exact test is LoreItems schema **V7**. A future evidence collector should query `schema_history` directly rather than treating `PRAGMA user_version` as the application schema version.

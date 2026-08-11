@@ -21,6 +21,28 @@ async function waitFile(name) {
   throw new Error(`missing marker ${name}`)
 }
 
+async function waitForSpawn(bot, label) {
+  await new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      bot.removeListener('spawn', onSpawn)
+      bot.removeListener('error', onError)
+      bot.removeListener('end', onEnd)
+      callback(value)
+    }
+    const onSpawn = () => finish(resolve)
+    const onError = error => finish(reject, error)
+    const onEnd = reason => finish(reject, new Error(`${label} connection ended before spawn: ${reason || 'unknown'}`))
+    const timer = setTimeout(() => finish(reject, new Error(`${label} spawn timed out`)), 30000)
+    bot.once('spawn', onSpawn)
+    bot.once('error', onError)
+    bot.once('end', onEnd)
+  })
+}
+
 async function waitItem(bot, name, label) {
   for (let i = 0; i < 160; i++) {
     const item = bot.inventory.items().find(candidate => candidate.name === name)
@@ -131,6 +153,10 @@ async function verifyShulkerPolicy(bot) {
   if (inserted && inserted.name === 'diamond_sword') {
     throw new Error('restricted shulker accepted the tracked item')
   }
+  // A cancelled insertion can leave the tracked item on the cursor. Return it to the original
+  // player slot before closing the container so the close cannot drop it as an entity.
+  await bot.clickWindow(trackedSlot, 0, 0)
+  await sleep(300)
   container.close()
   await sleep(700)
   await waitItem(bot, 'diamond_sword', 'restricted shulker retained tracked item')
@@ -171,7 +197,7 @@ async function verifyBundleRestriction(bot) {
     })
     bot.on('message', message => log(`CHAT ${message.toString()}`))
     bot.on('error', error => log(`ERROR ${error.stack || error}`))
-    await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('error', reject) })
+    await waitForSpawn(bot, `${policyMode} tracking bot`)
     await bot.waitForChunksToLoad()
     fs.writeFileSync(`${root}/restrict-bot.uuid`, `${bot.player.uuid}\n`)
     log(`SPAWN uuid=${bot.player.uuid} policy=${policyMode}`)

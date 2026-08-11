@@ -6,8 +6,9 @@ WHERE location_type = 'PLAYER_INVENTORY'
   AND container_path GLOB 'hotbar:[0-9]*'
   AND EXISTS (
       SELECT 1
-      FROM instance_observations observation
-      WHERE observation.observation_id = instance_current_state.last_observation_id
+      FROM instance_observations AS observation
+      WHERE observation.observation_id =
+              instance_current_state.last_observation_id
         AND observation.source = 'held-item-adoption'
   );
 

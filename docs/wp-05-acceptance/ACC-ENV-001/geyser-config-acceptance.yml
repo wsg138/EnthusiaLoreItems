@@ -47,7 +47,7 @@ gameplay:
   custom-skull-render-distance: 32
 
 default-locale: system
-log-player-ip-addresses: true
+log-player-ip-addresses: false
 
 saved-user-logins:
   - ThisExampleUsernameShouldBeLongEnoughToNeverBeAnXboxUsername
