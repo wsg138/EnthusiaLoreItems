@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           R=/tmp/wp05-life;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";CFG="$S/plugins/EnthusiaLoreItems/config.yml";G="$S/plugins/EnthusiaLoreItems/groups";cd "$S"
-          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l"&&grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l"&&grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
           stop_server(){ local a b;a="$(date +%s%3N)";echo stop >&3;for _ in $(seq 1 200);do if ! kill -0 "$SPID" 2>/dev/null;then break;fi;sleep .1;done;if kill -0 "$SPID" 2>/dev/null;then echo 'server shutdown timed out after 20 seconds' >&2;return 1;fi;wait "$SPID";b="$(date +%s%3N)";SHUTDOWN_MS=$((b-a));exec 3>&-;rm -f server.stdin;}
           start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 80);do test -s "$R/$q.uuid"&&return;kill -0 "$p" 2>/dev/null||return 1;sleep .25;done;return 1;}
           stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";test -f "$R/$q.pid"||return 0;p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 30);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
@@ -99,17 +99,17 @@ jobs:
           python3 - "$CFG" <<'PY'
           from pathlib import Path
           import sys
-          p=Path(sys.argv[1]);s=p.read_text();p.write_text(s.replace('shared-containers-allowed: true','shared-containers-allowed: false'))
+          p=Path(sys.argv[1]);s=p.read_text();assert s.count('shared-containers-allowed: true')==1;p.write_text(s.replace('shared-containers-allowed: true','shared-containers-allowed: false'))
           PY
           cp "$CFG" "$E/config-valid.yml";M="$(wc -l<"$L1")";echo 'loreitems reload' >&3;for _ in $(seq 1 100);do tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload applied:'&&break;sleep .25;done;tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload applied:';cp "$CFG" "$E/last-good.yml";printf '\ndefault-page-size: invalid\n'>>"$CFG";M="$(wc -l<"$L1")";echo 'loreitems reload' >&3;for _ in $(seq 1 100);do tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload rejected:'&&break;sleep .25;done;tail -n +"$M" "$L1"|grep -Fq 'LoreItems configuration reload rejected:';cp "$E/last-good.yml" "$CFG"
           wait_sql "select count(*)=1 from direct_deliveries where player_id='$D' and state='PENDING'";wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='ACTIVE'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='ACTIVE'";wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update' and i.applied_revision=1 and i.desired_revision=2"
-          stop_bot Wp05LifeAdmin;stop_server;kill_bots;echo "$SHUTDOWN_MS">"$E/shutdown-ms.txt";test "$SHUTDOWN_MS" -lt 20000
+          stop_bot Wp05LifeAdmin;stop_server;kill_bots;PENDING_SHUTDOWN_MS="$SHUTDOWN_MS";echo "$PENDING_SHUTDOWN_MS">"$E/shutdown-ms.txt";test "$PENDING_SHUTDOWN_MS" -lt 20000
           L2="$E/server-after.log";start_server "$L2";wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='ACTIVE'";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='ACTIVE'";wait_sql "select count(*)=1 from direct_deliveries where player_id='$D' and state='PENDING'"
           start_bot Wp05LifeUpdate;wait_sql "select count(*)=1 from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update' and i.applied_revision=2 and i.desired_revision=2";stop_bot Wp05LifeUpdate
           start_bot Wp05LifeDestruct;wait_sql "select count(*)=1 from destructive_operations where operation_id='$XOP' and state='COMPLETED'";stop_bot Wp05LifeDestruct
           start_bot Wp05LifeDelivery;wait_sql "select count(*)=1 from direct_deliveries where player_id='$D' and state='COMPLETED'";stop_bot Wp05LifeDelivery
           start_bot Wp05LifeCampaign;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and state='DELIVERED'";stop_bot Wp05LifeCampaign
-          stop_server;kill_bots;END="$(date -u +%FT%TZ)";python3 - "$DB" "$START" "$END" "$SHUTDOWN_MS" "$XOP" "$CID" <<'PY'|tee "$E/result.json"
+          stop_server;kill_bots;END="$(date -u +%FT%TZ)";python3 - "$DB" "$START" "$END" "$PENDING_SHUTDOWN_MS" "$XOP" "$CID" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
           db,start,end,shutdown_ms,operation_id,campaign_id=sys.argv[1:]
           with sqlite3.connect(db) as c:
