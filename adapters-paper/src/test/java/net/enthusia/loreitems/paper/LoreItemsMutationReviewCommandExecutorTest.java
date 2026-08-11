@@ -69,7 +69,7 @@ class LoreItemsMutationReviewCommandExecutorTest {
         PendingMutationReviewUseCase.Request request = captured.get();
         assertNotNull(request);
         assertEquals(MUTATION_ID, request.mutationId());
-        assertEquals("template_update", request.expectedMutationType());
+        assertEquals("TEMPLATE_UPDATE", request.expectedMutationType());
         assertEquals(PendingMutationReviewUseCase.Resolution.RETRY, request.resolution());
         assertEquals("physical evidence reviewed", request.evidenceDetail());
         assertEquals(1, wakes.get());
@@ -77,11 +77,15 @@ class LoreItemsMutationReviewCommandExecutorTest {
 
     @Test
     void cancelDoesNotWakeMutationWorker() {
+        AtomicReference<PendingMutationReviewUseCase.Request> captured = new AtomicReference<>();
         AtomicInteger wakes = new AtomicInteger();
-        PendingMutationReviewUseCase useCase = request -> CompletableFuture.completedFuture(
-                new PendingMutationReviewUseCase.Result(
-                        PendingMutationReviewUseCase.Status.CANCELLED,
-                        "cancel accepted"));
+        PendingMutationReviewUseCase useCase = request -> {
+            captured.set(request);
+            return CompletableFuture.completedFuture(
+                    new PendingMutationReviewUseCase.Result(
+                            PendingMutationReviewUseCase.Status.CANCELLED,
+                            "cancel accepted"));
+        };
         LoreItemsMutationReviewCommandExecutor executor =
                 new LoreItemsMutationReviewCommandExecutor(plugin, () -> useCase, wakes::incrementAndGet);
 
@@ -96,6 +100,40 @@ class LoreItemsMutationReviewCommandExecutorTest {
                     "already",
                     "applied"
                 });
+        server.getScheduler().performOneTick();
+
+        PendingMutationReviewUseCase.Request request = captured.get();
+        assertNotNull(request);
+        assertEquals(MUTATION_ID, request.mutationId());
+        assertEquals("TEMPLATE_UPDATE", request.expectedMutationType());
+        assertEquals(PendingMutationReviewUseCase.Resolution.CANCEL, request.resolution());
+        assertEquals("already applied", request.evidenceDetail());
+        assertEquals(0, wakes.get());
+    }
+
+    @Test
+    void closeBeforeAsyncCompletionSuppressesOutputAndWake() {
+        CompletableFuture<PendingMutationReviewUseCase.Result> pending = new CompletableFuture<>();
+        AtomicInteger wakes = new AtomicInteger();
+        PendingMutationReviewUseCase useCase = request -> pending;
+        LoreItemsMutationReviewCommandExecutor executor =
+                new LoreItemsMutationReviewCommandExecutor(plugin, () -> useCase, wakes::incrementAndGet);
+
+        executor.onCommand(
+                player,
+                command(),
+                "loreitemsreview",
+                new String[] {
+                    MUTATION_ID.toString(),
+                    "template_update",
+                    "retry",
+                    "reviewed",
+                    "evidence"
+                });
+        executor.close();
+        pending.complete(new PendingMutationReviewUseCase.Result(
+                PendingMutationReviewUseCase.Status.RETRIED,
+                "retry accepted"));
         server.getScheduler().performOneTick();
 
         assertEquals(0, wakes.get());

@@ -81,18 +81,26 @@ public final class LoreItemsMutationReviewCommandExecutor
             reportFailure(sender, exception);
             return true;
         }
-        stage.whenComplete((result, throwable) -> scheduleResult(() -> {
-            if (throwable != null) {
-                reportFailure(sender, throwable);
-            } else if (result == null) {
-                sender.sendMessage("Mutation review returned no result.");
-            } else {
-                sender.sendMessage(result.detail());
-                if (result.status() == PendingMutationReviewUseCase.Status.RETRIED) {
-                    retryWake.run();
-                }
+        stage.whenComplete((result, throwable) -> {
+            if (closed) {
+                return;
             }
-        }));
+            scheduleResult(() -> {
+                if (closed) {
+                    return;
+                }
+                if (throwable != null) {
+                    reportFailure(sender, throwable);
+                } else if (result == null) {
+                    sender.sendMessage("Mutation review returned no result.");
+                } else {
+                    sender.sendMessage(result.detail());
+                    if (result.status() == PendingMutationReviewUseCase.Status.RETRIED) {
+                        retryWake.run();
+                    }
+                }
+            });
+        });
         return true;
     }
 
