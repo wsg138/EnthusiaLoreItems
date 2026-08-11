@@ -3,6 +3,7 @@ name: WP-05 Configuration Reload Acceptance
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +14,7 @@ concurrency:
 
 jobs:
   config-reload:
-    if: github.event.pull_request.number == 18
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -23,6 +24,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -80,7 +82,8 @@ jobs:
           set -euo pipefail
           R=/tmp/wp05-config;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";CFG="$S/plugins/EnthusiaLoreItems/config.yml";cd "$S";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$E/server.log" 2>&1 & SPID=$!
           cleanup(){ echo stop >&3 2>/dev/null||true;kill "$SPID" 2>/dev/null||true;};trap cleanup EXIT
-          for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$E/server.log"&&grep -q 'WP-05 deterministic acceptance helper is active' "$E/server.log";then break;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$E/server.log";exit 1;};sleep 1;done
+          READY=0;for _ in $(seq 1 180);do if grep -q 'Queued direct-delivery processing is active.' "$E/server.log"&&grep -q 'WP-05 deterministic acceptance helper is active' "$E/server.log";then READY=1;break;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$E/server.log";exit 1;};sleep 1;done
+          test "$READY" = 1||{ echo 'server readiness timed out' >&2;cat "$E/server.log";exit 1;}
           wait_sql(){ local q="$1";for _ in $(seq 1 160);do if python3 - "$DB" "$q" <<'PY'
           import sqlite3,sys
           try:
