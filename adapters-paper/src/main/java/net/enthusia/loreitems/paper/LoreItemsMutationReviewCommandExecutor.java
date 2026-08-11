@@ -74,34 +74,54 @@ public final class LoreItemsMutationReviewCommandExecutor
             sender.sendMessage("Durable mutation review is not active.");
             return true;
         }
-        CompletionStage<PendingMutationReviewUseCase.Result> stage;
+        CompletionStage<PendingMutationReviewUseCase.Result> stage = resolve(sender, useCase, request);
+        if (stage != null) {
+            stage.whenComplete((result, throwable) -> receiveResult(sender, result, throwable));
+        }
+        return true;
+    }
+
+    private CompletionStage<PendingMutationReviewUseCase.Result> resolve(
+            CommandSender sender,
+            PendingMutationReviewUseCase useCase,
+            PendingMutationReviewUseCase.Request request) {
         try {
-            stage = Objects.requireNonNull(useCase.resolve(request), "mutation-review stage");
+            return Objects.requireNonNull(useCase.resolve(request), "mutation-review stage");
         } catch (RuntimeException exception) {
             reportFailure(sender, exception);
-            return true;
+            return null;
         }
-        stage.whenComplete((result, throwable) -> {
-            if (closed) {
-                return;
-            }
-            scheduleResult(() -> {
-                if (closed) {
-                    return;
-                }
-                if (throwable != null) {
-                    reportFailure(sender, throwable);
-                } else if (result == null) {
-                    sender.sendMessage("Mutation review returned no result.");
-                } else {
-                    sender.sendMessage(result.detail());
-                    if (result.status() == PendingMutationReviewUseCase.Status.RETRIED) {
-                        retryWake.run();
-                    }
-                }
-            });
-        });
-        return true;
+    }
+
+    private void receiveResult(
+            CommandSender sender,
+            PendingMutationReviewUseCase.Result result,
+            Throwable throwable) {
+        if (closed) {
+            return;
+        }
+        scheduleResult(() -> deliverResult(sender, result, throwable));
+    }
+
+    private void deliverResult(
+            CommandSender sender,
+            PendingMutationReviewUseCase.Result result,
+            Throwable throwable) {
+        if (closed) {
+            return;
+        }
+        if (throwable != null) {
+            reportFailure(sender, throwable);
+            return;
+        }
+        if (result == null) {
+            sender.sendMessage("Mutation review returned no result.");
+            return;
+        }
+        sender.sendMessage(result.detail());
+        if (result.status() == PendingMutationReviewUseCase.Status.RETRIED) {
+            retryWake.run();
+        }
     }
 
     private void scheduleResult(Runnable task) {
