@@ -149,6 +149,16 @@ jobs:
               ") &\n"
           )
           track3 = track3.replace(checkpoint, checkpoint + diagnostics)
+
+          fixture_positions = {
+              'summon minecraft:item_frame 72 71 0': 'summon minecraft:item_frame 72.5 71.5 0.96875',
+              'summon minecraft:glow_item_frame 74 71 0': 'summon minecraft:glow_item_frame 74.5 71.5 0.96875',
+          }
+          for old, new in fixture_positions.items():
+              if track3.count(old) != 1:
+                  raise SystemExit(f'expected one display fixture command {old!r}, found {track3.count(old)}')
+              track3 = track3.replace(old, new)
+
           script.write_text(prefix + separator + track3)
           PY
 
