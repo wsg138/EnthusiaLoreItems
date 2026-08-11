@@ -19,11 +19,18 @@ jobs:
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      GEYSER_URL: https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1210/downloads/spigot
+      GEYSER_SHA256: 996c1f1997c2db2f9baf802a6a42b374ffadb8d1527638ba5ad765b06b085ecb
+      FLOODGATE_URL: https://download.geysermc.org/v2/projects/floodgate/versions/2.2.5/builds/138/downloads/spigot
+      FLOODGATE_SHA256: 44bdb908e2fb4ff1b974d5313d048a625a21555a9844cfb86256a98e8e1c6bd1
+      VIAVERSION_URL: https://github.com/ViaVersion/ViaVersion/releases/download/5.11.0/ViaVersion-5.11.0.jar
+      VIAVERSION_SHA256: 18d19e90fc9467d68128c076630ae8700449c901402a3ef421837ce006bc8cae
       USER_AGENT: EnthusiaLoreItems-WP05/1.0 (https://github.com/wsg138/EnthusiaLoreItems)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
@@ -49,11 +56,12 @@ jobs:
           cd /tmp/wp05-floodgate/server
           curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar
           echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
-          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot -o plugins/Geyser-Spigot.jar
-          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot -o plugins/floodgate-spigot.jar
-          curl -fsSL -A "$USER_AGENT" https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest -o /tmp/wp05-floodgate/evidence/viaversion-release.json
-          VV_URL="$(jq -r '[.assets[] | select(.name | test("^ViaVersion.*\\.jar$"))][0].browser_download_url // empty' /tmp/wp05-floodgate/evidence/viaversion-release.json)"
-          test -n "$VV_URL";curl -fsSL -A "$USER_AGENT" "$VV_URL" -o plugins/ViaVersion.jar
+          curl -fsSL -A "$USER_AGENT" "$GEYSER_URL" -o plugins/Geyser-Spigot.jar
+          echo "$GEYSER_SHA256  plugins/Geyser-Spigot.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$FLOODGATE_URL" -o plugins/floodgate-spigot.jar
+          echo "$FLOODGATE_SHA256  plugins/floodgate-spigot.jar" | sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$VIAVERSION_URL" -o plugins/ViaVersion.jar
+          echo "$VIAVERSION_SHA256  plugins/ViaVersion.jar" | sha256sum -c -
           printf 'eula=true\n' > eula.txt
           cat >server.properties <<'EOF'
           online-mode=false
