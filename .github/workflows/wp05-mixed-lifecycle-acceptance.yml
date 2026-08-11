@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -65,7 +66,7 @@ jobs:
           set -euo pipefail
           R=/tmp/wp05-life;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";CFG="$S/plugins/EnthusiaLoreItems/config.yml";G="$S/plugins/EnthusiaLoreItems/groups";cd "$S"
           start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'Mass distribution delivery, identity binding, marker recovery, and commands are active.' "$l"&&grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
-          stop_server(){ local a b;a="$(date +%s%3N)";echo stop >&3;wait "$SPID";b="$(date +%s%3N)";SHUTDOWN_MS=$((b-a));exec 3>&-;rm -f server.stdin;}
+          stop_server(){ local a b;a="$(date +%s%3N)";echo stop >&3;for _ in $(seq 1 200);do if ! kill -0 "$SPID" 2>/dev/null;then break;fi;sleep .1;done;if kill -0 "$SPID" 2>/dev/null;then echo 'server shutdown timed out after 20 seconds' >&2;return 1;fi;wait "$SPID";b="$(date +%s%3N)";SHUTDOWN_MS=$((b-a));exec 3>&-;rm -f server.stdin;}
           start_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&node bot.js "$n")>"$E/$q.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 80);do test -s "$R/$q.uuid"&&return;kill -0 "$p" 2>/dev/null||return 1;sleep .25;done;return 1;}
           stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";test -f "$R/$q.pid"||return 0;p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 30);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
           kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
@@ -110,8 +111,18 @@ jobs:
           start_bot Wp05LifeCampaign;wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'";wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and state='DELIVERED'";stop_bot Wp05LifeCampaign
           stop_server;kill_bots;END="$(date -u +%FT%TZ)";python3 - "$DB" "$START" "$END" "$SHUTDOWN_MS" "$XOP" "$CID" <<'PY'|tee "$E/result.json"
           import json,sqlite3,sys
-          with sqlite3.connect(sys.argv[1]) as c:i=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert i=='ok' and not fk
-          print(json.dumps({'cases':{'ACC-LIFE-001':'PASS','ACC-LIFE-002':'PASS'},'source_head':open('/tmp/wp05-life/evidence/source-head.txt').read().strip(),'started_at':sys.argv[2],'finished_at':sys.argv[3],'shutdown_millis':int(sys.argv[4]),'pending_state_machines':['direct-delivery','template-update','destructive','campaign'],'valid_reload_preserved_pending_work':True,'invalid_reload_preserved_last_good_and_pending_work':True,'restart_natural_reaccess_converged_sequentially':True,'integrity':i,'foreign_key_violations':fk},indent=2))
+          db,start,end,shutdown_ms,operation_id,campaign_id=sys.argv[1:]
+          with sqlite3.connect(db) as c:
+              integrity=c.execute('pragma integrity_check').fetchone()[0]
+              foreign_keys=[list(r) for r in c.execute('pragma foreign_key_check')]
+              operation=c.execute('select state from destructive_operations where operation_id=?',(operation_id,)).fetchone()
+              campaign=c.execute('select state from distribution_campaigns where campaign_id=?',(campaign_id,)).fetchone()
+              update=c.execute("select i.applied_revision,i.desired_revision from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='life_update'").fetchone()
+              assert integrity=='ok' and not foreign_keys
+              assert operation==('COMPLETED',),operation
+              assert campaign==('COMPLETED',),campaign
+              assert update==(2,2),update
+          print(json.dumps({'cases':{'ACC-LIFE-001':'PASS','ACC-LIFE-002':'PASS'},'source_head':open('/tmp/wp05-life/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'shutdown_millis':int(shutdown_ms),'pending_state_machines':['direct-delivery','template-update','destructive','campaign'],'valid_reload_preserved_pending_work':True,'invalid_reload_preserved_last_good_and_pending_work':True,'restart_natural_reaccess_converged_sequentially':True,'integrity':integrity,'foreign_key_violations':foreign_keys},indent=2))
           PY
       - name: Upload lifecycle evidence
         if: always()
