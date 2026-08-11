@@ -58,7 +58,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertNotIn("actions/checkout", release)
         self.assertNotIn("gradle --no-daemon", release)
 
-    def test_production_workflow_is_fail_closed_on_exact_main_ci_and_human_gates(self):
+    def test_production_workflow_is_fail_closed_on_exact_main_ci_and_immutable_approval_evidence(self):
         release = (ROOT / ".github/workflows/release.yml").read_text()
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("FINAL_TAG: v1.0.0", release)
@@ -75,9 +75,16 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertNotIn("--prerelease", release)
         self.assertNotIn("actions/checkout", release)
         self.assertNotIn("gradle --no-daemon", release)
-        self.assertIn("Overall status: **PASS**", release)
-        self.assertIn("Evidence audit: **APPROVED**", release)
-        self.assertIn("Owner/operator sign-off: **APPROVED**", release)
+        self.assertIn("RELEASE_READY=", release)
+        self.assertIn("ACCEPTED_SOURCE_HEAD=", release)
+        self.assertIn("ACCEPTED_JAR_SHA=", release)
+        self.assertIn('test "${RELEASE_READY}" = "APPROVED"', release)
+        self.assertIn('test "${ACCEPTED_SOURCE_HEAD}" = "${TARGET_SHA}"', release)
+        self.assertIn('test "${ACCEPTED_JAR_SHA}" = "${JAR_SHA}"', release)
+        self.assertIn("STATIC_RELEASE_READY=", ci)
+        self.assertIn("release_ready: %s", ci)
+        self.assertIn("release_source_head: %s", ci)
+        self.assertIn("release_jar_sha256: %s", ci)
         self.assertIn("releaseVersion=//p", ci)
         self.assertIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
         self.assertIn('--version "${RELEASE_VERSION}"', ci)
