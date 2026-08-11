@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -119,6 +120,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -141,7 +143,7 @@ jobs:
           server-port=25565
           motd=WP05 release rollback
           EOF
-          start(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & P=$!;for _ in $(seq 1 180);do if grep -q 'Done (' "$l"&&grep -q '\[EnthusiaLoreItems\]' "$l";then return;fi;kill -0 "$P" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;};stop(){ echo stop >&3;wait "$P";exec 3>&-;rm -f server.stdin;}
+          start(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & P=$!;for _ in $(seq 1 180);do if grep -q 'Done (' "$l"&&grep -q '\[EnthusiaLoreItems\]' "$l";then return;fi;kill -0 "$P" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;};stop(){ echo stop >&3;wait "$P";exec 3>&-;rm -f server.stdin;}
           START="$(date -u +%FT%TZ)";cp "$R/prior.jar" plugins/EnthusiaLoreItems.jar;start "$R/evidence/prior-baseline.log";stop
           cp -a plugins/EnthusiaLoreItems "$R/prior-data";cp plugins/EnthusiaLoreItems.jar "$R/prior-artifact.jar";PRIOR_DB_SHA="$(sha256sum "$R/prior-data/loreitems.db"|awk '{print $1}')"
           python3 - "$R/prior-data/loreitems.db" >"$R/evidence/prior-schema.txt" <<'PY'
