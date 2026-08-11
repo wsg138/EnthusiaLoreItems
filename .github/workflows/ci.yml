@@ -23,6 +23,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
@@ -82,6 +83,8 @@ jobs:
             --output-dir /tmp/rc-first \
             --version "${RELEASE_VERSION}"
       - name: Add immutable release evidence
+        env:
+          RELEASE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           test -d /tmp/loreitems-test-reports
           tar -C /tmp/loreitems-test-reports -czf /tmp/rc-first/EnthusiaLoreItems-test-reports.tar.gz .
@@ -89,6 +92,22 @@ jobs:
           cp docs/releases/v1.0.0-rollback.md /tmp/rc-first/rollback-instructions.md
           cp docs/wp-05-acceptance/index.md /tmp/rc-first/acceptance-index.md
           cp /tmp/wp04-profile.json /tmp/rc-first/wp04-profile.json
+          STATIC_RELEASE_READY="$(sed -n 's/^release_ready: //p' docs/wp-05-acceptance/index.md | tail -n 1)"
+          if [ "${STATIC_RELEASE_READY}" != "APPROVED" ]; then
+            STATIC_RELEASE_READY=NOT_APPROVED
+          fi
+          JAR_SHA="$(awk 'NR == 1 {print $1}' /tmp/rc-first/EnthusiaLoreItems.jar.sha256)"
+          test -n "${JAR_SHA}"
+          sed -i \
+            -e '/^release_ready: /d' \
+            -e '/^release_source_head: /d' \
+            -e '/^release_jar_sha256: /d' \
+            /tmp/rc-first/acceptance-index.md
+          {
+            printf '\nrelease_ready: %s\n' "${STATIC_RELEASE_READY}"
+            printf 'release_source_head: %s\n' "${RELEASE_SOURCE_HEAD}"
+            printf 'release_jar_sha256: %s\n' "${JAR_SHA}"
+          } >> /tmp/rc-first/acceptance-index.md
       - name: Rebuild release from clean state and verify reproducibility
         run: |
           RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
