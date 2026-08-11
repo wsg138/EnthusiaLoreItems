@@ -19,11 +19,16 @@ jobs:
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      GEYSER_URL: https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1210/downloads/spigot
+      GEYSER_SHA256: 996c1f1997c2db2f9baf802a6a42b374ffadb8d1527638ba5ad765b06b085ecb
+      FLOODGATE_URL: https://download.geysermc.org/v2/projects/floodgate/versions/2.2.5/builds/138/downloads/spigot
+      FLOODGATE_SHA256: 44bdb908e2fb4ff1b974d5313d048a625a21555a9844cfb86256a98e8e1c6bd1
       USER_AGENT: EnthusiaLoreItems-WP05/1.0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
         with:
           distribution: temurin
@@ -43,9 +48,9 @@ jobs:
           H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
           for S in healthy degraded;do cp "$P" "$R/$S/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/$S/plugins/WP05AcceptanceHarness.jar";done
           sha256sum "$P">"$R/evidence/plugin-sha256.txt";sha256sum "$H">"$R/evidence/harness-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt";java -version 2>"$R/evidence/java-version.txt"
-          curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o "$R/paper.jar";echo "$PAPER_SHA256  $R/paper.jar"|sha256sum -c -
-          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot -o "$R/Geyser-Spigot.jar"
-          curl -fsSL -A "$USER_AGENT" https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot -o "$R/floodgate-spigot.jar"
+          curl --retry 4 --retry-delay 2 --retry-all-errors -fsSL -A "$USER_AGENT" "$PAPER_URL" -o "$R/paper.jar";echo "$PAPER_SHA256  $R/paper.jar"|sha256sum -c -
+          curl --retry 4 --retry-delay 2 --retry-all-errors -fsSL -A "$USER_AGENT" "$GEYSER_URL" -o "$R/Geyser-Spigot.jar";echo "$GEYSER_SHA256  $R/Geyser-Spigot.jar"|sha256sum -c -
+          curl --retry 4 --retry-delay 2 --retry-all-errors -fsSL -A "$USER_AGENT" "$FLOODGATE_URL" -o "$R/floodgate-spigot.jar";echo "$FLOODGATE_SHA256  $R/floodgate-spigot.jar"|sha256sum -c -
           sha256sum "$R/paper.jar" "$R/Geyser-Spigot.jar" "$R/floodgate-spigot.jar">"$R/evidence/environment-sha256.txt"
           for S in healthy degraded;do
             cp "$R/paper.jar" "$R/$S/paper.jar";cp "$R/Geyser-Spigot.jar" "$R/$S/plugins/Geyser-Spigot.jar";cp "$R/floodgate-spigot.jar" "$R/$S/plugins/floodgate-spigot.jar";printf 'eula=true\n'>"$R/$S/eula.txt"
@@ -78,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           R=/tmp/wp05-env-final;E="$R/evidence"
-          start(){ local dir="$1" log="$2" port="$3";cd "$dir";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui --port "$port" <server.stdin>"$log" 2>&1 & PID=$!;}
+          start(){ local dir="$1" log="$2" port="$3";cd "$dir";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui --port "$port" <server.stdin >"$log" 2>&1 & PID=$!;}
           stop(){ echo stop >&3;wait "$PID";exec 3>&-;rm -f server.stdin;}
           wait_log(){ local p="$1" l="$2" n="${3:-240}";for _ in $(seq 1 "$n");do grep -Fq "$p" "$l"&&return;kill -0 "$PID" 2>/dev/null||{ cat "$l";return 1;};sleep .25;done;echo "missing $p" >&2;tail -n 200 "$l" >&2;return 1;}
           START="$(date -u +%FT%TZ)"
