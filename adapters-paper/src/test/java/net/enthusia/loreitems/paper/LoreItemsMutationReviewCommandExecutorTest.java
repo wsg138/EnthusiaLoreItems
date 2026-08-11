@@ -21,6 +21,7 @@ import org.mockbukkit.mockbukkit.entity.PlayerMock;
 class LoreItemsMutationReviewCommandExecutorTest {
     private static final UUID MUTATION_ID =
             UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final String COMMAND_LABEL = "loreitemsreview";
 
     private ServerMock server;
     private Plugin plugin;
@@ -55,7 +56,7 @@ class LoreItemsMutationReviewCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitemsreview",
+                COMMAND_LABEL,
                 new String[] {
                     MUTATION_ID.toString(),
                     "template_update",
@@ -92,7 +93,7 @@ class LoreItemsMutationReviewCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitemsreview",
+                COMMAND_LABEL,
                 new String[] {
                     MUTATION_ID.toString(),
                     "template_update",
@@ -122,7 +123,7 @@ class LoreItemsMutationReviewCommandExecutorTest {
         executor.onCommand(
                 player,
                 command(),
-                "loreitemsreview",
+                COMMAND_LABEL,
                 new String[] {
                     MUTATION_ID.toString(),
                     "template_update",
@@ -140,7 +141,7 @@ class LoreItemsMutationReviewCommandExecutorTest {
     }
 
     private static Command command() {
-        return new Command("loreitemsreview") {
+        return new Command(COMMAND_LABEL) {
             @Override
             public boolean execute(CommandSender sender, String commandLabel, String[] args) {
                 return false;
