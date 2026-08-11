@@ -31,25 +31,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          REQUIRED_ASSETS=(
+            EnthusiaLoreItems.jar
+            EnthusiaLoreItems.jar.sha256
+            bom.cyclonedx.json
+            gradle-dependencies.txt
+            normalized-entry-manifest.txt
+            wp04-profile.json
+            EnthusiaLoreItems-test-reports.tar.gz
+            acceptance-index.md
+            rollback-instructions.md
+          )
           if gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
-            test -n "${TAG_SHA}"
-            VERIFIED_RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TAG_SHA}&event=push&status=success&per_page=20" \
-              --jq '.workflow_runs[] | select(.name == "CI" and .head_branch == "main") | .id' | head -n 1)"
-            test -n "${VERIFIED_RUN_ID}"
+            test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
+            RELEASE_TAG="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName')"
+            test "${RELEASE_TAG}" = "${FINAL_TAG}"
+            ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+            for asset in "${REQUIRED_ASSETS[@]}"; do
+              grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
+            done
             echo "released=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>/dev/null || true)"
           if [ -n "${TAG_SHA}" ]; then
-            COMPARE_STATUS="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TAG_SHA}...main" --jq '.status')"
-            test "${COMPARE_STATUS}" = "ahead" -o "${COMPARE_STATUS}" = "identical"
-            RECOVERY_RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TAG_SHA}&event=push&status=success&per_page=20" \
-              --jq '.workflow_runs[] | select(.name == "CI" and .head_branch == "main") | .id' | head -n 1)"
-            test -n "${RECOVERY_RUN_ID}"
-            echo "target_sha=${TAG_SHA}" >> "${GITHUB_OUTPUT}"
-            echo "ci_run_id=${RECOVERY_RUN_ID}" >> "${GITHUB_OUTPUT}"
+            test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
+            echo "target_sha=${EVENT_TARGET_SHA}" >> "${GITHUB_OUTPUT}"
+            echo "ci_run_id=${EVENT_CI_RUN_ID}" >> "${GITHUB_OUTPUT}"
             echo "tag_exists=true" >> "${GITHUB_OUTPUT}"
             echo "released=false" >> "${GITHUB_OUTPUT}"
             exit 0
@@ -95,12 +105,17 @@ jobs:
             test -f "${BUNDLE}/${file}"
           done
           (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
+          JAR_SHA="$(awk 'NR == 1 {print $1}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          test -n "${JAR_SHA}"
           unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0' >/dev/null
           jq -e '.metadata.component.version == "1.0.0"' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
           jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
-          grep -F 'Overall status: **PASS**' "${BUNDLE}/acceptance-index.md" >/dev/null
-          grep -F 'Evidence audit: **APPROVED**' "${BUNDLE}/acceptance-index.md" >/dev/null
-          grep -F 'Owner/operator sign-off: **APPROVED**' "${BUNDLE}/acceptance-index.md" >/dev/null
+          RELEASE_READY="$(sed -n 's/^release_ready: //p' "${BUNDLE}/acceptance-index.md")"
+          ACCEPTED_SOURCE_HEAD="$(sed -n 's/^release_source_head: //p' "${BUNDLE}/acceptance-index.md")"
+          ACCEPTED_JAR_SHA="$(sed -n 's/^release_jar_sha256: //p' "${BUNDLE}/acceptance-index.md")"
+          test "${RELEASE_READY}" = "APPROVED"
+          test "${ACCEPTED_SOURCE_HEAD}" = "${TARGET_SHA}"
+          test "${ACCEPTED_JAR_SHA}" = "${JAR_SHA}"
 
       - name: Create exact production tag
         if: steps.state.outputs.released != 'true' && steps.state.outputs.tag_exists != 'true'
@@ -145,6 +160,6 @@ jobs:
           gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
             --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
           ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
-          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt acceptance-index.md rollback-instructions.md; do
+          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
             grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
           done
