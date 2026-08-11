@@ -13,11 +13,33 @@ const log = message => {
 }
 
 async function waitFile(name) {
-  for (let i = 0; i < 800; i++) {
+  for (let i = 0; i < 2400; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
     await sleep(100)
   }
   throw new Error(`missing marker ${name}`)
+}
+
+async function waitForSpawn(bot, label) {
+  await new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      bot.removeListener('spawn', onSpawn)
+      bot.removeListener('error', onError)
+      bot.removeListener('end', onEnd)
+      callback(value)
+    }
+    const onSpawn = () => finish(resolve)
+    const onError = error => finish(reject, error)
+    const onEnd = reason => finish(reject, new Error(`${label} connection ended before spawn: ${reason || 'unknown'}`))
+    const timer = setTimeout(() => finish(reject, new Error(`${label} spawn timed out`)), 30000)
+    bot.once('spawn', onSpawn)
+    bot.once('error', onError)
+    bot.once('end', onEnd)
+  })
 }
 
 const near = (position, x, y, z) =>
@@ -39,6 +61,8 @@ async function waitPosition(bot, x, y, z, label) {
 }
 
 async function ensureDestinationLoaded(bot, x, y, z, label) {
+  bot.chat('/effect give Wp05TrackBot minecraft:slow_falling 30 0 true')
+  await sleep(250)
   const target = new Vec3(x, y - 1, z)
   if (bot.blockAt(target)) return
   bot.chat(`/tp Wp05TrackBot ${x} ${y + 80} ${z}`)
@@ -98,7 +122,7 @@ function tracked(bot) {
 
 function nearestDroppedItem(bot) {
   return bot.nearestEntity(entity => entity && (
-    entity.name === 'item' || entity.objectType === 'Item' || entity.displayName === 'Item'
+    entity.name === 'item' || entity.displayName === 'Item'
   ))
 }
 
@@ -132,7 +156,7 @@ function displayMatches(entity, kind) {
 }
 
 async function waitDisplayEntity(bot, kind, x, y, z, label) {
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 300; i++) {
     const entity = Object.values(bot.entities).find(candidate =>
       displayMatches(candidate, kind)
       && candidate.position.distanceTo(new Vec3(x, y, z)) < 3)
@@ -151,10 +175,19 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
   await bot.equip(item, 'hand')
   await sleep(250)
   const entity = await waitDisplayEntity(bot, kind, x, y, z, label)
-  if (kind === 'armor_stand') {
-    await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
-  } else {
-    await bot.activateEntity(entity)
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (kind === 'armor_stand') {
+      await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
+    } else {
+      await bot.activateEntity(entity)
+    }
+    for (let i = 0; i < 25; i++) {
+      if (trackedInventoryItems(bot).length === 0) break
+      await sleep(100)
+    }
+    if (trackedInventoryItems(bot).length === 0) break
+    log(`${label} placement retry=${attempt} entity=${kind}`)
+    await sleep(250)
   }
   for (let i = 0; i < 80; i++) {
     if (trackedInventoryItems(bot).length === 0) {
@@ -176,7 +209,7 @@ async function phaseOne() {
   })
   bot.on('message', message => log(`CHAT ${message.toString()}`))
   bot.on('error', error => log(`ERROR ${error.stack || error}`))
-  await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('error', reject) })
+  await waitForSpawn(bot, 'tracking phase one')
   await bot.waitForChunksToLoad()
   log(`SPAWN1 uuid=${bot.player.uuid}`)
   fs.writeFileSync(`${root}/bot.uuid`, `${bot.player.uuid}\n`)
@@ -215,7 +248,7 @@ async function phaseTwo() {
   })
   bot.on('message', message => log(`CHAT2 ${message.toString()}`))
   bot.on('error', error => log(`ERROR2 ${error.stack || error}`))
-  await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('error', reject) })
+  await waitForSpawn(bot, 'tracking phase two')
   await bot.waitForChunksToLoad(); await sleep(500)
   log('TRACK1 reconnected')
   fs.writeFileSync(`${root}/track1-reconnected`, 'ok\n')
