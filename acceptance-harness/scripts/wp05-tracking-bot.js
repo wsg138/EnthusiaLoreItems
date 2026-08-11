@@ -5,6 +5,7 @@ const Vec3 = require(`${moduleRoot}/vec3`).Vec3
 
 const root = '/tmp/wp05-tracking-contract'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const TRACKED_MATERIALS = new Set(['leather_helmet', 'diamond_sword'])
 const log = message => {
   const line = `${new Date().toISOString()} ${message}`
   fs.appendFileSync(`${root}/evidence/bot.log`, `${line}\n`)
@@ -12,11 +13,33 @@ const log = message => {
 }
 
 async function waitFile(name) {
-  for (let i = 0; i < 800; i++) {
+  for (let i = 0; i < 2400; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
     await sleep(100)
   }
   throw new Error(`missing marker ${name}`)
+}
+
+async function waitForSpawn(bot, label) {
+  await new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      bot.removeListener('spawn', onSpawn)
+      bot.removeListener('error', onError)
+      bot.removeListener('end', onEnd)
+      callback(value)
+    }
+    const onSpawn = () => finish(resolve)
+    const onError = error => finish(reject, error)
+    const onEnd = reason => finish(reject, new Error(`${label} connection ended before spawn: ${reason || 'unknown'}`))
+    const timer = setTimeout(() => finish(reject, new Error(`${label} spawn timed out`)), 30000)
+    bot.once('spawn', onSpawn)
+    bot.once('error', onError)
+    bot.once('end', onEnd)
+  })
 }
 
 const near = (position, x, y, z) =>
@@ -38,6 +61,8 @@ async function waitPosition(bot, x, y, z, label) {
 }
 
 async function ensureDestinationLoaded(bot, x, y, z, label) {
+  bot.chat('/effect give Wp05TrackBot minecraft:slow_falling 30 0 true')
+  await sleep(250)
   const target = new Vec3(x, y - 1, z)
   if (bot.blockAt(target)) return
   bot.chat(`/tp Wp05TrackBot ${x} ${y + 80} ${z}`)
@@ -83,21 +108,27 @@ async function waitBlockAt(bot, x, y, z, name, label) {
   throw new Error(`${label} block not loaded at ${x},${y},${z}; observed=${seen && seen.name}`)
 }
 
+function trackedInventoryItems(bot) {
+  return bot.inventory.items().filter(item => TRACKED_MATERIALS.has(item.name))
+}
+
 function tracked(bot) {
-  const items = bot.inventory.items()
-  if (items.length !== 1) throw new Error(`expected exactly one tracked inventory item, got ${items.length}`)
+  const items = trackedInventoryItems(bot)
+  if (items.length !== 1) {
+    throw new Error(`expected exactly one lore test item, got ${items.length}; inventory=${bot.inventory.items().map(item => `${item.name}:${item.count}`).join(',')}`)
+  }
   return items[0]
 }
 
 function nearestDroppedItem(bot) {
   return bot.nearestEntity(entity => entity && (
-    entity.name === 'item' || entity.objectType === 'Item' || entity.displayName === 'Item'
+    entity.name === 'item' || entity.displayName === 'Item'
   ))
 }
 
 async function waitForNaturalPickup(bot) {
   for (let i = 0; i < 120; i++) {
-    const items = bot.inventory.items()
+    const items = trackedInventoryItems(bot)
     if (items.length === 1) {
       log(`TRACK3 natural-pickup inventory=${items[0].name} slot=${items[0].slot}`)
       return items[0]
@@ -111,7 +142,7 @@ async function waitForNaturalPickup(bot) {
       await sleep(150)
     }
   }
-  throw new Error(`TRACK3 natural pickup did not return the dropped item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
+  throw new Error(`TRACK3 natural pickup did not return the lore test item; inventory=${bot.inventory.items().map(item => item.name).join(',')}`)
 }
 
 function displayMatches(entity, kind) {
@@ -125,7 +156,7 @@ function displayMatches(entity, kind) {
 }
 
 async function waitDisplayEntity(bot, kind, x, y, z, label) {
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 300; i++) {
     const entity = Object.values(bot.entities).find(candidate =>
       displayMatches(candidate, kind)
       && candidate.position.distanceTo(new Vec3(x, y, z)) < 3)
@@ -144,13 +175,22 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
   await bot.equip(item, 'hand')
   await sleep(250)
   const entity = await waitDisplayEntity(bot, kind, x, y, z, label)
-  if (kind === 'armor_stand') {
-    await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
-  } else {
-    await bot.activateEntity(entity)
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (kind === 'armor_stand') {
+      await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
+    } else {
+      await bot.activateEntity(entity)
+    }
+    for (let i = 0; i < 25; i++) {
+      if (trackedInventoryItems(bot).length === 0) break
+      await sleep(100)
+    }
+    if (trackedInventoryItems(bot).length === 0) break
+    log(`${label} placement retry=${attempt} entity=${kind}`)
+    await sleep(250)
   }
   for (let i = 0; i < 80; i++) {
-    if (bot.inventory.items().length === 0) {
+    if (trackedInventoryItems(bot).length === 0) {
       if (kind === 'item_frame' || kind === 'glow_item_frame') {
         bot.chat(`/data merge entity @e[type=minecraft:${kind},x=${x},y=${y},z=${z},distance=..2,limit=1,sort=nearest] {Fixed:1b,Invulnerable:1b}`)
         await sleep(300)
@@ -160,7 +200,7 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
     }
     await sleep(100)
   }
-  throw new Error(`${label} real client interaction did not move tracked item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
+  throw new Error(`${label} real client interaction did not move lore test item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
 }
 
 async function phaseOne() {
@@ -169,7 +209,7 @@ async function phaseOne() {
   })
   bot.on('message', message => log(`CHAT ${message.toString()}`))
   bot.on('error', error => log(`ERROR ${error.stack || error}`))
-  await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('error', reject) })
+  await waitForSpawn(bot, 'tracking phase one')
   await bot.waitForChunksToLoad()
   log(`SPAWN1 uuid=${bot.player.uuid}`)
   fs.writeFileSync(`${root}/bot.uuid`, `${bot.player.uuid}\n`)
@@ -208,7 +248,7 @@ async function phaseTwo() {
   })
   bot.on('message', message => log(`CHAT2 ${message.toString()}`))
   bot.on('error', error => log(`ERROR2 ${error.stack || error}`))
-  await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('error', reject) })
+  await waitForSpawn(bot, 'tracking phase two')
   await bot.waitForChunksToLoad(); await sleep(500)
   log('TRACK1 reconnected')
   fs.writeFileSync(`${root}/track1-reconnected`, 'ok\n')
@@ -271,10 +311,6 @@ async function phaseTwo() {
   await teleport(bot, 30, 71, 0, 'TRACK3 pickup-area')
   await waitForNaturalPickup(bot)
 
-  // Display fixtures are in a dedicated chunk. Only empty entities/support blocks are created by
-  // the shell; the tracked items themselves move via these real client interactions so Paper's
-  // ordinary player frame/armor-stand events authoritatively observe each transition. World spawn
-  // is managed by the shell and deliberately kept outside this chunk.
   await teleport(bot, 64, 71, 0, 'TRACK3 display-fixture-area')
   log('TRACK3 pickup-confirmed-and-display-fixture-ready')
   fs.writeFileSync(`${root}/track3-pickup-done`, 'ok\n')

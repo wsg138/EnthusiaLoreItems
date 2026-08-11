@@ -116,9 +116,9 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             throw new IllegalStateException("Mutation recovery worker cannot be started");
         }
         registerDestructiveServices();
-        registerReviewCommand();
-        templateUpdateListener.start();
         try {
+            registerReviewCommand();
+            templateUpdateListener.start();
             entityTemplateUpdateListener.start();
             task = plugin.getServer().getScheduler().runTaskTimer(
                     plugin,

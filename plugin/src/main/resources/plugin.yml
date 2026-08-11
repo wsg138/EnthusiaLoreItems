@@ -8,7 +8,7 @@ description: Durable lore-item tracking and delivery for Enthusia SMP.
 commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
-    usage: /loreitems create|adopt|give|browse|anomalies|audit|recovery|remove|purge|delete|operations|targets|destructive-metrics|pause-operation|resume-operation|resolve-removal ...
+    usage: /loreitems create|adopt|give|reload|browse|anomalies|audit|recovery|remove|purge|delete|operations|targets|destructive-metrics|pause-operation|resume-operation|resolve-removal ...
   loreitemsreview:
     description: Resolves REVIEW_REQUIRED lore-item mutations after staff evidence review.
     usage: /loreitemsreview <mutation-uuid> <mutation-type> <retry|cancel> <evidence>
@@ -25,6 +25,9 @@ permissions:
     default: op
   enthusia.loreitems.admin.give:
     description: Queues a new lore-item instance for a player.
+    default: op
+  enthusia.loreitems.admin.reload:
+    description: Reloads a complete validated LoreItems configuration snapshot without restarting.
     default: op
   enthusia.loreitems.admin.audit:
     description: Views active lore-item anomalies, audit evidence, recovery work, and template status.

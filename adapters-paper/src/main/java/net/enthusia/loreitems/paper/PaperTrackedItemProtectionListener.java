@@ -9,6 +9,7 @@ import io.papermc.paper.event.entity.EntityDamageItemEvent;
 import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
@@ -88,6 +89,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
     private final PaperVoidLossCoordinator voidLossCoordinator;
+    private final BooleanSupplier sharedContainersAllowedSupplier;
 
     private volatile boolean closed;
 
@@ -95,15 +97,33 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             Plugin plugin,
             Supplier<VoidLossUseCase> useCaseSupplier,
             int maxInFlight) {
-        this(plugin, useCaseSupplier, () -> maxInFlight);
+        this(
+                plugin,
+                useCaseSupplier,
+                () -> maxInFlight,
+                () -> plugin.getConfig().getBoolean("shared-containers-allowed", true));
     }
 
     public PaperTrackedItemProtectionListener(
             Plugin plugin,
             Supplier<VoidLossUseCase> useCaseSupplier,
             IntSupplier maxInFlightSupplier) {
+        this(
+                plugin,
+                useCaseSupplier,
+                maxInFlightSupplier,
+                () -> plugin.getConfig().getBoolean("shared-containers-allowed", true));
+    }
+
+    public PaperTrackedItemProtectionListener(
+            Plugin plugin,
+            Supplier<VoidLossUseCase> useCaseSupplier,
+            IntSupplier maxInFlightSupplier,
+            BooleanSupplier sharedContainersAllowedSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.identityCodec = new PaperItemIdentityCodec();
+        this.sharedContainersAllowedSupplier = Objects.requireNonNull(
+                sharedContainersAllowedSupplier, "sharedContainersAllowedSupplier");
         this.voidLossCoordinator = new PaperVoidLossCoordinator(
                 plugin,
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
@@ -233,7 +253,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     private boolean sharedContainersAllowed() {
-        return plugin.getConfig().getBoolean("shared-containers-allowed", true);
+        return sharedContainersAllowedSupplier.getAsBoolean();
     }
 
     private static boolean isBundle(ItemStack item) {

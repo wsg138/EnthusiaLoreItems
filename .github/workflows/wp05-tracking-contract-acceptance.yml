@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
@@ -38,6 +39,44 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          helper = Path('acceptance-harness/src/main/java/net/enthusia/loreitems/acceptance/WP05AcceptanceHarnessPlugin.java')
+          text = helper.read_text()
+
+          place_anchor = """        ItemStack tracked = takeTrackedStorageItem(player);
+                  placement.accept(tracked);
+                  player.closeInventory();
+          """
+          place_replacement = """        ItemStack tracked = takeTrackedStorageItem(player);
+                  placement.accept(tracked);
+                  if (destination.equals(\"shulker\") || destination.equals(\"bundle\")) {
+                      int offset = destination.equals(\"shulker\") ? 14 : 16;
+                      player.openInventory(chest(player, offset).getBlockInventory());
+                  }
+                  player.closeInventory();
+          """
+          if text.count(place_anchor) != 1:
+              raise SystemExit(f'expected one nested placement synchronization anchor, found {text.count(place_anchor)}')
+          text = text.replace(place_anchor, place_replacement)
+
+          chest_anchor = """        Block block = location.getBlock();
+                  block.setType(Material.CHEST);
+                  if (!(block.getState() instanceof Chest chest)) {
+          """
+          chest_replacement = """        Block block = location.getBlock();
+                  if (block.getType() != Material.CHEST) {
+                      block.setType(Material.CHEST);
+                  }
+                  if (!(block.getState() instanceof Chest chest)) {
+          """
+          if text.count(chest_anchor) != 1:
+              raise SystemExit(f'expected one acceptance chest initialization anchor, found {text.count(chest_anchor)}')
+          text = text.replace(chest_anchor, chest_replacement)
+          helper.write_text(text)
+          PY
+
           gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
 
           ROOT=/tmp/wp05-tracking-contract
@@ -77,7 +116,7 @@ jobs:
           npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
           npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
 
-      - name: Instrument Track 3 natural-unload timing
+      - name: Instrument Track 3 unload diagnostics
         shell: bash
         run: |
           python3 - <<'PY'
@@ -110,34 +149,7 @@ jobs:
               ") &\n"
           )
           track3 = track3.replace(checkpoint, checkpoint + diagnostics)
-
-          unload_anchor = "python3 - \"$DB\" \"$EVIDENCE/track3-unload-state.txt\" <<'PY'\nimport sqlite3,sys,time\npath,evidence=sys.argv[1:3]\nrows=[]\nfor _ in range(180):"
-          if track3.count(unload_anchor) != 1:
-              raise SystemExit(f'expected one Track 3 unload polling loop, found {track3.count(unload_anchor)}')
-          track3 = track3.replace(unload_anchor, unload_anchor.replace('range(180)', 'range(600)'))
           script.write_text(prefix + separator + track3)
-
-          bot = Path('acceptance-harness/scripts/wp05-tracking-bot.js')
-          bot_text = bot.read_text()
-          wait_guard = 'for (let i = 0; i < 800; i++) {'
-          if bot_text.count(wait_guard) != 1:
-              raise SystemExit(f'expected one bot marker wait guard, found {bot_text.count(wait_guard)}')
-          bot_text = bot_text.replace(wait_guard, 'for (let i = 0; i < 2400; i++) {')
-
-          display_guard = "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 120; i++) {"
-          if bot_text.count(display_guard) != 1:
-              raise SystemExit(f'expected one display fixture visibility loop, found {bot_text.count(display_guard)}')
-          bot_text = bot_text.replace(
-              display_guard,
-              "async function waitDisplayEntity(bot, kind, x, y, z, label) {\n  for (let i = 0; i < 300; i++) {")
-
-          deprecated_item_guard = "entity.name === 'item' || entity.objectType === 'Item' || entity.displayName === 'Item'"
-          if bot_text.count(deprecated_item_guard) != 1:
-              raise SystemExit(f'expected one dropped-item identity guard, found {bot_text.count(deprecated_item_guard)}')
-          bot_text = bot_text.replace(
-              deprecated_item_guard,
-              "entity.name === 'item' || entity.displayName === 'Item'")
-          bot.write_text(bot_text)
           PY
 
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003

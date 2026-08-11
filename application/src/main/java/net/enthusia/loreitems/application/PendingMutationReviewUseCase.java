@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.application;
 
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
@@ -23,7 +24,7 @@ public interface PendingMutationReviewUseCase {
             Objects.requireNonNull(resolution, "resolution");
             Objects.requireNonNull(actorId, "actorId");
             Objects.requireNonNull(evidenceDetail, "evidenceDetail");
-            expectedMutationType = expectedMutationType.strip();
+            expectedMutationType = expectedMutationType.strip().toUpperCase(Locale.ROOT);
             actorId = actorId.strip();
             evidenceDetail = evidenceDetail.strip();
             if (expectedMutationType.isEmpty()

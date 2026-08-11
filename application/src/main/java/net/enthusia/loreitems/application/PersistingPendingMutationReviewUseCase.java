@@ -3,6 +3,7 @@ package net.enthusia.loreitems.application;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /** Audit-backed orchestration for resolving fenced REVIEW_REQUIRED mutations. */
@@ -24,26 +25,30 @@ public final class PersistingPendingMutationReviewUseCase
     @Override
     public CompletionStage<Result> resolve(Request request) {
         Objects.requireNonNull(request, "request");
-        Instant now = clock.instant();
-        PendingMutationReviewStore.Resolution resolution = switch (request.resolution()) {
-            case RETRY -> PendingMutationReviewStore.Resolution.RETRY;
-            case CANCEL -> PendingMutationReviewStore.Resolution.CANCEL;
-        };
-        AuditEventRecord audit = AuditEventRecord.pending(
-                AGGREGATE_TYPE,
-                request.mutationId().toString(),
-                resolution.auditEventType(),
-                ACTOR_TYPE,
-                request.actorId(),
-                detailJson(request),
-                now.toEpochMilli());
-        return store.resolve(
-                        request.mutationId(),
-                        request.expectedMutationType(),
-                        resolution,
-                        audit,
-                        now)
-                .thenApply(PersistingPendingMutationReviewUseCase::result);
+        try {
+            Instant now = clock.instant();
+            PendingMutationReviewStore.Resolution resolution = switch (request.resolution()) {
+                case RETRY -> PendingMutationReviewStore.Resolution.RETRY;
+                case CANCEL -> PendingMutationReviewStore.Resolution.CANCEL;
+            };
+            AuditEventRecord audit = AuditEventRecord.pending(
+                    AGGREGATE_TYPE,
+                    request.mutationId().toString(),
+                    resolution.auditEventType(),
+                    ACTOR_TYPE,
+                    request.actorId(),
+                    detailJson(request),
+                    now.toEpochMilli());
+            return store.resolve(
+                            request.mutationId(),
+                            request.expectedMutationType(),
+                            resolution,
+                            audit,
+                            now)
+                    .thenApply(PersistingPendingMutationReviewUseCase::result);
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     private static Result result(PendingMutationReviewStore.Status status) {

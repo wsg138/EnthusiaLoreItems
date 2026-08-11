@@ -1,0 +1,180 @@
+name: WP-05 Revision Rollout Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-edit-rollout-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  revision-rollout:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Prepare exact-head Paper and real client fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          R=/tmp/wp05-rollout
+          mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar"
+          cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$P" > "$R/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$R/evidence/source-head.txt"
+          cd "$R/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          view-distance=6
+          simulation-distance=4
+          server-port=25565
+          motd=WP05 rollout
+          EOF
+          cd "$R/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 > "$R/evidence/npm.log" 2>&1
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'),fs=require('fs'),Vec3=require('vec3').Vec3
+          const root='/tmp/wp05-rollout',name=process.argv[2],role=process.env.ROLE||'scenario',sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const safe=name.toLowerCase(),log=x=>{fs.appendFileSync(`${root}/evidence/${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:name,version:'1.21.11',auth:'offline'})
+          const near=(p,x,y,z)=>Math.abs(p.x-x)<1.5&&Math.abs(p.y-y)<2&&Math.abs(p.z-z)<1.5
+          async function waitFile(p,n=1200){for(let i=0;i<n;i++){if(fs.existsSync(`${root}/${p}`))return;await sleep(100)}throw Error(`marker ${p}`)}
+          async function waitItem(n=300){for(let i=0;i<n;i++){const a=bot.inventory.items().filter(x=>x.name==='diamond_sword');if(a.length===1)return a[0];await sleep(100)}throw Error(`tracked sword missing inventory=${bot.inventory.items().map(x=>x.name+':'+x.count).join(',')}`)}
+          async function waitPos(x,y,z,label){for(let i=0;i<180;i++){if(near(bot.entity.position,x,y,z)){await bot.waitForChunksToLoad();if(near(bot.entity.position,x,y,z)){log(`${label} position=${bot.entity.position}`);return}}await sleep(100)}throw Error(`${label} position timeout`)}
+          async function teleport(x,y,z,label){bot.chat(`/effect give ${name} minecraft:slow_falling 600 0 true`);await sleep(250);bot.chat(`/tp ${name} ${x} ${y+60} ${z}`);await sleep(1200);await bot.waitForChunksToLoad();bot.chat(`/setblock ${x} ${y-1} ${z} minecraft:stone`);bot.chat(`/setblock ${x} ${y} ${z} minecraft:air`);bot.chat(`/setblock ${x} ${y+1} ${z} minecraft:air`);await sleep(300);bot.chat(`/tp ${name} ${x} ${y} ${z}`);await waitPos(x,y,z,label)}
+          async function blockAt(x,y,z,kind,label){const p=new Vec3(x,y,z);for(let i=0;i<150;i++){const b=bot.blockAt(p);if(b&&b.name===kind)return b;await sleep(100)}throw Error(`${label} block unavailable observed=${bot.blockAt(p)?.name}`)}
+          function playerBounds(w){const start=Number.isInteger(w.inventoryStart)?w.inventoryStart:Math.max(0,w.slots.length-36),end=Number.isInteger(w.inventoryEnd)?w.inventoryEnd:w.slots.length;return [start,end]}
+          function windowSwordSlot(w){const [start,end]=playerBounds(w);for(let i=start;i<end;i++)if(w.slots[i]&&w.slots[i].name==='diamond_sword')return i;throw Error(`tracked sword absent from open window start=${start} end=${end}`)}
+          async function openWindowBlock(x,y,z,kind,label,recreate=false){let last='none';for(let a=1;a<=5;a++){await bot.waitForChunksToLoad();if(recreate){bot.chat(`/setblock ${x} ${y+1} ${z} minecraft:air`);bot.chat(`/setblock ${x} ${y} ${z} minecraft:${kind}`);await sleep(600)}let b;try{b=await blockAt(x,y,z,kind,`${label}-${a}`)}catch(e){last=e.message;log(`OPEN_BLOCK ${label} attempt=${a} ${last}`);continue}try{if(bot.currentWindow)bot.closeWindow(bot.currentWindow);await sleep(250);await bot.activateBlock(b);for(let i=0;i<100;i++){if(bot.currentWindow){log(`OPEN_OK ${label} attempt=${a} slots=${bot.currentWindow.slots.length}`);return bot.currentWindow}await sleep(100)}last='window-timeout'}catch(e){last=e.message;log(`OPEN_FAIL ${label} attempt=${a} ${e.stack||e}`)}if(bot.currentWindow)bot.closeWindow(bot.currentWindow);await sleep(700)}throw Error(`${label} window failed ${last}`)}
+          async function chestDeposit(x,y,z,marker){await teleport(x-1,y+1,z,marker);const w=await openWindowBlock(x,y,z,'chest',marker,true);const slot=windowSwordSlot(w);await bot.clickWindow(slot,0,0);await sleep(250);await bot.clickWindow(0,0,0);await sleep(900);if(!w.slots[0]||w.slots[0].name!=='diamond_sword')throw Error(`${marker} chest slot 0 missing tracked sword`);bot.closeWindow(w);await sleep(600);fs.writeFileSync(`${root}/${marker}.done`,'ok\n');log(`${marker} deposited`)}
+          async function nestedAccess(x,y,z,marker){await teleport(x-1,y+1,z,marker);const w=await openWindowBlock(x,y,z,'chest',marker,false);await sleep(900);bot.closeWindow(w);await sleep(700);fs.writeFileSync(`${root}/${marker}.done`,'ok\n');log(`${marker} accessed`)}
+          function displayMatches(e,k){if(!e)return false;const n=String(e.name||'').toLowerCase(),d=String(e.displayName||'').toLowerCase().replaceAll(' ','_');return n===k||d===k}
+          async function displayEntity(kind,x,y,z,label){for(let i=0;i<150;i++){const e=Object.values(bot.entities).find(v=>displayMatches(v,kind)&&v.position.distanceTo(new Vec3(x,y,z))<3);if(e)return e;await sleep(100)}throw Error(`${label} fixture unavailable`)}
+          async function displayPlace(kind,x,y,z,marker){await teleport(x-1,y,z,marker);const item=await waitItem();await bot.equip(item,'hand');await sleep(300);const e=await displayEntity(kind,x,y,z,marker);if(kind==='armor_stand')await bot.activateEntityAt(e,e.position.offset(0,1,0));else await bot.activateEntity(e);for(let i=0;i<100;i++){if(!bot.inventory.items().some(v=>v.name==='diamond_sword')){fs.writeFileSync(`${root}/${marker}.done`,'ok\n');log(`${marker} natural placement complete`);return}await sleep(100)}throw Error(`${marker} item remained in inventory`)}
+          async function drop(){await teleport(30,201,0,'drop');const item=await waitItem();await bot.tossStack(item);await sleep(400);bot.chat(`/tp ${name} 40 201 0`);await sleep(900);fs.writeFileSync(`${root}/drop.done`,'ok\n');log('drop complete')}
+          function txt(v){if(v==null)return '';if(typeof v==='string')return v;if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(txt).join(''):'');if(Array.isArray(v.extra))return v.extra.map(txt).join('');return JSON.stringify(v)}
+          async function win(s){for(let i=0;i<200;i++){if(bot.currentWindow&&txt(bot.currentWindow.title).toLowerCase().includes(s.toLowerCase()))return;await sleep(100)}throw Error(`window ${s}`)}
+          async function click(slot){await bot.clickWindow(slot,0,0);await sleep(300)}
+          async function edit(){bot.chat('/loreitems browse');await win('Lore definitions');await click(0);await win('Template management');await click(29);await win('Template editor');await click(10);for(let i=0;i<120&&bot.currentWindow;i++)await sleep(100);bot.chat('submit literal Rollout Revision Two');await win('Template editor');await click(49);await win('Confirm template revision');await click(31);await sleep(1800);fs.writeFileSync(`${root}/edit.done`,'ok\n');log('edit complete')}
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.once('spawn',async()=>{try{fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`);if(name==='Wp05Rollout'&&role==='scenario'){
+            await waitFile('go-chest');await chestDeposit(4,200,0,'chest')
+            await waitFile('go-shulker');await nestedAccess(14,200,0,'shulker')
+            await waitFile('go-bundle');await nestedAccess(16,200,0,'bundle')
+            await waitFile('go-local-away');await teleport(256,201,0,'local-away');fs.writeFileSync(`${root}/local-away.done`,'ok\n')
+            await waitFile('go-local-return');await teleport(13,201,0,'local-return');fs.writeFileSync(`${root}/local-return.done`,'ok\n')
+            await waitFile('go-frame');await displayPlace('item_frame',72,201,0,'frame')
+            await waitFile('go-glow');await displayPlace('glow_item_frame',74,201,0,'glow')
+            await waitFile('go-stand');await displayPlace('armor_stand',76,200,0,'stand')
+            await waitFile('go-drop');await drop()
+            await waitFile('go-far');await chestDeposit(1025,200,1024,'far')
+            await waitFile('edit.go');await teleport(0,201,0,'edit-home');await edit()
+          }else if(name==='Wp05Rollout'&&role==='far-access'){
+            await waitFile('far-reaccess.go');await nestedAccess(1025,200,1024,'far-reaccess')
+          }
+          await waitFile(`${safe}.stop`);bot.quit('rollout complete')}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/${safe}.failed`,String(e.stack||e));process.exit(1)}})
+          EOF
+
+      - name: Execute ACC-EDIT-003 through real holder transitions and restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/wp05-rollout;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin>"$l" 2>&1 & SPID=$!;for _ in $(seq 1 180);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||{ cat "$l";return 1;};sleep 1;done;cat "$l";return 1;}
+          stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
+          start_bot(){ local n="$1" role="${2:-scenario}" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";rm -f "$R/$q.uuid" "$R/$q.stop" "$R/$q.failed";(cd "$R/bot"&&ROLE="$role" node bot.js "$n")>"$E/$q-stdout.log" 2>&1 & p=$!;echo "$p">"$R/$q.pid";for _ in $(seq 1 120);do test -s "$R/$q.uuid"&&return;sleep .25;done;return 1;}
+          stop_bot(){ local n="$1" q p;q="$(printf '%s' "$n"|tr '[:upper:]' '[:lower:]')";test -f "$R/$q.pid"||return 0;p="$(cat "$R/$q.pid")";touch "$R/$q.stop";for _ in $(seq 1 50);do kill -0 "$p" 2>/dev/null||break;sleep .2;done;kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$R/$q.pid";}
+          kill_bots(){ for f in "$R"/*.pid;do test -e "$f"||continue;p="$(cat "$f")";kill "$p" 2>/dev/null||true;wait "$p" 2>/dev/null||true;rm -f "$f";done;}
+          wait_marker(){ local f="$1" n="${2:-240}";for _ in $(seq 1 "$n");do test -f "$R/wp05rollout.failed"&&{ cat "$R/wp05rollout.failed";return 1;};test -f "$R/$f"&&return;sleep .25;done;echo "marker timeout $f" >&2;return 1;}
+          wait_sql(){ local q="$1" n="${2:-720}";for _ in $(seq 1 "$n");do if python3 - "$DB" "$q" <<'PY'
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
+          PY
+            then return;fi;sleep .25;done;echo "SQL timeout $q" >&2;return 1;}
+          wait_main_item(){ wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='PLAYER_INVENTORY' and s.location_key='player:$U'";}
+          give_main(){ echo 'loreitems give rollout_item Wp05Rollout' >&3;wait_main_item;}
+          START="$(date -u +%FT%TZ)";L1="$E/server-initial.log";start_server "$L1";echo 'setworldspawn 0 200 0' >&3;start_bot Wp05Rollout;U="$(tr -d '\r\n'<"$R/wp05rollout.uuid")";echo 'op Wp05Rollout' >&3;echo 'effect give Wp05Rollout minecraft:slow_falling 600 0 true' >&3;echo 'tp Wp05Rollout 0 201 0' >&3
+          echo 'wp05accept source Wp05Rollout sword' >&3;sleep .5;echo 'wp05accept perform Wp05Rollout loreitems create rollout_item Revision Rollout' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='rollout_item' and current_revision=1";DEF="$(python3 - "$DB" <<'PY'
+          import sqlite3
+          with sqlite3.connect('/tmp/wp05-rollout/server/plugins/EnthusiaLoreItems/loreitems.db') as c:print(c.execute("select definition_id from lore_definitions where lookup_key='rollout_item'").fetchone()[0])
+          PY
+          )";echo 'wp05accept perform Wp05Rollout loreitems adopt rollout_item' >&3;wait_main_item
+          touch "$R/go-chest";wait_marker chest.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.state='CONFIRMED_NOW'"
+          give_main;echo 'wp05accept place Wp05Rollout shulker' >&3;touch "$R/go-shulker";wait_marker shulker.done
+          give_main;echo 'wp05accept place Wp05Rollout bundle' >&3;touch "$R/go-bundle";wait_marker bundle.done
+          echo 'setworldspawn 256 200 0' >&3;touch "$R/go-local-away";wait_marker local-away.done;wait_sql "select count(*)=3 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type in ('BLOCK_CONTAINER','NESTED_CONTAINER') and s.state='LAST_CONFIRMED'"
+          echo 'setworldspawn 0 200 0' >&3;touch "$R/go-local-return";wait_marker local-return.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.state='CONFIRMED_NOW'";wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='NESTED_CONTAINER' and s.state='CONFIRMED_NOW'"
+          give_main;echo 'setblock 72 201 1 minecraft:stone' >&3;echo 'summon minecraft:item_frame 72 201 0 {Facing:2b,Tags:["wp05-rollout"]}' >&3;touch "$R/go-frame";wait_marker frame.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'"
+          give_main;echo 'setblock 74 201 1 minecraft:stone' >&3;echo 'summon minecraft:glow_item_frame 74 201 0 {Facing:2b,Tags:["wp05-rollout"]}' >&3;touch "$R/go-glow";wait_marker glow.done;wait_sql "select count(*)=2 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ITEM_FRAME'"
+          give_main;echo 'setblock 76 199 0 minecraft:stone' >&3;echo 'setblock 76 200 0 minecraft:air' >&3;echo 'setblock 76 201 0 minecraft:air' >&3;echo 'summon minecraft:armor_stand 76 200 0 {ShowArms:1b,Tags:["wp05-rollout"]}' >&3;touch "$R/go-stand";wait_marker stand.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='ARMOR_STAND'"
+          give_main;touch "$R/go-drop";wait_marker drop.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='DROPPED_ITEM'"
+          give_main;echo 'effect give Wp05Rollout minecraft:slow_falling 600 0 true' >&3;echo 'tp Wp05Rollout 1024 260 1024' >&3;sleep 3;echo 'fill 1020 199 1020 1030 199 1030 minecraft:stone' >&3;echo 'fill 1020 200 1020 1030 204 1030 minecraft:air' >&3;echo 'tp Wp05Rollout 1024 201 1024' >&3;touch "$R/go-far";wait_marker far.done;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_type='BLOCK_CONTAINER' and s.location_key='minecraft:overworld:1025:200:1024'";FAR="$(python3 - "$DB" "$DEF" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key='minecraft:overworld:1025:200:1024'",(sys.argv[2],)).fetchone()[0])
+          PY
+          )";echo 'tp Wp05Rollout 0 201 0' >&3;sleep 10;wait_sql "select count(*)=1 from instance_current_state where instance_id='$FAR' and state='LAST_CONFIRMED'"
+          give_main;start_bot Wp05RollOff;O="$(tr -d '\r\n'<"$R/wp05rolloff.uuid")";echo 'op Wp05RollOff' >&3;echo 'loreitems give rollout_item Wp05RollOff' >&3;wait_sql "select count(*)=1 from instance_current_state s join lore_instances i on i.instance_id=s.instance_id where i.definition_id='$DEF' and s.location_key='player:$O'";OFF="$(python3 - "$DB" "$DEF" "$O" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute("select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and s.location_key=?",(sys.argv[2],'player:'+sys.argv[3])).fetchone()[0])
+          PY
+          )";stop_bot Wp05RollOff;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'"
+          python3 - "$DB" "$DEF" > "$E/pre-edit.json" <<'PY'
+          import json,sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:c.row_factory=sqlite3.Row;print(json.dumps([dict(r) for r in c.execute('select i.instance_id,i.applied_revision,i.desired_revision,s.state,s.location_type,s.location_key,s.container_path from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? order by i.instance_id',(sys.argv[2],))],indent=2))
+          PY
+          touch "$R/edit.go";wait_marker edit.done;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and desired_revision=2";wait_sql "select count(*)>=8 from lore_instances where definition_id='$DEF' and applied_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=1 and desired_revision=2";wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=1 and desired_revision=2"
+          stop_bot Wp05Rollout;stop_server;kill_bots
+          L2="$E/server-restart.log";start_server "$L2";start_bot Wp05RollOff passive;wait_sql "select count(*)=1 from lore_instances where instance_id='$OFF' and applied_revision=2 and desired_revision=2";stop_bot Wp05RollOff;start_bot Wp05Rollout far-access;echo 'op Wp05Rollout' >&3;touch "$R/far-reaccess.go";wait_marker far-reaccess.done;wait_sql "select count(*)=1 from lore_instances where instance_id='$FAR' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2 and lifecycle_state='ACTIVE'";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_bot Wp05Rollout;stop_server;kill_bots
+          L3="$E/server-replay.log";start_server "$L3";sleep 5;wait_sql "select count(*)=10 from lore_instances where definition_id='$DEF' and applied_revision=2 and desired_revision=2";wait_sql "select count(*)=10 from pending_mutations where definition_id='$DEF' and mutation_type='TEMPLATE_UPDATE' and state='COMPLETED'";stop_server;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$DEF" "$OFF" "$FAR" <<'PY' | tee "$E/result.json"
+          import json,sqlite3,sys
+          pre=json.load(open('/tmp/wp05-rollout/evidence/pre-edit.json'));ids={x['instance_id'] for x in pre}
+          with sqlite3.connect(sys.argv[1]) as c:
+              c.row_factory=sqlite3.Row
+              rows=[dict(r) for r in c.execute('select instance_id,applied_revision,desired_revision,lifecycle_state from lore_instances where definition_id=?',(sys.argv[4],))]
+              assert len(rows)==10 and {x['instance_id'] for x in rows}==ids and all(x['applied_revision']==2 and x['desired_revision']==2 and x['lifecycle_state']=='ACTIVE' for x in rows),rows
+              muts=[dict(r) for r in c.execute("select instance_id,state from pending_mutations where definition_id=? and mutation_type='TEMPLATE_UPDATE'",(sys.argv[4],))]
+              assert len(muts)==10 and all(x['state']=='COMPLETED' for x in muts),muts
+              integrity=c.execute('pragma integrity_check').fetchone()[0];fk=[list(r) for r in c.execute('pragma foreign_key_check')];assert integrity=='ok' and not fk
+          print(json.dumps({'case':'ACC-EDIT-003','result':'PASS','source_head':open('/tmp/wp05-rollout/evidence/source-head.txt').read().strip(),'started_at':sys.argv[2],'finished_at':sys.argv[3],'instance_count':10,'stable_instance_ids':True,'pre_edit_locations':pre,'offline_instance':sys.argv[5],'unloaded_block_instance':sys.argv[6],'restart_mid_rollout':True,'replay_no_duplicate':True,'integrity':integrity,'foreign_key_violations':fk},indent=2))
+          PY
+
+      - name: Upload rollout evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wp05-edit-rollout-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-rollout/evidence
+          if-no-files-found: error
+          retention-days: 30

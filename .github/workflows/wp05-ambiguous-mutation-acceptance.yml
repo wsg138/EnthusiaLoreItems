@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
@@ -125,8 +126,11 @@ jobs:
               c.executescript("""CREATE TRIGGER wp05_fail_post_physical BEFORE UPDATE OF state ON pending_mutations WHEN OLD.mutation_type='TEMPLATE_UPDATE' AND NEW.state IN ('COMPLETED','REVIEW_REQUIRED') BEGIN SELECT RAISE(ABORT,'wp05 injected post-physical durable failure'); END;""")
           PY
           touch "$ROOT/go-edit"; wait_marker edit.done 480
-          echo 'wp05accept dump Wp05ReviewBot' >&3
-          for _ in $(seq 1 120); do grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log" && break; sleep .25; done
+          for _ in $(seq 1 120); do
+            echo 'wp05accept dump Wp05ReviewBot' >&3
+            sleep .25
+            grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log" && break
+          done
           grep -q 'WP05_ACCEPT DUMP.*revision=2' "$EVIDENCE/server-before-restart.log"
           python3 - "$DB" <<'PY' | tee "$EVIDENCE/ambiguous-state.txt"
           import sqlite3,sys,time

@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -8,6 +9,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,7 @@ class PersistingPendingMutationReviewUseCaseTest {
         assertEquals(MUTATION_ID.toString(), audit.aggregateId());
         assertEquals("mutation_review_retried", audit.eventType());
         assertEquals("STAFF", audit.actorType());
+        assertEquals("player:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", audit.actorId());
         assertEquals(NOW.toEpochMilli(), audit.occurredAtEpochMillis());
         assertTrue(audit.detailJson().contains("physical item still has revision 1"));
     }
@@ -64,6 +67,35 @@ class PersistingPendingMutationReviewUseCaseTest {
         assertEquals(PendingMutationReviewUseCase.Status.CANCELLED, result.status());
     }
 
+    @Test
+    void synchronousStoreFailureIsReturnedAsFailedStage() {
+        PendingMutationReviewStore store = new PendingMutationReviewStore() {
+            @Override
+            public CompletionStage<Status> resolve(
+                    UUID mutationId,
+                    String expectedMutationType,
+                    Resolution resolution,
+                    AuditEventRecord auditEvent,
+                    Instant now) {
+                throw new IllegalStateException("synchronous store failure");
+            }
+        };
+        PendingMutationReviewUseCase useCase = new PersistingPendingMutationReviewUseCase(
+                store, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        CompletableFuture<PendingMutationReviewUseCase.Result> stage = useCase.resolve(
+                        new PendingMutationReviewUseCase.Request(
+                                MUTATION_ID,
+                                "template_update",
+                                PendingMutationReviewUseCase.Resolution.RETRY,
+                                "sender:CONSOLE",
+                                "safe retry evidence"))
+                .toCompletableFuture();
+
+        CompletionException failure = assertThrows(CompletionException.class, stage::join);
+        assertTrue(failure.getCause() instanceof IllegalStateException);
+    }
+
     private static PendingMutationReviewStore recordingStore(
             PendingMutationReviewStore.Status status,
             AtomicReference<AuditEventRecord> capturedAudit) {
@@ -76,7 +108,7 @@ class PersistingPendingMutationReviewUseCaseTest {
                     AuditEventRecord auditEvent,
                     Instant now) {
                 assertEquals(MUTATION_ID, mutationId);
-                assertEquals("template_update", expectedMutationType);
+                assertEquals("TEMPLATE_UPDATE", expectedMutationType);
                 capturedAudit.set(auditEvent);
                 return CompletableFuture.completedFuture(status);
             }

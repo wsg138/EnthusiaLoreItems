@@ -49,6 +49,7 @@ import net.enthusia.loreitems.application.TemplateRevisionRolloutUseCase;
 import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
+import net.enthusia.loreitems.paper.FoundationConfigurationReloadCommandExecutor;
 import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsAdministrationCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
@@ -176,11 +177,15 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         () -> configuration.get().current().mutationBudgetPerTick(),
                         this::wakeTemplateRolloutPlanning);
         administrationCommandExecutor = administrationExecutor;
+        FoundationConfigurationReloadCommandExecutor reloadExecutor =
+                new FoundationConfigurationReloadCommandExecutor(
+                        this, this::reloadFoundationConfiguration);
         LoreItemsCommandExecutor executor = new LoreItemsCommandExecutor(
                 createExecutor,
                 adoptExecutor,
                 giveExecutor,
-                administrationExecutor);
+                administrationExecutor,
+                reloadExecutor);
         command.setExecutor(executor);
         command.setTabCompleter(executor);
     }
@@ -192,7 +197,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             protection = new PaperTrackedItemProtectionListener(
                     this,
                     voidLossDelegate::get,
-                    () -> configuration.get().current().mutationBudgetPerTick());
+                    () -> configuration.get().current().mutationBudgetPerTick(),
+                    () -> configuration.get().current().sharedContainersAllowed());
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
