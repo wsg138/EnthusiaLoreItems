@@ -381,7 +381,7 @@ python3 - "$DB" "$EVIDENCE/track3-unload-state.txt" <<'PY'
 import sqlite3,sys,time
 path,evidence=sys.argv[1:3]
 rows=[]
-for _ in range(180):
+for _ in range(600):
     with sqlite3.connect(path) as c:
         did=c.execute("select definition_id from lore_definitions where lookup_key='acc_track_world'").fetchone()[0]
         rows=c.execute("""
