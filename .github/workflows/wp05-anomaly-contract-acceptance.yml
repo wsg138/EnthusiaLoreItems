@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
@@ -211,6 +212,9 @@ jobs:
             kill -0 "$SERVER_PID" 2>/dev/null || { cat "$EVIDENCE/server.log"; exit 1; }
             sleep 1
           done
+          grep -q 'Queued direct-delivery processing is active.' "$EVIDENCE/server.log" \
+            && grep -q 'WP-05 deterministic acceptance helper is active' "$EVIDENCE/server.log" \
+            || { echo 'server readiness timed out' >&2; tail -n 200 "$EVIDENCE/server.log" >&2; exit 1; }
 
           (cd "$ROOT/bot" && node bot.js seed) > "$EVIDENCE/bot-seed-stdout.log" 2>&1 & BOT_PID=$!
           wait_marker seed.ready 360
