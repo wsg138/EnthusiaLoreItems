@@ -4,54 +4,28 @@
 - Package: WP-05 — live acceptance and production release
 - Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
-- Draft PR: #18 — `WP-05: complete live acceptance and release LoreItems`
+- Canonical PR: #18 — `WP-05: complete live acceptance and release LoreItems`
 - Refreshed live `main`: `70a636a25d12d755342d90d6846b86a0e56e865b`
-- Exact observed resume parent/head: `d840d802026264ef5f25530eeb9b0a647df4cd06`
-- Last implementation/evidence head recorded by the preceding checkpoint: `ec232f17c159fa9471e9ce8191eec7f281e757ee`
-- Permanent resume checkpoint: `ai-agents/reports/agent-handoffs/2026-08-10-wp-05-resume-0007-edt.md`
-- Routing result: WP-01 through WP-04 canonical heads are contained in live `main`; WP-05 is the sole unfinished canonical lock; LoreItems WP-06 finalization/API-blocker refs are absent; EnthusiaTags has no canonical WP-06 branch and no open PR.
+- Exact implementation/evidence head observed before this resume checkpoint: `74128e62c302db2e4f6a31cf0371f3e334544a87`
+- Permanent resume checkpoint: `ai-agents/reports/agent-handoffs/2026-08-10-wp-05-resume-2031-edt.md`
+
+## Routing result
+WP-01 through WP-04 canonical heads are contained in live `main`; WP-05 is the sole unfinished canonical package lock; LoreItems WP-06 finalization/API-blocker refs and the EnthusiaTags WP-06 canonical branch are absent. Review-only PRs #22/#23 and unrelated Sentinel-policy PR #21 are not competing package locks. Do not begin WP-06.
 
 ## Completed acceptance criteria / durable progress
-- Prior production fixes and regression evidence remain in branch history for Floodgate prefixed-recipient binding and the quit/inventory-close tracking race.
-- Supported `/loreitems reload` operator surface, bounded atomic reload submission, validation/rejection feedback, tab completion, focused tests, metadata, and operator documentation are present.
-- Deterministic configuration-reload acceptance exists and previously passed on implementation head `ec232f17...`.
-- Public API, Java identity/core, editor contract, mutation-review contract, ambiguous-mutation recovery, exact removal, full-inventory, Floodgate identity, tracking, and anomaly acceptance all have successful evidence on recent implementation heads as recorded in prior handoffs; final-package acceptance still requires the complete matrix on the final post-code-change JAR.
-
-## Exact current-head GitHub evidence on `d840d802...`
-- `CI` run `31354058039`: completed/success.
-- `WP-05 Public API Acceptance` `31354058041`: completed/success.
-- `WP-05 Java Identity and Core Acceptance` `31354058025`: completed/success.
-- `WP-05 ACC-CORE-005 Full Inventory Acceptance` `31354058061`: completed/success.
-- `WP-05 Floodgate Identity Acceptance` `31354058085`: completed/success.
-- `WP-05 Editor Contract Acceptance` `31354058055`: completed/success.
-- `WP-05 Exact Removal Acceptance` `31354058057`: completed/success.
-- `WP-05 Anomaly Contract Acceptance` `31354058034`: completed/success.
-- `WP-05 Mutation Review Contract Acceptance` `31354058066`: completed/success.
-- `WP-05 Ambiguous Mutation Recovery Acceptance` `31354058033`: completed/success.
-- `WP-05 Configuration Reload Acceptance` `31354058046`: completed/failure.
-- `WP-05 Destructive Lifecycle Acceptance` `31354058029`: completed/failure.
-- `WP-05 Tracking Contract Acceptance` `31354058090`: completed/failure.
-- Commit status `CodeRabbit`: success.
-- PR #18: no submitted reviews and zero unresolved review threads at reconciliation.
+- `74128e62...` publishes the audited final acceptance ledger for the final 1.0.0 candidate built from source head `b0fee367...`.
+- Every repository-native WP-05 workflow returned for exact head `74128e62...` is terminal `success`, including CI and the complete current acceptance workflow set.
+- Exact-head Codacy is successful and exact-head Sentinel startup is `PAPER_SMOKE_OK`.
+- PR #18 has no submitted requested-change review and zero inline review threads at reconciliation.
+- Owner/operator standing release authorization is recorded on PR #18 after the 35-case matrix completed green on tested head `b0fee367...`.
 
 ## Known findings
-- Failure ownership for the three current-head acceptance failures must be diagnosed from job evidence before product changes are made.
-- The preceding handoff identifies a real configuration source-of-truth gap: `PaperTrackedItemProtectionListener` reads `shared-containers-allowed` through Bukkit `plugin.getConfig()`, while supported atomic reload owns a `FoundationConfiguration` snapshot. Dynamic shared-container reload must be proven from a true pre-reload baseline or routed through the atomic snapshot.
-- The legacy destructive-lifecycle workflow still contains unsupported global Paper/Bukkit `/reload` behavior for `ACC-LIFE-001`; the canonical matrix requires the plugin-supported reload path and forbids substituting global reload.
-- Deterministic `ACC-DEST-003` full-delete plus late-copy/tombstone coverage remains required.
-- No external blocker is verified.
-
-## Remaining acceptance criteria
-- Diagnose the three failing current-head workflows and fix only the proven owning component.
-- Close the shared-container configuration source-of-truth/evidence gap.
-- Retire/replace the invalid global `/reload` lifecycle phase while preserving restart/pause evidence for `ACC-DEST-002`, `ACC-DEST-004`, and `ACC-LIFE-002`.
-- Add deterministic `ACC-DEST-003` full-delete plus late-copy/tombstone coverage.
-- Complete remaining matrix areas including `ACC-ENV-001`, `ACC-EDIT-003`, `ACC-PROT-001..002`, `ACC-DIST-001..005`, and `ACC-OPS-001..005`.
-- Repeat the entire in-scope matrix on the final post-code-change JAR.
-- Obtain applicable final Sentinel startup/restart evidence, independent harsh code review, separate evidence audit, owner/operator sign-off, normal merge, post-merge `main` verification, and verified production `v1.0.0` release/assets.
+- Direct CodeRabbit review of PR #18 was skipped/rate limited because of PR size; its green commit status is not being treated as substantive independent review. Review-only slices #22/#23 must be audited.
+- Exact-head Sentinel restart and the separate evidence-audit gate must still be inspected and credited from durable evidence.
+- Live Sentinel policy confirms the owner's `repository_selection=all` setting is compatible with policy-scoped short-lived execution tokens; do not revert the App selector based on stale LoreItems text.
 
 ## Blocker
 None. WP-05 remains actionable.
 
 ## Exact next action
-Inspect jobs/logs for runs `31354058046`, `31354058029`, and `31354058090`; classify each failure owner; fix the shared-container configuration source-of-truth gap and invalid global-reload lifecycle phase where confirmed; rerun affected regressions; continue WP-05 only. Do not begin WP-06.
+Audit PRs #22/#23, the separate evidence audit, and exact-head Sentinel restart evidence. Resolve any findings inside WP-05, then complete final exact-head/review/merge/main/release verification and stop. Do not begin WP-06.
