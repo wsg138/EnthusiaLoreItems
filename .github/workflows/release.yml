@@ -55,8 +55,9 @@ jobs:
             exit 0
           fi
 
-          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>/dev/null || true)"
-          if [ -n "${TAG_SHA}" ]; then
+          if TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>/dev/null)"; then
+            test -n "${TAG_SHA}"
+            test "${TAG_SHA}" != "null"
             test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
             echo "target_sha=${EVENT_TARGET_SHA}" >> "${GITHUB_OUTPUT}"
             echo "ci_run_id=${EVENT_CI_RUN_ID}" >> "${GITHUB_OUTPUT}"
