@@ -5,12 +5,13 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `BLOCKED`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Continuation PR: #26, `WP-05: complete live acceptance and release LoreItems`.
-- Exact implementation/evidence head checkpointed here: `945105087318858cea9fdde99adb9853a51c1504`.
+- Resume parent checkpoint: `60bc310ebceb06940052ab9461949a968c9ff2cc`.
+- Exact implementation/evidence head being reviewed: `945105087318858cea9fdde99adb9853a51c1504`.
 - Live `main`: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
-- WP-06 is `BLOCKED`; it remains blocked until the WP-05 production `v1.0.0` release is verified. Do not begin WP-06.
+- WP-06 remains `BLOCKED` until WP-05 production `v1.0.0` is verified. Do not begin WP-06.
 
 ## Package registry
 | Package | Weight | Status | Reason |
@@ -19,53 +20,48 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | normally merged and verified |
 | WP-04 | 15% | COMPLETE | normally merged; RC prerelease verified |
-| WP-05 | 15% | BLOCKED | all current fixes and exact-head CI/Codacy pass, but fresh independent successor review is externally unavailable at CodeRabbit's review quota |
+| WP-05 | 15% | IN_PROGRESS | previous review-quota blocker materially changed; fresh successor independent review is being resumed |
 | WP-06 | 10% | BLOCKED | blocked until WP-05 production `v1.0.0` is verified |
 
 - Globally verified completed: 4/6 packages.
 - Weighted completed progress: 75%.
 
-## Retained package evidence
-- Prior WP-05 PR #18 passed the full acceptance matrix, review/thread gates, and explicit production Sentinel startup/restart, then normally merged as `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
-- Push-to-main CI `31559889210` succeeded; automatic production Release run `31560031191` failed before any `v1.0.0` tag/release mutation, returning finalization to this same WP-05 package.
-- Continuation implementation baseline `2e8bc340...` fixed explicit-404-only tag lookup handling, non-404 diagnostic/status propagation, executable resolver behavior tests, and privileged `workflow_run` source checkout; CI `31562243246` and exact Codacy `94006943660` passed.
-
-## Fresh review and successor remediation
-- Resume/review predecessor `6dcf8199...` passed CI `31627583672`, job `94217890215`, including exact-head Codacy.
-- CodeRabbit run `53b20eba-24bc-43fc-9440-ddf43834fc53` reviewed the previously uncovered continuation range through `6dcf8199...` and returned two actionable findings.
-- Successor `9451050873...` implements both findings:
-  1. existing production release recovery now requires exact tag plus `isDraft=false` and `isPrerelease=false` before `released=true`;
-  2. queue/workspace/handoff state records are synchronized with the current package lifecycle.
-- Executable resolver regression now proves draft and prerelease releases fail closed with no publication outputs.
-- Exact successor CI `31628311153`, job `94220359053`, completed successfully. `Verify release publication-state behavior` and `Verify exact-head Codacy` both passed, as did Gradle verification, tooling, complexity, deterministic profile, release evidence, reproducibility, and artifacts.
+## Retained WP-05 evidence
+- Prior canonical PR #18 passed the full acceptance matrix, review/thread gates, and explicit production Sentinel startup/restart, then normally merged as `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
+- Push-to-main CI `31559889210` succeeded; automatic Release run `31560031191` failed before any production tag/release mutation, so finalization correctly remained WP-05.
+- Continuation fixes explicit-404-only tag handling, non-404 diagnostic/status propagation, exact-CI-SHA resolver fetch, executable resolver regressions, and draft/prerelease release rejection.
+- Fresh CodeRabbit run `53b20eba-24bc-43fc-9440-ddf43834fc53` reviewed through `6dcf8199...`, found two actionable issues, and successor `9451050873...` implements both.
+- Exact successor CI `31628311153`, job `94220359053`, is `completed/success`; exact-head Codacy, release-state regression, deterministic profile, release evidence, reproducibility, and artifacts all passed.
+- Blocker checkpoint `60bc310e...` passed canonical CI `31628688529`; all dedicated product workflows were skipped by path filtering.
+- Current PR #26 is open, non-draft, mergeable, and all visible review threads are resolved.
 
 ## Independent review status
-CodeRabbit then attempted successor review range `6dcf8199...` through `9451050873...` as run `75e28d83-7398-4c46-ace4-91236c296086`. Its GitHub summary comment `5261960978` reports `Review limit reached` and states the next review is available in 51 minutes.
+The prior attempt to review successor `9451050873...` was refused by CodeRabbit quota and was durably recorded as an external blocker. On this resume, live GitHub materially differs from that checkpoint: CodeRabbit's current PR summary no longer contains `Review limit reached`, and combined status on `60bc310e...` is `success`.
 
-That is a verified external dependency. The package contract forbids replacing the required fresh review with CI, an older review, or a commit status, so WP-05 remains `BLOCKED`.
+Those are only unblock signals. They are not substituted for the contract-required fresh submitted review. WP-05 remains `IN_PROGRESS` while a new review is requested and evaluated.
 
 ## Completed acceptance criteria
-- Post-merge release failure reproduced and diagnosed without creating production tag/release.
-- Continuation release resolver fails closed on explicit 404 vs non-404 API states and retains diagnostics/status.
-- Privileged Release workflow fetches the resolver from the exact successful CI SHA without checking out triggering source.
-- Executable regression covers missing tag, null success, exact tag, 403/429/500, valid existing release, draft existing release, and prerelease existing release behavior.
+- Full WP-05 product acceptance and retained Sentinel evidence remain complete for unchanged plugin runtime behavior.
+- Post-merge production release failure was diagnosed without tag/release mutation.
+- Release-state resolver is fail-closed for lookup errors and release production-state flags.
+- Executable regression coverage includes all confirmed continuation defects.
 - Exact successor CI/Codacy/reproducibility/artifact gates pass on `9451050873...`.
-- Both actionable findings from the last completed independent review are implemented.
+- All findings from the last completed independent review are implemented.
 
 ## Remaining acceptance criteria
-1. Obtain a fresh independent review of `9451050873...` after external review capacity recovers; resolve every finding and require zero unresolved threads.
-2. Commit prospective final WP-05 `COMPLETE` / WP-06 `READY` only after review is clean.
-3. Verify final state head with fresh exact-head CI/Codacy/review.
-4. Run final-head production Sentinel startup then restart and require the contract terminal PASS codes.
-5. Reconcile live `main`, normally merge PR #26, verify post-merge main CI.
-6. Verify automatic production `v1.0.0` targets the exact merge, is non-draft/non-prerelease, and contains every required asset/checksum/source binding.
-7. Record durable global completion and stop without beginning WP-06.
+1. Fresh independent review covering the successor fixes and current branch delta; zero actionable findings and zero unresolved threads.
+2. Prospective final WP-05 `COMPLETE` / WP-06 `READY` source-state commit only after review is clean.
+3. Exact-head final-state CI/Codacy/review.
+4. Exact-head production Sentinel startup then restart using current live policy/manifest/command contract.
+5. Current-main reconciliation, normal merge commit, and post-merge main CI.
+6. Automatic production `v1.0.0` verification against the exact merge with all required assets/checksums and non-draft/non-prerelease state.
+7. Durable global completion record, then stop without beginning WP-06.
 
 ## Known findings
-No known unimplemented product/release-control finding remains. The successor itself still requires the contract-mandated fresh independent review.
+No known unimplemented product/release-control finding remains. The mandatory successor independent review is being retried after the external condition changed.
 
 ## Blocker
-Verified external dependency: CodeRabbit successor review run `75e28d83-7398-4c46-ace4-91236c296086` was refused at the PR review quota; summary comment `5261960978` reports the next review available in 51 minutes.
+None during this active resume attempt. If the independent-review service again refuses the required fresh review, record that new external blocker and stop.
 
 ## Exact next action
-After that external capacity materially changes, re-fetch branch/PR and request a fresh review of exact implementation head `9451050873...`. Do not write prospective completion state, merge, or begin WP-06 before the review is terminal clean.
+Publish this resume checkpoint from exact parent `60bc310e...`, re-fetch branch/PR, then request a fresh CodeRabbit review. Resolve any new finding in WP-05; otherwise proceed to the prospective final-state commit and final verification gates. Do not begin WP-06.
