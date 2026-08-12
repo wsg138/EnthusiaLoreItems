@@ -1,0 +1,377 @@
+name: WP-05 Full Delete Late Copy Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-full-delete-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-delete-late-copy:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare disposable Paper server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-full-delete
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 5000
+          database-queue-capacity: 256
+          database-shutdown-timeout-seconds: 10
+          delivery-claim-batch-size: 32
+          delivery-claim-lease-seconds: 30
+          duplicate-warning-interval-seconds: 300
+          default-page-size: 45
+          max-page-size: 100
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 full delete late copy acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const root='/tmp/wp05-full-delete'
+          const username=process.argv[2]
+          if(!username) throw new Error('username required')
+          const safe=username.toLowerCase()
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username,version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot-${safe}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          bot.on('message',m=>log(`CHAT ${m.toString()}`))
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`);fs.writeFileSync(`${root}/${safe}.uuid`,`${bot.player.uuid}\n`)})
+          const timer=setInterval(()=>{if(fs.existsSync(`${root}/${safe}.stop`)){clearInterval(timer);bot.quit('acceptance transition')}},100)
+          EOF
+
+      - name: Execute ACC-DEST-003 full delete and late-copy tombstone contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-full-delete
+          SERVER="$ROOT/server"
+          DB="$SERVER/plugins/EnthusiaLoreItems/loreitems.db"
+          EVIDENCE="$ROOT/evidence"
+          cd "$SERVER"
+
+          start_server() {
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 180); do
+              if grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log"; then return 0; fi
+              kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; return 1; }
+              sleep 1
+            done
+            cat "$log"; return 1
+          }
+
+          stop_server() {
+            echo stop >&3
+            wait "$SERVER_PID"
+            exec 3>&-
+            rm -f server.stdin
+          }
+
+          start_bot() {
+            local name="$1" safe pid
+            safe="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            rm -f "$ROOT/$safe.uuid" "$ROOT/$safe.stop"
+            (cd "$ROOT/bot" && node bot.js "$name") >"$EVIDENCE/bot-${safe}-stdout.log" 2>&1 &
+            pid=$!
+            printf '%s\n' "$pid" > "$ROOT/$safe.pid"
+            for _ in $(seq 1 90); do
+              test -s "$ROOT/$safe.uuid" && return 0
+              kill -0 "$pid" 2>/dev/null || { cat "$EVIDENCE/bot-${safe}-stdout.log"; return 1; }
+              sleep 1
+            done
+            return 1
+          }
+
+          stop_bot() {
+            local name="$1" safe pid
+            safe="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+            pid="$(cat "$ROOT/$safe.pid")"
+            touch "$ROOT/$safe.stop"
+            wait "$pid" || true
+            rm -f "$ROOT/$safe.pid"
+          }
+
+          wait_sql() {
+            local expression="$1" limit="${2:-90}"
+            for _ in $(seq 1 "$limit"); do
+              if python3 - "$DB" "$expression" <<'PY'
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:
+                  row=c.execute(sys.argv[2]).fetchone()
+                  raise SystemExit(0 if row and row[0] else 1)
+          except sqlite3.OperationalError:
+              raise SystemExit(1)
+          PY
+              then return 0; fi
+              sleep 1
+            done
+            echo "SQL condition timed out: $expression" >&2
+            return 1
+          }
+
+          count_log() { grep -Fc "$1" "$2" 2>/dev/null || true; }
+          wait_log_count() {
+            local pattern="$1" log="$2" expected="$3" limit="${4:-60}"
+            for _ in $(seq 1 "$limit"); do
+              test "$(count_log "$pattern" "$log")" -ge "$expected" && return 0
+              sleep 1
+            done
+            echo "log count timed out: pattern=$pattern expected=$expected" >&2
+            tail -n 250 "$log" >&2
+            return 1
+          }
+          dump_expect() {
+            local player="$1" expected="$2" log="$3" before
+            before="$(count_log "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log")"
+            echo "wp05accept dump $player" >&3
+            wait_log_count "WP05_ACCEPT DUMP ok player=$player count=$expected" "$log" "$((before+1))" 60
+          }
+          definition_id() {
+            python3 - "$DB" "$1" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              row=c.execute("select definition_id from lore_definitions where lookup_key=? and deleted_at is null",(sys.argv[2],)).fetchone()
+              assert row,sys.argv[2]
+              print(row[0])
+          PY
+          }
+          player_instance() {
+            python3 - "$DB" "$1" "$2" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              rows=c.execute("""select i.instance_id from lore_instances i join instance_current_state s on s.instance_id=i.instance_id where i.definition_id=? and i.lifecycle_state='ACTIVE' and s.location_type='PLAYER_INVENTORY' and s.location_key=? order by i.instance_id""",(sys.argv[2],'player:'+sys.argv[3])).fetchall()
+              assert len(rows)==1,rows
+              print(rows[0][0])
+          PY
+          }
+
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LOG1="$EVIDENCE/server-delete-initial.log"
+          start_server "$LOG1"
+          start_bot Wp05DeleteA
+          start_bot Wp05DeleteB
+          A_UUID="$(tr -d '\r\n' < "$ROOT/wp05deletea.uuid")"
+          B_UUID="$(tr -d '\r\n' < "$ROOT/wp05deleteb.uuid")"
+          echo 'op Wp05DeleteA' >&3
+          echo 'op Wp05DeleteB' >&3
+          echo 'wp05accept source Wp05DeleteA sword' >&3
+          sleep 1
+          echo 'wp05accept perform Wp05DeleteA loreitems create acc_dest_delete Full Delete Acceptance' >&3
+          wait_sql "select count(*)=1 from lore_definitions where lookup_key='acc_dest_delete' and deleted_at is null" 60
+          DEF="$(definition_id acc_dest_delete)"
+          echo 'wp05accept perform Wp05DeleteA loreitems adopt acc_dest_delete' >&3
+          wait_sql "select count(*)=1 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'" 60
+          echo 'wp05accept perform Wp05DeleteA loreitems give acc_dest_delete Wp05DeleteB' >&3
+          wait_sql "select count(*)=2 from lore_instances where definition_id='$DEF' and lifecycle_state='ACTIVE'" 90
+          dump_expect Wp05DeleteA 1 "$LOG1"
+          dump_expect Wp05DeleteB 1 "$LOG1"
+          A_INSTANCE="$(player_instance "$DEF" "$A_UUID")"
+          B_INSTANCE="$(player_instance "$DEF" "$B_UUID")"
+          test "$A_INSTANCE" != "$B_INSTANCE"
+
+          # The offline-playerdata backup is the deliberately hidden late copy required by ACC-DEST-003.
+          stop_bot Wp05DeleteB
+          wait_sql "select count(*)=1 from instance_current_state where instance_id='$B_INSTANCE' and state='LAST_CONFIRMED' and location_type='PLAYER_INVENTORY' and location_key='player:$B_UUID'" 60
+          PLAYERDATA="$SERVER/world/playerdata/$B_UUID.dat"
+          for _ in $(seq 1 30); do test -s "$PLAYERDATA" && break; sleep 1; done
+          test -s "$PLAYERDATA"
+          cp "$PLAYERDATA" "$EVIDENCE/wp05deleteb-predelete-playerdata.dat"
+          sha256sum "$EVIDENCE/wp05deleteb-predelete-playerdata.dat" > "$EVIDENCE/wp05deleteb-predelete-playerdata.sha256"
+
+          BEFORE_PREVIEW="$(count_log 'targets=2, inaccessible=1' "$LOG1")"
+          BEFORE_CONFIRM="$(count_log 'Confirm with: /loreitems confirm-delete ' "$LOG1")"
+          echo "loreitems delete $DEF" >&3
+          wait_log_count 'targets=2, inaccessible=1' "$LOG1" "$((BEFORE_PREVIEW+1))" 60
+          wait_log_count 'Confirm with: /loreitems confirm-delete ' "$LOG1" "$((BEFORE_CONFIRM+1))" 60
+          TOKEN="$(grep -F 'Confirm with: /loreitems confirm-delete ' "$LOG1" | tail -n1 | sed -E 's/.*confirm-delete ([^ ]+).*/\1/' | tr -d '\r')"
+          test -n "$TOKEN"
+          echo "loreitems confirm-delete $TOKEN" >&3
+          wait_sql "select count(*)=1 from lore_definitions where definition_id='$DEF' and deleted_at is not null" 60
+          wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEF' and lookup_key='acc_dest_delete'" 60
+          wait_sql "select count(*)=1 from destructive_operations where definition_id='$DEF' and operation_type='DELETE_DEFINITION' and target_count=2" 60
+          OP="$(python3 - "$DB" "$DEF" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              rows=c.execute("select operation_id from destructive_operations where definition_id=? and operation_type='DELETE_DEFINITION'",(sys.argv[2],)).fetchall()
+              assert len(rows)==1,rows
+              print(rows[0][0])
+          PY
+          )"
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP' and instance_id='$A_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 90
+          dump_expect Wp05DeleteA 0 "$LOG1"
+
+          # Ordinary give must fail once the definition is tombstoned.
+          GIVE_MARK="$(count_log 'No active lore definition has that lookup key.' "$EVIDENCE/bot-wp05deletea.log")"
+          echo 'wp05accept perform Wp05DeleteA loreitems give acc_dest_delete' >&3
+          wait_log_count 'No active lore definition has that lookup key.' "$EVIDENCE/bot-wp05deletea.log" "$((GIVE_MARK+1))" 60
+
+          # Let the known offline target become naturally accessible and finish the original operation.
+          start_bot Wp05DeleteB
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP' and instance_id='$B_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 120
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP' and state='COMPLETED' and terminal_at is not null" 60
+          dump_expect Wp05DeleteB 0 "$LOG1"
+          stop_bot Wp05DeleteB
+          stop_bot Wp05DeleteA
+          stop_server
+
+          # Reintroduce the pre-delete playerdata only. LoreItems SQLite/tombstone state is intentionally
+          # left untouched, modeling a hidden backup/offline copy returning after deletion completed.
+          cp "$EVIDENCE/wp05deleteb-predelete-playerdata.dat" "$PLAYERDATA"
+          sha256sum "$PLAYERDATA" > "$EVIDENCE/wp05deleteb-restored-playerdata.sha256"
+          cmp "$EVIDENCE/wp05deleteb-predelete-playerdata.dat" "$PLAYERDATA"
+
+          LOG2="$EVIDENCE/server-delete-late-return.log"
+          start_server "$LOG2"
+          start_bot Wp05DeleteB
+          B_UUID_AGAIN="$(tr -d '\r\n' < "$ROOT/wp05deleteb.uuid")"
+          test "$B_UUID_AGAIN" = "$B_UUID"
+
+          # The same completed target must reopen rather than resurrecting the definition or inventing
+          # a replacement instance. The operation then returns to COMPLETED after normal removal.
+          wait_sql "select count(*)>=1 from audit_events where aggregate_id='$OP' and event_type='destructive_late_copy_reopened'" 120
+          wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP' and instance_id='$B_INSTANCE' and state='COMPLETED' and effect_state='REMOVED_OBSERVED' and attempt_count>=2" 120
+          wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP' and state='COMPLETED' and terminal_at is not null and target_count=2" 60
+          wait_sql "select count(*)=1 from lore_definitions where definition_id='$DEF' and deleted_at is not null" 30
+          wait_sql "select count(*)=1 from deleted_definition_markers where definition_id='$DEF' and lookup_key='acc_dest_delete'" 30
+          wait_sql "select count(*)=0 from lore_definitions where lookup_key='acc_dest_delete' and deleted_at is null" 30
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$B_INSTANCE' and definition_id='$DEF' and lifecycle_state='REMOVED'" 30
+          dump_expect Wp05DeleteB 0 "$LOG2"
+          stop_bot Wp05DeleteB
+          stop_server
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          python3 - "$DB" "$START" "$END" "$DEF" "$OP" "$A_INSTANCE" "$B_INSTANCE" <<'PY' | tee "$EVIDENCE/result.json"
+          import json,sqlite3,sys
+          from pathlib import Path
+          db,start,end,definition,operation,a,b=sys.argv[1:]
+          root=Path('/tmp/wp05-full-delete')
+          with sqlite3.connect(db) as c:
+              c.row_factory=sqlite3.Row
+              integrity=c.execute('pragma integrity_check').fetchone()[0]
+              foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
+              assert integrity=='ok' and not foreign,(integrity,foreign)
+              active=c.execute("select count(*) from lore_definitions where lookup_key='acc_dest_delete' and deleted_at is null").fetchone()[0]
+              deleted=dict(c.execute("select definition_id,lookup_key,deleted_at from lore_definitions where definition_id=?",(definition,)).fetchone())
+              marker=dict(c.execute("select definition_id,lookup_key,deleted_at from deleted_definition_markers where definition_id=?",(definition,)).fetchone())
+              op=dict(c.execute("select operation_type,state,target_count,terminal_at from destructive_operations where operation_id=?",(operation,)).fetchone())
+              targets=[dict(r) for r in c.execute("select instance_id,state,effect_state,attempt_count,last_error from destructive_targets where operation_id=? order by instance_id",(operation,))]
+              audits=[r[0] for r in c.execute("select event_type from audit_events where aggregate_id=? order by audit_id",(operation,))]
+              assert active==0
+              assert deleted['deleted_at'] is not None and marker['definition_id']==definition
+              assert op['operation_type']=='DELETE_DEFINITION' and op['state']=='COMPLETED' and op['target_count']==2 and op['terminal_at'] is not None
+              assert len(targets)==2 and all(t['state']=='COMPLETED' and t['effect_state']=='REMOVED_OBSERVED' for t in targets)
+              bt=[t for t in targets if t['instance_id']==b][0]
+              assert bt['attempt_count']>=2,bt
+              assert 'destructive_late_copy_reopened' in audits,audits
+              assert c.execute("select lifecycle_state from lore_instances where instance_id=?",(b,)).fetchone()[0]=='REMOVED'
+          result={
+            'case':'ACC-DEST-003',
+            'result':'PASS',
+            'source_head':(root/'evidence/source-head.txt').read_text().strip(),
+            'started_at':start,
+            'finished_at':end,
+            'definition_id':definition,
+            'operation_id':operation,
+            'accessible_instance_id':a,
+            'late_instance_id':b,
+            'hidden_copy_method':'offline Paper playerdata backup restored after completed full deletion',
+            'deleted_definition_active_count':active,
+            'deleted_definition':deleted,
+            'deleted_marker':marker,
+            'operation':op,
+            'targets':targets,
+            'late_copy_reopen_audit':True,
+            'ordinary_give_rejected_after_delete':True,
+            'integrity':integrity,
+            'foreign_key_violations':foreign,
+          }
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          ROOT=/tmp/wp05-full-delete
+          DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"
+          mkdir -p "$ROOT/evidence"
+          if test -f "$DB"; then
+            python3 - "$DB" >"$ROOT/evidence/failure-db.txt" 2>&1 <<'PY' || true
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1]); c.row_factory=sqlite3.Row
+          for table in ('lore_definitions','deleted_definition_markers','lore_instances','instance_current_state','destructive_operations','destructive_targets','audit_events'):
+              print('##',table)
+              try:
+                  for row in c.execute(f'select * from {table}'): print(dict(row))
+              except Exception as exc: print(type(exc).__name__,exc)
+          print('integrity',list(c.execute('pragma integrity_check')))
+          print('foreign',list(c.execute('pragma foreign_key_check')))
+          c.close()
+          PY
+          fi
+          ps aux >"$ROOT/evidence/failure-processes.txt" 2>&1 || true
+
+      - name: Upload full-delete late-copy evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-full-delete-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-full-delete/evidence
+          if-no-files-found: error
+          retention-days: 30

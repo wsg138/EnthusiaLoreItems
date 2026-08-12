@@ -3,32 +3,50 @@
 ## Queue invariants
 Exactly six immutable packages. Live GitHub outranks snapshots. Resume the single unfinished canonical lock before new work. Never split packages or begin the next package in the same completion chat.
 
-| Order | Package | Weight | Status | Dependency |
+| Order | Package | Weight | Status | Dependency / routing |
 |---:|---|---:|---|---|
-| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | merged/verified |
-| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged/verified |
-| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | PR #14 normally merged; live merge and post-merge Actions verified |
-| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | PR #15 normally merged; release-recovery PR #16 normally merged; post-merge CI and `v1.0.0-rc.1` prerelease/assets verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | READY | WP-04 RC `v1.0.0-rc.1` published and verified |
-| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | WP-05 production release |
-
-## WP-04 completion record
-- Production-hardening PR: #15, normally merged as `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Release-recovery PR: #16, normally merged as `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
-- Exact PR-head verification for final WP-04 head `063ad63ee7341cc42a4f20c51883d5c34abd25a7`: Actions run `31204122398` passed Gradle verification, repository tooling, new-code complexity, exact-head Codacy, fixed-scenario profiling, RC package validation, immutable evidence packaging, and clean-build reproducibility; CodeRabbit status was successful and review threads were zero.
-- Post-merge WP-04 `main` verification: CI run `31204427939` passed on `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Release-recovery exact-head verification: Actions run `31204825737` passed on `c0be8bf9755e7038f6a8a9f1feb715322136f3a4`, including exact-head Codacy; CodeRabbit was successful and review threads were zero.
-- Post-recovery `main` verification: CI run `31205231097` passed on `e4b7968adea1357e7307815a5a5ef7f456f16ad1`.
-- Release workflow run `31205326905` completed successfully and recovered the already-created exact RC tag without moving it.
-- `v1.0.0-rc.1` is a GitHub prerelease targeting `89399db2d92fd7197479a8803e920c02f5bec490`.
-- Verified release assets: `EnthusiaLoreItems.jar`, `EnthusiaLoreItems.jar.sha256`, `bom.cyclonedx.json`, `gradle-dependencies.txt`, `normalized-entry-manifest.txt`, `wp04-profile.json`, and `EnthusiaLoreItems-test-reports.tar.gz`.
-- The released JAR digest reported by GitHub is `sha256:3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8`.
-- No live Paper/Leaf acceptance is claimed by WP-04; that remains WP-05 scope.
+| 1 | [WP-01](work-packages/WP-01-editor-and-template-management.md) | 20% | COMPLETE | normally merged and verified |
+| 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | normally merged and verified |
+| 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | normally merged and verified |
+| 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | normally merged and verified; RC prerelease verified |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | COMPLETE | prospective final state in open PR #18; exact evidence head `8f221932...` passed full acceptance plus production startup/restart; global completion awaits final-head verification, merge and release finalization |
+| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | READY | prospective unlock only; do not claim until WP-05's prospective state is merged and post-merge production `v1.0.0` is verified |
 
 ## Progress
-- Completed: 4/6
-- Remaining: 2/6
-- Weighted progress: 75%
+- Prospective completed: 5/6 packages.
+- Prospective weighted completed progress: 90%.
+- Globally verified completed remains 4/6 packages / 75% while PR #18 is open.
+- WP-05's prospective `COMPLETE` and WP-06's prospective `READY` become globally authoritative only after this exact final-state commit passes fresh exact-head gates, is normally merged, and WP-05 post-merge/release verification succeeds.
+
+## WP-05 final package evidence checkpoint
+- Canonical branch: `agent/wp-05-live-acceptance-release`.
+- Canonical PR: #18, `WP-05: complete live acceptance and release LoreItems`.
+- Exact implementation/evidence head recorded by the prospective-completion commit: `8f221932e0ae3a77b51b6c8dc8bdb3276af0b68f`.
+- Live `main` before prospective-completion commit: `70a636a25d12d755342d90d6846b86a0e56e865b`.
+- Exact-head CI: `31557579319`, success.
+- Exact plugin artifact: `9126565698`, `enthusialoreitems-plugin`, `build/libs/EnthusiaLoreItems.jar`.
+- Exact verification artifact: `9126565348`, `wp04-verification-8f221932e0ae3a77b51b6c8dc8bdb3276af0b68f`.
+- External Codacy `93993107691`: success, zero annotations.
+- All 22 dedicated WP-05 acceptance workflows: success.
+- PR #18: no requested-changes review; zero unresolved inline review threads on the checkpointed head.
+- Independent review-only PR #25: all six actionable review threads resolved/dispositioned.
+- Explicit production Sentinel startup: source comment `5261577068`, response `5261578620`, check `93994247049`, job `135`, terminal `PAPER_SMOKE_OK`.
+- Sequential explicit production Sentinel restart: source comment `5261626410`, response `5261628944`, job `136`, terminal `PAPER_RESTART_OK`.
+- The accepted Sentinel commands bind to exact SHA `8f221932...`, exact CI run `31557579319`, artifact `9126565698`, name `enthusialoreitems-plugin`, and JAR path `build/libs/EnthusiaLoreItems.jar`.
+- Automatic reviewable/startup check `93993075097` failed before artifact publication with `ARTIFACT_ACQUISITION_FAILED`; this timing result is historical and not counted as a PASS. The explicit commands were issued only after exact-head CI/artifact success and then passed.
+
+## Remaining boundary before global completion
+The prospective state commit itself creates a successor exact head, invalidating predecessor exact-head checks for merge purposes. The same package remains the only active work until all finalization succeeds:
+
+1. Fresh final-head CI, all applicable acceptance workflows, Codacy, artifact/release binding, review state and zero unresolved review threads.
+2. Fresh explicit production Sentinel startup then restart on that final head after its exact CI plugin artifact exists, because documentation-only commits also invalidate Sentinel exact-head evidence.
+3. Current-main reconciliation immediately before merge; if `main` moved, integrate it non-destructively and repeat final-head gates.
+4. Normal merge-commit of PR #18 only.
+5. Post-merge `main` CI and automatic production `v1.0.0` tag/release verification against the exact merge commit, including all required assets/checksums.
+6. Durable global completion record; then stop without beginning WP-06.
+
+## Blocker
+None.
 
 ## Exact next action
-Start WP-05 from live `main` after this completion-state transition is merged. Use the exact `v1.0.0-rc.1` release artifact and execute `docs/wp-05-manual-acceptance-matrix.md`. Do not begin WP-06.
+Fast-forward the canonical branch with the prospective-completion state commit based on exact predecessor `8f221932...`, immediately re-fetch branch/PR for concurrency safety, and verify the newly triggered final-head gates. Do not begin WP-06.

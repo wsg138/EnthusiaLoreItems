@@ -10,4 +10,4 @@ duplicate-warning-interval-seconds: 300
 default-page-size: 45
 max-page-size: 100
 mutation-budget-per-tick: 16
-shared-containers-allowed: false
+shared-containers-allowed: true

@@ -1,0 +1,220 @@
+name: WP-05 Tracking Contract Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-tracking-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tracking-contract:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact head and prepare disposable Paper server
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          helper = Path('acceptance-harness/src/main/java/net/enthusia/loreitems/acceptance/WP05AcceptanceHarnessPlugin.java')
+          text = helper.read_text()
+
+          place_anchor = """        ItemStack tracked = takeTrackedStorageItem(player);
+                  placement.accept(tracked);
+                  player.closeInventory();
+          """
+          place_replacement = """        ItemStack tracked = takeTrackedStorageItem(player);
+                  placement.accept(tracked);
+                  if (destination.equals(\"shulker\") || destination.equals(\"bundle\")) {
+                      int offset = destination.equals(\"shulker\") ? 14 : 16;
+                      player.openInventory(chest(player, offset).getBlockInventory());
+                  }
+                  player.closeInventory();
+          """
+          if text.count(place_anchor) != 1:
+              raise SystemExit(f'expected one nested placement synchronization anchor, found {text.count(place_anchor)}')
+          text = text.replace(place_anchor, place_replacement)
+
+          chest_anchor = """        Block block = location.getBlock();
+                  block.setType(Material.CHEST);
+                  if (!(block.getState() instanceof Chest chest)) {
+          """
+          chest_replacement = """        Block block = location.getBlock();
+                  if (block.getType() != Material.CHEST) {
+                      block.setType(Material.CHEST);
+                  }
+                  if (!(block.getState() instanceof Chest chest)) {
+          """
+          if text.count(chest_anchor) != 1:
+              raise SystemExit(f'expected one acceptance chest initialization anchor, found {text.count(chest_anchor)}')
+          text = text.replace(chest_anchor, chest_replacement)
+          helper.write_text(text)
+          PY
+
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+
+          ROOT=/tmp/wp05-tracking-contract
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 tracking contract acceptance
+          view-distance=4
+          simulation-distance=4
+          EOF
+
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+
+      - name: Instrument Track 3 unload diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script = Path('acceptance-harness/scripts/wp05-tracking-acceptance.sh')
+          text = script.read_text()
+          marker = '# ACC-TRACK-003: natural drop/pickup, ordinary player display placement, controlled death and chunk lifecycle.'
+          prefix, separator, track3 = text.partition(marker)
+          if not separator:
+              raise SystemExit('ACC-TRACK-003 marker missing from tracking harness')
+
+          checkpoint = 'wait_marker track3-away-done 220\n'
+          if track3.count(checkpoint) != 1:
+              raise SystemExit(f'expected one Track 3 away checkpoint, found {track3.count(checkpoint)}')
+          diagnostics = (
+              "(\n"
+              "  sleep 15\n"
+              "  echo 'paper chunkinfo world' >&3\n"
+              "  echo 'paper holderinfo world' >&3\n"
+              "  echo 'paper debug chunks' >&3\n"
+              "  sleep 45\n"
+              "  echo 'paper chunkinfo world' >&3\n"
+              "  echo 'paper holderinfo world' >&3\n"
+              "  echo 'paper debug chunks' >&3\n"
+              "  sleep 60\n"
+              "  echo 'paper chunkinfo world' >&3\n"
+              "  echo 'paper holderinfo world' >&3\n"
+              "  echo 'paper debug chunks' >&3\n"
+              ") &\n"
+          )
+          track3 = track3.replace(checkpoint, checkpoint + diagnostics)
+
+          fixture_positions = {
+              'summon minecraft:item_frame 72 71 0': 'summon minecraft:item_frame 72.5 71.5 0.96875',
+              'summon minecraft:glow_item_frame 74 71 0': 'summon minecraft:glow_item_frame 74.5 71.5 0.96875',
+          }
+          for old, new in fixture_positions.items():
+              if track3.count(old) != 1:
+                  raise SystemExit(f'expected one display fixture command {old!r}, found {track3.count(old)}')
+              track3 = track3.replace(old, new)
+
+          script.write_text(prefix + separator + track3)
+          PY
+
+      - name: Execute ACC-TRACK-001 through ACC-TRACK-003
+        shell: bash
+        run: bash acceptance-harness/scripts/wp05-tracking-acceptance.sh
+
+      - name: Surface tracking failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -d /tmp/wp05-tracking-contract/server/debug ]]; then
+            mkdir -p /tmp/wp05-tracking-contract/evidence/paper-debug
+            cp -a /tmp/wp05-tracking-contract/server/debug/. /tmp/wp05-tracking-contract/evidence/paper-debug/ || true
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('/tmp/wp05-tracking-contract')
+          evidence = root / 'evidence'
+
+          def escape(value: str) -> str:
+              return value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+
+          marker_names = [
+              'track1-online-done', 'track1-reconnected',
+              'track2-chest-done', 'track2-hopper-done', 'track2-shulker-done',
+              'track2-bundle-done', 'track2-away-done', 'track2-return-done',
+              'track3-drop-done', 'track3-pickup-done', 'track3-frame-done',
+              'track3-glowframe-done', 'track3-armorstand-done',
+              'track3-away-done', 'track3-return-done', 'bot.failed',
+          ]
+          marker_state = ', '.join(f'{name}={"present" if (root / name).exists() else "missing"}' for name in marker_names)
+          print(f'::error title=WP-05 tracking marker state::{escape(marker_state)}')
+
+          for path in [
+              root / 'bot.failed', evidence / 'bot.log', evidence / 'bot-stdout.log',
+              evidence / 'case-results.txt', evidence / 'track3-unload-state.txt', evidence / 'server.log'
+          ]:
+              if path.exists():
+                  lines = path.read_text(errors='replace').splitlines()[-35:]
+                  text = '\n'.join(lines)
+              else:
+                  text = '<missing>'
+              print(f'::error title=WP-05 tracking diagnostic {path.name}::{escape(text)}')
+          PY
+
+      - name: Execute ACC-TRACK-002 restricted nested-storage phase
+        shell: bash
+        run: bash acceptance-harness/scripts/wp05-tracking-restricted.sh
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-tracking-contract-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-tracking-contract/evidence
+          if-no-files-found: error
+          retention-days: 30

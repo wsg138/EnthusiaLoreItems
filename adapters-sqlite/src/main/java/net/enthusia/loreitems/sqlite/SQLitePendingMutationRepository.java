@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.DestructiveOperationStore;
 import net.enthusia.loreitems.application.DestructiveOperationStoreProvider;
 import net.enthusia.loreitems.application.LoreItemIdentity;
@@ -19,6 +20,7 @@ import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.application.PendingMutationRecord;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PendingMutationReviewStore;
 import net.enthusia.loreitems.application.PreparedTemplateUpdate;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import net.enthusia.loreitems.application.TemplateUpdatePrepareResult;
@@ -28,6 +30,7 @@ import net.enthusia.loreitems.domain.PendingMutationState;
 
 public final class SQLitePendingMutationRepository
         implements PendingMutationRepository,
+                PendingMutationReviewStore,
                 TemplateUpdateExecutionStore,
                 DestructiveOperationStoreProvider {
     private static final String NOW_ARGUMENT = "now";
@@ -38,16 +41,29 @@ public final class SQLitePendingMutationRepository
     private final SQLiteStorageRuntime storage;
     private final SQLiteTemplateUpdateExecutionStore templateUpdates;
     private final SQLiteDestructiveOperationStore destructiveOperations;
+    private final SQLitePendingMutationReviewStore reviewStore;
 
     public SQLitePendingMutationRepository(SQLiteStorageRuntime storage) {
         this.storage = Objects.requireNonNull(storage, "storage");
         this.templateUpdates = new SQLiteTemplateUpdateExecutionStore(storage);
         this.destructiveOperations = new SQLiteDestructiveOperationStore(storage);
+        this.reviewStore = new SQLitePendingMutationReviewStore(storage);
     }
 
     @Override
     public DestructiveOperationStore destructiveOperationStore() {
         return destructiveOperations;
+    }
+
+    @Override
+    public CompletionStage<PendingMutationReviewStore.Status> resolve(
+            UUID mutationId,
+            String expectedMutationType,
+            PendingMutationReviewStore.Resolution resolution,
+            AuditEventRecord auditEvent,
+            Instant now) {
+        return reviewStore.resolve(
+                mutationId, expectedMutationType, resolution, auditEvent, now);
     }
 
     @Override

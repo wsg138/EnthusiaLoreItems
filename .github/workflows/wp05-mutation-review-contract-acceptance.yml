@@ -1,0 +1,72 @@
+name: WP-05 Mutation Review Contract Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-mutation-review-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-review-contract:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Verify mutation review regression tests
+        id: review_tests
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon \
+            :application:test \
+            :adapters-sqlite:test \
+            :adapters-paper:test \
+            --tests '*PersistingPendingMutationReviewUseCaseTest' \
+            --tests '*SQLitePendingMutationReviewStoreTest' \
+            --tests '*LoreItemsMutationReviewCommandExecutorTest' \
+            2>&1 | tee /tmp/wp05-mutation-review-gradle.log
+
+      - name: Surface mutation review build diagnostics
+        if: failure() && steps.review_tests.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/wp05-mutation-review-gradle.log')
+          text = '\n'.join(path.read_text(errors='replace').splitlines()[-120:]) if path.exists() else '<missing gradle log>'
+          escaped = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=WP-05 mutation review Gradle diagnostic::{escaped}')
+          PY
+
+      - name: Upload mutation review diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-mutation-review-contract-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            /tmp/wp05-mutation-review-gradle.log
+            application/build/test-results/test
+            adapters-sqlite/build/test-results/test
+            adapters-paper/build/test-results/test
+          if-no-files-found: warn
+          retention-days: 30

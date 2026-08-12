@@ -1,0 +1,274 @@
+name: WP-05 Exact Removal Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-dest-exact-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-removal:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build exact PR head and prepare disposable server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-dest-exact
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" > "$ROOT/evidence/plugin-sha256.txt"
+          sha256sum "$HARNESS_JAR" > "$ROOT/evidence/harness-sha256.txt"
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > "$ROOT/evidence/source-head.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          duplicate-warning-interval-seconds: 300
+          EOF
+          cp "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" "$ROOT/evidence/loreitems-config.yml"
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 exact destructive removal acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >"$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const root='/tmp/wp05-dest-exact'
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05DestBot',version:'1.21.11',auth:'offline'})
+          const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          bot.on('message',m=>log(`CHAT ${m.toString()}`))
+          bot.on('error',e=>log(`ERROR ${e.stack||e}`))
+          bot.on('kicked',r=>log(`KICKED ${String(r)}`))
+          bot.once('spawn',()=>{log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`);fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`)})
+          const timer=setInterval(()=>{if(fs.existsSync(`${root}/bot.stop`)){clearInterval(timer);bot.quit('acceptance complete')}},100)
+          EOF
+
+      - name: Execute ACC-DEST-001 through the real destructive command flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-dest-exact
+          DB="$ROOT/server/plugins/EnthusiaLoreItems/loreitems.db"
+          cd "$ROOT/server"
+          start_server(){
+            local log="$1"
+            rm -f server.stdin
+            mkfifo server.stdin
+            exec 3<>server.stdin
+            java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 180); do
+              if grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log"; then return 0; fi
+              kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; return 1; }
+              sleep 1
+            done
+            cat "$log"
+            return 1
+          }
+          stop_server(){ echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin; }
+          start_bot(){
+            rm -f "$ROOT/bot.uuid" "$ROOT/bot.stop"
+            (cd "$ROOT/bot" && node bot.js) >"$ROOT/evidence/bot-stdout.log" 2>&1 &
+            BOT_PID=$!
+            for _ in $(seq 1 90); do
+              test -s "$ROOT/bot.uuid" && return 0
+              kill -0 "$BOT_PID" 2>/dev/null || { cat "$ROOT/evidence/bot-stdout.log"; return 1; }
+              sleep 1
+            done
+            return 1
+          }
+          stop_bot(){ touch "$ROOT/bot.stop"; wait "$BOT_PID" || true; }
+          wait_log(){
+            local pattern="$1" log="$2" limit="${3:-60}"
+            for _ in $(seq 1 "$limit"); do grep -Fq "$pattern" "$log" && return 0; sleep 1; done
+            echo "missing log pattern: $pattern" >&2
+            tail -n 250 "$log" >&2
+            return 1
+          }
+          wait_sql(){
+            local expression="$1" limit="${2:-60}"
+            for _ in $(seq 1 "$limit"); do
+              if python3 - "$DB" "$expression" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          try:
+              value=c.execute(sys.argv[2]).fetchone()[0]
+              raise SystemExit(0 if value else 1)
+          finally:
+              c.close()
+          PY
+              then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          start_server "$ROOT/evidence/server-initial.log"
+          start_bot
+          PLAYER_UUID="$(tr -d '\r\n' < "$ROOT/bot.uuid")"
+          echo 'op Wp05DestBot' >&3
+          echo 'wp05accept source Wp05DestBot sword' >&3
+          sleep 1
+          echo 'wp05accept perform Wp05DestBot loreitems create acc_dest_exact Exact Removal Acceptance' >&3
+          wait_sql "select count(*)=1 from lore_definitions where lookup_key='acc_dest_exact' and deleted_at is null" 45
+          echo 'wp05accept perform Wp05DestBot loreitems adopt acc_dest_exact' >&3
+          wait_sql "select count(*)=1 from lore_instances where definition_id=(select definition_id from lore_definitions where lookup_key='acc_dest_exact') and lifecycle_state='ACTIVE'" 45
+          echo 'wp05accept perform Wp05DestBot loreitems give acc_dest_exact Wp05DestBot' >&3
+          wait_sql "select count(*)=2 from lore_instances where definition_id=(select definition_id from lore_definitions where lookup_key='acc_dest_exact') and lifecycle_state='ACTIVE'" 60
+          wait_sql "select count(*)=1 from direct_deliveries d join lore_instances i on i.instance_id=d.instance_id join lore_definitions f on f.definition_id=i.definition_id where f.lookup_key='acc_dest_exact' and d.state='COMPLETED'" 60
+          echo 'wp05accept dump Wp05DestBot' >&3
+          wait_log 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=2' "$ROOT/evidence/server-initial.log" 30
+
+          read -r DEFINITION_ID TARGET_ID SIBLING_ID <<EOF
+          $(python3 - "$DB" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1])
+          definition=c.execute("select definition_id from lore_definitions where lookup_key='acc_dest_exact' and deleted_at is null").fetchone()[0]
+          rows=[r[0] for r in c.execute("select instance_id from lore_instances where definition_id=? and lifecycle_state='ACTIVE' order by created_at,instance_id",(definition,))]
+          assert len(rows)==2, rows
+          print(definition, rows[0], rows[1])
+          c.close()
+          PY
+          )
+          EOF
+          test -n "$DEFINITION_ID" && test -n "$TARGET_ID" && test -n "$SIBLING_ID"
+          test "$TARGET_ID" != "$SIBLING_ID"
+
+          echo "loreitems remove $DEFINITION_ID $TARGET_ID" >&3
+          wait_log 'Confirm with: /loreitems confirm-remove ' "$ROOT/evidence/server-initial.log" 45
+          test "$(python3 - "$DB" <<'PY'
+          import sqlite3,sys
+          c=sqlite3.connect(sys.argv[1]); print(c.execute('select count(*) from destructive_operations').fetchone()[0]); c.close()
+          PY
+          )" = "0"
+          TOKEN="$(grep -F 'Confirm with: /loreitems confirm-remove ' "$ROOT/evidence/server-initial.log" | tail -n1 | sed -E 's/.*confirm-remove ([^ ]+).*/\1/' | tr -d '\r')"
+          test -n "$TOKEN"
+          echo "loreitems confirm-remove $TOKEN" >&3
+          wait_sql "select count(*)=1 from destructive_operations where operation_type='EXACT_INSTANCE_REMOVAL' and definition_id='$DEFINITION_ID' and exact_instance_id='$TARGET_ID' and target_count=1" 45
+          wait_sql "select count(*)=1 from destructive_targets where instance_id='$TARGET_ID' and state='COMPLETED' and effect_state='REMOVED_OBSERVED' and before_fingerprint is not null" 60
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$TARGET_ID' and lifecycle_state='REMOVED' and terminal_at is not null" 30
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$SIBLING_ID' and lifecycle_state='ACTIVE' and terminal_at is null" 30
+          wait_sql "select count(*)=1 from destructive_operations where exact_instance_id='$TARGET_ID' and state='COMPLETED' and terminal_at is not null" 30
+          wait_sql "select count(*)>=1 from audit_events a join destructive_operations o on o.operation_id=a.aggregate_id where o.exact_instance_id='$TARGET_ID' and a.event_type='destructive_target_removed'" 30
+          echo 'wp05accept dump Wp05DestBot' >&3
+          wait_log 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=1' "$ROOT/evidence/server-initial.log" 30
+
+          stop_bot
+          stop_server
+          start_server "$ROOT/evidence/server-restart.log"
+          start_bot
+          PLAYER_UUID_RESTART="$(tr -d '\r\n' < "$ROOT/bot.uuid")"
+          test "$PLAYER_UUID_RESTART" = "$PLAYER_UUID"
+          wait_sql "select count(*)=1 from destructive_operations where exact_instance_id='$TARGET_ID' and state='COMPLETED' and target_count=1" 30
+          wait_sql "select count(*)=1 from destructive_targets where instance_id='$TARGET_ID' and state='COMPLETED' and effect_state='REMOVED_OBSERVED'" 30
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$TARGET_ID' and lifecycle_state='REMOVED'" 30
+          wait_sql "select count(*)=1 from lore_instances where instance_id='$SIBLING_ID' and lifecycle_state='ACTIVE'" 30
+          echo 'wp05accept dump Wp05DestBot' >&3
+          wait_log 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=1' "$ROOT/evidence/server-restart.log" 30
+          sleep 2
+          stop_bot
+          stop_server
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          python3 - "$DB" "$START" "$END" "$PLAYER_UUID" "$TARGET_ID" "$SIBLING_ID" <<'PY'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db,start,end,player,target,sibling=sys.argv[1:]
+          root=Path('/tmp/wp05-dest-exact')
+          c=sqlite3.connect(db);c.row_factory=sqlite3.Row
+          versions=[r[0] for r in c.execute('select version from schema_history order by version')]
+          assert versions==list(range(1,9)), versions
+          definition=dict(c.execute("select lookup_key,display_name,current_revision,deleted_at from lore_definitions where lookup_key='acc_dest_exact'").fetchone())
+          target_lifecycle=dict(c.execute('select lifecycle_state,terminal_at is not null as terminal from lore_instances where instance_id=?',(target,)).fetchone())
+          sibling_lifecycle=dict(c.execute('select lifecycle_state,terminal_at is not null as terminal from lore_instances where instance_id=?',(sibling,)).fetchone())
+          operation=dict(c.execute("select operation_type,state,target_count,expected_revision,terminal_at is not null as terminal from destructive_operations where exact_instance_id=?",(target,)).fetchone())
+          target_state=dict(c.execute("select state,effect_state,attempt_count,before_fingerprint is not null as has_before_fingerprint,after_fingerprint is not null as has_after_fingerprint,last_error from destructive_targets where instance_id=?",(target,)).fetchone())
+          operation_id=c.execute('select operation_id from destructive_operations where exact_instance_id=?',(target,)).fetchone()[0]
+          audit=[r[0] for r in c.execute('select event_type from audit_events where aggregate_id=? order by audit_id',(operation_id,))]
+          integrity=[r[0] for r in c.execute('pragma integrity_check')]
+          foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
+          active_count=c.execute("select count(*) from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='acc_dest_exact' and i.lifecycle_state='ACTIVE'").fetchone()[0]
+          removed_count=c.execute("select count(*) from lore_instances i join lore_definitions d on d.definition_id=i.definition_id where d.lookup_key='acc_dest_exact' and i.lifecycle_state='REMOVED'").fetchone()[0]
+          c.close()
+          assert definition['deleted_at'] is None
+          assert target_lifecycle=={'lifecycle_state':'REMOVED','terminal':1}, target_lifecycle
+          assert sibling_lifecycle=={'lifecycle_state':'ACTIVE','terminal':0}, sibling_lifecycle
+          assert operation['operation_type']=='EXACT_INSTANCE_REMOVAL' and operation['state']=='COMPLETED' and operation['target_count']==1 and operation['terminal']==1, operation
+          assert target_state['state']=='COMPLETED' and target_state['effect_state']=='REMOVED_OBSERVED' and target_state['has_before_fingerprint']==1 and target_state['last_error'] is None, target_state
+          assert 'destructive_target_removed' in audit, audit
+          assert active_count==1 and removed_count==1
+          assert integrity==['ok'] and not foreign
+          initial=(root/'evidence/server-initial.log').read_text(errors='replace')
+          restart=(root/'evidence/server-restart.log').read_text(errors='replace')
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=2' in initial
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=1' in initial
+          assert 'WP05_ACCEPT DUMP ok player=Wp05DestBot count=1' in restart
+          evidence={
+              'case':'ACC-DEST-001','result':'PASS','started_utc':start,'ended_utc':end,
+              'server':'Paper 1.21.11 build 116','java':'Temurin 21','plugin_version':'1.0.0-rc.1',
+              'source_head':(root/'evidence/source-head.txt').read_text().strip(),
+              'plugin_sha256':(root/'evidence/plugin-sha256.txt').read_text().split()[0],
+              'schema_history_versions':versions,
+              'player':{'name':'Wp05DestBot','uuid':player,'auth_mode':'offline protocol client; UUID/name server-visible semantics only'},
+              'definition':definition,
+              'operation':operation,
+              'target':target_state,
+              'lifecycle_counts':{'active_sibling':active_count,'removed_target':removed_count},
+              'target_lifecycle':target_lifecycle,'sibling_lifecycle':sibling_lifecycle,
+              'audit_event_types':audit,
+              'physical_counts':{'before_confirmation':2,'after_verified_removal':1,'after_restart':1},
+              'integrity':integrity,'foreign_key_check':foreign,
+              'hidden_instance_ids_redacted':True,
+              'steps':['create definition from real item','adopt first instance','direct-give second sibling','verify two physical tracked items','preview exact instance removal','verify preview created no durable operation','confirm operation-specific token','wait for verified physical removal','verify only target terminal and sibling active','restart server and same player identity','repeat durable and physical sibling assertions'],
+              'expected':'Exact removal affects only the selected instance; sibling stays active and physically present; terminal operation/target evidence survives restart.',
+              'actual':'Exactly one target reached COMPLETED/REMOVED_OBSERVED and lifecycle REMOVED; one sibling remained ACTIVE; physical tracked-item count changed from two to one and remained one after restart; operation target_count stayed one; destructive_target_removed audit evidence exists; integrity checks pass.',
+              'cleanup':'Disposable server stopped; no shared environment mutated.',
+              'rollback':'Disposable /tmp acceptance server may be discarded.'}
+          (root/'evidence/ACC-DEST-001.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          PY
+
+      - name: Upload ACC-DEST-001 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-dest-exact-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/wp05-dest-exact/evidence/

@@ -1,0 +1,140 @@
+Starting org.bukkit.craftbukkit.Main
+2026-08-07T20:52:09.363849656Z ServerMain WARN Advanced terminal features are not available in this environment
+[20:52:09 INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-LTS; Eclipse Adoptium Temurin-21.0.11+10) on Linux 6.17.0-1020-azure (amd64)
+[20:52:09 INFO]: [bootstrap] Loading Paper 1.21.11-116-main@6f71be8 (2026-02-15T19:11:22Z) for Minecraft 1.21.11
+[20:52:10 INFO]: [PluginInitializerManager] Initializing plugins...
+[20:52:10 INFO]: [PluginInitializerManager] Initialized 4 plugins
+[20:52:10 INFO]: [PluginInitializerManager] Bukkit plugins (4):
+ - EnthusiaLoreItems (1.0.0-rc.1), Geyser-Spigot (2.11.1-SNAPSHOT), ViaVersion (5.11.0), floodgate (2.2.5-SNAPSHOT (b138-fc99cfc))
+[20:52:14 INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, profilesHost=https://api.mojang.com, name=PROD]
+[20:52:16 INFO]: Loaded 1470 recipes
+[20:52:16 INFO]: Loaded 1584 advancements
+[20:52:16 INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Initialising converters for DataConverter...
+[20:52:17 INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Finished initialising converters for DataConverter in 333.8ms
+[20:52:17 INFO]: Starting minecraft server version 1.21.11
+[20:52:17 INFO]: Loading properties
+[20:52:17 INFO]: This server is running Paper version 1.21.11-116-main@6f71be8 (2026-02-15T19:11:22Z) (Implementing API version 1.21.11-R0.1-SNAPSHOT)
+[20:52:17 INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
+[20:52:17 INFO]: Server Ping Player Sample Count: 12
+[20:52:17 INFO]: Using 4 threads for Netty based IO
+[20:52:18 INFO]: [MoonriseCommon] Paper is using 1 worker threads, 1 I/O threads
+[20:52:18 INFO]: Default game type: SURVIVAL
+[20:52:18 INFO]: Generating keypair
+[20:52:18 INFO]: Starting Minecraft server on *:25565
+[20:52:18 INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.
+[20:52:18 INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.
+[20:52:18 INFO]: [floodgate] Loading server plugin floodgate v2.2.5-SNAPSHOT (b138-fc99cfc)
+[20:52:19 WARN]: [floodgate] en_ is not a supported Floodgate language.
+[20:52:19 INFO]: [floodgate] Took 708ms to boot Floodgate
+[20:52:19 INFO]: [ViaVersion] Loading server plugin ViaVersion v5.11.0
+[20:52:19 INFO]: [ViaVersion] ViaVersion 5.11.0 is now loaded. Registering protocol transformers and injecting...
+[20:52:20 INFO]: [Geyser-Spigot] Loading server plugin Geyser-Spigot v2.11.1-SNAPSHOT
+[20:52:20 INFO]: [Geyser-Spigot] Loading extensions...
+[20:52:20 INFO]: [Geyser-Spigot] Loaded 0 extension(s)
+[20:52:20 INFO]: [EnthusiaLoreItems] Loading server plugin EnthusiaLoreItems v1.0.0-rc.1
+[20:52:20 INFO]: Server permissions file permissions.yml is empty, ignoring it
+[20:52:20 INFO]: Preparing level "world"
+[20:52:20 INFO]: [ca.spottedleaf.moonrise.common.util.MoonriseConstants] NUMA enable flag is not set; however there is NUMA interaction support for this OS.
+[20:52:20 INFO]: [ca.spottedleaf.moonrise.common.util.MoonriseConstants] Detected 1 NUMA nodes.
+[20:52:21 INFO]: Loading 0 persistent chunks for world 'minecraft:overworld'...
+[20:52:21 INFO]: Prepared spawn area in 0 ms
+[20:52:21 INFO]: Loading 0 persistent chunks for world 'minecraft:the_nether'...
+[20:52:21 INFO]: Prepared spawn area in 0 ms
+[20:52:21 INFO]: Loading 0 persistent chunks for world 'minecraft:the_end'...
+[20:52:21 INFO]: Prepared spawn area in 1 ms
+[20:52:21 INFO]: Done preparing level "world" (0.473s)
+[20:52:21 INFO]: [floodgate] Enabling floodgate v2.2.5-SNAPSHOT (b138-fc99cfc)
+[20:52:21 INFO]: [ViaVersion] Enabling ViaVersion v5.11.0
+[20:52:21 INFO]: [ViaVersion] ViaVersion detected server version: 1.21.11 (774)
+[20:52:21 INFO]: [Geyser-Spigot] Enabling Geyser-Spigot v2.11.1-SNAPSHOT
+[20:52:22 INFO]: [EnthusiaLoreItems] Enabling EnthusiaLoreItems v1.0.0-rc.1
+[20:52:22 INFO]: [EnthusiaLoreItems] Foundation bootstrap enabled; durable storage is initializing off-thread.
+[20:52:23 INFO]: [spark] Starting background profiler...
+[20:52:23 INFO]: [EnthusiaLoreItems] Durable storage is active; definition creation, adoption, protection, display observations, terminal void loss, and mass distributions are available. Delivery, recovery, anomaly, and administration components are activating on the server thread.
+[20:52:23 INFO]: [Geyser-Spigot] ******************************************
+[20:52:23 INFO]: [Geyser-Spigot] 
+[20:52:23 INFO]: [Geyser-Spigot] Loading Geyser version 2.11.1-b1210 (git-master-6e70ba2)
+[20:52:23 INFO]: [Geyser-Spigot] 
+[20:52:23 INFO]: [Geyser-Spigot] ******************************************
+[20:52:24 INFO]: [Geyser-Spigot] Registered 199 custom block overrides.
+[20:52:24 INFO]: [Geyser-Spigot] Registered 2 custom block item overrides.
+[20:52:24 INFO]: [Geyser-Spigot] Registered 7 custom blocks.
+[20:52:26 INFO]: [Geyser-Spigot] Registered 1 custom items
+[20:52:27 INFO]: [Geyser-Spigot] Started Geyser on UDP port 19132
+[20:52:27 INFO]: [Geyser-Spigot] Done (4.293s)! Run /geyser help for help!
+[20:52:28 INFO]: Running delayed init tasks
+[20:52:28 INFO]: [ViaVersion] Finished mapping loading, shutting down loader executor.
+[20:52:28 INFO]: [EnthusiaLoreItems] Queued direct-delivery processing is active.
+[20:52:28 INFO]: [EnthusiaLoreItems] Expired item-mutation recovery is active.
+[20:52:28 INFO]: [EnthusiaLoreItems] Lore-item anomaly detection, warnings, and administration are active.
+[20:52:28 INFO]: [EnthusiaLoreItems] Mass distribution delivery, identity binding, marker recovery, and commands are active.
+[20:52:28 INFO]: Done (19.248s)! For help, type "help"
+[20:52:28 WARN]: *** You are running an outdated version of Minecraft, which is 4 release(s) and 16 build(s) behind!
+[20:52:28 WARN]: *** Please update to the latest stable version on https://papermc.io/downloads/paper ***
+[20:52:28 INFO]: Checking version, please wait...
+[20:52:28 INFO]: ℹ Server Plugins (4):
+[20:52:28 INFO]: Bukkit Plugins:
+[20:52:28 INFO]:  - EnthusiaLoreItems, floodgate, Geyser-Spigot, ViaVersion
+[20:52:28 INFO]: EnthusiaLoreItems version 1.0.0-rc.1
+Durable lore-item tracking and delivery for Enthusia SMP.
+Author: wsg138
+[20:52:28 INFO]: Geyser-Spigot version 2.11.1-SNAPSHOT
+Website: https://geysermc.org
+Author: GeyserMC
+[20:52:28 INFO]: floodgate version 2.2.5-SNAPSHOT (b138-fc99cfc)
+Allows Bedrock players to join Java edition servers while keeping the server in online mode
+Website: https://geysermc.org
+Author: GeyserMC
+[20:52:28 INFO]: ViaVersion version 5.11.0
+Allows the connection of newer clients to older server versions for Minecraft servers.
+Website: https://viaversion.com
+Authors: _MylesC, creeper123123321, Gerrygames, kennytv, Matsv, EnZaXD, and RK_01
+[20:52:28 INFO]: A previous lore-item evidence query is still active; try again shortly.
+[20:52:28 INFO]: This server is running Paper version 1.21.11-116-main@6f71be8 (2026-02-15T19:11:22Z) (Implementing API version 1.21.11-R0.1-SNAPSHOT)
+You are 16 version(s) behind
+Download the new version at: https://papermc.io/downloads/paper
+[20:52:28 INFO]: Nonterminal lore-item recovery and review work — page 1
+[20:52:28 INFO]: No nonterminal delivery, mutation, or campaign review records were found.
+[20:52:28 INFO]: Destructive queue metrics: active=0, paused=0, queued-targets=0, leases=0, review=0, oldest-queued-ms=0, attempts=0
+[20:52:28 INFO]: Distribution campaigns — page 1
+[20:52:28 INFO]: End of results.
+[20:52:36 INFO]: Stopping the server
+[20:52:36 INFO]: Stopping server
+[20:52:36 INFO]: [EnthusiaLoreItems] Disabling EnthusiaLoreItems v1.0.0-rc.1
+[20:52:36 INFO]: [Geyser-Spigot] Disabling Geyser-Spigot v2.11.1-SNAPSHOT
+[20:52:36 INFO]: [Geyser-Spigot] Shutting down Geyser.
+[20:52:36 INFO]: [Geyser-Spigot] Geyser shutdown successfully.
+[20:52:36 INFO]: [ViaVersion] Disabling ViaVersion v5.11.0
+[20:52:36 INFO]: [ViaVersion] ViaVersion has been disabled; uninjected the platform and shut down the scheduler.
+[20:52:36 INFO]: [floodgate] Disabling floodgate v2.2.5-SNAPSHOT (b138-fc99cfc)
+[20:52:36 INFO]: Saving players
+[20:52:36 INFO]: Saving worlds
+[20:52:36 INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk system to halt for world 'world'
+[20:52:36 INFO]: [ChunkHolderManager] Halted chunk system for world 'world'
+[20:52:36 INFO]: [ChunkHolderManager] Saving all chunkholders for world 'world'
+[20:52:36 INFO]: [ChunkHolderManager] Saved 0 block chunks, 0 entity chunks, 0 poi chunks in world 'world' in 0.00s
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk I/O to halt for world 'world'
+[20:52:36 INFO]: [ChunkHolderManager] Halted I/O scheduler for world 'world'
+[20:52:36 INFO]: Saving chunks for level 'ServerLevel[world_nether]'/minecraft:the_nether
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk system to halt for world 'world_nether'
+[20:52:36 INFO]: [ChunkHolderManager] Halted chunk system for world 'world_nether'
+[20:52:36 INFO]: [ChunkHolderManager] Saving all chunkholders for world 'world_nether'
+[20:52:36 INFO]: [ChunkHolderManager] Saved 0 block chunks, 0 entity chunks, 0 poi chunks in world 'world_nether' in 0.00s
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk I/O to halt for world 'world_nether'
+[20:52:36 INFO]: [ChunkHolderManager] Halted I/O scheduler for world 'world_nether'
+[20:52:36 INFO]: Saving chunks for level 'ServerLevel[world_the_end]'/minecraft:the_end
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk system to halt for world 'world_the_end'
+[20:52:36 INFO]: [ChunkHolderManager] Halted chunk system for world 'world_the_end'
+[20:52:36 INFO]: [ChunkHolderManager] Saving all chunkholders for world 'world_the_end'
+[20:52:36 INFO]: [ChunkHolderManager] Saved 0 block chunks, 0 entity chunks, 0 poi chunks in world 'world_the_end' in 0.00s
+[20:52:36 INFO]: [ChunkHolderManager] Waiting 60s for chunk I/O to halt for world 'world_the_end'
+[20:52:36 INFO]: [ChunkHolderManager] Halted I/O scheduler for world 'world_the_end'
+[20:52:36 INFO]: ThreadedAnvilChunkStorage (world): All chunks are saved
+[20:52:36 INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[20:52:36 INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[20:52:36 INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+[20:52:36 INFO]: Waiting for all RegionFile I/O tasks to complete...
+[20:52:36 INFO]: All RegionFile I/O tasks to complete
+[20:52:36 INFO]: [MoonriseCommon] Awaiting termination of worker pool for up to 60s...
+[20:52:36 INFO]: [MoonriseCommon] Awaiting termination of I/O pool for up to 60s...

@@ -17,6 +17,7 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -71,6 +72,24 @@ class PaperUniqueAccessTrackingListenerTest {
         TrackingObservationUseCase.Request request = observed.get();
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, request.presence());
         assertEquals("player-quit-unique", request.source());
+        listener.close();
+    }
+
+    @Test
+    void trailingInventoryCloseAfterQuitDoesNotRestoreLiveConfirmation() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        listener.start();
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        player.getInventory().setItem(0, trackedItem());
+
+        listener.onQuit(new PlayerQuitEvent(
+                player, (Component) null, PlayerQuitEvent.QuitReason.DISCONNECTED));
+        listener.onClose(new InventoryCloseEvent(player.getOpenInventory()));
+
+        assertEquals(1, observed.size());
+        assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, observed.get(0).presence());
+        assertEquals("player-quit-unique", observed.get(0).source());
         listener.close();
     }
 

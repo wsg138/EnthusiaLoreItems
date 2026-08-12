@@ -1,0 +1,163 @@
+name: WP-05 ACC-CORE-005 Full Inventory Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-core-005-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-inventory-delivery:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Build exact PR head and prepare server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
+          mkdir -p /tmp/wp05-full/server/plugins /tmp/wp05-full/evidence /tmp/wp05-full/bot
+          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$JAR" /tmp/wp05-full/server/plugins/EnthusiaLoreItems.jar
+          sha256sum "$JAR" > /tmp/wp05-full/evidence/plugin-sha256.txt
+          printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}" > /tmp/wp05-full/evidence/source-head.txt
+          cd /tmp/wp05-full/server
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 ACC-CORE-005
+          EOF
+          java -version 2> /tmp/wp05-full/evidence/java-version.txt
+          cd /tmp/wp05-full/bot
+          npm init -y >/dev/null
+          npm install --save-exact mineflayer@4.35.0 >/tmp/wp05-full/evidence/npm-install.log 2>&1
+          npm list --depth=0 > /tmp/wp05-full/evidence/npm-list.txt
+          cat > bot.js <<'EOF'
+          const mineflayer=require('mineflayer'), fs=require('fs')
+          const mode=process.env.MODE
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+          const root='/tmp/wp05-full', log=`${root}/evidence/bot-${mode}.log`
+          const say=x=>{fs.appendFileSync(log,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05FullBot',version:'1.21.11',auth:'offline'})
+          let msgs=[]; bot.on('message',m=>{let t=m.toString();msgs.push(t);say(`CHAT ${t}`)}); bot.on('error',e=>say(`ERROR ${e.stack||e}`))
+          async function waitFile(p){for(let i=0;i<300;i++){if(fs.existsSync(p))return;await sleep(100)}throw new Error('file timeout '+p)}
+          async function waitMsg(s){for(let i=0;i<300;i++){if(msgs.some(x=>x.includes(s)))return;await sleep(100)}throw new Error('msg timeout '+s)}
+          function swords(){return bot.inventory.items().filter(i=>i.name==='diamond_sword').length}
+          bot.once('spawn',async()=>{try{
+            say(`SPAWN uuid=${bot.player.uuid} username=${bot.username} mode=${mode}`); fs.writeFileSync(`${root}/${mode}-ready`,'ok\n'); await waitFile(`${root}/${mode}-go`)
+            if(mode==='setup'){
+              for(let i=0;i<150;i++){let s=bot.inventory.items().find(x=>x.name==='diamond_sword');if(s){if(s.slot>=36&&s.slot<=44)bot.setQuickBarSlot(s.slot-36);await sleep(300);if(bot.heldItem?.name==='diamond_sword')break}await sleep(100)}
+              if(bot.heldItem?.name!=='diamond_sword')throw new Error('no setup sword')
+              bot.chat('/loreitems create acc_full_inventory Full Inventory Acceptance'); await waitMsg("Created lore definition 'acc_full_inventory' from the held item.")
+              fs.writeFileSync(`${root}/setup-created`,'ok\n'); await waitFile(`${root}/setup-filled`)
+              say(`FILLED_ITEMS ${bot.inventory.items().length}`); fs.writeFileSync(`${root}/setup-full`,'ok\n'); await waitFile(`${root}/setup-queued`)
+              await sleep(5000); say(`SWORDS_WHILE_FULL ${swords()}`); fs.writeFileSync(`${root}/setup-observed`,'ok\n'); await waitFile(`${root}/setup-exit`)
+            } else if(mode==='deliver'){
+              await sleep(5000); say(`SWORDS_AFTER_SPACE ${swords()}`); if(swords()!==1)throw new Error(`expected 1 delivered sword, got ${swords()}`)
+            } else if(mode==='replay'){
+              await sleep(5000); say(`SWORDS_AFTER_REPLAY ${swords()}`); if(swords()!==1)throw new Error(`expected exactly 1 sword after replay, got ${swords()}`)
+            }
+            fs.writeFileSync(`${root}/${mode}-done`,'ok\n'); bot.quit('done')
+          }catch(e){say(`FAIL ${e.stack||e}`);fs.writeFileSync(`${root}/${mode}-done`,'fail\n');bot.quit('fail');process.exitCode=1}})
+          EOF
+      - name: Execute ACC-CORE-005
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/wp05-full/server
+          start_server(){ rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin; java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$1" 2>&1 & SERVER_PID=$!; for _ in $(seq 1 180);do grep -q 'Queued direct-delivery processing is active.' "$1"&&return 0;kill -0 "$SERVER_PID" 2>/dev/null||{ cat "$1";return 1;};sleep 1;done;return 1; }
+          stop_server(){ echo stop >&3; wait "$SERVER_PID"; exec 3>&-; rm -f server.stdin; }
+          run_bot(){ MODE="$1" node /tmp/wp05-full/bot/bot.js >"/tmp/wp05-full/evidence/bot-$1-stdout.log" 2>&1 & BOT_PID=$!; for _ in $(seq 1 60);do test -f "/tmp/wp05-full/$1-ready"&&return 0;kill -0 "$BOT_PID" 2>/dev/null||{ cat "/tmp/wp05-full/evidence/bot-$1-stdout.log";return 1;};sleep 1;done;return 1; }
+          finish_bot(){ for _ in $(seq 1 90);do test -f "/tmp/wp05-full/$1-done"&&break;sleep 1;done;grep -qx ok "/tmp/wp05-full/$1-done";wait "$BOT_PID"; }
+          START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "$START" >/tmp/wp05-full/evidence/start-utc.txt
+          start_server /tmp/wp05-full/evidence/server-initial.log
+          run_bot setup
+          echo 'op Wp05FullBot' >&3; echo 'give Wp05FullBot minecraft:diamond_sword 1' >&3; sleep 2; touch /tmp/wp05-full/setup-go
+          for _ in $(seq 1 60);do test -f /tmp/wp05-full/setup-created&&break;sleep 1;done;grep -qx ok /tmp/wp05-full/setup-created
+          for i in $(seq 0 8); do echo "item replace entity Wp05FullBot hotbar.$i with minecraft:stone 64" >&3; done
+          for i in $(seq 0 26); do echo "item replace entity Wp05FullBot inventory.$i with minecraft:stone 64" >&3; done
+          sleep 3; touch /tmp/wp05-full/setup-filled
+          for _ in $(seq 1 60);do test -f /tmp/wp05-full/setup-full&&break;sleep 1;done
+          echo 'loreitems give acc_full_inventory Wp05FullBot' >&3; sleep 6
+          echo 'execute if entity @e[type=item] run say WP05_FULL_OVERFLOW_ENTITY' >&3
+          touch /tmp/wp05-full/setup-queued
+          for _ in $(seq 1 60);do test -f /tmp/wp05-full/setup-observed&&break;sleep 1;done
+          ! grep -q 'WP05_FULL_OVERFLOW_ENTITY' /tmp/wp05-full/evidence/server-initial.log
+          python3 - <<'PY'
+          import sqlite3,json
+          c=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db');c.row_factory=sqlite3.Row
+          rows=[dict(r) for r in c.execute('select delivery_id,state,attempt_count from direct_deliveries')];n=c.execute('select count(*) from lore_instances').fetchone()[0]
+          open('/tmp/wp05-full/evidence/full-state.json','w').write(json.dumps({'deliveries':rows,'instances':n},indent=2)+'\n')
+          assert len(rows)==1 and rows[0]['state']=='PENDING' and n==1,(rows,n)
+          c.close()
+          PY
+          echo 'item replace entity Wp05FullBot hotbar.0 with minecraft:air' >&3; sleep 2; touch /tmp/wp05-full/setup-exit; finish_bot setup; sleep 2; stop_server
+          start_server /tmp/wp05-full/evidence/server-deliver.log; run_bot deliver; touch /tmp/wp05-full/deliver-go; finish_bot deliver; sleep 2; stop_server
+          python3 - <<'PY'
+          import sqlite3,json
+          c=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db');c.row_factory=sqlite3.Row
+          rows=[dict(r) for r in c.execute('select delivery_id,state,attempt_count from direct_deliveries')];n=c.execute('select count(*) from lore_instances').fetchone()[0]
+          open('/tmp/wp05-full/evidence/delivered-state.json','w').write(json.dumps({'deliveries':rows,'instances':n},indent=2)+'\n')
+          assert len(rows)==1 and rows[0]['state']=='COMPLETED' and n==1,(rows,n);c.close()
+          PY
+          start_server /tmp/wp05-full/evidence/server-replay.log; run_bot replay; touch /tmp/wp05-full/replay-go; finish_bot replay; sleep 2; stop_server
+          python3 - <<'PY'
+          import sqlite3,json
+          c=sqlite3.connect('plugins/EnthusiaLoreItems/loreitems.db');c.row_factory=sqlite3.Row
+          d=c.execute('select count(*),sum(state="COMPLETED"),sum(state="REVIEW_REQUIRED") from direct_deliveries').fetchone();n=c.execute('select count(*) from lore_instances').fetchone()[0];i=[r[0] for r in c.execute('pragma integrity_check')];f=list(c.execute('pragma foreign_key_check'))
+          open('/tmp/wp05-full/evidence/replay-state.json','w').write(json.dumps({'deliveries':list(d),'instances':n,'integrity':i,'foreign_keys':f},indent=2)+'\n')
+          assert tuple(d)==(1,1,0) and n==1 and i==['ok'] and not f,(d,n,i,f);c.close()
+          PY
+          END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "$END" >/tmp/wp05-full/evidence/end-utc.txt
+          sha256sum plugins/EnthusiaLoreItems/loreitems.db plugins/EnthusiaLoreItems/config.yml > /tmp/wp05-full/evidence/final-sha256.txt
+          cat >/tmp/wp05-full/evidence/case-metadata.txt <<EOF
+          case_id=ACC-CORE-005
+          result=PASS
+          authentication_mode=mineflayer-offline-protocol
+          microsoft_xbox_authentication_claimed=false
+          owner_scope_amendment=2026-08-07
+          server=Paper-1.21.11-build-116
+          java=21
+          plugin_version=1.0.0-rc.1-pr-head
+          source_commit=${{ github.event.pull_request.head.sha || github.sha }}
+          start_utc=$START
+          end_utc=$END
+          expected=full inventory remains pending with no overflow; one opened slot plus natural rejoin delivers once; replay restart does not duplicate
+          actual=asserted by full-state.json delivered-state.json replay-state.json and bot/server logs
+          cleanup=disposable GitHub Actions environment destroyed after job
+          rollback=job fails and disposable environment is discarded
+          EOF
+      - name: Upload ACC-CORE-005 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wp05-acc-core-005-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 90
+          if-no-files-found: error
+          path: /tmp/wp05-full/evidence/

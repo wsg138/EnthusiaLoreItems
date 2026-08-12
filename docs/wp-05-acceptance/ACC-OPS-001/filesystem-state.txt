@@ -1,0 +1,13 @@
+# Degraded pre-state
+
+d plugins/EnthusiaLoreItems
+d plugins/EnthusiaLoreItems/loreitems.db
+
+# Degraded post-state after normal stop
+
+d plugins/EnthusiaLoreItems
+d plugins/EnthusiaLoreItems/loreitems.db
+f plugins/EnthusiaLoreItems/config.yml
+
+# Interpretation
+The invalid `loreitems.db` path remained a directory for the entire degraded phase. The only newly generated LoreItems filesystem object was normal `config.yml`. No alternate database file appeared.

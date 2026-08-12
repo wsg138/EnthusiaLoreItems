@@ -2,6 +2,7 @@ import com.github.spotbugs.snom.Confidence
 import com.github.spotbugs.snom.Effort
 import com.github.spotbugs.snom.SpotBugsExtension
 import com.github.spotbugs.snom.SpotBugsTask
+import java.util.Properties
 
 plugins {
     base
@@ -11,7 +12,21 @@ plugins {
 }
 
 group = "net.enthusia.loreitems"
-version = providers.gradleProperty("releaseVersion").orElse("0.1.0-SNAPSHOT").get()
+
+val sourceProperties = Properties().apply {
+    rootDir.resolve("gradle.properties").inputStream().use(::load)
+}
+val sourceReleaseVersion = sourceProperties.getProperty("releaseVersion")
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: error("gradle.properties must define releaseVersion")
+val requestedReleaseVersion = providers.gradleProperty("releaseVersion").orNull
+if (requestedReleaseVersion != null && requestedReleaseVersion != sourceReleaseVersion) {
+    logger.lifecycle(
+        "Ignoring -PreleaseVersion=$requestedReleaseVersion; source-controlled releaseVersion=$sourceReleaseVersion is authoritative."
+    )
+}
+version = sourceReleaseVersion
 
 allprojects {
     group = rootProject.group

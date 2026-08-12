@@ -1,0 +1,14 @@
+2026-08-07T21:09:43.048302097Z ServerMain WARN Advanced terminal features are not available in this environment
+[21:09:53 WARN]: [floodgate] en_ is not a supported Floodgate language.
+[21:09:54 INFO]: [EnthusiaLoreItems] Loading server plugin EnthusiaLoreItems v1.0.0-rc.1
+[21:09:54 INFO]: [Wp05AcceptanceProbe] Loading server plugin Wp05AcceptanceProbe v1.0
+[21:09:55 INFO]: [EnthusiaLoreItems] Enabling EnthusiaLoreItems v1.0.0-rc.1
+[21:09:55 INFO]: [EnthusiaLoreItems] Foundation bootstrap enabled; durable storage is initializing off-thread.
+[21:09:55 ERROR]: [EnthusiaLoreItems] LoreItems entered degraded read-only mode: SQLiteException: [SQLITE_CANTOPEN] Unable to open the database file (unable to open database file)
+[21:09:57 INFO]: [Wp05AcceptanceProbe] Enabling Wp05AcceptanceProbe v1.0
+[21:10:02 WARN]: *** You are running an outdated version of Minecraft, which is 4 release(s) and 16 build(s) behind!
+[21:10:02 WARN]: *** Please update to the latest stable version on https://papermc.io/downloads/paper ***
+[21:10:06 INFO]: [Wp05AcceptanceProbe] WP05_PROBE status=SERVICE_UNAVAILABLE operation=acc-ops-001-probe detail=LoreItems is in degraded read-only mode: SQLiteException: [SQLITE_CANTOPEN] Unable to open the database file (unable to open database file)
+[21:10:10 INFO]: Stopping the server
+[21:10:10 INFO]: [Wp05AcceptanceProbe] Disabling Wp05AcceptanceProbe v1.0
+[21:10:10 INFO]: [EnthusiaLoreItems] Disabling EnthusiaLoreItems v1.0.0-rc.1

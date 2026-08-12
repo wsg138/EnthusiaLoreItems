@@ -1,11 +1,13 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
@@ -47,6 +49,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
     private final PaperTrackingCoordinator coordinator;
+    private final Set<UUID> quittingPlayers = new HashSet<>();
     private boolean closed;
 
     public PaperUniqueAccessTrackingListener(
@@ -96,6 +99,9 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
+        if (quittingPlayers.contains(player.getUniqueId())) {
+            return;
+        }
         Inventory top = event.getView().getTopInventory();
         Optional<InventorySnapshot> snapshot = InventorySnapshot.capture(top);
         if (snapshot.isPresent()) {
@@ -136,7 +142,10 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        quittingPlayers.add(playerId);
         submitPlayer(event.getPlayer(), true, "player-quit-unique");
+        scheduleNextTick(() -> quittingPlayers.remove(playerId));
     }
 
     private void scheduleDisplayAccess(
@@ -399,6 +408,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     @Override
     public void close() {
         closed = true;
+        quittingPlayers.clear();
         coordinator.close();
         HandlerList.unregisterAll(this);
     }

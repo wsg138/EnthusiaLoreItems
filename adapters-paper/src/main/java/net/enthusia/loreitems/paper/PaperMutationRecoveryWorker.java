@@ -14,14 +14,19 @@ import net.enthusia.loreitems.application.DestructiveAdministrationUseCase;
 import net.enthusia.loreitems.application.DestructiveOperationStore;
 import net.enthusia.loreitems.application.DestructiveOperationStoreProvider;
 import net.enthusia.loreitems.application.PendingMutationRepository;
+import net.enthusia.loreitems.application.PendingMutationReviewStore;
+import net.enthusia.loreitems.application.PendingMutationReviewUseCase;
 import net.enthusia.loreitems.application.PersistingDestructiveAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingDestructiveRemovalExecutionUseCase;
+import net.enthusia.loreitems.application.PersistingPendingMutationReviewUseCase;
 import net.enthusia.loreitems.application.PersistingTemplateUpdateExecutionUseCase;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionStore;
 import net.enthusia.loreitems.application.TemplateUpdateExecutionUseCase;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.ServicesManager;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 /** Bounded mutation subsystem: expired-claim recovery plus natural-access execution. */
@@ -35,6 +40,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final PendingMutationRepository repository;
     private final Optional<DestructiveOperationStore> destructiveStore;
     private final Optional<DestructiveAdministrationUseCase> destructiveAdministration;
+    private final Optional<PendingMutationReviewUseCase> mutationReviewUseCase;
     private final int recoveryLimit;
     private final PaperTemplateUpdateCoordinator templateUpdateCoordinator;
     private final PaperTemplateUpdateAccessRegistry templateUpdateAccessRegistry;
@@ -43,6 +49,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
     private final AtomicBoolean recoveryInFlight = new AtomicBoolean();
 
     private BukkitTask task;
+    private Optional<LoreItemsMutationReviewCommandExecutor> reviewCommandExecutor = Optional.empty();
     private boolean destructiveServicesRegistered;
     private volatile boolean closed;
 
@@ -84,6 +91,9 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         Clock clock = Clock.systemUTC();
         this.destructiveAdministration = destructiveStore.map(
                 store -> new PersistingDestructiveAdministrationUseCase(store, clock));
+        this.mutationReviewUseCase = repository instanceof PendingMutationReviewStore reviewStore
+                ? Optional.of(new PersistingPendingMutationReviewUseCase(reviewStore, clock))
+                : Optional.empty();
         TemplateUpdateExecutionUseCase useCase = new PersistingTemplateUpdateExecutionUseCase(
                 templateStore,
                 clock,
@@ -106,8 +116,9 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             throw new IllegalStateException("Mutation recovery worker cannot be started");
         }
         registerDestructiveServices();
-        templateUpdateListener.start();
         try {
+            registerReviewCommand();
+            templateUpdateListener.start();
             entityTemplateUpdateListener.start();
             task = plugin.getServer().getScheduler().runTaskTimer(
                     plugin,
@@ -118,6 +129,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
             entityTemplateUpdateListener.close();
             templateUpdateListener.close();
             templateUpdateCoordinator.close();
+            closeReviewCommand();
             unregisterDestructiveServices();
             throw exception;
         }
@@ -201,6 +213,31 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
                 recoveryLimit);
     }
 
+    private void registerReviewCommand() {
+        if (mutationReviewUseCase.isEmpty()) {
+            return;
+        }
+        if (!(plugin instanceof JavaPlugin javaPlugin)) {
+            throw new IllegalStateException("Mutation-review command requires a JavaPlugin owner");
+        }
+        PluginCommand command = Objects.requireNonNull(
+                javaPlugin.getCommand("loreitemsreview"),
+                "plugin.yml must declare loreitemsreview");
+        LoreItemsMutationReviewCommandExecutor executor =
+                new LoreItemsMutationReviewCommandExecutor(
+                        plugin,
+                        mutationReviewUseCase::orElseThrow,
+                        this::wakeAccessible);
+        command.setExecutor(executor);
+        command.setTabCompleter(executor);
+        reviewCommandExecutor = Optional.of(executor);
+    }
+
+    private void closeReviewCommand() {
+        reviewCommandExecutor.ifPresent(LoreItemsMutationReviewCommandExecutor::close);
+        reviewCommandExecutor = Optional.empty();
+    }
+
     private void registerDestructiveServices() {
         if (destructiveAdministration.isEmpty()) {
             return;
@@ -278,6 +315,7 @@ public final class PaperMutationRecoveryWorker implements AutoCloseable {
         if (current != null) {
             current.cancel();
         }
+        closeReviewCommand();
         unregisterDestructiveServices();
     }
 

@@ -1,0 +1,127 @@
+name: WP-05 Floodgate Distribution Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp05-floodgate-distribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  floodgate-distribution:
+    if: github.event.pull_request.number == 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+      GEYSER_URL: https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1210/downloads/spigot
+      GEYSER_SHA256: 996c1f1997c2db2f9baf802a6a42b374ffadb8d1527638ba5ad765b06b085ecb
+      FLOODGATE_URL: https://download.geysermc.org/v2/projects/floodgate/versions/2.2.5/builds/138/downloads/spigot
+      FLOODGATE_SHA256: 44bdb908e2fb4ff1b974d5313d048a625a21555a9844cfb86256a98e8e1c6bd1
+      VIAVERSION_URL: https://github.com/ViaVersion/ViaVersion/releases/download/5.11.0/ViaVersion-5.11.0.jar
+      VIAVERSION_SHA256: 18d19e90fc9467d68128c076630ae8700449c901402a3ef421837ce006bc8cae
+      USER_AGENT: EnthusiaLoreItems-WP05/1.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Prepare exact-head Geyser/Floodgate server
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/wp05-fgdist;mkdir -p "$ROOT/server/plugins" "$ROOT/evidence" "$ROOT/client"
+          P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
+          cp "$P" "$ROOT/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$ROOT/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$ROOT/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$ROOT/evidence/source-head.txt"
+          cd "$ROOT/server";curl -fsSL -A "$USER_AGENT" "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$GEYSER_URL" -o plugins/Geyser-Spigot.jar;echo "$GEYSER_SHA256  plugins/Geyser-Spigot.jar"|sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$FLOODGATE_URL" -o plugins/floodgate-spigot.jar;echo "$FLOODGATE_SHA256  plugins/floodgate-spigot.jar"|sha256sum -c -
+          curl -fsSL -A "$USER_AGENT" "$VIAVERSION_URL" -o plugins/ViaVersion.jar;echo "$VIAVERSION_SHA256  plugins/ViaVersion.jar"|sha256sum -c -
+          printf 'eula=true\n'>eula.txt;cat >server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          motd=WP05 Floodgate distribution
+          EOF
+          rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$ROOT/evidence/prep.log" 2>&1 & PID=$!
+          for _ in $(seq 1 240);do grep -q 'For help, type "help"' "$ROOT/evidence/prep.log"&&break;kill -0 "$PID" 2>/dev/null||exit 1;sleep 1;done;grep -q 'For help, type "help"' "$ROOT/evidence/prep.log";echo stop >&3;wait "$PID";exec 3>&-;rm -f server.stdin
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('/tmp/wp05-fgdist/server/plugins')
+          p=root/'Geyser-Spigot/config.yml';s=p.read_text();s,n=re.subn(r'(?m)^(\s*auth-type:\s*).+$',r'\1floodgate',s,count=1);assert n;s,n=re.subn(r'(?m)^(\s*validate-bedrock-login:\s*).+$',r'\1false',s,count=1);assert n;p.write_text(s)
+          p=root/'floodgate/config.yml';s=p.read_text();s,n=re.subn(r'(?m)^(\s*username-prefix:\s*).+$',r'\1"*"',s,count=1);assert n;p.write_text(s)
+          PY
+          cp plugins/Geyser-Spigot/config.yml "$ROOT/evidence/geyser.yml";cp plugins/floodgate/config.yml "$ROOT/evidence/floodgate.yml";sha256sum paper.jar plugins/*.jar>"$ROOT/evidence/environment-sha256.txt"
+          cd "$ROOT/client";npm init -y >/dev/null;npm install --save-exact bedrock-protocol@3.56.1 >"$ROOT/evidence/npm.log" 2>&1
+          cat >client.js <<'EOF'
+          const b=require('bedrock-protocol'),fs=require('fs');const r='/tmp/wp05-fgdist',m=process.env.MODE,s=ms=>new Promise(x=>setTimeout(x,ms)),log=x=>{fs.appendFileSync(`${r}/evidence/client-${m}.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
+          const c=b.createClient({host:'127.0.0.1',port:19132,username:'Wp05BedrockBot',offline:true,version:'1.26.20',connectTimeout:20000});c.on('text',p=>log(`TEXT ${JSON.stringify(p)}`));c.on('error',e=>log(`ERROR ${e.stack||e}`));c.on('spawn',async()=>{log('SPAWN');fs.writeFileSync(`${r}/${m}.ready`,'ok\n');for(let i=0;i<900;i++){if(fs.existsSync(`${r}/${m}.stop`)){fs.writeFileSync(`${r}/${m}.done`,'ok\n');c.close();return}await s(100)}});setTimeout(()=>{if(!fs.existsSync(`${r}/${m}.ready`))process.exit(2)},45000)
+          EOF
+
+      - name: Deliver exactly once to literal star-prefixed identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=/tmp/wp05-fgdist;S="$R/server";E="$R/evidence";DB="$S/plugins/EnthusiaLoreItems/loreitems.db";cd "$S"
+          start_server(){ local l="$1";rm -f server.stdin;mkfifo server.stdin;exec 3<>server.stdin;java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$l" 2>&1 & SPID=$!;for _ in $(seq 1 240);do if grep -q 'WP-05 deterministic acceptance helper is active' "$l"&&grep -q 'For help, type "help"' "$l";then return;fi;kill -0 "$SPID" 2>/dev/null||exit 1;sleep 1;done;return 1;}
+          stop_server(){ echo stop >&3;wait "$SPID";exec 3>&-;rm -f server.stdin;}
+          start_client(){ local m="$1";rm -f "$R/$m.ready" "$R/$m.stop" "$R/$m.done";(cd "$R/client"&&MODE="$m" node client.js)>"$E/client-${m}-stdout.log" 2>&1 & CPID=$!;for _ in $(seq 1 90);do test -f "$R/$m.ready"&&return;kill -0 "$CPID" 2>/dev/null||exit 1;sleep 1;done;return 1;}
+          stop_client(){ local m="$1";touch "$R/$m.stop";for _ in $(seq 1 40);do test -f "$R/$m.done"&&break;sleep 1;done;grep -qx ok "$R/$m.done";wait "$CPID";}
+          wait_sql(){ local q="$1";for _ in $(seq 1 120);do if python3 - "$DB" "$q" <<'PY'
+          import sqlite3,sys
+          try:
+              with sqlite3.connect(sys.argv[1]) as c:r=c.execute(sys.argv[2]).fetchone();raise SystemExit(0 if r and r[0] else 1)
+          except sqlite3.OperationalError:raise SystemExit(1)
+          PY
+            then return;fi;sleep 1;done;echo "SQL timeout: $q";return 1;}
+          count(){ grep -Fc "$1" "$2" 2>/dev/null||true;};wait_log(){ local p="$1" l="$2" b="$3";for _ in $(seq 1 90);do test "$(count "$p" "$l")" -gt "$b"&&return;sleep 1;done;tail -n 200 "$l";return 1;}
+          START="$(date -u +%FT%TZ)";L1="$E/server-first.log";start_server "$L1";start_client first;grep -F '*Wp05BedrockBot joined the game' "$L1"
+          echo 'wp05accept source *Wp05BedrockBot sword' >&3;for _ in $(seq 1 90);do grep -Fq 'WP05_ACCEPT SOURCE player=*Wp05BedrockBot uuid=' "$L1"&&break;sleep .25;done;LINE="$(grep -F 'WP05_ACCEPT SOURCE player=*Wp05BedrockBot uuid=' "$L1"|tail -n1)";test -n "$LINE";UUID="$(printf '%s\n' "$LINE"|sed -E 's/.* uuid=([0-9a-fA-F-]{36}) .*/\1/')";echo "$UUID"|grep -Eq '^[0-9a-fA-F-]{36}$';echo "op *Wp05BedrockBot" >&3
+          echo 'wp05accept perform *Wp05BedrockBot loreitems create acc_dist_bedrock Floodgate Campaign Item' >&3;wait_sql "select count(*)=1 from lore_definitions where lookup_key='acc_dist_bedrock' and deleted_at is null"
+          mkdir -p plugins/EnthusiaLoreItems/groups/completed plugins/EnthusiaLoreItems/groups/cancelled;cat >plugins/EnthusiaLoreItems/groups/bedrock-dist.yml <<'EOF'
+          display-name: Floodgate Distribution
+          players:
+            - '*Wp05BedrockBot'
+          EOF
+          B="$(count 'VALID bedrock-dist.yml' "$L1")";echo 'loredistribution reload' >&3;wait_log 'VALID bedrock-dist.yml' "$L1" "$B";B="$(count 'Distribution preview' "$L1")";echo 'loredistribution preview bedrock-dist.yml acc_dist_bedrock' >&3;wait_log 'Distribution preview' "$L1" "$B";CID="$(grep -F 'Campaign: ' "$L1"|tail -n1|sed -E 's/.*Campaign: ([0-9a-fA-F-]{36}).*/\1/')";test -n "$CID";echo "loredistribution confirm $CID" >&3
+          wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and original_value='*Wp05BedrockBot' and player_id='$UUID' and state='DELIVERED' and instance_id is not null";wait_sql "select count(*)=1 from distribution_campaigns where campaign_id='$CID' and state='COMPLETED'"
+          IID="$(python3 - "$DB" "$CID" <<'PY'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:print(c.execute('select instance_id from distribution_recipients where campaign_id=?',(sys.argv[2],)).fetchone()[0])
+          PY
+          )";wait_sql "select count(*)=1 from instance_current_state where instance_id='$IID' and location_type='PLAYER_INVENTORY' and location_key='player:$UUID'";B="$(count 'WP05_ACCEPT DUMP ok player=*Wp05BedrockBot count=1' "$L1")";echo 'wp05accept dump *Wp05BedrockBot' >&3;wait_log 'WP05_ACCEPT DUMP ok player=*Wp05BedrockBot count=1' "$L1" "$B";stop_client first;stop_server
+          L2="$E/server-replay.log";start_server "$L2";start_client replay;grep -F '*Wp05BedrockBot joined the game' "$L2";sleep 6;wait_sql "select count(*)=1 from distribution_recipients where campaign_id='$CID' and original_value='*Wp05BedrockBot' and player_id='$UUID' and state='DELIVERED' and instance_id='$IID'";B="$(count 'WP05_ACCEPT DUMP ok player=*Wp05BedrockBot count=1' "$L2")";echo 'wp05accept dump *Wp05BedrockBot' >&3;wait_log 'WP05_ACCEPT DUMP ok player=*Wp05BedrockBot count=1' "$L2" "$B";stop_client replay;stop_server;END="$(date -u +%FT%TZ)"
+          python3 - "$DB" "$START" "$END" "$UUID" "$CID" "$IID" <<'PY' | tee "$E/result.json"
+          import json,sqlite3,sys
+          db,start,end,uuid,cid,iid=sys.argv[1:]
+          with sqlite3.connect(db) as c:
+              c.row_factory=sqlite3.Row;r=dict(c.execute('select original_value,player_id,state,instance_id,attempt_count from distribution_recipients where campaign_id=?',(cid,)).fetchone());assert r['original_value']=='*Wp05BedrockBot' and r['player_id']==uuid and r['state']=='DELIVERED' and r['instance_id']==iid
+              assert c.execute('select count(*) from distribution_recipients where campaign_id=?',(cid,)).fetchone()[0]==1;integrity=c.execute('pragma integrity_check').fetchone()[0];fk=[list(x) for x in c.execute('pragma foreign_key_check')];assert integrity=='ok' and not fk
+          print(json.dumps({'case':'ACC-DIST-002-floodgate-star-name','result':'PASS','source_head':open('/tmp/wp05-fgdist/evidence/source-head.txt').read().strip(),'started_at':start,'finished_at':end,'visible_name':'*Wp05BedrockBot','visible_uuid':uuid,'campaign_id':cid,'recipient':r,'restart_replay_no_duplicate':True,'authentication_mode':'offline-bedrock-protocol-through-real-Geyser-Floodgate','microsoft_xbox_authentication_claimed':False,'integrity':integrity,'foreign_key_violations':fk},indent=2,sort_keys=True))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wp05-floodgate-distribution-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-fgdist/evidence
+          if-no-files-found: error
+          retention-days: 30

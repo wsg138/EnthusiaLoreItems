@@ -15,7 +15,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class MigrationUpgradeMatrixTest {
     private static final int RECIPIENT_STATE_MIGRATION_VERSION = 6;
-    private static final int LATEST_VERSION = 7;
+    private static final int REVISION_SNAPSHOT_MIGRATION_VERSION = 7;
+    private static final int LATEST_VERSION = 8;
     private static final String SQLITE_INDEX_TYPE = "index";
     private static final String SQL_VALUE_SEPARATOR = "', '";
     private static final String ACTIVE_DEFINITION = "10000000-0000-0000-0000-000000000001";
@@ -23,6 +24,7 @@ class MigrationUpgradeMatrixTest {
     private static final String INSTANCE = "20000000-0000-0000-0000-000000000001";
     private static final String MUTATION = "30000000-0000-0000-0000-000000000001";
     private static final String CAMPAIGN = "40000000-0000-0000-0000-000000000001";
+    private static final String ADOPTION_PLAYER = "11111111-1111-1111-1111-111111111111";
 
     @TempDir
     Path temporaryDirectory;
@@ -59,6 +61,45 @@ class MigrationUpgradeMatrixTest {
             assertCurrentSchema(connection);
             assertEquals(1, scalarInt(connection,
                     "SELECT COUNT(*) FROM distribution_campaign_revision_snapshots"));
+        }
+    }
+
+    @Test
+    void legacyHeldItemAdoptionLocationIsCanonicalizedAtV8() throws SQLException {
+        Path database = temporaryDirectory.resolve("legacy-adoption-v7.db");
+        SQLiteConnectionFactory factory = new SQLiteConnectionFactory(database, 5_000);
+        MigrationRunner runner = new MigrationRunner();
+        try (Connection connection = factory.open()) {
+            runner.migrateThrough(connection, REVISION_SNAPSHOT_MIGRATION_VERSION);
+            seedDefinitions(connection);
+            execute(connection,
+                    "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, "
+                            + "desired_revision, lifecycle_state, created_at) VALUES ('" + INSTANCE
+                            + SQL_VALUE_SEPARATOR + ACTIVE_DEFINITION + "', 1, 1, 'ACTIVE', 1)");
+            execute(connection,
+                    "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
+                            + "location_key, container_path, confidence, source, observed_at) VALUES ('"
+                            + INSTANCE + SQL_VALUE_SEPARATOR + ACTIVE_DEFINITION
+                            + "', 'PLAYER_INVENTORY', '" + ADOPTION_PLAYER
+                            + "', 'hotbar:4', 'CONFIRMED_NOW', 'held-item-adoption', 2)");
+            execute(connection,
+                    "INSERT INTO instance_current_state(instance_id, state, location_type, "
+                            + "location_key, container_path, last_observation_id, state_revision, updated_at) "
+                            + "VALUES ('" + INSTANCE
+                            + "', 'CONFIRMED_NOW', 'PLAYER_INVENTORY', '" + ADOPTION_PLAYER
+                            + "', 'hotbar:4', 1, 1, 2)");
+
+            runner.migrate(connection);
+
+            assertEquals("player:" + ADOPTION_PLAYER, scalarText(connection,
+                    "SELECT location_key FROM instance_observations WHERE instance_id = '" + INSTANCE + "'"));
+            assertEquals("slot:4", scalarText(connection,
+                    "SELECT container_path FROM instance_observations WHERE instance_id = '" + INSTANCE + "'"));
+            assertEquals("player:" + ADOPTION_PLAYER, scalarText(connection,
+                    "SELECT location_key FROM instance_current_state WHERE instance_id = '" + INSTANCE + "'"));
+            assertEquals("slot:4", scalarText(connection,
+                    "SELECT container_path FROM instance_current_state WHERE instance_id = '" + INSTANCE + "'"));
+            assertCurrentSchema(connection);
         }
     }
 
@@ -147,7 +188,7 @@ class MigrationUpgradeMatrixTest {
                 "INSERT INTO distribution_recipients(campaign_id, recipient_key, snapshot_index, "
                         + "original_value, state, attempt_count, updated_at) VALUES ('" + CAMPAIGN
                         + "', 'name:upgrade-user', 0, 'UpgradeUser', '" + recipientState + "', 0, 4)");
-        if (version >= LATEST_VERSION) {
+        if (version >= REVISION_SNAPSHOT_MIGRATION_VERSION) {
             execute(connection,
                     "INSERT INTO distribution_campaign_revision_snapshots(campaign_id, definition_id, "
                             + "definition_revision, created_at) VALUES ('" + CAMPAIGN
