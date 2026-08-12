@@ -123,6 +123,26 @@ jobs:
           print(json.dumps({'case_ids':['ACC-LIFE-001'],'status':'PASS','source_head':open('/tmp/wp05-config/evidence/source-head.txt').read().strip(),'jar_sha256':open('/tmp/wp05-config/evidence/plugin-sha256.txt').read().split()[0],'paper':'1.21.11-116','java':'21','shared_container_before':'accepted','shared_container_after_valid_reload':'rejected','shared_container_after_invalid_reload':'rejected_last_known_good','queued_delivery':d,'integrity_check':i,'foreign_key_violations':fk,'started_at':sys.argv[2],'completed_at':sys.argv[3]},indent=2))
           PY
 
+      - name: Validate required config evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            /tmp/wp05-config/evidence/result.json
+            /tmp/wp05-config/evidence/source-head.txt
+            /tmp/wp05-config/evidence/plugin-sha256.txt
+            /tmp/wp05-config/evidence/config-initial.yml
+            /tmp/wp05-config/evidence/config-valid.yml
+            /tmp/wp05-config/evidence/config-invalid.yml
+            /tmp/wp05-config/evidence/server.log
+            /tmp/wp05-config/server/plugins/EnthusiaLoreItems/config.yml
+            /tmp/wp05-config/server/plugins/EnthusiaLoreItems/loreitems.db
+          )
+          for path in "${required[@]}"; do
+            test -s "$path" || { echo "Required config evidence is missing or empty: $path" >&2; exit 1; }
+          done
+
       - name: Upload config evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

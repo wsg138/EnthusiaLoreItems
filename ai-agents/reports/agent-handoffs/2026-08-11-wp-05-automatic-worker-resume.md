@@ -1,5 +1,7 @@
 # WP-05 automatic-worker resume checkpoint — 2026-08-11
 
+> **Historical checkpoint — superseded.** This file records the resume boundary at `873e3a99fc03c549ecae7c5a3b22cfae4d9791ad`. The Python-assert and aggregate-upload findings described below were subsequently remediated. Do not use this file's remaining-gates or next-action sections as current routing; use `ai-agents/reports/agent-handoffs/latest.md` and reconcile PR #18 live.
+
 ## Package state
 - Active package: WP-05 — live acceptance and production release.
 - Status: `IN_PROGRESS`.
@@ -55,14 +57,14 @@ CI run `31545449461` also returned `success`. It published the required exact-SH
 ## Independent-review reconciliation / known findings
 Review-only PR #24 has an independent CodeRabbit review over the final quality/config-reload delta. Two major comments were posted:
 1. The obsolete `audit_log` assertion was invalid against the repository schema and outside the accepted ACC-LIFE-001 contract; checkpoint `873e3a99...` removed it while retaining behavioral, queued-delivery, integrity, and foreign-key checks. Configuration Reload then passed on the exact checkpointed head.
-2. The remaining final evidence script uses Python `assert` for integrity/foreign-key/delivery validation. That is still valid because optimized Python can remove assertions and allow a false PASS. This must be replaced with explicit fail-closed checks.
+2. The remaining final evidence script uses Python `assert` for integrity/foreign-key/delivery validation. That is still valid because optimized Python can remove assertions and allow a false PASS. This was unresolved at this historical checkpoint and was later replaced with explicit fail-closed checks.
 
-The same review also identified non-blocking quality/stability improvements. The most directly relevant current ones are a shutdown-race test that should exercise the already-scheduled delivery path, and `if-no-files-found: warn` on required config evidence. These should be tightened while preserving acceptance semantics.
+The same review also identified non-blocking quality/stability improvements. The upload behavior described here was later tightened first to `if-no-files-found: error` and then, after final-delta review, to explicit non-empty validation of each required evidence output before upload.
 
 Historical unresolved threads on review-only PR #22 concern stale checkpoint/index records rather than the current canonical PR head; PR #23's actionable threads are resolved. PR #21's Sentinel-policy review thread is resolved. They do not create another package lock.
 
-## Remaining acceptance criteria / gates
-- Apply and validate the still-valid PR #24 review remediation without weakening acceptance behavior.
+## Remaining acceptance criteria / gates at this historical checkpoint
+- Apply and validate the then-open PR #24 review remediation without weakening acceptance behavior.
 - Rerun exact-head CI and the complete applicable WP-05 acceptance workflow set after the remediation; any commit makes `873e3a99...` evidence stale.
 - Rebuild/verify the final acceptance ledger against the exact final source head and exact final plugin JAR, including the contract-required separate evidence audit. Do not infer all 35 cases solely from workflow names.
 - Resolve every applicable actionable independent-review finding and retain review evidence; production-code changes require renewed independent review.
@@ -70,8 +72,8 @@ Historical unresolved threads on review-only PR #22 concern stale checkpoint/ind
 - On the exact final PR head, after a successful exact-SHA CI artifact exists, obtain valid production Sentinel startup and restart evidence using the current Sentinel command contract. Resource-, artifact-, or timing-gated attempts do not count as PASS.
 - Reconcile current `main`, prepare the prospective COMPLETE transition, merge PR #18 by normal merge commit only after all gates are satisfied, verify merged `main`, publish/verify production `v1.0.0` and its required assets, then record authoritative completion.
 
-## Blocker
-None. The package is actionable. Human owner/operator signoff will become an external completion dependency only after the technical/evidence gates are final.
+## Blocker at this historical checkpoint
+None. The package was actionable.
 
-## Exact next action
-Replace the optimization-removable Python assertions in Configuration Reload acceptance with explicit fail-closed checks, tighten the directly related review quality gaps, validate locally/repository-side, and publish those changes on the canonical WP-05 branch. Then use the new exact head as the sole source of truth for the final matrix and review/evidence gates. Do not begin WP-06.
+## Exact next action at this historical checkpoint
+Replace the optimization-removable Python assertions in Configuration Reload acceptance with explicit fail-closed checks, tighten the directly related review quality gaps, validate locally/repository-side, and publish those changes on the canonical WP-05 branch. This action has since been superseded; use `latest.md` for the current next action. Do not begin WP-06.
