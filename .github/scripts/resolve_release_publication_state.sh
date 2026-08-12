@@ -22,8 +22,12 @@ REQUIRED_ASSETS=(
 if gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
   TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
   test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
-  RELEASE_TAG="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName')"
+  RELEASE_METADATA="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" \
+    --json tagName,isDraft,isPrerelease --jq '[.tagName, .isDraft, .isPrerelease] | @tsv')"
+  IFS=$'\t' read -r RELEASE_TAG RELEASE_DRAFT RELEASE_PRERELEASE <<<"${RELEASE_METADATA}"
   test "${RELEASE_TAG}" = "${FINAL_TAG}"
+  test "${RELEASE_DRAFT}" = "false"
+  test "${RELEASE_PRERELEASE}" = "false"
   ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
   for asset in "${REQUIRED_ASSETS[@]}"; do
     grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null

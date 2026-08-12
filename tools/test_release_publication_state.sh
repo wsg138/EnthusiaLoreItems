@@ -50,12 +50,17 @@ run_case() {
 
     gh() {
       if [[ "$1" == "release" && "$2" == "view" ]]; then
-        if [[ "${scenario}" != "release" ]]; then
-          return 1
-        fi
+        case "${scenario}" in
+          release|release-draft|release-prerelease) ;;
+          *) return 1 ;;
+        esac
         case " $* " in
-          *" --json tagName "*)
-            printf '%s\n' "${FINAL_TAG}"
+          *" --json tagName,isDraft,isPrerelease "*)
+            case "${scenario}" in
+              release) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
+              release-draft) printf '%s\ttrue\tfalse\n' "${FINAL_TAG}" ;;
+              release-prerelease) printf '%s\tfalse\ttrue\n' "${FINAL_TAG}" ;;
+            esac
             ;;
           *" --json assets "*)
             printf '%s\n' "${REQUIRED_ASSETS[@]}"
@@ -78,7 +83,7 @@ run_case() {
             printf 'null\n'
             return 0
             ;;
-          exact|release)
+          exact|release|release-draft|release-prerelease)
             printf '%s\n' "${EVENT_TARGET_SHA}"
             return 0
             ;;
@@ -160,5 +165,11 @@ run_case release
 test "${LAST_RC}" -eq 0 || fail "release: expected success, got ${LAST_RC}"
 assert_output "released=true"
 test "$(wc -l < "${LAST_DIR}/output")" -eq 1 || fail "release: existing release must short-circuit"
+
+for case_name in release-draft release-prerelease; do
+  run_case "${case_name}"
+  test "${LAST_RC}" -ne 0 || fail "${case_name}: non-production release must fail closed"
+  assert_empty_output
+done
 
 echo "RELEASE_PUBLICATION_STATE_OK"

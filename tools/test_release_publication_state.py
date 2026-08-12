@@ -68,14 +68,17 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('echo "tag_exists=false"', missing_tag_branch)
         self.assertIn('echo "released=false"', missing_tag_branch)
 
-    def test_existing_release_still_requires_exact_tag_and_assets(self):
+    def test_existing_release_requires_exact_tag_production_state_and_assets(self):
         release_branch = self._between(
             self.resolver,
             'if gh release view "${FINAL_TAG}"',
             '\nfi\n\nTAG_LOOKUP_ERROR=',
         )
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
+        self.assertIn("--json tagName,isDraft,isPrerelease", release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)
+        self.assertIn('test "${RELEASE_DRAFT}" = "false"', release_branch)
+        self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
         self.assertIn('echo "released=true"', release_branch)
