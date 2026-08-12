@@ -12,19 +12,34 @@ class ReleasePublicationStateTest(unittest.TestCase):
         cls.resolver = cls._resolver_script(cls.release)
 
     def test_missing_tag_probe_preserves_api_exit_status(self):
+        self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
         self.assertIn(
             'if TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" '
-            '--jq \'.object.sha\' 2>/dev/null)"; then',
+            '--jq \'.object.sha\' 2>"${TAG_LOOKUP_ERROR}")"; then',
             self.resolver,
         )
         self.assertNotIn("2>/dev/null || true", self.resolver)
         self.assertIn('test "${TAG_SHA}" != "null"', self.resolver)
 
+    def test_only_explicit_404_enters_missing_tag_path(self):
+        error_branch = self._between(
+            self.resolver,
+            "          else\n            TAG_LOOKUP_STATUS=$?",
+            "\n          fi\n\n          MAIN_SHA=",
+        )
+        self.assertIn(
+            "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${TAG_LOOKUP_ERROR}\"",
+            error_branch,
+        )
+        self.assertIn('cat "${TAG_LOOKUP_ERROR}" >&2', error_branch)
+        self.assertIn('exit "${TAG_LOOKUP_STATUS}"', error_branch)
+        self.assertIn('rm -f "${TAG_LOOKUP_ERROR}"', error_branch)
+
     def test_existing_exact_tag_recovery_is_still_fail_closed(self):
         tag_branch = self._between(
             self.resolver,
             'if TAG_SHA="$(gh api ',
-            '\n          fi\n\n          MAIN_SHA=',
+            "\n          else\n            TAG_LOOKUP_STATUS=$?",
         )
         self.assertIn('test -n "${TAG_SHA}"', tag_branch)
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', tag_branch)
@@ -47,7 +62,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         release_branch = self._between(
             self.resolver,
             'if gh release view "${FINAL_TAG}"',
-            '\n          fi\n\n          if TAG_SHA=',
+            '\n          fi\n\n          TAG_LOOKUP_ERROR=',
         )
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)

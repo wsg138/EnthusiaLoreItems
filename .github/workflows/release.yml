@@ -55,7 +55,9 @@ jobs:
             exit 0
           fi
 
-          if TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>/dev/null)"; then
+          TAG_LOOKUP_ERROR="$(mktemp)"
+          if TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha' 2>"${TAG_LOOKUP_ERROR}")"; then
+            rm -f "${TAG_LOOKUP_ERROR}"
             test -n "${TAG_SHA}"
             test "${TAG_SHA}" != "null"
             test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
@@ -64,6 +66,14 @@ jobs:
             echo "tag_exists=true" >> "${GITHUB_OUTPUT}"
             echo "released=false" >> "${GITHUB_OUTPUT}"
             exit 0
+          else
+            TAG_LOOKUP_STATUS=$?
+            if ! grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' "${TAG_LOOKUP_ERROR}"; then
+              cat "${TAG_LOOKUP_ERROR}" >&2
+              rm -f "${TAG_LOOKUP_ERROR}"
+              exit "${TAG_LOOKUP_STATUS}"
+            fi
+            rm -f "${TAG_LOOKUP_ERROR}"
           fi
 
           MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
