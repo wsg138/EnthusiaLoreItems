@@ -9,33 +9,37 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | merged and verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | merged and verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | merged and verified; RC prerelease verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | PARTIAL | canonical draft PR #18 remains the sole unfinished package lock; implementation/evidence head `50633f1...` |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | BLOCKED | canonical PR #18 is complete through repository-native final verification; required production Sentinel startup is blocked by trusted host memory admission |
 | 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | BLOCKED | requires verified WP-05 production `v1.0.0` release |
 
 ## Progress
 - Completed: 4/6 packages.
-- Remaining: 2/6 packages.
+- Remaining unfinished: 2/6 packages.
 - Weighted completed progress: 75%.
-- WP-05 receives no weight until the complete package contract, merge, post-merge verification, and production release are verified.
+- WP-05 receives no official weight until the full package, normal merge, post-merge verification and production release are verified.
 
 ## WP-05 live lock
-- Starting live `main`: `476f9e5bbfa8155ab76b23bde0681ac35b92f177`.
 - Canonical branch: `agent/wp-05-live-acceptance-release`.
-- Draft PR: #18, `WP-05: complete live acceptance and release LoreItems`.
-- Status: `PARTIAL`.
-- Exact implementation/evidence head: `50633f1256aa2189f70219b7ebcca4a740e7acb0`.
-- Permanent handoff: `ai-agents/reports/agent-handoffs/2026-08-09-wp-05-tracking-lifecycle-progress-partial.md`.
-- Owner-approved scope amendment remains in force: real Microsoft/Xbox authentication is out of scope; server-visible Java/Floodgate identity behavior remains required.
+- Canonical PR: #18, `WP-05: complete live acceptance and release LoreItems`.
+- Status: `BLOCKED`.
+- Latest fully verified implementation/evidence head before the blocker checkpoint: `7345f4c12d7820fb1af773b98cccd4d3289611a2`.
+- Exact production JAR SHA-256: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- Permanent handoff: `ai-agents/reports/agent-handoffs/2026-08-11-wp-05-sentinel-resource-blocked.md`.
+- Owner-approved identity scope amendment remains in force: real Microsoft/Xbox authentication is out of scope; server-visible Java/Floodgate identity behavior remains required.
 
 ## Current WP-05 evidence summary
-Two production defects remain fixed/regression-verified: prefixed Floodgate recipient binding and the quit/inventory-close tracking race. No new production defect was confirmed in the current session.
+On `7345f4c1...`, all applicable WP-05 acceptance workflows, canonical CI and exact-head external Codacy completed successfully. The separate 35-case evidence audit is committed, PR #25 independent final-delta review is fully dispositioned/resolved, the hardened configuration-evidence gate is directly proven, and the release evidence binds the exact source/JAR identity. PR #18 has no requested changes and zero unresolved inline review threads.
 
-Exact-head tracking run `31303340890` produced artifact `9035204924` with digest `sha256:b877c96ba230c4bb5d7386d8d9cf2996a0b1d9f62e614cabd947b93a84b78cdb`. It explicitly PASSed `ACC-TRACK-001` and the allowed-mode/lifecycle portion of `ACC-TRACK-002`. The workflow then failed in Track 003 because the test attempted frame placement before the naturally dropped tracked item had returned to player storage. The restricted `shared-containers-allowed: false` half of Track 002 is also still outstanding.
+The required explicit Sentinel startup command was posted in PR #18 comment `5260542762`. Sentinel job `130` / check `93971143685` remained `AUTHORIZED — QUEUED` at queue position 1 because the trusted host had less than the configured 700 MB available-memory threshold for roughly ten minutes; last observed available memory was approximately 596 MB. The test never reached Paper startup and does not count as PASS. The resource threshold was not bypassed or weakened and no duplicate command was issued.
 
-On the same head, Public API `31303340903`, Exact Removal `31303340925`, Editor `31303340916`, Java Identity/Core `31303340947`, and ACC-CORE-005 `31303340907` succeeded. Floodgate `31303340901` failed on an external dependency HTTP 403 before product behavior. CI `31303340889` passed Verify/tooling/complexity but stopped at the required independent exact-head Codacy/review-marker gate.
+The blocker checkpoint commit itself changes the exact branch SHA, so `7345f4c1...` verification is historical evidence after the checkpoint. Resume must reconcile and re-run/verify the applicable exact-head gates before Sentinel is retried.
 
 ## Remaining boundary
-All 35 acceptance cases must pass on the exact final JAR after the last code change. Final exact-head automated/release gates, upgrade/backup/restore/rollback rehearsal, independent code review, separate evidence audit, owner/operator sign-off, normal merge, post-merge verification, and verified `v1.0.0` release remain required.
+- Restore trusted Sentinel host admission availability.
+- Fresh exact-head acceptance/CI/Codacy/release-binding verification after this checkpoint.
+- Sequential production Sentinel startup PASS then restart `PAPER_RESTART_OK`.
+- Required final prospective WP-05 `COMPLETE` / WP-06 `READY` state commit in PR #18 and fresh final-head verification.
+- Current-main reconciliation, normal merge, post-merge main verification, automatic `v1.0.0` release verification, then stop.
 
 ## Exact next action
-Resume PR #18. Finish the tracking contract by proving deterministic natural pickup before display placement, natural unload/reload for frame/glow-frame/armor-stand holders, and ordinary-player shulker/bundle rejection with `shared-containers-allowed: false`. Rerun all `ACC-TRACK-001..003` on one exact head and persist evidence. If green, continue the consolidated `ACC-ANOM-001..002`, `ACC-DEST-002..004`, and `ACC-LIFE-001..002` acceptance block. Do not begin WP-06.
+Resume canonical PR #18 when the Sentinel host again satisfies trusted admission. Reconcile the live checkpoint head and fresh checks, re-read current Sentinel policy/manifest/commands, obtain exact-head startup and restart terminal success, then finish the prospective state/merge/release sequence. Do not begin WP-06.
