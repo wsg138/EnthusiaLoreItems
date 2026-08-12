@@ -1,51 +1,55 @@
 # Latest agent handoff
 
-## Resume checkpoint — 2026-08-12
+## Current package state
 - Active package: WP-05 — live acceptance and production release.
-- Status: `IN_PROGRESS` while the materially changed independent-review condition is rechecked.
+- Status: `BLOCKED`.
 - Canonical branch: `agent/wp-05-live-acceptance-release`.
 - Continuation PR: #26 — `WP-05: complete live acceptance and release LoreItems`.
-- Resume parent checkpoint: `60bc310ebceb06940052ab9461949a968c9ff2cc`.
-- Exact implementation/evidence head requiring fresh review: `945105087318858cea9fdde99adb9853a51c1504`.
+- Exact latest implementation/evidence head: `755b4ad5739fe8375930789a57cbfe617bbe01f8`.
 - Live `main`: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
 - WP-06 remains `BLOCKED` until production `v1.0.0` is verified. Do not begin WP-06.
 
-## Live reconciliation
-- PR #26 remains the single unfinished canonical package lock; it is open, non-draft, and mergeable.
-- WP-01 through WP-04 canonical branches are historical and contained in live `main`; no WP-06 Tags branch or LoreItems finalization/API-blocker branch exists.
-- The other open LoreItems PRs are explicitly review-only/historical WP-05 slices or unrelated documentation, not competing package locks.
-- `main` remains `82429ec2...`.
-- Production `v1.0.0` remains unpublished.
-- All visible PR #26 inline review threads are resolved.
+## Work completed in this resume
+- Reconciled live GitHub, all package locks, all current workflow docs, and resumed only WP-05.
+- Reopened the previously quota-blocked CodeRabbit gate after its condition materially changed.
+- Resume checkpoint `8ab5eda7...` passed canonical CI `31647003641`, including exact-head Codacy and artifact publication.
+- Fresh CodeRabbit run `3e0daa80-66f8-4027-bee1-9cc96856b002` reviewed the previously uncovered continuation range through `8ab5eda7...` and found one actionable minor security/test-hardening gap, with no merge-blocking production risk.
+- Implemented that finding in `755b4ad573...`: the release contract test now explicitly asserts trusted `workflow_run` CI/success/push/main/head-SHA binding and scopes the no-checkout check to the privileged release job.
+- Exact latest-head CI `31647453359`, job `94284217594`, completed successfully.
 
-## Why the package is actionable again
-The prior checkpoint correctly recorded a CodeRabbit quota refusal as a verified external blocker. Live GitHub now shows a materially changed condition: the current CodeRabbit summary no longer contains the `Review limit reached` warning and the current checkpoint's combined CodeRabbit status is `success`.
+## Exact latest-head evidence — `755b4ad573...`
+- Gradle `clean check`: success.
+- Repository Python tooling: success.
+- Release publication-state behavioral regression: success.
+- New-code complexity: success.
+- Exact-head Codacy: success.
+- Deterministic profile: success.
+- Immutable release evidence: success.
+- Clean rebuild/reproducibility: success.
+- Plugin artifact `9161310864`, `enthusialoreitems-plugin`, digest `sha256:ed681f2949eff906f9e8c09de82bcbf31092ecd0d99c889b4c24f945fbdd2d55`, manifest JAR path `build/libs/EnthusiaLoreItems.jar`.
+- Verification artifact `9161310010`, `wp04-verification-755b4ad5739fe8375930789a57cbfe617bbe01f8`, digest `sha256:ea683d9ec1033e5b7a33abb87e9c6c7e71bb83488d27c363a7cc03f7bbf7fc21`.
+- All visible inline review threads are resolved; no known `CHANGES_REQUESTED` review remains.
 
-That change permits one new review attempt. It does not itself count as the fresh independent review required by the WP-05 contract.
+## Current independent-review blocker
+CodeRabbit automatically attempted the required incremental review of `8ab5eda7... → 755b4ad573...` as run `fdfd8d03-610f-4087-b45b-d35450d40aee`. It selected only `tools/test_release_publication_state.py`, but summary comment `5261960978` reports `Review limit reached` and says the next review is available in 53 minutes.
 
-## Completed implementation/test evidence
-- Fresh independent review through predecessor `6dcf8199...` returned two actionable findings.
-- Successor `9451050873...` fixes both, including draft/prerelease release rejection and synchronized workflow-state records.
-- Executable release-state regression covers missing tag, successful null, exact tag, 403/429/500, valid existing release, draft existing release, and prerelease existing release.
-- Exact successor CI `31628311153`, job `94220359053`: `completed/success`, including exact-head Codacy, reproducibility, release evidence, and artifacts.
-- Blocker checkpoint `60bc310e...`: canonical CI `31628688529` `completed/success`; product workflows skipped by path filters.
-- No plugin runtime, schema, persistence, Paper/Floodgate behavior, or stable API changed in the continuation.
+The contract requires independent review of every code fix. That exact latest fix is therefore not yet independently reviewed even though its CI/Codacy gates pass. Older review results and CodeRabbit status cannot substitute.
 
 ## Remaining acceptance criteria
-1. Request and obtain a fresh independent review covering the unreviewed successor/current delta; resolve every actionable finding and require zero unresolved threads.
-2. Only when review is clean, create the prospective final-state source commit marking WP-05 `COMPLETE` and WP-06 `READY` branch-locally.
-3. Verify that final source head with exact-head CI/Codacy/review.
-4. Re-read live Sentinel policy, final-head `.enthusia-test.yml`, LoreItems staging docs, and current Staff-Staging command contract; run final-head `startup` to `PAPER_SMOKE_OK`, then `restart` to `PAPER_RESTART_OK`.
-5. Reconcile current live `main`; merge it into the package branch non-destructively if required, then repeat stale gates.
-6. Normally merge PR #26 with merge-commit only and verify post-merge main CI.
-7. Verify automatic production `v1.0.0` targets the exact merge, is not draft/prerelease, and contains every required asset/checksum/source binding.
+1. After CodeRabbit capacity materially changes, obtain a fresh independent review of exact implementation head `755b4ad573...`; resolve any finding and require zero unresolved threads.
+2. Commit the prospective final WP-05 `COMPLETE` / WP-06 `READY` source state only after the review is terminal clean.
+3. Verify that final state SHA with exact-head CI/Codacy/review.
+4. Re-read live Sentinel policy, final-head manifest, LoreItems staging docs, and current Staff-Staging command contract; run final-head startup to `PAPER_SMOKE_OK`, then restart to `PAPER_RESTART_OK`.
+5. Reconcile live `main`; non-destructively merge it into the long-lived branch if moved and repeat stale gates.
+6. Normally merge PR #26 using merge-commit only and verify post-merge `main` CI.
+7. Verify automatic production `v1.0.0` against the exact merge with non-draft/non-prerelease state, required assets, checksum, and source binding.
 8. Record durable global WP-05 completion and stop without beginning WP-06.
 
 ## Known findings
-No known unimplemented defect remains. The independent review is the next gate.
+No known unimplemented product/release-control defect remains. The only unsatisfied implementation gate is the mandatory independent review of the latest one-file test hardening.
 
 ## Blocker
-None while the materially changed review condition is being actively rechecked. If the new review is refused again, return WP-05 to `BLOCKED` with that exact GitHub evidence.
+Verified external dependency: CodeRabbit review quota refused the exact latest review after every other currently actionable automated gate passed.
 
 ## Exact next action
-Fast-forward this resume checkpoint from exact observed parent `60bc310e...`, immediately re-fetch the canonical branch/PR for concurrency safety, then request one fresh CodeRabbit review. Continue through findings/finalization if it runs; otherwise record the verified blocker and stop. Do not begin WP-06.
+When the external review-capacity condition materially changes, re-fetch PR #26. If `755b4ad573...` remains the exact latest implementation head, request a fresh CodeRabbit review and continue WP-05 finalization only after it is terminal clean. Do not begin WP-06.
