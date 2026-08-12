@@ -13,13 +13,19 @@ class ReleasePublicationStateTest(unittest.TestCase):
         cls.resolver = RESOLVER_SCRIPT.read_text()
 
     def test_workflow_fetches_shared_resolver_from_exact_ci_head_without_checkout(self):
-        self.assertNotIn("actions/checkout", self.release)
+        release_job = self.release.split("jobs:\n  release:", 1)[1]
+        self.assertIn("workflow_run:\n    workflows:\n      - CI", self.release)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", release_job)
+        self.assertIn("github.event.workflow_run.event == 'push'", release_job)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", release_job)
+        self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release_job)
+        self.assertNotIn("actions/checkout", release_job)
         self.assertIn(
             "contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}",
-            self.release,
+            release_job,
         )
-        self.assertIn("--jq '.content' | base64 --decode", self.release)
-        self.assertIn('bash "${RESOLVER}"', self.release)
+        self.assertIn("--jq '.content' | base64 --decode", release_job)
+        self.assertIn('bash "${RESOLVER}"', release_job)
 
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
