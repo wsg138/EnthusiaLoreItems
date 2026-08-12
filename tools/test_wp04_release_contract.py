@@ -67,9 +67,13 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
         self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
-        self.assertIn("actions/checkout@", release)
-        self.assertIn("ref: ${{ github.event.workflow_run.head_sha }}", release)
-        self.assertIn("run: bash .github/scripts/resolve_release_publication_state.sh", release)
+        self.assertNotIn("actions/checkout", release)
+        self.assertIn(
+            "contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}",
+            release,
+        )
+        self.assertIn("--jq '.content' | base64 --decode", release)
+        self.assertIn('bash "${RESOLVER}"', release)
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', resolver)
         self.assertIn("gh run download", release)
         self.assertIn("wp04-verification-${TARGET_SHA}", release)

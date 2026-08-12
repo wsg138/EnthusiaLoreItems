@@ -26,14 +26,16 @@ jobs:
       EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
       FINAL_TAG: v1.0.0
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Resolve publication state
         id: state
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/resolve_release_publication_state.sh
+        run: |
+          RESOLVER=/tmp/resolve_release_publication_state.sh
+          gh api "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}" \
+            --jq '.content' | base64 --decode > "${RESOLVER}"
+          test -s "${RESOLVER}"
+          bash "${RESOLVER}"
 
       - name: Download exact CI verification artifact
         if: steps.state.outputs.released != 'true'

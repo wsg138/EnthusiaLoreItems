@@ -113,6 +113,7 @@ run_case() {
       return 93
     }
 
+    # shellcheck source=.github/scripts/resolve_release_publication_state.sh
     source "${RESOLVER}"
   ) >"${dir}/stdout" 2>"${dir}/stderr"
   LAST_RC=$?
