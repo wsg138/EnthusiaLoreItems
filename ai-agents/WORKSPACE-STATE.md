@@ -5,13 +5,12 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 
 ## Active package
 - Package: WP-05 — live acceptance and production release
-- Status: `BLOCKED`
+- Status: `IN_PROGRESS`
 - Canonical branch: `agent/wp-05-live-acceptance-release`
 - Pull request: PR #18, `WP-05: complete live acceptance and release LoreItems`
-- Latest fully verified implementation/evidence head before the blocker checkpoint: `7345f4c12d7820fb1af773b98cccd4d3289611a2`
-- Production JAR SHA-256: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`
-- Latest reconciled live-main merge base before the blocker: `70a636a25d12d755342d90d6846b86a0e56e865b`
-- Permanent handoff: `ai-agents/reports/agent-handoffs/2026-08-11-wp-05-sentinel-resource-blocked.md`
+- Resume checkpoint records exact predecessor implementation/evidence head: `7830a35821727dc8e98802e9793571497a564c5f`
+- Live `main` reconciled at: `70a636a25d12d755342d90d6846b86a0e56e865b`
+- Production JAR SHA-256 before this state-only resume checkpoint: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`
 - WP-06 remains `BLOCKED` until WP-05 is normally merged, post-merge verified, and production `v1.0.0` is verified.
 
 ## Package registry
@@ -21,37 +20,45 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | normally merged and verified |
 | WP-04 | 15% | COMPLETE | normally merged; RC prerelease verified |
-| WP-05 | 15% | BLOCKED | all repository-native final verification is green on `7345f4c1...`; production Sentinel startup cannot currently pass trusted host memory admission |
+| WP-05 | 15% | IN_PROGRESS | canonical PR #18 resumed after trusted Sentinel host admission recovered |
 | WP-06 | 10% | BLOCKED | requires verified WP-05 production `v1.0.0` release |
 
 - Completed: 4/6 packages.
 - Weighted completed progress: 75%.
 - WP-05 receives no official package weight until its complete merge/post-merge/release contract is verified.
 
-## WP-05 completed verification on `7345f4c1...`
-- Complete 35-case acceptance matrix: all applicable workflows `success`.
-- Canonical CI `31549631721`: `success`.
-- External Codacy check `93969752208`: `success`, zero observed annotations.
-- Plugin artifact `9123830616`; verification artifact `9123830161`.
-- Exact production JAR SHA-256: `7c862b0a...`.
-- Generated release evidence bound exact source `7345f4c1...` and exact JAR `7c862b0a...` to the audited `release_ready: APPROVED` gate.
-- Hardened Configuration Reload run `31549631752`, artifact `9123803294`, directly proved every required evidence file non-empty and `ACC-LIFE-001` PASS with completed queued delivery, clean integrity and zero FK violations.
-- Independent review-only PR #25: all findings dispositioned; all threads resolved; valid findings fixed and independently rechecked.
-- Canonical PR #18: no `CHANGES_REQUESTED` review; zero unresolved inline review threads.
-- Standing owner/operator release authorization: PR #18 comment `5246040850`.
+## Resume evidence on exact predecessor head `7830a358...`
+The former trusted-host memory blocker is no longer active. Exact-head evidence now available on the predecessor head is:
 
-## Verified external blocker
-After re-reading the required live Sentinel policy/manifest/command documents, exact command comment `5260542762` requested `@enthusia-sentinel test startup` on `7345f4c1...`. Sentinel job `130`, check `93971143685`, remained `AUTHORIZED — QUEUED` at queue position 1 because trusted host available memory stayed below the required 700 MB admission threshold for roughly ten minutes; last observed memory was about 596 MB. The job did not reach the Paper startup test and does not count as PASS. No duplicate command, manual enqueue, threshold edit, policy change, or resource-control bypass was attempted.
+- GitHub Actions CI run `31550935452`: `completed/success`.
+- All 22 dedicated WP-05 acceptance workflow runs returned `completed/success`: `31550935417`, `31550935425`, `31550935423`, `31550935438`, `31550935411`, `31550935420`, `31550935412`, `31550935409`, `31550935416`, `31550935463`, `31550935401`, `31550935415`, `31550935497`, `31550935485`, `31550935439`, `31550935444`, `31550935441`, `31550935422`, `31550935427`, `31550935442`, `31550935434`, `31550935460`.
+- External Codacy check `93973432101`: `completed/success`, zero annotations.
+- Combined CodeRabbit status: `success`.
+- Sentinel automatic reviewable/startup check `93973398929`: `completed/success`, terminal `PAPER_SMOKE_OK` on exact SHA `7830a358...`. This proves the external resource condition materially changed; it is not substituted for the required explicit production command evidence.
+- PR #18 is open, non-draft, mergeable; no submitted `CHANGES_REQUESTED` review was observed and unresolved inline review-thread count is zero.
 
-The blocker checkpoint commit that updates this state is itself a new SHA. On resume, prior exact-head evidence must not be transferred to the checkpoint head; the applicable matrix/CI/Codacy/release binding must be regenerated or verified on the resumed exact head before Sentinel is retried.
+This resume checkpoint itself creates a successor SHA. Therefore every exact-head result above becomes predecessor evidence and must not be credited to the successor head without fresh verification.
 
-## Remaining boundary
-- Fresh exact-head repository verification after this blocker checkpoint.
-- Production Sentinel `startup` terminal PASS and then sequential `restart` terminal `PAPER_RESTART_OK`.
-- Required final prospective `COMPLETE` state commit in the same PR, followed by fresh final-head verification.
-- Final live-main reconciliation and normal merge commit.
-- Post-merge main verification and automatic production `v1.0.0` publication from the merge commit with all required assets/checksums.
-- Durable global completion then stop. Do not begin WP-06.
+## Completed acceptance criteria
+- The complete 35-case WP-05 acceptance matrix and repository-native release-gate scope have already passed on prior exact implementation/evidence heads.
+- The current predecessor head regenerated the complete applicable acceptance workflows, CI and external Codacy successfully after the earlier blocker checkpoint.
+- Independent final-delta review/evidence audit findings remain dispositioned and resolved; owner/operator release authorization remains recorded on PR #18.
+- The trusted Sentinel host is again admitting work, as proven by exact-head automatic startup `PAPER_SMOKE_OK`.
+
+## Remaining acceptance criteria
+- Fresh exact-head acceptance workflows, CI, external Codacy, release source/JAR binding, artifact identity, review/thread state and required hardened configuration evidence on this resume-checkpoint successor.
+- Re-read live Sentinel policy, exact-head manifest, LoreItems staging docs and current Staff-Staging command contract immediately before production commands.
+- Explicit production Sentinel exact-head `startup` terminal `PAPER_SMOKE_OK` with full durable command/job/artifact evidence.
+- Sequential explicit production Sentinel exact-head `restart` terminal `PAPER_RESTART_OK` with full durable evidence.
+- Prospective final `COMPLETE` / WP-06 `READY` state commit in PR #18, followed by fresh final-head verification.
+- Reconcile current live `main`, normally merge PR #18, verify post-merge `main`, and verify automatic production `v1.0.0` tag/release and required assets/checksums.
+- Record durable global completion and stop without starting WP-06.
+
+## Known findings
+No unresolved product defect is currently known. The prior Sentinel memory-admission blocker has cleared. State-only checkpoint commits intentionally invalidate prior exact-head evidence and require fresh gates.
+
+## Blocker
+None.
 
 ## Exact next action
-When Sentinel host memory again satisfies the trusted 700 MB admission threshold, resume WP-05 from the canonical branch. Reconcile the live head and its fresh checks, re-read the live Sentinel policy/manifest/commands, obtain exact-head startup PASS and restart `PAPER_RESTART_OK`, then proceed through the prospective final-state commit, final verification, normal merge, post-merge CI and verified `v1.0.0` release. Do not begin WP-06.
+Re-fetch the canonical branch after this resume checkpoint. If the head matches the claimed successor, wait only on the repository's fresh exact-head gates needed by the contract, verify their exact results/artifacts, then issue the required production Sentinel `startup` and `restart` commands sequentially under the live command contract. Do not begin WP-06.

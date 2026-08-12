@@ -2,37 +2,74 @@
 
 ## Current package state
 - WP-04: `COMPLETE`.
-- WP-05 — live acceptance and production release: `BLOCKED` on canonical PR #18.
+- WP-05 — live acceptance and production release: `IN_PROGRESS` on canonical PR #18.
 - WP-06 — EnthusiaTags integration: `BLOCKED`; do not begin it.
 - Canonical branch: `agent/wp-05-live-acceptance-release`.
 - Canonical PR: #18 — `WP-05: complete live acceptance and release LoreItems`.
-- Current durable blocker handoff: `ai-agents/reports/agent-handoffs/2026-08-11-wp-05-sentinel-resource-blocked.md`.
 
-## Exact checkpoint boundary
-- Exact fully verified implementation/evidence head immediately before this blocker checkpoint: `7345f4c12d7820fb1af773b98cccd4d3289611a2`.
-- Exact production JAR SHA-256: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
-- Latest reconciled live-main merge base before the blocker: `70a636a25d12d755342d90d6846b86a0e56e865b`.
-- The blocker checkpoint commit containing this file is a successor head and therefore requires fresh exact-head evidence when resumed; do not transfer `7345f4c1...` checks to it by assumption.
+## Resume checkpoint boundary
+- Exact predecessor implementation/evidence head being checkpointed: `7830a35821727dc8e98802e9793571497a564c5f`.
+- Live `main` reconciled at: `70a636a25d12d755342d90d6846b86a0e56e865b`.
+- Exact production JAR SHA-256 before this state-only checkpoint: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- This checkpoint creates a successor SHA, so all exact-head results listed below are predecessor evidence only and must be refreshed for the successor.
 
-## Completed verification on `7345f4c1...`
-- Every applicable WP-05 pull-request acceptance workflow completed `success`, including both Floodgate paths, Tracking, Configuration Reload, the five-minute Anomaly contract, destructive/update lifecycle, distribution, API, backup/rollback, load/backpressure, protection, editor/revision, identity/core, and full-inventory acceptance.
-- Canonical CI `31549631721` completed `success` and produced plugin artifact `9123830616` plus verification artifact `9123830161`.
-- Exact-head external Codacy check `93969752208` completed `success` with zero observed annotations.
-- CI release evidence dynamically bound `release_source_head` to `7345f4c1...` and `release_jar_sha256` to `7c862b0a...` while consuming the audited `release_ready: APPROVED` gate.
-- Configuration Reload run `31549631752`, artifact `9123803294`, proved the PR #25 remediation: every required evidence output was non-empty and `ACC-LIFE-001` recorded PASS, queued delivery `COMPLETED`, integrity `ok`, and zero FK violations.
-- Independent final-delta review-only PR #25 has all six findings dispositioned and all review threads resolved. CodeRabbit rechecked the canonical fixes and agreed the release-marker finding was not applicable under this repository's separate exact-head source/JAR contract.
-- PR #18 has no `CHANGES_REQUESTED` review and zero unresolved inline review threads.
-- Standing owner/operator authorization remains recorded in owner comment `5246040850`.
-- PR #18 body was refreshed without changing the SHA and now contains the current scope, risk review, exact-head run table, migrations/compatibility impact, rollback notes, release identity, and Sentinel boundary.
+## Completed acceptance criteria and exact results on `7830a358...`
+- Canonical CI run `31550935452`: `completed/success`.
+- Dedicated WP-05 acceptance runs all `completed/success`:
+  - Anomaly Contract `31550935417`;
+  - Mutation Review Contract `31550935425`;
+  - Java Identity and Core `31550935423`;
+  - Public API `31550935438`;
+  - Environment and Degraded Startup `31550935411`;
+  - Exact Removal `31550935420`;
+  - Load and Backpressure `31550935412`;
+  - Backup and Release Rollback `31550935409`;
+  - Editor Contract `31550935416`;
+  - Conversion Protection `31550935463`;
+  - Destructive Lifecycle `31550935401`;
+  - Configuration Reload `31550935415`;
+  - Full Inventory `31550935497`;
+  - Mixed Work Lifecycle `31550935485`;
+  - Full Delete Late Copy `31550935439`;
+  - Revision Rollout `31550935444`;
+  - Floodgate Distribution `31550935441`;
+  - Ambiguous Mutation Recovery `31550935422`;
+  - Distribution Campaign `31550935427`;
+  - Protection `31550935442`;
+  - Tracking Contract `31550935434`;
+  - Floodgate Identity `31550935460`.
+- External Codacy check `93973432101`: `completed/success`, zero annotations.
+- Combined CodeRabbit commit status: `success`.
+- PR #18: open, non-draft, mergeable; unresolved inline review threads: zero; no submitted `CHANGES_REQUESTED` review observed.
+- Sentinel automatic `reviewable / startup` check `93973398929`: `completed/success`, terminal `PAPER_SMOKE_OK` on exact SHA `7830a358...`.
 
-## Current blocker
-The required production Sentinel `startup` command was posted exactly as one line in PR #18 comment `5260542762` after re-reading the live Sentinel policy, exact-head `.enthusia-test.yml`, LoreItems staging docs, and current Staff-Staging command contract.
+## Blocker disposition
+The previously recorded trusted-host memory admission blocker has cleared. The successful exact-head automatic Sentinel startup proves the external condition materially changed. No Sentinel threshold, trusted policy, queue control, or isolation boundary was weakened.
 
-Sentinel job `130`, check `93971143685`, exact requested SHA `7345f4c1...`, remained `AUTHORIZED — QUEUED` at queue position 1 because trusted host available memory stayed below the required 700 MB threshold for roughly ten minutes. Last observed available memory was approximately 596 MB. This is a real external admission blocker, not a product failure and not a PASS. No duplicate command or resource/policy bypass was attempted.
+The automatic reviewable/startup result is not being substituted for the explicit production command evidence required by WP-05. The package is resumed as `IN_PROGRESS`, not marked complete.
 
-The current exact-head CI artifact exists and is uniquely identifiable; the earlier same-SHA artifact ambiguity on `bd84482...` was already eliminated. Host admission resources are the only verified external blocker.
+## Completed package work retained from prior heads
+- Complete 35-case WP-05 acceptance matrix and evidence audit.
+- All confirmed defects fixed and retested; no unresolved product defect currently known.
+- Independent final-delta review findings dispositioned and resolved.
+- Release candidate finalized as production version `1.0.0` content with documented upgrade/backup/rollback paths.
+- Standing owner/operator authorization remains recorded on PR #18.
+- Production release remains intentionally unpublished until normal merge and verified post-merge release workflow.
+
+## Remaining acceptance criteria
+1. Fresh exact-head acceptance workflows, canonical CI, external Codacy, release source/JAR binding, exact artifact identity, hardened configuration evidence, and review/thread reconciliation on the resume-checkpoint successor.
+2. Immediately before Sentinel use, re-read live LoreItems Sentinel policy, exact-head `.enthusia-test.yml`, LoreItems staging docs, and current `wsg138/EnthusiaStaff-Staging/docs/sentinel-commands.md`.
+3. Issue the exact production command `@enthusia-sentinel test startup`; record command comment, response/check, job ID, tested SHA, exact successful workflow run, exact `enthusialoreitems-plugin` artifact ID/name, JAR path, terminal `PAPER_SMOKE_OK`, and cleanup state.
+4. Only after startup is terminal PASS, issue `@enthusia-sentinel test restart`; record the same identity chain and terminal `PAPER_RESTART_OK`.
+5. Commit the prospective final package state in PR #18: WP-05 `COMPLETE`, WP-06 `READY`, 5/6 complete and 90% weighted progress; rerun all final-head gates because that state commit creates another SHA.
+6. Reconcile current live `main`, normally merge PR #18 with a merge commit, verify post-merge `main`, and verify automatic `v1.0.0` publication from the merge commit with all required assets and matching checksums.
+7. Record durable global WP-05 completion and stop without claiming or beginning WP-06.
+
+## Known findings
+No unresolved product finding is currently known. The only prior external blocker has cleared. Exact-head evidence churn from required state commits remains an expected verification obligation, not a blocker.
+
+## Blocker
+None.
 
 ## Exact next action
-Resume the canonical WP-05 branch from live GitHub and reconcile this checkpoint's successor head. Because the checkpoint commit changes the exact SHA, regenerate/verify the full exact-head matrix, canonical CI, external Codacy, release-source/JAR binding, and review/thread state. Re-read the live Sentinel policy/manifest/commands immediately before the next production attempt. Obtain terminal `startup` PASS and then sequential `restart` with `PAPER_RESTART_OK`. After all exact-head gates pass, make the required prospective `COMPLETE` state commit, rerun final-head gates, reconcile live `main`, normally merge PR #18, verify post-merge main CI and automatic `v1.0.0` publication/assets, record completion, and stop.
-
-Do not begin WP-06.
+Re-fetch branch, PR and head after this resume claim. If the canonical head differs from the claimed successor, stop as a concurrent claimant. Otherwise inspect the fresh successor checks and artifacts; once every required exact-head repository gate is successful, re-read the live Sentinel command contract and run explicit production startup followed by restart. Do not begin WP-06.
