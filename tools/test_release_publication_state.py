@@ -3,13 +3,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
+RESOLVER_SCRIPT = ROOT / ".github/scripts/resolve_release_publication_state.sh"
 
 
 class ReleasePublicationStateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.release = RELEASE_WORKFLOW.read_text()
-        cls.resolver = cls._resolver_script(cls.release)
+        cls.resolver = RESOLVER_SCRIPT.read_text()
+
+    def test_workflow_checks_out_exact_ci_head_and_invokes_shared_resolver(self):
+        self.assertIn(
+            "ref: ${{ github.event.workflow_run.head_sha }}",
+            self.release,
+        )
+        self.assertIn(
+            "run: bash .github/scripts/resolve_release_publication_state.sh",
+            self.release,
+        )
 
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
@@ -24,8 +35,8 @@ class ReleasePublicationStateTest(unittest.TestCase):
     def test_only_explicit_404_enters_missing_tag_path(self):
         error_branch = self._between(
             self.resolver,
-            "          else\n            TAG_LOOKUP_STATUS=$?",
-            "\n          fi\n\n          MAIN_SHA=",
+            "else\n  TAG_LOOKUP_STATUS=$?",
+            "\nfi\n\nMAIN_SHA=",
         )
         self.assertIn(
             "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${TAG_LOOKUP_ERROR}\"",
@@ -39,7 +50,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         tag_branch = self._between(
             self.resolver,
             'if TAG_SHA="$(gh api ',
-            "\n          else\n            TAG_LOOKUP_STATUS=$?",
+            "\nelse\n  TAG_LOOKUP_STATUS=$?",
         )
         self.assertIn('test -n "${TAG_SHA}"', tag_branch)
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', tag_branch)
@@ -62,20 +73,13 @@ class ReleasePublicationStateTest(unittest.TestCase):
         release_branch = self._between(
             self.resolver,
             'if gh release view "${FINAL_TAG}"',
-            '\n          fi\n\n          TAG_LOOKUP_ERROR=',
+            '\nfi\n\nTAG_LOOKUP_ERROR=',
         )
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
         self.assertIn('echo "released=true"', release_branch)
-
-    @staticmethod
-    def _resolver_script(release):
-        marker = "      - name: Resolve publication state\n"
-        start = release.index(marker) + len(marker)
-        next_step = release.index("\n      - name:", start)
-        return release[start:next_step]
 
     @staticmethod
     def _between(text, start_marker, end_marker):
