@@ -47,6 +47,8 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check -r tools/requirements.txt
       - name: Verify repository tooling
         run: python3 -m unittest discover -s tools -p 'test_*.py'
+      - name: Verify release publication-state behavior
+        run: bash tools/test_release_publication_state.sh
       - name: Verify new-code complexity
         if: github.event_name == 'pull_request'
         env:
