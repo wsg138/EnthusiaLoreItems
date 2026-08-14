@@ -1,50 +1,53 @@
 # Latest agent handoff
 
-## Prospective WP-05 completion state
-- WP-05 — live acceptance and production release: `COMPLETE` **prospectively inside open PR #26 only**.
-- WP-06 — EnthusiaTags integration: `READY` **prospectively only**; do not begin it until WP-05 production `v1.0.0` is verified.
-- Canonical branch: `agent/wp-05-live-acceptance-release`.
-- Canonical PR: #26 — `WP-05: complete live acceptance and release LoreItems`.
-- Exact implementation/evidence predecessor: `755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- Live `main` immediately before this prospective-completion state: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
+## WP-06 final completion state
+- WP-06 — EnthusiaTags integration with LoreItems service API: `COMPLETE`.
+- Fixed program: 6/6 packages complete, 0 remaining, 100% weighted progress.
+- Canonical Tags PR: #15 — `WP-06: integrate EnthusiaTags with LoreItems service API` — normally merged.
+- Exact Tags reviewed head: `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Exact Tags merge/live `main`: `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`.
+- Canonical LoreItems finalization branch: `docs/wp-06-complete`.
+- Required LoreItems finalization PR title: `WP-06: record final remaining-work completion`.
+- LoreItems base before finalization: `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
 
-## Completed continuation work
-- Recovered failed post-merge release finalization without creating a production tag/release.
-- Missing-tag resolution now accepts only explicit HTTP 404 and fails closed on 403/429/5xx and other API failures with diagnostics retained.
-- Privileged release execution is bound to the exact successful CI `workflow_run.head_sha` and avoids checking out triggering source.
-- Existing release recovery requires exact tag/target/assets plus `isDraft=false` and `isPrerelease=false`.
-- Executable mocked-`gh` coverage includes missing/null/exact tag, 403/429/500, valid existing release, draft release, and prerelease release.
-- Latest trust-boundary regression test explicitly protects CI/success/push/main/head-SHA binding and no-checkout scope.
+## Dependency state
+- LoreItems WP-05 is globally complete on live `main` `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- Production `v1.0.0` is non-draft/non-prerelease and bound to that exact LoreItems merge.
+- Production LoreItems JAR SHA-256: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- No released-API defect required `agent/wp-06-loreitems-api-blocker`.
 
-## Exact implementation evidence — `755b4ad573...`
-- CI `31647453359`, job `94284217594`: `completed/success`.
-- Exact-head Codacy: success.
-- Release-state regression, Gradle verification, tooling, complexity, deterministic profile, immutable release evidence, and reproducibility: success.
-- Plugin artifact `9161310864`, `enthusialoreitems-plugin`, JAR path `build/libs/EnthusiaLoreItems.jar`.
-- Verification artifact `9161310010`, `wp04-verification-755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- All visible inline review threads are resolved; no submitted `CHANGES_REQUESTED` review remains.
-- No known unimplemented defect remains.
+## WP-06 implementation outcome
+- Tags adds strict first-class `LORE_ITEM` reward actions against only released `LoreItemsServiceV1` through Bukkit `ServicesManager`.
+- Cross-plugin handoffs persist caller identity and intent before submission; the deterministic external operation ID is reused across uncertain outcomes, retries, reloads, restarts, crash recovery, and staff retry.
+- Automatic retry and accepted-finalization work is bounded. Exhausted retries move to durable staff `REVIEW` rather than looping forever.
+- LoreItems acceptance is reconciled into the ordinary Tags reward ledger before the exact handoff is acknowledged finalized.
+- Accepted-but-unreconcilable operations leave the automatic finalization queue for staff review.
+- Explicit `lorestatus` / `loreretry` provide durable recovery controls while preserving operation identity.
+- Regression coverage includes the review-found staff recovery path through `REQUIRES_RECONCILIATION` to accepted/claimed/finalized.
+- Tags uses no LoreItems command fallback, implementation-class coupling, or direct LoreItems database access.
 
-## Owner-authorized review exception
-CodeRabbit completed substantive continuation review through `8ab5eda7...`; its one latest actionable finding was fixed at `755b4ad573...`. The next incremental CodeRabbit review was quota-refused. On 2026-08-12 the repository owner explicitly instructed the active worker to continue without waiting for CodeRabbit.
+## Exact pre-merge verification
+- Exact PR/review head: `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- PR Build `31840114667`: `completed/success`; exact checkout, checksum-pinned production LoreItems bootstrap, Maven test/package, exact-head Codacy verification, and JAR upload passed.
+- External Codacy check `94895022587`: `completed/success`, zero annotations.
+- Artifact `9233939403`, `EnthusiaTags-ad54248ead88a331119b129cfdbf55add8c78aa5`, SHA-256 `177383a7ae24c2bafbee92df9fb015e473bbb9571445950fc60c5ab585fd897a`.
+- CodeRabbit accepted the fresh exact-head review request and explicitly reported: `I found no remaining actionable WP-06 findings.`
+- The fresh review verified the requested SHA and confirmed later commits after product implementation head `7222c6387973e7fbe9bd068b02aa49d448b4c6ea` changed only the durable Tags handoff document.
+- All visible inline review threads were resolved; the only submitted review state was `COMMENTED`, not `CHANGES_REQUESTED`.
 
-This handoff records that process exception transparently. It does not claim the refused incremental review passed. All remaining exact-head automated, Sentinel, merge, and production-release gates remain mandatory.
-
-## Remaining finalization criteria created by this state commit
-1. Re-fetch branch/PR after this commit and require exact-head CI/Codacy/repository-native checks to succeed.
-2. Re-read live Sentinel operating policy, this exact SHA's `.enthusia-test.yml`, LoreItems Sentinel staging doc, and current Staff-Staging command contract.
-3. Run explicit production `startup` for this exact SHA and require `PAPER_SMOKE_OK`.
-4. Only after startup terminal PASS, run explicit production `restart` for the same exact SHA and require `PAPER_RESTART_OK`.
-5. Reconcile live `main`; if moved, integrate it without rebase/force and repeat stale gates.
-6. Normally merge PR #26 with GitHub merge-commit only.
-7. Verify exact merge on live `main`, successful post-merge CI, and automatic production `v1.0.0` publication with all required assets/checksum/source binding and non-draft/non-prerelease state.
-8. Record durable global completion and stop without beginning WP-06.
+## Merge and post-merge verification
+- Tags PR #15 merged normally as `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`.
+- The merge has two parents: old Tags `main` `36bd6c51b7db6a94c866e5ce938b08e696050235` and reviewed head `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Live Tags `main` was re-fetched and equals the merge commit.
+- Post-merge Build run `31840466712`: `completed/success` on exact merge SHA.
+- Post-merge `Publish latest build` run `31840466725`: `completed/success` on exact merge SHA; Maven package and rolling release update passed.
+- Rolling prerelease `latest` updated at 2026-08-14T21:00:58Z with `EnthusiaTags.jar`, SHA-256 `7163a5cabd68bccbfd78283a98eef8c0be45a2bfb3313547f126b17f9d887807`.
 
 ## Known findings
 None unresolved.
 
 ## Blocker
-None. Owner explicitly waived waiting for the additional CodeRabbit review.
+None.
 
-## Exact next action
-Fast-forward this prospective-completion state from exact parent `58d58e9201...`, re-fetch PR #26, then verify the newly triggered exact-head automated gates. Do not begin WP-06.
+## Final publication gate
+This handoff is one of exactly three contract-authorized files on LoreItems `docs/wp-06-complete`. Require exact-head automated checks and independent review/reconciliation for the finalization PR. If clean, merge with GitHub's normal merge-commit method only, verify the exact merge is live LoreItems `main`, and stop. No package follows WP-06.

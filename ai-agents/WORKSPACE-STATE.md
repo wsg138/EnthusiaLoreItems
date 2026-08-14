@@ -3,14 +3,15 @@
 ## Snapshot warning
 Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; selected package contract; workflow docs; requirements; architecture; implementation plan; state/handoffs.
 
-## Active package
-- Package: WP-05 — live acceptance and production release
-- Status: `COMPLETE` **prospectively on the open package branch only**.
-- Canonical branch: `agent/wp-05-live-acceptance-release`.
-- Continuation PR: #26 — `WP-05: complete live acceptance and release LoreItems`.
-- Exact implementation/evidence predecessor: `755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- Live `main` before prospective completion: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
-- WP-06 is `READY` prospectively only and must not begin until production `v1.0.0` is verified.
+## Fixed-program final state
+- Active package: WP-06 — EnthusiaTags integration with LoreItems service API.
+- Status: `COMPLETE` on this finalization branch; publication to live LoreItems `main` is the only remaining repository-state step.
+- Finalization branch: `docs/wp-06-complete`.
+- Required finalization PR title: `WP-06: record final remaining-work completion`.
+- LoreItems base/live `main` before finalization: `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- EnthusiaTags reviewed package head: `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- EnthusiaTags normal merge commit/live `main`: `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`.
+- No package exists after WP-06.
 
 ## Package registry
 | Package | Weight | Status | Reason |
@@ -18,43 +19,52 @@ Live GitHub is authoritative. Resolve conflicts in this order: live GitHub; sele
 | WP-01 | 20% | COMPLETE | normally merged and verified |
 | WP-02 | 20% | COMPLETE | normally merged and verified |
 | WP-03 | 20% | COMPLETE | normally merged and verified |
-| WP-04 | 15% | COMPLETE | normally merged; RC prerelease verified |
-| WP-05 | 15% | COMPLETE | prospective branch state; final live-main/release verification pending |
-| WP-06 | 10% | READY | prospective unlock only; blocked operationally until WP-05 production release verification |
+| WP-04 | 15% | COMPLETE | normally merged and verified; RC prerelease verified |
+| WP-05 | 15% | COMPLETE | normally merged as LoreItems `ed91b1d4...`; production `v1.0.0` verified |
+| WP-06 | 10% | COMPLETE | Tags integration independently reviewed, normally merged, post-merge Build and rolling publication verified |
 
-- Prospective completed: 5/6 packages / 90% weighted.
-- Globally verified completed remains 4/6 packages / 75% until WP-05 merge and production release verification finish.
+- Completed: 6/6 packages.
+- Remaining packages: 0.
+- Weighted completed progress: 100%.
 
-## Final implementation evidence retained
-- Prior PR #18 established full WP-05 product acceptance and production Sentinel startup/restart for unchanged runtime behavior, then merged as `82429ec2...`.
-- Continuation fixed the automatic release finalization path: explicit-404-only missing-tag handling, non-404 fail-closed diagnostics, exact-CI-SHA resolver execution, existing-release production-state checks, and executable regression coverage.
-- CodeRabbit review through `8ab5eda7...` completed and identified one latest minor trust-boundary test-hardening gap.
-- `755b4ad573...` implemented that gap by explicitly asserting `workflow_run` CI/success/push/main/head-SHA binding and scoped no-checkout protection for the privileged release job.
-- Exact CI `31647453359`, job `94284217594`, passed Gradle, repository tooling, release-state regressions, complexity, exact-head Codacy, deterministic profile, immutable release evidence, reproducibility, and artifact publication.
-- Exact plugin artifact `9161310864`; exact verification artifact `9161310010`.
-- All visible inline review threads are resolved; no `CHANGES_REQUESTED` review remains.
-- No known unimplemented product or release-control defect remains.
+## WP-05 dependency verification retained
+- LoreItems live `main`: `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`, the normal merge of PR #26.
+- Production release `v1.0.0` is non-draft/non-prerelease and targets `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- Production LoreItems JAR SHA-256: `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- That released V1 API satisfied WP-06's dependency; no LoreItems API-blocker branch was required.
 
-## Owner review-gate override
-The universal dispatcher normally requires a fresh independent review after every code fix. The repository owner explicitly instructed this worker on 2026-08-12 to carry on without waiting for CodeRabbit. The refused incremental review of `755b4ad573...` is therefore recorded as an owner-waived process gate, not falsely represented as passed review evidence.
+## WP-06 implementation and review evidence
+- Canonical implementation repository: `wsg138/EnthusiaTags`.
+- Canonical package PR: #15 — `WP-06: integrate EnthusiaTags with LoreItems service API`.
+- Exact reviewed PR head: `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Final product implementation head before documentation checkpoints: `7222c6387973e7fbe9bd068b02aa49d448b4c6ea`; later package commits changed only the Tags durable handoff document.
+- Exact-head PR Build `31840114667`: `completed/success`; exact checkout, pinned LoreItems bootstrap, Maven package/test, exact-head Codacy verification, and artifact upload passed.
+- External Codacy check `94895022587`: `completed/success`, zero annotations.
+- Exact-head artifact `9233939403`, `EnthusiaTags-ad54248ead88a331119b129cfdbf55add8c78aa5`, digest `sha256:177383a7ae24c2bafbee92df9fb015e473bbb9571445950fc60c5ab585fd897a`.
+- Fresh independent CodeRabbit review explicitly reviewed exact head `ad54248...` and reported: `I found no remaining actionable WP-06 findings.`
+- All visible inline review threads were resolved and no submitted review was in `CHANGES_REQUESTED` state before merge.
 
-All other implementation, automated verification, thread-resolution, and risk gates remain enforced.
+## WP-06 merge and post-merge verification
+- PR #15 was merged with GitHub's normal merge-commit method only.
+- Exact Tags merge/live-main commit: `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`.
+- The merge commit has exactly two parents: previous Tags `main` `36bd6c51b7db6a94c866e5ce938b08e696050235` and reviewed head `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Post-merge Tags Build `31840466712`: `completed/success` on exact merge SHA.
+- Post-merge `Publish latest build` `31840466725`: `completed/success` on exact merge SHA; build/package and rolling prerelease update succeeded.
+- Rolling `latest` release was updated at 2026-08-14T21:00:58Z with `EnthusiaTags.jar`, SHA-256 `7163a5cabd68bccbfd78283a98eef8c0be45a2bfb3313547f126b17f9d887807`.
 
-## Remaining finalization criteria
-1. Fresh exact-head CI/Codacy and all applicable repository-native verification on this prospective final-state commit.
-2. Re-read live Sentinel policy, exact final-head manifest, LoreItems staging docs, and current Staff-Staging command contract.
-3. Exact final-head Sentinel startup → `PAPER_SMOKE_OK`; then sequential restart → `PAPER_RESTART_OK`.
-4. Current-main reconciliation; integrate current main non-destructively if moved and repeat stale gates.
-5. Normal GitHub merge-commit of PR #26 only.
-6. Verify exact merge commit on live `main` and successful post-merge CI.
-7. Verify automatic production `v1.0.0` exact-merge binding, non-draft/non-prerelease state, required assets, checksum, and source binding.
-8. Record durable global completion and stop without beginning WP-06.
+## Completed package behavior
+- `LORE_ITEM` is a first-class Tags reward action using only released `LoreItemsServiceV1` through Bukkit `ServicesManager`.
+- Caller-owned operation identity is deterministic and reused across timeout, retry, reload, restart, crash recovery, and staff retry.
+- Tags persists handoff intent before cross-plugin requests and uses bounded retries, bounded finalization sweeps, an automatic-attempt ceiling, and durable staff `REVIEW` recovery.
+- Accepted LoreItems handoffs reconcile into the normal Tags reward ledger before the exact external operation is marked finalized.
+- The identity/fingerprint-verified staff recovery path safely completes `REVIEW` → explicit retry → accepted LoreItems handoff → Tags claimed/finalized state.
+- Missing/reloading LoreItems degrades to durable retry/review behavior without direct database coupling or command fallback.
 
 ## Known findings
 None unresolved.
 
 ## Blocker
-None. Owner explicitly waived the additional CodeRabbit wait for this package.
+None.
 
-## Exact next action
-Publish this prospective final-state commit from exact parent `58d58e9201...`, immediately re-fetch the branch/PR, then require exact-head automated verification before Sentinel. Do not begin WP-06.
+## Finalization gate
+This branch changes only the three files explicitly authorized by the WP-06 contract. Before merging its finalization PR, require exact-head repository checks and the required independent review/reconciliation. Merge normally with GitHub's merge-commit method, verify the resulting LoreItems live `main`, then stop. There is no seventh package.

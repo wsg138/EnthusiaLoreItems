@@ -1,7 +1,7 @@
 # Fixed remaining-work queue
 
 ## Queue invariants
-Exactly six immutable packages. Live GitHub outranks snapshots. Resume the single unfinished canonical lock before new work. Never split packages or begin the next package in the same completion chat.
+Exactly six immutable packages. Live GitHub outranks snapshots. Resume the single unfinished canonical lock before new work. Never split packages or invent a seventh package.
 
 | Order | Package | Weight | Status | Dependency / routing |
 |---:|---|---:|---|---|
@@ -9,42 +9,41 @@ Exactly six immutable packages. Live GitHub outranks snapshots. Resume the singl
 | 2 | [WP-02](work-packages/WP-02-destructive-administration.md) | 20% | COMPLETE | normally merged and verified |
 | 3 | [WP-03](work-packages/WP-03-mass-distributions.md) | 20% | COMPLETE | normally merged and verified |
 | 4 | [WP-04](work-packages/WP-04-production-hardening.md) | 15% | COMPLETE | normally merged and verified; RC prerelease verified |
-| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | COMPLETE | prospective package-branch state only; global completion still requires exact-head verification, Sentinel, normal merge, post-merge main CI, and verified production `v1.0.0` |
-| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | READY | prospective unlock only; do not begin until WP-05's exact final state is merged and production `v1.0.0` is verified |
+| 5 | [WP-05](work-packages/WP-05-live-acceptance-and-release.md) | 15% | COMPLETE | LoreItems `ed91b1d4...` live; production `v1.0.0` verified |
+| 6 | [WP-06](work-packages/WP-06-enthusiatags-integration.md) | 10% | COMPLETE | Tags PR #15 independently reviewed, normally merged as `14c59e92...`, post-merge Build/latest publication verified |
 
-## Progress
-- Prospective completed: 5/6 packages.
-- Prospective weighted completed progress: 90%.
-- Globally verified completed remains 4/6 packages / 75% until this exact final-state commit passes all remaining WP-05 gates and production release verification.
+## Final progress
+- Completed packages: 6/6.
+- Remaining packages: 0.
+- Weighted completed progress: 100%.
+- Next package: none.
 
-## WP-05 final package checkpoint
-- Canonical branch: `agent/wp-05-live-acceptance-release`.
-- Canonical PR: #26 — `WP-05: complete live acceptance and release LoreItems`.
-- Live `main` before this prospective-completion commit: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
-- Exact implementation/evidence predecessor: `755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- Exact predecessor CI: `31647453359`, job `94284217594`, `completed/success`.
-- Exact predecessor plugin artifact: `9161310864`, `enthusialoreitems-plugin`, JAR `build/libs/EnthusiaLoreItems.jar`.
-- Exact predecessor verification artifact: `9161310010`, `wp04-verification-755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- All visible inline review threads are resolved and no submitted review is in `CHANGES_REQUESTED` state.
-- Production `v1.0.0` tag/release remain absent before finalization.
+## WP-06 exact completion evidence
+- Released LoreItems dependency: live `main` `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`, production `v1.0.0`, JAR SHA-256 `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- Tags PR #15 reviewed head: `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Exact-head PR Build `31840114667`: success.
+- External Codacy `94895022587`: success, zero annotations.
+- PR artifact `9233939403`: digest `sha256:177383a7ae24c2bafbee92df9fb015e473bbb9571445950fc60c5ab585fd897a`.
+- Fresh independent CodeRabbit review of exact head `ad54248...`: no remaining actionable WP-06 findings.
+- All visible inline review threads resolved; no `CHANGES_REQUESTED` review before merge.
+- Tags normal merge/live `main`: `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`, with parents `36bd6c51b7db6a94c866e5ce938b08e696050235` and `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Post-merge Build `31840466712`: success on exact merge SHA.
+- Post-merge rolling publication `31840466725`: success on exact merge SHA.
+- Rolling `latest` `EnthusiaTags.jar`: SHA-256 `7163a5cabd68bccbfd78283a98eef8c0be45a2bfb3313547f126b17f9d887807`.
 
-## Owner review-gate override
-The repository dispatcher normally requires an additional independent review after every fix. On 2026-08-12, the repository owner explicitly instructed the active worker to continue WP-05 without waiting for additional CodeRabbit capacity. This prospective state records that owner-authorized exception rather than claiming the refused incremental review passed.
-
-The substantive CodeRabbit review through `8ab5eda7...` completed, its only latest finding was implemented in `755b4ad573...`, and exact-head CI/Codacy/reproducibility/artifact gates passed on that implementation head. No known unimplemented defect remains.
-
-## Remaining boundary before global completion
-1. Verify this prospective final-state head with exact-head CI/Codacy and all applicable repository-native checks.
-2. Re-read live Sentinel policy, this exact head's `.enthusia-test.yml`, LoreItems staging docs, and current Staff-Staging command contract.
-3. Run exact-head production Sentinel `startup` and require terminal `PAPER_SMOKE_OK`; then run sequential `restart` and require terminal `PAPER_RESTART_OK`.
-4. Reconcile live `main`; if it moved, integrate it non-destructively and repeat any stale exact-head gates.
-5. Normally merge PR #26 with GitHub's merge-commit method only.
-6. Verify the resulting merge commit is live `main` and push-to-main CI succeeds.
-7. Verify automatic production `v1.0.0` targets that exact merge, is non-draft/non-prerelease, and contains every required release asset/checksum/source binding.
-8. Record durable global completion and stop without beginning WP-06.
+## Finalization publication
+- LoreItems base before the final three-file state publication: `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- Canonical finalization branch: `docs/wp-06-complete`.
+- Required PR title: `WP-06: record final remaining-work completion`.
+- Authorized changed files are only:
+  - `ai-agents/WORKSPACE-STATE.md`
+  - `ai-agents/WORK-QUEUE.md`
+  - `ai-agents/reports/agent-handoffs/latest.md`
+- Require exact-head checks and independent review/reconciliation, then normal merge-commit and final live-main verification.
+- This publication gate does not create another work package and does not change the 6/6, 100% fixed-program completion result recorded by the final state.
 
 ## Blocker
-None. The owner explicitly waived waiting for additional CodeRabbit review capacity for this package.
+None.
 
 ## Exact next action
-Fast-forward this prospective-completion state from exact predecessor checkpoint `58d58e9201...`, re-fetch branch/PR for concurrency safety, then verify the newly triggered exact-head CI/Codacy gates. Do not begin WP-06.
+Verify/review and normally merge the three-file `docs/wp-06-complete` finalization PR, confirm its merge commit is live LoreItems `main`, and stop. Do not create or begin any additional package.
