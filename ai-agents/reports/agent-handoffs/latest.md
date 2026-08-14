@@ -1,50 +1,56 @@
 # Latest agent handoff
 
-## Prospective WP-05 completion state
-- WP-05 — live acceptance and production release: `COMPLETE` **prospectively inside open PR #26 only**.
-- WP-06 — EnthusiaTags integration: `READY` **prospectively only**; do not begin it until WP-05 production `v1.0.0` is verified.
-- Canonical branch: `agent/wp-05-live-acceptance-release`.
-- Canonical PR: #26 — `WP-05: complete live acceptance and release LoreItems`.
-- Exact implementation/evidence predecessor: `755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- Live `main` immediately before this prospective-completion state: `82429ec2c4e7309ae6f11adbacab5e8386cc1ece`.
+## WP-06 final completion publication
+- Active/final package: WP-06 — EnthusiaTags integration with LoreItems service API.
+- Canonical LoreItems finalization branch: `docs/wp-06-complete`.
+- Canonical finalization PR: #27 — `WP-06: record final remaining-work completion`.
+- LoreItems base/live `main` before finalization: `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- Immediately preceding exact evidence head: `75aea91cfe9094fd41b35c945e926838c7483328`.
+- By the universal durable-checkpoint rule, this committed metadata records the immediately preceding evidence SHA; PR #27 records the pushed metadata-checkpoint SHA after publication instead of requiring this commit to contain its own SHA.
+- Prospective state published by PR #27: WP-06 `COMPLETE*`; fixed program 6/6 complete, 0 remaining, 100% weighted progress.
+- That state becomes authoritative only after PR #27 normally merges and the resulting LoreItems live `main` is verified. Before that event, live-main progress remains 5/6 and 90%.
+- No package follows WP-06.
 
-## Completed continuation work
-- Recovered failed post-merge release finalization without creating a production tag/release.
-- Missing-tag resolution now accepts only explicit HTTP 404 and fails closed on 403/429/5xx and other API failures with diagnostics retained.
-- Privileged release execution is bound to the exact successful CI `workflow_run.head_sha` and avoids checking out triggering source.
-- Existing release recovery requires exact tag/target/assets plus `isDraft=false` and `isPrerelease=false`.
-- Executable mocked-`gh` coverage includes missing/null/exact tag, 403/429/500, valid existing release, draft release, and prerelease release.
-- Latest trust-boundary regression test explicitly protects CI/success/push/main/head-SHA binding and no-checkout scope.
+## Dependency and Tags integration outcome
+- LoreItems WP-05 is complete on live `main` `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`; production `v1.0.0` is non-draft/non-prerelease and bound to that SHA; production JAR SHA-256 `7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063`.
+- No released-API defect required `agent/wp-06-loreitems-api-blocker`.
+- Tags adds strict first-class `LORE_ITEM` actions using only released `LoreItemsServiceV1` through Bukkit `ServicesManager`.
+- Handoff intent and stable caller operation identity are durable before submission and reused across timeout/retry/reload/restart/crash/staff retry.
+- Retry/finalization work is bounded; exhausted operations move to durable staff `REVIEW`; accepted handoffs reconcile into the normal Tags reward ledger before external finalization acknowledgement.
+- Explicit `lorestatus` / `loreretry` preserve identity and recover the review-found `REQUIRES_RECONCILIATION` path.
+- Tags uses no LoreItems command fallback, implementation-class coupling, or direct LoreItems database access.
 
-## Exact implementation evidence — `755b4ad573...`
-- CI `31647453359`, job `94284217594`: `completed/success`.
-- Exact-head Codacy: success.
-- Release-state regression, Gradle verification, tooling, complexity, deterministic profile, immutable release evidence, and reproducibility: success.
-- Plugin artifact `9161310864`, `enthusialoreitems-plugin`, JAR path `build/libs/EnthusiaLoreItems.jar`.
-- Verification artifact `9161310010`, `wp04-verification-755b4ad5739fe8375930789a57cbfe617bbe01f8`.
-- All visible inline review threads are resolved; no submitted `CHANGES_REQUESTED` review remains.
-- No known unimplemented defect remains.
+## Exact Tags verification and merge
+- Tags PR #15 reviewed head: `ad54248ead88a331119b129cfdbf55add8c78aa5`; final product implementation head before docs checkpoints: `7222c6387973e7fbe9bd068b02aa49d448b4c6ea`.
+- PR Build `31840114667`: success; external Codacy `94895022587`: success, zero annotations; artifact `9233939403`, SHA-256 `177383a7ae24c2bafbee92df9fb015e473bbb9571445950fc60c5ab585fd897a`.
+- Fresh CodeRabbit exact-head review reported: `I found no remaining actionable WP-06 findings.` All visible inline threads were resolved and no submitted review was `CHANGES_REQUESTED` before merge.
+- Tags PR #15 normally merged as live `main` `14c59e925bb9e81f1f6c13ab900c81d22e0eee26`; parents old Tags `main` `36bd6c51b7db6a94c866e5ce938b08e696050235` and reviewed head `ad54248ead88a331119b129cfdbf55add8c78aa5`.
+- Post-merge Build `31840466712`: success; post-merge `Publish latest build` `31840466725`: success; rolling `latest` `EnthusiaTags.jar` SHA-256 `7163a5cabd68bccbfd78283a98eef8c0be45a2bfb3313547f126b17f9d887807`.
 
-## Owner-authorized review exception
-CodeRabbit completed substantive continuation review through `8ab5eda7...`; its one latest actionable finding was fixed at `755b4ad573...`. The next incremental CodeRabbit review was quota-refused. On 2026-08-12 the repository owner explicitly instructed the active worker to continue without waiting for CodeRabbit.
+## LoreItems finalization evidence through predecessor `75aea91c...`
+- PR #27 changes exactly the three WP-06-authorized state/handoff files and no runtime/code/workflow file.
+- `75aea91cfe9094fd41b35c945e926838c7483328` is the immediately preceding exact evidence head; it descends from `a6d9606a0eeb4be07673c848b3d44118dca990c3` and unchanged finalization base `ed91b1d46751544ed86fa7fa7de43cc769fc68a6`.
+- CI `31842596691` / verify `94902478677`: `completed/success`; verification, repository tooling, exact-head Codacy verifier, deterministic profile, reproducible build, evidence upload, and Sentinel artifact upload passed.
+- External Codacy `94902568321`: `completed/success`, zero annotations.
+- Exact plugin artifact `9234801123`: SHA-256 `9ed89317f687d89575736070505fca746b22572cbdfae566cea532215dd6db8d`.
+- Verification artifact `9234800630`: SHA-256 `1d503eedfc8001846eb945060b0828a7be0cacc1c8dec2ff11b581d22d11f8be`.
+- Automatic reviewable-transition startup check `94902507564` failed with `ARTIFACT_ACQUISITION_FAILED` while exact-head CI was still in progress. This failure is retained and is not a PASS.
+- Explicit startup command `5298366624` after artifact publication produced Sentinel job `167` / check `94903113658`: `completed/success`, `PAPER_SMOKE_OK`; Paper reached readiness and stopped cleanly inside the rootless sandbox.
+- Earlier supplemental restart jobs `164` and `165` on predecessor `a6d9606a...` were stopped at cycle 2 by the immutable Pi thermal gate at `83.3 C` and `83.8 C`. They are preserved environmental failures, not PASS evidence, and live policy prohibited further retry of the unchanged unsafe condition.
+- WP-06 contract item 11 requires LoreItems exact-head checks for this three-file finalization; it does not require the supplemental two-cycle restart profile.
 
-This handoff records that process exception transparently. It does not claim the refused incremental review passed. All remaining exact-head automated, Sentinel, merge, and production-release gates remain mandatory.
-
-## Remaining finalization criteria created by this state commit
-1. Re-fetch branch/PR after this commit and require exact-head CI/Codacy/repository-native checks to succeed.
-2. Re-read live Sentinel operating policy, this exact SHA's `.enthusia-test.yml`, LoreItems Sentinel staging doc, and current Staff-Staging command contract.
-3. Run explicit production `startup` for this exact SHA and require `PAPER_SMOKE_OK`.
-4. Only after startup terminal PASS, run explicit production `restart` for the same exact SHA and require `PAPER_RESTART_OK`.
-5. Reconcile live `main`; if moved, integrate it without rebase/force and repeat stale gates.
-6. Normally merge PR #26 with GitHub merge-commit only.
-7. Verify exact merge on live `main`, successful post-merge CI, and automatic production `v1.0.0` publication with all required assets/checksum/source binding and non-draft/non-prerelease state.
-8. Record durable global completion and stop without beginning WP-06.
+## Review reconciliation through predecessor `75aea91c...`
+- Both earlier inline CodeRabbit threads were replied to, resolved, and outdated.
+- Fresh CodeRabbit review comment `5298410544` independently verified exact head/base, exactly-three-file scope, the current CI/Codacy/artifact/startup evidence, no seventh package, no runtime/code/workflow changes, and correct non-self-referential checkpoint semantics.
+- Its one actionable finding was documentation-state staleness: these records had not preserved the completed `75aea91c...` gates and still said already-finished gates/thread resolution were pending.
+- This checkpoint addresses that finding by preserving the completed predecessor evidence and removing those stale pending claims.
 
 ## Known findings
-None unresolved.
+- No unresolved product/runtime defect is known.
+- Review comment `5298410544`'s documentation-state finding is addressed here; fresh independent review of the pushed checkpoint must confirm resolution before merge.
 
 ## Blocker
-None. Owner explicitly waived waiting for the additional CodeRabbit review.
+None currently verified for required WP-06 finalization. The Pi thermal gate prevents only further supplemental restart probing while unsafe.
 
-## Exact next action
-Fast-forward this prospective-completion state from exact parent `58d58e9201...`, re-fetch PR #26, then verify the newly triggered exact-head automated gates. Do not begin WP-06.
+## Merge condition and stop rule
+For the pushed checkpoint identified in PR #27, merge only when live GitHub proves that exact checkpoint has successful applicable LoreItems CI/Codacy and required Sentinel startup evidence, fresh independent review has zero actionable findings, no submitted review is `CHANGES_REQUESTED`, all review threads are resolved, expected head/base are unchanged, and normal merge-commit remains available. When all conditions are satisfied, normally merge PR #27 with expected-head protection, verify the resulting merge commit is live LoreItems `main` and applicable post-merge checks succeed, and stop. If a condition fails, preserve the exact blocker/evidence instead of merging. Do not create or begin a seventh package.
