@@ -11,7 +11,7 @@ Before using Sentinel, read from the current live branches rather than relying o
 1. this file from current LoreItems `main`;
 2. `.enthusia-test.yml` from the exact LoreItems head being tested;
 3. `docs/sentinel-staging.md` from current LoreItems `main`;
-4. the current `wsg138/EnthusiaStaff-Staging/docs/sentinel-commands.md` and any Sentinel policy/operating documentation it references.
+4. the current `wsg138/EnthusiaStaff-Staging/docs/sentinel-commands.md`, `docs/repository-onboarding.md`, and any Sentinel policy/operating documentation they reference.
 
 Live Sentinel policy and live repository manifests outrank old handoffs, chat text, and historical command examples.
 
@@ -19,15 +19,20 @@ The current LoreItems manifest intentionally enables only the profiles declared 
 
 ## Existing production integration
 
-LoreItems is authorized under immutable repository ID `1320758587` and canonical name `wsg138/EnthusiaLoreItems` in the existing selected-repository-scoped `Enthusia Sentinel` GitHub App installation.
+LoreItems is authorized under immutable repository ID `1320758587` and canonical name `wsg138/EnthusiaLoreItems` in trusted Sentinel policy.
+
+The existing `Enthusia Sentinel` GitHub App installation repository selector is an owner-controlled account setting. The owner may use either `Only select repositories` or `All repositories`. Workers must respect the owner's current choice and must not automatically broaden or narrow it.
+
+Sentinel execution authorization is independent of App installation visibility. A repository must be enabled by immutable numeric ID/canonical name in trusted Sentinel policy, and production Sentinel must use short-lived installation tokens scoped to repositories already trusted by control-plane policy. The token stays inside Sentinel; it is never exposed to a PR, repository, plugin process, or sandbox. App visibility alone never authorizes execution.
 
 Workers must preserve these boundaries:
 
 - use the existing `Enthusia Sentinel` GitHub App;
-- keep selected-repository scope; never broaden it to All repositories;
+- respect the owner-selected App installation mode (`selected` or `all`); do not revert an owner-approved `All repositories` setting merely because an older handoff expected selected mode;
 - never create a replacement App or PAT;
+- never treat App access alone as Sentinel authorization;
 - never manually edit the installed Sentinel policy as a substitute for the canonical Sentinel Foundation deployment;
-- never weaken Sentinel authorization, resource, cleanup, isolation, or exact-SHA checks merely to make a test pass.
+- never weaken Sentinel authorization, policy-scoped token, resource, cleanup, isolation, or exact-SHA checks merely to make a test pass.
 
 ## Exact-head artifact contract
 
@@ -59,7 +64,9 @@ Do not manually enqueue jobs, write directly to Sentinel's queue, or replace the
 
 A valid production chain is:
 
-GitHub PR/comment -> existing Enthusia Sentinel App -> outbound Sentinel polling -> repository/requester authorization -> exact PR head -> exact manifest -> exact successful artifact -> durable queue -> rootless Paper execution -> cleanup -> GitHub result.
+trusted Sentinel policy loads immutable enabled repository IDs -> controller mints a short-lived installation token scoped only to that trusted repository set -> outbound Sentinel polling is limited to those trusted repositories -> repository/requester/profile authorization -> exact PR head -> exact manifest -> exact successful artifact -> durable queue -> rootless Paper execution -> cleanup -> GitHub result.
+
+The controller-only installation token is required to read GitHub and identify the request; it is not handed to the requesting repository or test process. An App-visible repository that is absent from trusted Sentinel policy is outside the token scope and is not polled or executable.
 
 ## Result semantics
 
@@ -98,8 +105,8 @@ A failed Sentinel run must be diagnosed before changing code. Classify the prove
 
 - LoreItems manifest;
 - LoreItems CI artifact path/name or exact-SHA publication;
-- GitHub App access/scope;
-- Sentinel trusted policy;
+- GitHub App installation/permission access;
+- Sentinel trusted policy or policy-scoped token implementation;
 - plugin startup/runtime dependency;
 - plugin lifecycle/shutdown;
 - restart/persistence behavior;
