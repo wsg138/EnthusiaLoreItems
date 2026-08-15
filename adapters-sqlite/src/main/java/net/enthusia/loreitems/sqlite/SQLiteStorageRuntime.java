@@ -18,6 +18,7 @@ public final class SQLiteStorageRuntime {
     private final MetricsPort metrics;
     private final AtomicReference<StorageState> storageState = new AtomicReference<>(StorageState.STOPPED);
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final Object lifecycleLock = new Object();
 
     public SQLiteStorageRuntime(
             SQLiteConnectionFactory connectionFactory,
@@ -30,48 +31,63 @@ public final class SQLiteStorageRuntime {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
-    public synchronized CompletionStage<StartupResult> start() {
+    public CompletionStage<StartupResult> start() {
+        CompletionStage<StartupResult> startup;
+        synchronized (lifecycleLock) {
+            StartupResult rejected = transitionToStarting();
+            if (rejected != null) {
+                return CompletableFuture.completedFuture(rejected);
+            }
+            // Submission is protected by the same lock as close(), so shutdown cannot begin
+            // between admitting STARTING and handing the startup task to the executor.
+            startup = executor.submit(this::initializeStorage);
+        }
+        return startup.handle(this::resolveStartupCompletion);
+    }
+
+    private StartupResult transitionToStarting() {
         if (closed.get()) {
-            return CompletableFuture.completedFuture(
-                    new StartupResult(StorageState.STOPPED, "Storage runtime is closed and cannot be restarted."));
+            return new StartupResult(
+                    StorageState.STOPPED,
+                    "Storage runtime is closed and cannot be restarted.");
         }
         if (!storageState.compareAndSet(StorageState.STOPPED, StorageState.STARTING)) {
-            return CompletableFuture.completedFuture(
-                    new StartupResult(storageState.get(), "Storage runtime was already started or stopped."));
+            return new StartupResult(
+                    storageState.get(),
+                    "Storage runtime was already started or stopped.");
         }
-        if (closed.get()) {
-            storageState.compareAndSet(StorageState.STARTING, StorageState.STOPPING);
-            return CompletableFuture.completedFuture(shutdownStartupResult());
-        }
-        CompletionStage<StartupResult> startup = executor.submit(() -> {
-            try (Connection connection = connectionFactory.open()) {
-                migrationRunner.migrate(connection);
-                if (!storageState.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
-                    return shutdownStartupResult();
-                }
-                metrics.setGauge("storage.writable", 1L);
-                return new StartupResult(StorageState.READ_WRITE, "SQLite storage initialized.");
-            } catch (Exception exception) {
-                if (storageState.compareAndSet(StorageState.STARTING, StorageState.DEGRADED_READ_ONLY)) {
-                    metrics.setGauge("storage.writable", 0L);
-                    metrics.increment("storage.startup.failure");
-                    return new StartupResult(
-                            StorageState.DEGRADED_READ_ONLY,
-                            exception.getClass().getSimpleName() + ": " + safeMessage(exception));
-                }
+        return null;
+    }
+
+    private StartupResult initializeStorage() {
+        try (Connection connection = connectionFactory.open()) {
+            migrationRunner.migrate(connection);
+            if (!storageState.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
                 return shutdownStartupResult();
             }
-        });
-        return startup.handle((result, failure) -> {
-            if (failure == null) {
-                return result;
+            metrics.setGauge("storage.writable", 1L);
+            return new StartupResult(StorageState.READ_WRITE, "SQLite storage initialized.");
+        } catch (Exception exception) {
+            if (storageState.compareAndSet(StorageState.STARTING, StorageState.DEGRADED_READ_ONLY)) {
+                metrics.setGauge("storage.writable", 0L);
+                metrics.increment("storage.startup.failure");
+                return new StartupResult(
+                        StorageState.DEGRADED_READ_ONLY,
+                        exception.getClass().getSimpleName() + ": " + safeMessage(exception));
             }
-            if (closed.get() || storageState.get() == StorageState.STOPPING
-                    || storageState.get() == StorageState.STOPPED) {
-                return shutdownStartupResult();
-            }
-            throw new CompletionException(unwrapCompletionFailure(failure));
-        });
+            return shutdownStartupResult();
+        }
+    }
+
+    private StartupResult resolveStartupCompletion(StartupResult result, Throwable failure) {
+        if (failure == null) {
+            return result;
+        }
+        StorageState state = storageState.get();
+        if (closed.get() || state == StorageState.STOPPING || state == StorageState.STOPPED) {
+            return shutdownStartupResult();
+        }
+        throw new CompletionException(unwrapCompletionFailure(failure));
     }
 
     public <T> CompletionStage<T> execute(SqlWork<T> work) {
@@ -99,19 +115,21 @@ public final class SQLiteStorageRuntime {
         return metrics;
     }
 
-    public synchronized boolean close(Duration timeout) {
+    public boolean close(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
         if (timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must not be negative");
         }
-        if (!closed.compareAndSet(false, true)) {
-            return storageState.get() == StorageState.STOPPED;
+        synchronized (lifecycleLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return storageState.get() == StorageState.STOPPED;
+            }
+            storageState.set(StorageState.STOPPING);
+            boolean drained = executor.shutdown(timeout);
+            storageState.set(StorageState.STOPPED);
+            metrics.setGauge("storage.writable", 0L);
+            return drained;
         }
-        storageState.set(StorageState.STOPPING);
-        boolean drained = executor.shutdown(timeout);
-        storageState.set(StorageState.STOPPED);
-        metrics.setGauge("storage.writable", 0L);
-        return drained;
     }
 
     private static StartupResult shutdownStartupResult() {
