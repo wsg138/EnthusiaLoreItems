@@ -47,7 +47,7 @@ public final class MigrationRunner {
             restoreAutoCommitAfterFailure(connection, previousAutoCommit, exception);
             throw exception;
         }
-        connection.setAutoCommit(previousAutoCommit);
+        restoreAutoCommitAfterCommittedSuccess(connection, previousAutoCommit);
     }
 
     private static void applyIfMissing(Connection connection, Migration migration)
@@ -85,6 +85,17 @@ public final class MigrationRunner {
             connection.setAutoCommit(previousAutoCommit);
         } catch (SQLException restoreFailure) {
             failure.addSuppressed(restoreFailure);
+        }
+    }
+
+    private static void restoreAutoCommitAfterCommittedSuccess(
+            Connection connection, boolean previousAutoCommit) {
+        try {
+            connection.setAutoCommit(previousAutoCommit);
+        } catch (SQLException ignored) {
+            // Every migration and schema-history row has already committed independently.
+            // Cleanup failure must not turn durable success into a false migration failure.
+            // The storage bootstrap owns and immediately closes this connection.
         }
     }
 
