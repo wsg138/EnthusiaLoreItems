@@ -18,10 +18,11 @@ public final class AtomicConfiguration {
         Objects.requireNonNull(candidate, "candidate");
         while (true) {
             FoundationConfiguration existing = snapshot.get();
-            if (!existing.hasSameStartupResources(candidate)) {
+            if (!existing.hasSameRestartRequiredSettings(candidate)) {
                 return new ReloadResult(
                         false,
-                        "Database timeout, queue capacity, and shutdown timeout require a restart.");
+                        "Only shared-containers-allowed is hot reloadable; database, delivery, "
+                                + "warning, paging, and worker-budget settings require a restart.");
             }
             if (snapshot.compareAndSet(existing, candidate)) {
                 return new ReloadResult(true, "Configuration snapshot replaced atomically.");
