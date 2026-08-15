@@ -60,20 +60,30 @@ class Wp04ReleaseContractTest(unittest.TestCase):
 
     def test_production_workflow_is_fail_closed_on_exact_main_ci_and_immutable_approval_evidence(self):
         release = (ROOT / ".github/workflows/release.yml").read_text()
+        resolver = (ROOT / ".github/scripts/resolve_release_publication_state.sh").read_text()
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("FINAL_TAG: v1.0.0", release)
         self.assertIn("workflows:\n      - CI", release)
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
         self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
-        self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', release)
+        self.assertNotIn("actions/checkout", release)
+        self.assertIn(
+            "contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}",
+            release,
+        )
+        self.assertIn("--jq '.content' | base64 --decode", release)
+        self.assertIn('bash "${RESOLVER}"', release)
+        self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', resolver)
+        self.assertIn("--json tagName,isDraft,isPrerelease", resolver)
+        self.assertIn('test "${RELEASE_DRAFT}" = "false"', resolver)
+        self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', resolver)
         self.assertIn("gh run download", release)
         self.assertIn("wp04-verification-${TARGET_SHA}", release)
         self.assertIn('ref="refs/tags/${FINAL_TAG}"', release)
         self.assertIn('sha="${TARGET_SHA}"', release)
         self.assertIn("--target \"${TARGET_SHA}\"", release)
         self.assertNotIn("--prerelease", release)
-        self.assertNotIn("actions/checkout", release)
         self.assertNotIn("gradle --no-daemon", release)
         self.assertIn("RELEASE_READY=", release)
         self.assertIn("ACCEPTED_SOURCE_HEAD=", release)
@@ -88,6 +98,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("releaseVersion=//p", ci)
         self.assertIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
         self.assertIn('--version "${RELEASE_VERSION}"', ci)
+        self.assertIn("Verify release publication-state behavior", ci)
         for asset in [
             "EnthusiaLoreItems.jar",
             "EnthusiaLoreItems.jar.sha256",
