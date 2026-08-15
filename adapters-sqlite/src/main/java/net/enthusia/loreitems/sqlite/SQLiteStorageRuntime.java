@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.StorageState;
@@ -15,6 +16,7 @@ public final class SQLiteStorageRuntime {
     private final BoundedDatabaseExecutor executor;
     private final MetricsPort metrics;
     private final AtomicReference<StorageState> storageState = new AtomicReference<>(StorageState.STOPPED);
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public SQLiteStorageRuntime(
             SQLiteConnectionFactory connectionFactory,
@@ -28,9 +30,18 @@ public final class SQLiteStorageRuntime {
     }
 
     public CompletionStage<StartupResult> start() {
+        if (closed.get()) {
+            return CompletableFuture.completedFuture(
+                    new StartupResult(StorageState.STOPPED, "Storage runtime is closed and cannot be restarted."));
+        }
         if (!storageState.compareAndSet(StorageState.STOPPED, StorageState.STARTING)) {
             return CompletableFuture.completedFuture(
                     new StartupResult(storageState.get(), "Storage runtime was already started or stopped."));
+        }
+        if (closed.get()) {
+            storageState.compareAndSet(StorageState.STARTING, StorageState.STOPPING);
+            return CompletableFuture.completedFuture(
+                    new StartupResult(storageState.get(), "Storage startup was superseded by shutdown."));
         }
         return executor.submit(() -> {
             try (Connection connection = connectionFactory.open()) {
@@ -78,8 +89,14 @@ public final class SQLiteStorageRuntime {
         return metrics;
     }
 
-    public boolean close(Duration timeout) {
+    public synchronized boolean close(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must not be negative");
+        }
+        if (!closed.compareAndSet(false, true)) {
+            return storageState.get() == StorageState.STOPPED;
+        }
         storageState.set(StorageState.STOPPING);
         boolean drained = executor.shutdown(timeout);
         storageState.set(StorageState.STOPPED);
