@@ -62,6 +62,10 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         release = (ROOT / ".github/workflows/release.yml").read_text()
         resolver = (ROOT / ".github/scripts/resolve_release_publication_state.sh").read_text()
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        strict_semver = (
+            "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\."
+            "(0|[1-9][0-9]*)$"
+        )
         self.assertIn("workflows:\n      - CI", release)
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
@@ -71,6 +75,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "contents/gradle.properties?ref=${EVENT_TARGET_SHA}",
             release,
         )
+        self.assertIn(strict_semver, release)
         self.assertIn('echo "release_version=${RELEASE_VERSION}"', release)
         self.assertIn('echo "final_tag=v${RELEASE_VERSION}"', release)
         self.assertIn("FINAL_TAG: ${{ steps.version.outputs.final_tag }}", release)
@@ -105,10 +110,37 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("release_ready: %s", ci)
         self.assertIn("release_source_head: %s", ci)
         self.assertIn("release_jar_sha256: %s", ci)
-        self.assertIn("releaseVersion=//p", ci)
-        self.assertIn('[[ "${RELEASE_VERSION}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]', ci)
-        self.assertIn('docs/releases/v${RELEASE_VERSION}.md', ci)
-        self.assertIn('docs/releases/v${RELEASE_VERSION}-rollback.md', ci)
+        self.assertIn(strict_semver, ci)
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:gradle.properties"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}.md"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}-rollback.md"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/wp-05-acceptance/index.md"',
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/release-notes.md /tmp/rc-first/release-notes.md",
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/rollback-instructions.md /tmp/rc-first/rollback-instructions.md",
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/acceptance-index.md /tmp/rc-first/acceptance-index.md",
+            ci,
+        )
+        self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}.md"', ci)
+        self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}-rollback.md"', ci)
         self.assertNotIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
         self.assertIn('--version "${RELEASE_VERSION}"', ci)
         self.assertIn("Verify release publication-state behavior", ci)
