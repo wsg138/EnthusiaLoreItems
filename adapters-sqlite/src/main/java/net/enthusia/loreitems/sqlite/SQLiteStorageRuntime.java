@@ -41,8 +41,7 @@ public final class SQLiteStorageRuntime {
         }
         if (closed.get()) {
             storageState.compareAndSet(StorageState.STARTING, StorageState.STOPPING);
-            return CompletableFuture.completedFuture(
-                    new StartupResult(storageState.get(), "Storage startup was superseded by shutdown."));
+            return CompletableFuture.completedFuture(shutdownStartupResult());
         }
         CompletionStage<StartupResult> startup = executor.submit(() -> {
             try (Connection connection = connectionFactory.open()) {
@@ -115,8 +114,8 @@ public final class SQLiteStorageRuntime {
         return drained;
     }
 
-    private StartupResult shutdownStartupResult() {
-        return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
+    private static StartupResult shutdownStartupResult() {
+        return new StartupResult(StorageState.STOPPED, "Storage startup was superseded by shutdown.");
     }
 
     private static Throwable unwrapCompletionFailure(Throwable failure) {

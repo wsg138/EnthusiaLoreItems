@@ -31,10 +31,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.14.3"
-      - name: Verify final source version
+      - name: Verify source release identity
         run: |
           RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
-          test "${RELEASE_VERSION}" = "1.0.0"
+          VERSION_LINES="$(sed -n 's/^releaseVersion=//p' gradle.properties | wc -l)"
+          test "${VERSION_LINES}" -eq 1
+          test -n "${RELEASE_VERSION}"
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test -f "docs/releases/v${RELEASE_VERSION}.md"
+          test -f "docs/releases/v${RELEASE_VERSION}-rollback.md"
       - name: Verify
         run: gradle --no-daemon clean check
       - name: Preserve test reports
@@ -69,10 +74,9 @@ jobs:
         env:
           PROFILE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
-      - name: Build and validate first release artifact
+      - name: Build and validate release artifact
         run: |
           RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
-          test "${RELEASE_VERSION}" = "1.0.0"
           gradle --no-daemon :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
           JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
@@ -88,10 +92,11 @@ jobs:
         env:
           RELEASE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
           test -d /tmp/loreitems-test-reports
           tar -C /tmp/loreitems-test-reports -czf /tmp/rc-first/EnthusiaLoreItems-test-reports.tar.gz .
-          cp docs/releases/v1.0.0.md /tmp/rc-first/release-notes.md
-          cp docs/releases/v1.0.0-rollback.md /tmp/rc-first/rollback-instructions.md
+          cp "docs/releases/v${RELEASE_VERSION}.md" /tmp/rc-first/release-notes.md
+          cp "docs/releases/v${RELEASE_VERSION}-rollback.md" /tmp/rc-first/rollback-instructions.md
           cp docs/wp-05-acceptance/index.md /tmp/rc-first/acceptance-index.md
           cp /tmp/wp04-profile.json /tmp/rc-first/wp04-profile.json
           STATIC_RELEASE_READY="$(sed -n 's/^release_ready: //p' docs/wp-05-acceptance/index.md | tail -n 1)"
@@ -113,7 +118,6 @@ jobs:
       - name: Rebuild release from clean state and verify reproducibility
         run: |
           RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
-          test "${RELEASE_VERSION}" = "1.0.0"
           gradle --no-daemon clean :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
           JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
