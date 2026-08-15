@@ -31,15 +31,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.14.3"
-      - name: Verify source release identity
+      - name: Verify and snapshot immutable source release identity
+        env:
+          RELEASE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
-          VERSION_LINES="$(sed -n 's/^releaseVersion=//p' gradle.properties | wc -l)"
+          test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_HEAD}"
+          mkdir -p /tmp/release-source
+          git show "${RELEASE_SOURCE_HEAD}:gradle.properties" > /tmp/release-source/gradle.properties
+          VERSION_LINES="$(sed -n 's/^releaseVersion=//p' /tmp/release-source/gradle.properties | wc -l)"
           test "${VERSION_LINES}" -eq 1
+          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' /tmp/release-source/gradle.properties)"
           test -n "${RELEASE_VERSION}"
-          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test -f "docs/releases/v${RELEASE_VERSION}.md"
-          test -f "docs/releases/v${RELEASE_VERSION}-rollback.md"
+          [[ "${RELEASE_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}.md" > /tmp/release-source/release-notes.md
+          git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}-rollback.md" > /tmp/release-source/rollback-instructions.md
+          git show "${RELEASE_SOURCE_HEAD}:docs/wp-05-acceptance/index.md" > /tmp/release-source/acceptance-index.md
+          test -s /tmp/release-source/release-notes.md
+          test -s /tmp/release-source/rollback-instructions.md
+          test -s /tmp/release-source/acceptance-index.md
+          printf 'RELEASE_VERSION=%s\n' "${RELEASE_VERSION}" >> "${GITHUB_ENV}"
       - name: Verify
         run: gradle --no-daemon clean check
       - name: Preserve test reports
@@ -76,7 +86,7 @@ jobs:
         run: python3 tools/wp04_profile.py --output /tmp/wp04-profile.json
       - name: Build and validate release artifact
         run: |
-          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
+          test -n "${RELEASE_VERSION}"
           gradle --no-daemon :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
           JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
@@ -92,14 +102,17 @@ jobs:
         env:
           RELEASE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
+          test -n "${RELEASE_VERSION}"
           test -d /tmp/loreitems-test-reports
+          test -s /tmp/release-source/release-notes.md
+          test -s /tmp/release-source/rollback-instructions.md
+          test -s /tmp/release-source/acceptance-index.md
           tar -C /tmp/loreitems-test-reports -czf /tmp/rc-first/EnthusiaLoreItems-test-reports.tar.gz .
-          cp "docs/releases/v${RELEASE_VERSION}.md" /tmp/rc-first/release-notes.md
-          cp "docs/releases/v${RELEASE_VERSION}-rollback.md" /tmp/rc-first/rollback-instructions.md
-          cp docs/wp-05-acceptance/index.md /tmp/rc-first/acceptance-index.md
+          cp /tmp/release-source/release-notes.md /tmp/rc-first/release-notes.md
+          cp /tmp/release-source/rollback-instructions.md /tmp/rc-first/rollback-instructions.md
+          cp /tmp/release-source/acceptance-index.md /tmp/rc-first/acceptance-index.md
           cp /tmp/wp04-profile.json /tmp/rc-first/wp04-profile.json
-          STATIC_RELEASE_READY="$(sed -n 's/^release_ready: //p' docs/wp-05-acceptance/index.md | tail -n 1)"
+          STATIC_RELEASE_READY="$(sed -n 's/^release_ready: //p' /tmp/release-source/acceptance-index.md | tail -n 1)"
           if [ "${STATIC_RELEASE_READY}" != "APPROVED" ]; then
             STATIC_RELEASE_READY=NOT_APPROVED
           fi
@@ -117,7 +130,7 @@ jobs:
           } >> /tmp/rc-first/acceptance-index.md
       - name: Rebuild release from clean state and verify reproducibility
         run: |
-          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
+          test -n "${RELEASE_VERSION}"
           gradle --no-daemon clean :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
           JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
