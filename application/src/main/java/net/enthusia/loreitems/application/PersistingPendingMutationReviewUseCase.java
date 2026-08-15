@@ -25,6 +25,13 @@ public final class PersistingPendingMutationReviewUseCase
     @Override
     public CompletionStage<Result> resolve(Request request) {
         Objects.requireNonNull(request, "request");
+        if (request.resolution() == Resolution.RETRY
+                && HeldItemAdoptionStore.MUTATION_TYPE.equals(request.expectedMutationType())) {
+            return CompletableFuture.completedFuture(new Result(
+                    Status.UNSUPPORTED_RESOLUTION,
+                    "Held-item adoption cannot be retried safely after an ambiguous physical outcome; "
+                            + "inspect the item and cancel the reviewed mutation instead."));
+        }
         try {
             Instant now = clock.instant();
             PendingMutationReviewStore.Resolution resolution = switch (request.resolution()) {
