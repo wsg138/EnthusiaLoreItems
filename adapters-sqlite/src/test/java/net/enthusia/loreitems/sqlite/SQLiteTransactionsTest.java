@@ -17,14 +17,14 @@ class SQLiteTransactionsTest {
     void successfulCommitIsNotReportedAsFailureWhenPostCommitCleanupFails() throws Exception {
         AtomicBoolean committed = new AtomicBoolean();
         AtomicInteger rollbacks = new AtomicInteger();
-        Connection connection = connectionThatRejectsPostCommitAutoCommitRestore(
-                committed, rollbacks);
+        try (Connection connection = connectionThatRejectsPostCommitAutoCommitRestore(
+                committed, rollbacks)) {
+            String result = SQLiteTransactions.inTransaction(connection, ignored -> "committed");
 
-        String result = SQLiteTransactions.inTransaction(connection, ignored -> "committed");
-
-        assertEquals("committed", result);
-        assertTrue(committed.get());
-        assertEquals(0, rollbacks.get());
+            assertEquals("committed", result);
+            assertTrue(committed.get());
+            assertEquals(0, rollbacks.get());
+        }
     }
 
     private static Connection connectionThatRejectsPostCommitAutoCommitRestore(
@@ -32,7 +32,7 @@ class SQLiteTransactionsTest {
             AtomicInteger rollbacks) {
         InvocationHandler handler = new PostCommitCleanupFailureHandler(committed, rollbacks);
         return (Connection) Proxy.newProxyInstance(
-                SQLiteTransactionsTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {Connection.class},
                 handler);
     }
@@ -55,6 +55,7 @@ class SQLiteTransactionsTest {
                 case "setAutoCommit" -> setAutoCommit((boolean) arguments[0]);
                 case "commit" -> commit();
                 case "rollback" -> rollback();
+                case "close" -> null;
                 default -> handleConnectionObjectMethod(proxy, method, arguments);
             };
         }
@@ -76,6 +77,7 @@ class SQLiteTransactionsTest {
             return null;
         }
 
+        @SuppressWarnings("PMD.CompareObjectsWithEquals")
         private static Object handleConnectionObjectMethod(
                 Object proxy,
                 Method method,
@@ -85,6 +87,8 @@ class SQLiteTransactionsTest {
                 case "unwrap" -> throw new SQLException("not a wrapper");
                 case "toString" -> "post-commit-cleanup-test-connection";
                 case "hashCode" -> System.identityHashCode(proxy);
+                // A dynamic proxy's equals implementation intentionally needs reference identity;
+                // calling equals() here would recursively invoke this handler.
                 case "equals" -> proxy == arguments[0];
                 default -> throw new UnsupportedOperationException(method.getName());
             };
