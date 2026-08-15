@@ -363,23 +363,11 @@ public final class PaperGroupFileCatalog {
     }
 
     /**
-     * Preserve the one-use marker contract even when the target already exists. ATOMIC_MOVE does
-     * not define portable no-replace behavior, so the bounded marker file is copied with the
-     * default no-replace semantics and the source is removed only after that succeeds.
+     * Preserve the one-use marker contract even when the target already exists. Omitting both
+     * REPLACE_EXISTING and ATOMIC_MOVE gives Files.move its portable no-replace behavior.
      */
     private static Path moveNoReplace(Path source, Path target) throws IOException {
-        Files.copy(source, target);
-        try {
-            Files.delete(source);
-            return target;
-        } catch (IOException deleteFailure) {
-            try {
-                Files.deleteIfExists(target);
-            } catch (IOException cleanupFailure) {
-                deleteFailure.addSuppressed(cleanupFailure);
-            }
-            throw deleteFailure;
-        }
+        return Files.move(source, target);
     }
 
     private static boolean isDiscoverableName(String name) {
