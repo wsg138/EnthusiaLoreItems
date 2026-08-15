@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,7 +30,7 @@ public final class SQLiteStorageRuntime {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
-    public CompletionStage<StartupResult> start() {
+    public synchronized CompletionStage<StartupResult> start() {
         if (closed.get()) {
             return CompletableFuture.completedFuture(
                     new StartupResult(StorageState.STOPPED, "Storage runtime is closed and cannot be restarted."));
@@ -43,11 +44,11 @@ public final class SQLiteStorageRuntime {
             return CompletableFuture.completedFuture(
                     new StartupResult(storageState.get(), "Storage startup was superseded by shutdown."));
         }
-        return executor.submit(() -> {
+        CompletionStage<StartupResult> startup = executor.submit(() -> {
             try (Connection connection = connectionFactory.open()) {
                 migrationRunner.migrate(connection);
                 if (!storageState.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
-                    return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
+                    return shutdownStartupResult();
                 }
                 metrics.setGauge("storage.writable", 1L);
                 return new StartupResult(StorageState.READ_WRITE, "SQLite storage initialized.");
@@ -59,8 +60,18 @@ public final class SQLiteStorageRuntime {
                             StorageState.DEGRADED_READ_ONLY,
                             exception.getClass().getSimpleName() + ": " + safeMessage(exception));
                 }
-                return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
+                return shutdownStartupResult();
             }
+        });
+        return startup.handle((result, failure) -> {
+            if (failure == null) {
+                return result;
+            }
+            if (closed.get() || storageState.get() == StorageState.STOPPING
+                    || storageState.get() == StorageState.STOPPED) {
+                return shutdownStartupResult();
+            }
+            throw new CompletionException(unwrapCompletionFailure(failure));
         });
     }
 
@@ -102,6 +113,16 @@ public final class SQLiteStorageRuntime {
         storageState.set(StorageState.STOPPED);
         metrics.setGauge("storage.writable", 0L);
         return drained;
+    }
+
+    private StartupResult shutdownStartupResult() {
+        return new StartupResult(storageState.get(), "Storage startup was superseded by shutdown.");
+    }
+
+    private static Throwable unwrapCompletionFailure(Throwable failure) {
+        return failure instanceof CompletionException completion && completion.getCause() != null
+                ? completion.getCause()
+                : failure;
     }
 
     private static String safeMessage(Exception exception) {
