@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -125,6 +126,26 @@ class PaperGroupFileCatalogTest {
         GroupFileCatalogSnapshot snapshot = catalog.reload();
         assertFalse(snapshot.validFiles().stream()
                 .anyMatch(file -> file.sourceName().contains(campaignId.toString())));
+    }
+
+    @Test
+    void activeMoveNeverOverwritesAnExistingCampaignMarker() throws Exception {
+        String content = "display-name: Stable\nplayers:\n  - Player\n";
+        write("stable.yml", content);
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
+        GroupFileDefinition definition = catalog.inspect("stable.yml");
+        UUID campaignId = UUID.randomUUID();
+        Path source = temporaryDirectory.resolve("groups/stable.yml");
+        Path marker = temporaryDirectory.resolve(
+                "groups/stable.active-" + campaignId + ".yml");
+        Files.writeString(marker, "existing marker\n", StandardCharsets.UTF_8);
+
+        assertThrows(
+                FileAlreadyExistsException.class,
+                () -> catalog.moveToActive(definition, campaignId));
+
+        assertEquals("existing marker\n", Files.readString(marker, StandardCharsets.UTF_8));
+        assertEquals(content, Files.readString(source, StandardCharsets.UTF_8));
     }
 
     @Test
