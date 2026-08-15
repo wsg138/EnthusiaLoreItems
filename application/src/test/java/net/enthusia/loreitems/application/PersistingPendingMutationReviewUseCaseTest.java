@@ -52,34 +52,31 @@ class PersistingPendingMutationReviewUseCaseTest {
     @Test
     void heldItemAdoptionRetryIsRejectedBeforeDurableStateChanges() {
         AtomicInteger storeCalls = new AtomicInteger();
-        PendingMutationReviewStore store = new PendingMutationReviewStore() {
-            @Override
-            public CompletionStage<Status> resolve(
-                    UUID mutationId,
-                    String expectedMutationType,
-                    Resolution resolution,
-                    AuditEventRecord auditEvent,
-                    Instant now) {
-                storeCalls.incrementAndGet();
-                return CompletableFuture.completedFuture(Status.RETRIED);
-            }
-        };
-        PendingMutationReviewUseCase useCase = new PersistingPendingMutationReviewUseCase(
-                store, Clock.fixed(NOW, ZoneOffset.UTC));
+        PendingMutationReviewUseCase useCase = nonReplayableRetryUseCase(storeCalls);
 
         PendingMutationReviewUseCase.Result result = useCase.resolve(
-                        new PendingMutationReviewUseCase.Request(
-                                MUTATION_ID,
-                                HeldItemAdoptionStore.MUTATION_TYPE,
-                                PendingMutationReviewUseCase.Resolution.RETRY,
-                                "sender:CONSOLE",
-                                "item state is ambiguous"))
+                        nonReplayableRetryRequest(HeldItemAdoptionStore.MUTATION_TYPE))
                 .toCompletableFuture()
                 .join();
 
         assertEquals(PendingMutationReviewUseCase.Status.UNSUPPORTED_RESOLUTION, result.status());
         assertEquals(0, storeCalls.get());
         assertTrue(result.detail().contains("cannot be retried safely"));
+    }
+
+    @Test
+    void voidLossRetryIsRejectedBeforeDurableStateChanges() {
+        AtomicInteger storeCalls = new AtomicInteger();
+        PendingMutationReviewUseCase useCase = nonReplayableRetryUseCase(storeCalls);
+
+        PendingMutationReviewUseCase.Result result = useCase.resolve(
+                        nonReplayableRetryRequest(VoidLossStore.MUTATION_TYPE))
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(PendingMutationReviewUseCase.Status.UNSUPPORTED_RESOLUTION, result.status());
+        assertEquals(0, storeCalls.get());
+        assertTrue(result.detail().contains("cancel the reviewed mutation"));
     }
 
     @Test
@@ -128,6 +125,32 @@ class PersistingPendingMutationReviewUseCaseTest {
 
         CompletionException failure = assertThrows(CompletionException.class, stage::join);
         assertTrue(failure.getCause() instanceof IllegalStateException);
+    }
+
+    private static PendingMutationReviewUseCase nonReplayableRetryUseCase(AtomicInteger storeCalls) {
+        PendingMutationReviewStore store = new PendingMutationReviewStore() {
+            @Override
+            public CompletionStage<Status> resolve(
+                    UUID mutationId,
+                    String expectedMutationType,
+                    Resolution resolution,
+                    AuditEventRecord auditEvent,
+                    Instant now) {
+                storeCalls.incrementAndGet();
+                return CompletableFuture.completedFuture(Status.RETRIED);
+            }
+        };
+        return new PersistingPendingMutationReviewUseCase(
+                store, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static PendingMutationReviewUseCase.Request nonReplayableRetryRequest(String mutationType) {
+        return new PendingMutationReviewUseCase.Request(
+                MUTATION_ID,
+                mutationType,
+                PendingMutationReviewUseCase.Resolution.RETRY,
+                "sender:CONSOLE",
+                "physical outcome is ambiguous");
     }
 
     private static PendingMutationReviewStore recordingStore(
