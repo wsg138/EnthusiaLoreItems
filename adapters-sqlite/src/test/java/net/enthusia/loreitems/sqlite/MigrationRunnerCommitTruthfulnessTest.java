@@ -16,6 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerCommitTruthfulnessTest {
     private static final int EXPECTED_SCHEMA_VERSION_COUNT = 8;
+    private static final String SET_AUTO_COMMIT = "setAutoCommit";
+    private static final String COMMIT = "commit";
 
     @TempDir
     Path temporaryDirectory;
@@ -24,9 +26,8 @@ class MigrationRunnerCommitTruthfulnessTest {
     void committedMigrationsAreNotReportedAsFailedWhenCleanupFails() throws Exception {
         SQLiteConnectionFactory factory = new SQLiteConnectionFactory(
                 temporaryDirectory.resolve("committed-cleanup.db"), 5_000);
-        try (Connection delegate = factory.open()) {
-            Connection connection = rejectAutoCommitRestoreAfterCommit(delegate);
-
+        try (Connection delegate = factory.open();
+                Connection connection = rejectAutoCommitRestoreAfterCommit(delegate)) {
             new MigrationRunner().migrate(connection);
 
             assertEquals(EXPECTED_SCHEMA_VERSION_COUNT, countSchemaHistory(delegate));
@@ -46,14 +47,14 @@ class MigrationRunnerCommitTruthfulnessTest {
             AtomicBoolean committed,
             Method method,
             Object[] arguments) throws Throwable {
-        if ("setAutoCommit".equals(method.getName())
+        if (SET_AUTO_COMMIT.equals(method.getName())
                 && Boolean.TRUE.equals(arguments[0])
                 && committed.get()) {
             throw new SQLException("simulated post-commit cleanup failure");
         }
         try {
             Object result = method.invoke(delegate, arguments);
-            if ("commit".equals(method.getName())) {
+            if (COMMIT.equals(method.getName())) {
                 committed.set(true);
             }
             return result;
