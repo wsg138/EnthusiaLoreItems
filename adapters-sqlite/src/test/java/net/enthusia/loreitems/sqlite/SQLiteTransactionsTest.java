@@ -3,6 +3,8 @@ package net.enthusia.loreitems.sqlite;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -28,32 +30,64 @@ class SQLiteTransactionsTest {
     private static Connection connectionThatRejectsPostCommitAutoCommitRestore(
             AtomicBoolean committed,
             AtomicInteger rollbacks) {
+        InvocationHandler handler = new PostCommitCleanupFailureHandler(committed, rollbacks);
         return (Connection) Proxy.newProxyInstance(
                 SQLiteTransactionsTest.class.getClassLoader(),
                 new Class<?>[] {Connection.class},
-                (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getAutoCommit" -> true;
-                    case "setAutoCommit" -> {
-                        boolean enabled = (boolean) arguments[0];
-                        if (enabled && committed.get()) {
-                            throw new SQLException("simulated post-commit cleanup failure");
-                        }
-                        yield null;
-                    }
-                    case "commit" -> {
-                        committed.set(true);
-                        yield null;
-                    }
-                    case "rollback" -> {
-                        rollbacks.incrementAndGet();
-                        yield null;
-                    }
-                    case "isWrapperFor" -> false;
-                    case "unwrap" -> throw new SQLException("not a wrapper");
-                    case "toString" -> "post-commit-cleanup-test-connection";
-                    case "hashCode" -> System.identityHashCode(proxy);
-                    case "equals" -> proxy == arguments[0];
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
+                handler);
+    }
+
+    private static final class PostCommitCleanupFailureHandler implements InvocationHandler {
+        private final AtomicBoolean committed;
+        private final AtomicInteger rollbacks;
+
+        private PostCommitCleanupFailureHandler(
+                AtomicBoolean committed,
+                AtomicInteger rollbacks) {
+            this.committed = committed;
+            this.rollbacks = rollbacks;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] arguments) throws Throwable {
+            return switch (method.getName()) {
+                case "getAutoCommit" -> true;
+                case "setAutoCommit" -> setAutoCommit((boolean) arguments[0]);
+                case "commit" -> commit();
+                case "rollback" -> rollback();
+                default -> handleConnectionObjectMethod(proxy, method, arguments);
+            };
+        }
+
+        private Object setAutoCommit(boolean enabled) throws SQLException {
+            if (enabled && committed.get()) {
+                throw new SQLException("simulated post-commit cleanup failure");
+            }
+            return null;
+        }
+
+        private Object commit() {
+            committed.set(true);
+            return null;
+        }
+
+        private Object rollback() {
+            rollbacks.incrementAndGet();
+            return null;
+        }
+
+        private static Object handleConnectionObjectMethod(
+                Object proxy,
+                Method method,
+                Object[] arguments) throws SQLException {
+            return switch (method.getName()) {
+                case "isWrapperFor" -> false;
+                case "unwrap" -> throw new SQLException("not a wrapper");
+                case "toString" -> "post-commit-cleanup-test-connection";
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "equals" -> proxy == arguments[0];
+                default -> throw new UnsupportedOperationException(method.getName());
+            };
+        }
     }
 }
