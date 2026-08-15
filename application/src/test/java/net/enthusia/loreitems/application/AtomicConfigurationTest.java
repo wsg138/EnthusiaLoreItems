@@ -31,7 +31,7 @@ class AtomicConfigurationTest {
     }
 
     @Test
-    void rejectsEveryConstructionCapturedSettingWithoutMutatingCurrentSnapshot() {
+    void rejectsDatabaseConstructionSettingsWithoutMutatingCurrentSnapshot() {
         FoundationConfiguration initial = FoundationConfiguration.defaults();
         assertRestartRequired(initial, new FoundationConfiguration(
                 initial.databaseBusyTimeoutMillis() + 1,
@@ -66,6 +66,11 @@ class AtomicConfigurationTest {
                 initial.maxPageSize(),
                 initial.mutationBudgetPerTick(),
                 initial.sharedContainersAllowed()));
+    }
+
+    @Test
+    void rejectsDeliveryConstructionSettingsWithoutMutatingCurrentSnapshot() {
+        FoundationConfiguration initial = FoundationConfiguration.defaults();
         assertRestartRequired(initial, new FoundationConfiguration(
                 initial.databaseBusyTimeoutMillis(),
                 initial.databaseQueueCapacity(),
@@ -99,6 +104,11 @@ class AtomicConfigurationTest {
                 initial.maxPageSize(),
                 initial.mutationBudgetPerTick(),
                 initial.sharedContainersAllowed()));
+    }
+
+    @Test
+    void rejectsPagingAndWorkerConstructionSettingsWithoutMutatingCurrentSnapshot() {
+        FoundationConfiguration initial = FoundationConfiguration.defaults();
         assertRestartRequired(initial, new FoundationConfiguration(
                 initial.databaseBusyTimeoutMillis(),
                 initial.databaseQueueCapacity(),
