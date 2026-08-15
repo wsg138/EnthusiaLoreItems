@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -83,7 +84,7 @@ class PlayerInventoryLocationMigrationTest {
             statement.setString(5, source);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
-                keys.next();
+                assertTrue(keys.next());
                 return keys.getLong(1);
             }
         }
@@ -119,7 +120,7 @@ class PlayerInventoryLocationMigrationTest {
     private static String scalarText(Connection connection, String sql) throws SQLException {
         try (Statement statement = connection.createStatement();
                 ResultSet resultSet = statement.executeQuery(sql)) { // nosemgrep
-            resultSet.next();
+            assertTrue(resultSet.next());
             return resultSet.getString(1);
         }
     }
