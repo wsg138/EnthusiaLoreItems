@@ -38,7 +38,7 @@ jobs:
           test "${VERSION_LINES}" -eq 1
           RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' "${PROPERTIES}")"
           test -n "${RELEASE_VERSION}"
-          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           echo "release_version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "final_tag=v${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
 
