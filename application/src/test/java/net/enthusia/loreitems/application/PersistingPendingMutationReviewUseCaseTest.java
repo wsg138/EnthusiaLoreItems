@@ -11,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +47,39 @@ class PersistingPendingMutationReviewUseCaseTest {
         assertEquals("player:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", audit.actorId());
         assertEquals(NOW.toEpochMilli(), audit.occurredAtEpochMillis());
         assertTrue(audit.detailJson().contains("physical item still has revision 1"));
+    }
+
+    @Test
+    void heldItemAdoptionRetryIsRejectedBeforeDurableStateChanges() {
+        AtomicInteger storeCalls = new AtomicInteger();
+        PendingMutationReviewStore store = new PendingMutationReviewStore() {
+            @Override
+            public CompletionStage<Status> resolve(
+                    UUID mutationId,
+                    String expectedMutationType,
+                    Resolution resolution,
+                    AuditEventRecord auditEvent,
+                    Instant now) {
+                storeCalls.incrementAndGet();
+                return CompletableFuture.completedFuture(Status.RETRIED);
+            }
+        };
+        PendingMutationReviewUseCase useCase = new PersistingPendingMutationReviewUseCase(
+                store, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        PendingMutationReviewUseCase.Result result = useCase.resolve(
+                        new PendingMutationReviewUseCase.Request(
+                                MUTATION_ID,
+                                HeldItemAdoptionStore.MUTATION_TYPE,
+                                PendingMutationReviewUseCase.Resolution.RETRY,
+                                "sender:CONSOLE",
+                                "item state is ambiguous"))
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(PendingMutationReviewUseCase.Status.UNSUPPORTED_RESOLUTION, result.status());
+        assertEquals(0, storeCalls.get());
+        assertTrue(result.detail().contains("cannot be retried safely"));
     }
 
     @Test
