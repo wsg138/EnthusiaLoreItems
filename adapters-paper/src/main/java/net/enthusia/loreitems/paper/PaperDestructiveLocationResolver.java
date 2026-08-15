@@ -45,11 +45,15 @@ final class PaperDestructiveLocationResolver {
                     .append(':')
                     .append(step.index());
         }
-        String type = reference.nestedPath().isEmpty()
-                ? root.type().name()
-                : LocationDescriptor.Type.NESTED_CONTAINER.name();
+        boolean nested = !reference.nestedPath().isEmpty();
+        String type = nested
+                ? LocationDescriptor.Type.NESTED_CONTAINER.name()
+                : root.type().name();
+        String locationKey = nested
+                ? PaperTrackedItemCollector.nestedLocationKey(root.type(), root.locationKey())
+                : root.locationKey();
         return Optional.of(new PaperTemplateUpdateReference.DestructiveLocation(
-                type, root.locationKey(), path.toString()));
+                type, locationKey, path.toString()));
     }
 
     private static Optional<RootLocation> resolveRoot(
