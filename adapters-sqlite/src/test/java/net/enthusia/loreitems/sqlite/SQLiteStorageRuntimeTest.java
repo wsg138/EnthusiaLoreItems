@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.StorageState;
 import org.junit.jupiter.api.Test;
@@ -80,6 +82,33 @@ class SQLiteStorageRuntimeTest {
                 .execute(connection -> 1)
                 .toCompletableFuture()
                 .join());
+    }
+
+    @Test
+    void forcedShutdownOfQueuedStartupCompletesWithTerminalResult() throws Exception {
+        MetricsPort metrics = MetricsPort.noOp();
+        BoundedDatabaseExecutor executor = new BoundedDatabaseExecutor("startup-race", 16, metrics);
+        CountDownLatch blockerEntered = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        executor.submit(() -> {
+            blockerEntered.countDown();
+            releaseBlocker.await();
+            return null;
+        });
+        assertTrue(blockerEntered.await(5, TimeUnit.SECONDS));
+        SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
+                new SQLiteConnectionFactory(temporaryDirectory.resolve("startup-race.db"), 5_000),
+                new MigrationRunner(),
+                executor,
+                metrics);
+
+        var startup = runtime.start();
+        assertTrue(!runtime.close(Duration.ZERO));
+        releaseBlocker.countDown();
+
+        SQLiteStorageRuntime.StartupResult result = startup.toCompletableFuture().join();
+        assertEquals(StorageState.STOPPED, result.state());
+        assertEquals(StorageState.STOPPED, runtime.state());
     }
 
     private SQLiteStorageRuntime runtime(String threadName, MetricsPort metrics) {
