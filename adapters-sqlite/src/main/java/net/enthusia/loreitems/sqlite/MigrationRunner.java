@@ -21,7 +21,8 @@ public final class MigrationRunner {
             new Migration(5, "destructive administration", "db/migration/V5__destructive_administration.sql"),
             new Migration(6, "mass distribution recipient states", "db/migration/V6__mass_distribution_recipient_states.sql"),
             new Migration(7, "mass distribution revision snapshot", "db/migration/V7__mass_distribution_revision_snapshot.sql"),
-            new Migration(8, "canonicalize adopted player locations", "db/migration/V8__canonicalize_adopted_player_locations.sql"));
+            new Migration(8, "canonicalize adopted player locations", "db/migration/V8__canonicalize_adopted_player_locations.sql"),
+            new Migration(9, "canonicalize player inventory locations", "db/migration/V9__canonicalize_player_inventory_locations.sql"));
     private static final int LATEST_SCHEMA_VERSION = MIGRATIONS.getLast().version();
 
     public void migrate(Connection connection) throws SQLException {
@@ -47,7 +48,7 @@ public final class MigrationRunner {
             restoreAutoCommitAfterFailure(connection, previousAutoCommit, exception);
             throw exception;
         }
-        connection.setAutoCommit(previousAutoCommit);
+        restoreAutoCommitAfterCommittedSuccess(connection, previousAutoCommit);
     }
 
     private static void applyIfMissing(Connection connection, Migration migration)
@@ -85,6 +86,17 @@ public final class MigrationRunner {
             connection.setAutoCommit(previousAutoCommit);
         } catch (SQLException restoreFailure) {
             failure.addSuppressed(restoreFailure);
+        }
+    }
+
+    private static void restoreAutoCommitAfterCommittedSuccess(
+            Connection connection, boolean previousAutoCommit) {
+        try {
+            connection.setAutoCommit(previousAutoCommit);
+        } catch (SQLException ignored) {
+            // Every migration and schema-history row has already committed independently.
+            // Cleanup failure must not turn durable success into a false migration failure.
+            // The storage bootstrap owns and immediately closes this connection.
         }
     }
 

@@ -32,10 +32,10 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         for relative in required_tests:
             self.assertTrue((ROOT / relative).is_file(), relative)
 
-    def test_final_version_is_source_controlled_and_cli_override_cannot_change_artifact_identity(self):
+    def test_patch_version_is_source_controlled_and_cli_override_cannot_change_artifact_identity(self):
         properties = (ROOT / "gradle.properties").read_text()
         build = (ROOT / "build.gradle.kts").read_text()
-        self.assertIn("releaseVersion=1.0.0", properties)
+        self.assertIn("releaseVersion=1.0.1", properties)
         self.assertIn('rootDir.resolve("gradle.properties")', build)
         self.assertIn('sourceReleaseVersion', build)
         self.assertIn('Ignoring -PreleaseVersion=', build)
@@ -58,16 +58,31 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertNotIn("actions/checkout", release)
         self.assertNotIn("gradle --no-daemon", release)
 
-    def test_production_workflow_is_fail_closed_on_exact_main_ci_and_immutable_approval_evidence(self):
+    def test_production_workflow_derives_patch_identity_and_remains_fail_closed(self):
         release = (ROOT / ".github/workflows/release.yml").read_text()
         resolver = (ROOT / ".github/scripts/resolve_release_publication_state.sh").read_text()
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertIn("FINAL_TAG: v1.0.0", release)
+        strict_semver = (
+            "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\."
+            "(0|[1-9][0-9]*)$"
+        )
         self.assertIn("workflows:\n      - CI", release)
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
         self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
         self.assertNotIn("actions/checkout", release)
+        self.assertIn(
+            "contents/gradle.properties?ref=${EVENT_TARGET_SHA}",
+            release,
+        )
+        self.assertIn(strict_semver, release)
+        self.assertIn('echo "release_version=${RELEASE_VERSION}"', release)
+        self.assertIn('echo "final_tag=v${RELEASE_VERSION}"', release)
+        self.assertIn("FINAL_TAG: ${{ steps.version.outputs.final_tag }}", release)
+        self.assertIn("RELEASE_VERSION: ${{ steps.version.outputs.release_version }}", release)
+        self.assertNotIn("FINAL_TAG: v1.0.0", release)
+        self.assertNotIn("version: 1.0.0", release)
+        self.assertNotIn("EnthusiaLoreItems 1.0.0", release)
         self.assertIn(
             "contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}",
             release,
@@ -95,8 +110,38 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("release_ready: %s", ci)
         self.assertIn("release_source_head: %s", ci)
         self.assertIn("release_jar_sha256: %s", ci)
-        self.assertIn("releaseVersion=//p", ci)
-        self.assertIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
+        self.assertIn(strict_semver, ci)
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:gradle.properties"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}.md"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}-rollback.md"',
+            ci,
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/wp-05-acceptance/index.md"',
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/release-notes.md /tmp/rc-first/release-notes.md",
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/rollback-instructions.md /tmp/rc-first/rollback-instructions.md",
+            ci,
+        )
+        self.assertIn(
+            "cp /tmp/release-source/acceptance-index.md /tmp/rc-first/acceptance-index.md",
+            ci,
+        )
+        self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}.md"', ci)
+        self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}-rollback.md"', ci)
+        self.assertNotIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
         self.assertIn('--version "${RELEASE_VERSION}"', ci)
         self.assertIn("Verify release publication-state behavior", ci)
         for asset in [
@@ -111,12 +156,13 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "rollback-instructions.md",
         ]:
             self.assertIn(asset, release)
+
+    def test_patch_release_notes_and_rollback_are_present(self):
         for source in [
-            "docs/releases/v1.0.0.md",
-            "docs/releases/v1.0.0-rollback.md",
-            "docs/wp-05-acceptance/index.md",
+            "docs/releases/v1.0.1.md",
+            "docs/releases/v1.0.1-rollback.md",
         ]:
-            self.assertIn(source, ci)
+            self.assertTrue((ROOT / source).is_file(), source)
 
     def test_rc_workflow_recovers_only_a_verified_partial_tag(self):
         release = (ROOT / ".github/workflows/release-rc.yml").read_text()

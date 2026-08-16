@@ -5,6 +5,7 @@ api-version: "1.21"
 authors:
   - wsg138
 description: Durable lore-item tracking and delivery for Enthusia SMP.
+softdepend: [floodgate]
 commands:
   loreitems:
     description: Opens and administers Enthusia lore items.
@@ -33,7 +34,7 @@ permissions:
     description: Views active lore-item anomalies, audit evidence, recovery work, and template status.
     default: op
   enthusia.loreitems.admin.recovery.review:
-    description: Resolves REVIEW_REQUIRED item mutations using reviewed evidence.
+    description: Resolves REVIEW_REQUIRED lore-item mutations using reviewed evidence.
     default: op
   enthusia.loreitems.admin.edit:
     description: Creates and confirms lore-item template revisions through the GUI/chat editor.

@@ -24,12 +24,29 @@ jobs:
     env:
       EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
       EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
-      FINAL_TAG: v1.0.0
     steps:
+      - name: Resolve exact source release identity
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PROPERTIES=/tmp/gradle.properties
+          gh api "repos/${GITHUB_REPOSITORY}/contents/gradle.properties?ref=${EVENT_TARGET_SHA}" \
+            --jq '.content' | base64 --decode > "${PROPERTIES}"
+          test -s "${PROPERTIES}"
+          VERSION_LINES="$(sed -n 's/^releaseVersion=//p' "${PROPERTIES}" | wc -l)"
+          test "${VERSION_LINES}" -eq 1
+          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' "${PROPERTIES}")"
+          test -n "${RELEASE_VERSION}"
+          [[ "${RELEASE_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          echo "release_version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "final_tag=v${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+
       - name: Resolve publication state
         id: state
         env:
           GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           RESOLVER=/tmp/resolve_release_publication_state.sh
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}" \
@@ -54,6 +71,7 @@ jobs:
         if: steps.state.outputs.released != 'true'
         env:
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           for file in \
@@ -72,8 +90,8 @@ jobs:
           (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
           JAR_SHA="$(awk 'NR == 1 {print $1}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
           test -n "${JAR_SHA}"
-          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0' >/dev/null
-          jq -e '.metadata.component.version == "1.0.0"' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
+          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F "version: ${RELEASE_VERSION}" >/dev/null
+          jq -e --arg version "${RELEASE_VERSION}" '.metadata.component.version == $version' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
           jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
           RELEASE_READY="$(sed -n 's/^release_ready: //p' "${BUNDLE}/acceptance-index.md")"
           ACCEPTED_SOURCE_HEAD="$(sed -n 's/^release_source_head: //p' "${BUNDLE}/acceptance-index.md")"
@@ -87,6 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${FINAL_TAG}" \
@@ -97,12 +116,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           gh release create "${FINAL_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${TARGET_SHA}" \
-            --title "EnthusiaLoreItems 1.0.0" \
+            --title "EnthusiaLoreItems ${RELEASE_VERSION}" \
             --notes-file "${BUNDLE}/release-notes.md" \
             "${BUNDLE}/EnthusiaLoreItems.jar" \
             "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
@@ -119,6 +140,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
           test "${TAG_SHA}" = "${TARGET_SHA}"

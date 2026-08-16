@@ -348,12 +348,13 @@ final class PaperPhysicalInventoryScanner {
         return item != null && !item.getType().isAir() && limit.hasRemaining();
     }
 
-    private static LocationDescriptor nestedLocation(
+    static LocationDescriptor nestedLocation(
             LocationDescriptor parent, String container, int index) {
         String path = parent.containerPath() + '/' + container + ':' + index;
         return new LocationDescriptor(
                 LocationDescriptor.Type.NESTED_CONTAINER,
-                parent.locationKey(),
+                PaperTrackedItemCollector.nestedLocationKey(
+                        parent.type(), parent.locationKey()),
                 path);
     }
 

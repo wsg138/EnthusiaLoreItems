@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -16,6 +17,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 /** Shared bounded collector for tracked identities, including nested shulkers and bundles. */
 final class PaperTrackedItemCollector {
     private static final int MAX_NESTING_DEPTH = 8;
+    private static final String ROOT_KEY_PREFIX = "root:";
 
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
 
@@ -48,7 +50,13 @@ final class PaperTrackedItemCollector {
         limit.consume();
         collectIdentity(item, type, key, path, observations);
         if (depth < MAX_NESTING_DEPTH && limit.hasRemaining()) {
-            collectNested(item.getItemMeta(), key, path, observations, depth, limit);
+            collectNested(
+                    item.getItemMeta(),
+                    nestedLocationKey(type, key),
+                    path,
+                    observations,
+                    depth,
+                    limit);
         }
     }
 
@@ -60,6 +68,15 @@ final class PaperTrackedItemCollector {
         return result instanceof ItemIdentityReadResult.Tracked tracked
                 ? tracked.identity()
                 : null;
+    }
+
+    static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
+        Objects.requireNonNull(parentType, "parentType");
+        Objects.requireNonNull(locationKey, "locationKey");
+        if (parentType == LocationDescriptor.Type.NESTED_CONTAINER) {
+            return locationKey;
+        }
+        return ROOT_KEY_PREFIX + parentType.name() + ':' + locationKey;
     }
 
     private void collectIdentity(
