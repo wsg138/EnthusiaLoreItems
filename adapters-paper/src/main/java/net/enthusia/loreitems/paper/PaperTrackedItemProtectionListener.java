@@ -6,6 +6,7 @@ import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
 import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import io.papermc.paper.event.entity.EntityCompostItemEvent;
 import io.papermc.paper.event.entity.EntityDamageItemEvent;
+import io.papermc.paper.event.player.PlayerChangeBeaconEffectEvent;
 import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
 import java.util.Objects;
 import java.util.Set;
@@ -19,6 +20,7 @@ import org.bukkit.block.Crafter;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemFrame;
+import org.bukkit.entity.Piglin;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
@@ -30,6 +32,7 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.CrafterCraftEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ItemDespawnEvent;
@@ -194,6 +197,23 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onConsume(PlayerItemConsumeEvent event) {
         if (hasLoreIdentityEvidence(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBeaconEffectChange(PlayerChangeBeaconEffectEvent event) {
+        if (event.willConsumeItem()
+                && hasLoreIdentityEvidence(
+                        event.getPlayer().getOpenInventory().getTopInventory().getItem(0))) {
+            event.setConsumeItem(false);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityPickup(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player)
+                && hasLoreIdentityEvidence(event.getItem().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -384,7 +404,10 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             return;
         }
         ItemStack item = itemInHand(event.getPlayer(), event.getHand());
-        if (losesIdentityOnEntityInteraction(item.getType())
+        boolean piglinBarter = event.getRightClicked() instanceof Piglin piglin
+                && (item.getType() == Material.GOLD_INGOT
+                        || piglin.getBarterList().contains(item.getType()));
+        if ((piglinBarter || losesIdentityOnEntityInteraction(item.getType()))
                 && hasLoreIdentityEvidence(item)) {
             event.setCancelled(true);
         }
