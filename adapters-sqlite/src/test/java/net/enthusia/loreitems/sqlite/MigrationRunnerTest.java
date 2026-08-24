@@ -47,6 +47,33 @@ class MigrationRunnerTest {
     }
 
     @Test
+    void rejectsDatabaseFromNewerSchemaVersion() throws SQLException {
+        SQLiteConnectionFactory factory = new SQLiteConnectionFactory(
+                temporaryDirectory.resolve("future-schema.db"), 5_000);
+        MigrationRunner runner = new MigrationRunner();
+        int futureVersion = EXPECTED_SCHEMA_VERSION_COUNT + 1;
+
+        try (Connection connection = factory.open()) {
+            runner.migrate(connection);
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO schema_history(version, description, applied_at) "
+                            + "VALUES (?, 'future schema', 1)")) {
+                insert.setInt(1, futureVersion);
+                insert.executeUpdate();
+            }
+
+            SQLException failure = assertThrows(SQLException.class, () -> runner.migrate(connection));
+
+            assertEquals(
+                    "Database schema version " + futureVersion
+                            + " is newer than supported version "
+                            + EXPECTED_SCHEMA_VERSION_COUNT,
+                    failure.getMessage());
+            assertEquals(futureVersion, countSchemaHistory(connection));
+        }
+    }
+
+    @Test
     void upgradesV2MutationQueueAndAllowsCancelledState() throws SQLException {
         SQLiteConnectionFactory factory =
                 new SQLiteConnectionFactory(temporaryDirectory.resolve("v2-upgrade.db"), 5_000);
