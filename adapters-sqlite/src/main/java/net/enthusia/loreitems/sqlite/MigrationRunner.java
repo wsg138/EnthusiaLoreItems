@@ -34,6 +34,7 @@ public final class MigrationRunner {
             throw new IllegalArgumentException("Unsupported schema version: " + targetVersion);
         }
         ensureHistoryTable(connection);
+        rejectFutureSchemaVersion(connection, targetVersion);
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
         try {
@@ -107,6 +108,23 @@ public final class MigrationRunner {
                             + "version INTEGER PRIMARY KEY,"
                             + "description TEXT NOT NULL,"
                             + "applied_at INTEGER NOT NULL)");
+        }
+    }
+
+    private static void rejectFutureSchemaVersion(Connection connection, int targetVersion)
+            throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement(
+                        "SELECT MAX(version) FROM schema_history");
+                ResultSet resultSet = query.executeQuery()) {
+            if (!resultSet.next()) {
+                throw new SQLException("SQLite did not return the schema history version");
+            }
+            int appliedVersion = resultSet.getInt(1);
+            if (!resultSet.wasNull() && appliedVersion > targetVersion) {
+                throw new SQLException(
+                        "Database schema version " + appliedVersion
+                                + " is newer than supported version " + targetVersion);
+            }
         }
     }
 
