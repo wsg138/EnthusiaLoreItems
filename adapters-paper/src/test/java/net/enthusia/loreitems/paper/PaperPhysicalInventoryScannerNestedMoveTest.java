@@ -72,7 +72,7 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
         assertEquals(IDENTITY, request.identity());
         assertEquals(
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                request.evidenceMode());
+                request.mode());
         assertEquals(LocationDescriptor.Type.NESTED_CONTAINER, request.location().type());
         assertEquals("slot:4/shulker:0", request.location().containerPath());
         assertTrue(request.location().locationKey().startsWith("root:BLOCK_CONTAINER:"));
