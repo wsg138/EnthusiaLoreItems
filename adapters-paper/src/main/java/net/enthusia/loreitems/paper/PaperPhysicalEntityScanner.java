@@ -27,13 +27,13 @@ final class PaperPhysicalEntityScanner {
                 return;
             }
             if (entity instanceof Item item) {
-                scanner.submitItem(
+                scanner.scanItemTree(
                         item.getItemStack(),
                         droppedLocation(item),
                         presence,
                         TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                        source + "-item");
-                limit.consume();
+                        source + "-item",
+                        limit);
             } else {
                 displayScanner.scan(entity, presence, source, limit);
             }
