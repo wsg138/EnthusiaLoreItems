@@ -109,12 +109,13 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onSlotChange(PlayerInventorySlotChangeEvent event) {
-        scanner.submitItem(
+        scanner.scanItemTree(
                 event.getNewItemStack(),
                 playerLocation(event.getPlayer().getUniqueId(), SLOT_PREFIX + event.getSlot()),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                "inventory-slot-change");
+                "inventory-slot-change",
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -123,10 +124,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 PaperPhysicalInventorySnapshot.capture(event.getSource());
         Optional<PaperPhysicalInventorySnapshot> destination =
                 PaperPhysicalInventorySnapshot.capture(event.getDestination());
-        LoreItemIdentity identity = scanner.trackedIdentity(event.getItem());
+        Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
         scheduleNextTick(() -> {
             scanReference(source, "inventory-move-source");
-            submitMatchingIdentity(destination, identity, "inventory-move-destination");
+            submitMatchingIdentities(destination, identities, "inventory-move-destination");
             scanReference(destination, "inventory-move-destination");
         });
     }
@@ -134,17 +135,19 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryPickup(InventoryPickupItemEvent event) {
         Item item = event.getItem();
-        scanner.submitItem(
-                item.getItemStack(),
+        ItemStack stack = item.getItemStack();
+        scanner.scanItemTree(
+                stack,
                 PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                "hopper-pickup-source");
+                "hopper-pickup-source",
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
         Optional<PaperPhysicalInventorySnapshot> destination =
                 PaperPhysicalInventorySnapshot.capture(event.getInventory());
-        LoreItemIdentity identity = scanner.trackedIdentity(item.getItemStack());
+        Set<LoreItemIdentity> identities = scanner.trackedIdentities(stack);
         scheduleNextTick(() -> {
-            submitMatchingIdentity(destination, identity, "hopper-pickup-destination");
+            submitMatchingIdentities(destination, identities, "hopper-pickup-destination");
             scanReference(destination, "hopper-pickup-destination");
         });
     }
@@ -152,12 +155,13 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDrop(PlayerDropItemEvent event) {
         Item item = event.getItemDrop();
-        scanner.submitItem(
+        scanner.scanItemTree(
                 item.getItemStack(),
                 PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                "player-drop");
+                "player-drop",
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
         schedulePlayerUnique(event.getPlayer().getUniqueId(), "player-drop-player");
     }
 
@@ -167,29 +171,36 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             return;
         }
         Item item = event.getItem();
-        scanner.submitItem(
+        scanner.scanItemTree(
                 item.getItemStack(),
                 PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                "player-pickup-source");
+                "player-pickup-source",
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
         schedulePlayerUnique(player.getUniqueId(), "player-pickup-destination");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
         Item item = event.getEntity();
-        LoreItemIdentity identity = scanner.trackedIdentity(item.getItemStack());
-        TrackingObservationUseCase.EvidenceMode mode = identity != null
-                        && deathDrops.remove(identity.instanceId().value())
+        Set<LoreItemIdentity> identities = scanner.trackedIdentities(item.getItemStack());
+        boolean deathDrop = false;
+        for (LoreItemIdentity identity : identities) {
+            if (deathDrops.remove(identity.instanceId().value())) {
+                deathDrop = true;
+            }
+        }
+        TrackingObservationUseCase.EvidenceMode mode = deathDrop
                 ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                 : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
-        scanner.submitItem(
+        scanner.scanItemTree(
                 item.getItemStack(),
                 PaperPhysicalEntityScanner.droppedLocation(item),
                 TrackingObservationUseCase.Presence.PRESENT,
                 mode,
-                "item-spawn");
+                "item-spawn",
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -200,8 +211,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 break;
             }
             remaining--;
-            LoreItemIdentity identity = scanner.trackedIdentity(item);
-            if (identity != null) {
+            for (LoreItemIdentity identity : scanner.trackedIdentities(item)) {
                 deathDrops.add(identity.instanceId().value());
             }
         }
@@ -373,20 +383,20 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         source)));
     }
 
-    private void submitMatchingIdentity(
+    private void submitMatchingIdentities(
             Optional<PaperPhysicalInventorySnapshot> snapshot,
-            LoreItemIdentity identity,
+            Set<LoreItemIdentity> identities,
             String source) {
-        if (identity == null) {
+        if (identities.isEmpty()) {
             return;
         }
         snapshot.ifPresent(reference -> reference.resolve(plugin).ifPresent(inventory ->
-                scanner.submitMatchingIdentity(
+                identities.forEach(identity -> scanner.submitMatchingIdentity(
                         inventory,
                         reference.type(),
                         reference.key(),
                         identity,
-                        source)));
+                        source))));
     }
 
     void scanPlayer(UUID playerId, boolean unique, String source) {
