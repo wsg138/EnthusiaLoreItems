@@ -70,6 +70,10 @@ final class PaperTrackedItemCollector {
                 : null;
     }
 
+    boolean hasIdentityEvidence(ItemStack item) {
+        return hasIdentityEvidence(item, 0);
+    }
+
     static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
         Objects.requireNonNull(parentType, "parentType");
         Objects.requireNonNull(locationKey, "locationKey");
@@ -77,6 +81,43 @@ final class PaperTrackedItemCollector {
             return locationKey;
         }
         return ROOT_KEY_PREFIX + parentType.name() + ':' + locationKey;
+    }
+
+    private boolean hasIdentityEvidence(ItemStack item, int depth) {
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        if (identityCodec.hasIdentityEvidence(item)) {
+            return true;
+        }
+        if (depth >= MAX_NESTING_DEPTH) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta
+                && hasIdentityEvidence(blockMeta.getBlockState(), depth)) {
+            return true;
+        }
+        if (meta instanceof BundleMeta bundle) {
+            for (ItemStack nested : bundle.getItems()) {
+                if (hasIdentityEvidence(nested, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasIdentityEvidence(BlockState blockState, int depth) {
+        if (!(blockState instanceof ShulkerBox shulker)) {
+            return false;
+        }
+        for (ItemStack nested : shulker.getInventory().getContents()) {
+            if (hasIdentityEvidence(nested, depth + 1)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void collectIdentity(
