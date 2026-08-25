@@ -25,6 +25,7 @@ import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Item;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.inventory.ItemStack;
@@ -110,6 +111,16 @@ class PaperPhysicalEntityScannerTest {
     void physicalTrackingListenerPinsPaperEntityLifecycleHandlers() throws Exception {
         assertMonitorHandler("onEntitiesLoad", EntitiesLoadEvent.class);
         assertMonitorHandler("onEntitiesUnload", EntitiesUnloadEvent.class);
+    }
+
+    @Test
+    void physicalTrackingListenerPinsContainerPlacementTransitionHandler() throws Exception {
+        Method method = PaperPhysicalTrackingListener.class.getMethod(
+                "onBlockPlace", BlockPlaceEvent.class);
+        EventHandler handler = method.getAnnotation(EventHandler.class);
+        assertNotNull(handler);
+        assertEquals(EventPriority.MONITOR, handler.priority());
+        assertTrue(handler.ignoreCancelled());
     }
 
     private static void assertMonitorHandler(String name, Class<?> eventType) throws Exception {
