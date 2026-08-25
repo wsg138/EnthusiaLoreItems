@@ -91,6 +91,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
+    private final PaperTrackedItemCollector itemCollector = new PaperTrackedItemCollector();
     private final PaperVoidLossCoordinator voidLossCoordinator;
     private final BooleanSupplier sharedContainersAllowedSupplier;
 
@@ -143,7 +144,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemDespawn(ItemDespawnEvent event) {
-        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())) {
+        if (hasLoreIdentityEvidenceInTree(event.getEntity().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -151,15 +152,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemCombust(EntityCombustEvent event) {
         if (event.getEntity() instanceof Item item
-                && hasLoreIdentityEvidence(item.getItemStack())) {
+                && hasLoreIdentityEvidenceInTree(item.getItemStack())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemMerge(ItemMergeEvent event) {
-        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())
-                || hasLoreIdentityEvidence(event.getTarget().getItemStack())) {
+        if (hasLoreIdentityEvidenceInTree(event.getEntity().getItemStack())
+                || hasLoreIdentityEvidenceInTree(event.getTarget().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -169,10 +170,11 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         if (!(event.getEntity() instanceof Item item)) {
             return;
         }
-        ItemIdentityReadResult identity = identityCodec.readIdentity(item.getItemStack());
-        if (identity instanceof ItemIdentityReadResult.Untracked) {
+        ItemStack stack = item.getItemStack();
+        if (!hasLoreIdentityEvidenceInTree(stack)) {
             return;
         }
+        ItemIdentityReadResult identity = identityCodec.readIdentity(stack);
         event.setCancelled(true);
         if (event.getCause() == EntityDamageEvent.DamageCause.VOID
                 && identity instanceof ItemIdentityReadResult.Tracked tracked) {
@@ -213,7 +215,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityPickup(EntityPickupItemEvent event) {
         if (!(event.getEntity() instanceof Player)
-                && hasLoreIdentityEvidence(event.getItem().getItemStack())) {
+                && hasLoreIdentityEvidenceInTree(event.getItem().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -474,6 +476,10 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private boolean hasLoreIdentityEvidence(ItemStack item) {
         return identityCodec.hasIdentityEvidence(item);
+    }
+
+    private boolean hasLoreIdentityEvidenceInTree(ItemStack item) {
+        return itemCollector.hasIdentityEvidence(item);
     }
 
     private static boolean losesIdentityOnInteraction(Material material) {
