@@ -1,7 +1,9 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -18,12 +20,15 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Item;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +84,29 @@ class PaperPhysicalEntityScannerTest {
     }
 
     @Test
+    void droppedShulkerScanningFindsNestedLoreInstance() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperPhysicalEntityScanner scanner = scanner(observed);
+        World world = server.addSimpleWorld("world");
+        Item dropped = world.dropItem(
+                new Location(world, 4, 64, 7), shulkerContaining(trackedItem()));
+
+        scanner.scan(
+                List.of(dropped),
+                TrackingObservationUseCase.Presence.PRESENT,
+                "chunk-load-entities",
+                new PaperScanLimit(8));
+
+        assertEquals(1, observed.size());
+        TrackingObservationUseCase.Request request = observed.getFirst();
+        assertEquals(IDENTITY, request.identity());
+        assertEquals(LocationDescriptor.Type.NESTED_CONTAINER, request.location().type());
+        assertEquals("item-entity/shulker:0", request.location().containerPath());
+        assertTrue(request.location().locationKey().startsWith("root:DROPPED_ITEM:"));
+        assertEquals("chunk-load-entities-item", request.source());
+    }
+
+    @Test
     void physicalTrackingListenerPinsPaperEntityLifecycleHandlers() throws Exception {
         assertMonitorHandler("onEntitiesLoad", EntitiesLoadEvent.class);
         assertMonitorHandler("onEntitiesUnload", EntitiesUnloadEvent.class);
@@ -107,5 +135,15 @@ class PaperPhysicalEntityScannerTest {
     private static ItemStack trackedItem() {
         return new PaperItemIdentityCodec().writeIdentity(
                 ItemStack.of(Material.NETHER_STAR), IDENTITY);
+    }
+
+    private static ItemStack shulkerContaining(ItemStack nested) {
+        ItemStack item = ItemStack.of(Material.SHULKER_BOX);
+        BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, item.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
+        shulker.getInventory().setItem(0, nested);
+        meta.setBlockState(shulker);
+        assertTrue(item.setItemMeta(meta));
+        return item;
     }
 }
