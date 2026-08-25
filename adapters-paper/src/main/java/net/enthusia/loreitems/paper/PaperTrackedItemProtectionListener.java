@@ -177,7 +177,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         ItemIdentityReadResult identity = identityCodec.readIdentity(stack);
         event.setCancelled(true);
         if (event.getCause() == EntityDamageEvent.DamageCause.VOID
-                && identity instanceof ItemIdentityReadResult.Tracked tracked) {
+                && identity instanceof ItemIdentityReadResult.Tracked tracked
+                && !itemCollector.hasNestedIdentityEvidence(stack)) {
             voidLossCoordinator.begin(item, tracked.identity());
         }
     }
