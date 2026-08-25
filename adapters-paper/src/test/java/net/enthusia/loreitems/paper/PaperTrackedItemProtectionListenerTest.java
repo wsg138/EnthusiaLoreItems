@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
@@ -21,6 +22,7 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.damage.DamageType;
 import org.bukkit.entity.Item;
@@ -41,6 +43,7 @@ import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -105,6 +108,24 @@ class PaperTrackedItemProtectionListenerTest {
                 new ItemDespawnEvent(ordinary, ordinary.getLocation());
         listener.onItemDespawn(ordinaryDespawn);
         assertFalse(ordinaryDespawn.isCancelled());
+    }
+
+    @Test
+    void nestedTrackedItemsProtectDroppedContainersFromDespawnAndDamage() {
+        Item nested = drop(shulkerContaining(trackedItem()));
+
+        ItemDespawnEvent despawn = new ItemDespawnEvent(nested, nested.getLocation());
+        listener.onItemDespawn(despawn);
+        assertTrue(despawn.isCancelled());
+
+        EntityDamageEvent fire = new EntityDamageEvent(
+                nested,
+                EntityDamageEvent.DamageCause.FIRE,
+                DamageSource.builder(DamageType.IN_FIRE).build(),
+                2.0);
+        listener.onItemDamage(fire);
+        assertTrue(fire.isCancelled());
+        assertFalse(useCase.prepareCalled);
     }
 
     @Test
@@ -278,6 +299,16 @@ class PaperTrackedItemProtectionListenerTest {
         ItemStack malformed = trackedItem();
         malformed.setAmount(2);
         return malformed;
+    }
+
+    private ItemStack shulkerContaining(ItemStack nested) {
+        ItemStack item = ItemStack.of(Material.SHULKER_BOX);
+        BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, item.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
+        shulker.getInventory().setItem(0, nested);
+        meta.setBlockState(shulker);
+        assertTrue(item.setItemMeta(meta));
+        return item;
     }
 
     private Item drop(ItemStack item) {
