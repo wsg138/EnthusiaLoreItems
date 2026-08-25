@@ -28,6 +28,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
@@ -234,6 +235,23 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                     "container-break");
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (!(event.getBlockPlaced().getState() instanceof Container container)) {
+            return;
+        }
+        Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItemInHand());
+        if (identities.isEmpty()) {
+            return;
+        }
+        Optional<PaperPhysicalInventorySnapshot> destination =
+                PaperPhysicalInventorySnapshot.capture(container.getInventory());
+        scheduleNextTick(() -> {
+            submitMatchingIdentities(destination, identities, "container-place-destination");
+            scanReference(destination, "container-place-destination");
+        });
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
