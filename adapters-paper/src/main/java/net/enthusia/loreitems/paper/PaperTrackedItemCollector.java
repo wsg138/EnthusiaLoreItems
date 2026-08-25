@@ -74,6 +74,25 @@ final class PaperTrackedItemCollector {
         return hasIdentityEvidence(item, 0);
     }
 
+    boolean hasNestedIdentityEvidence(ItemStack item) {
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta
+                && hasIdentityEvidence(blockMeta.getBlockState(), 0)) {
+            return true;
+        }
+        if (meta instanceof BundleMeta bundle) {
+            for (ItemStack nested : bundle.getItems()) {
+                if (hasIdentityEvidence(nested, 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
         Objects.requireNonNull(parentType, "parentType");
         Objects.requireNonNull(locationKey, "locationKey");
