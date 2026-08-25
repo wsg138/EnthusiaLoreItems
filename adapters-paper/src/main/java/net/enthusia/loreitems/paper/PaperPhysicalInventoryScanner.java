@@ -1,9 +1,10 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -93,6 +94,16 @@ final class PaperPhysicalInventoryScanner {
                 limit);
     }
 
+    void scanItemTree(
+            ItemStack item,
+            LocationDescriptor location,
+            TrackingObservationUseCase.Presence presence,
+            TrackingObservationUseCase.EvidenceMode mode,
+            String source,
+            PaperScanLimit limit) {
+        scanItem(item, location, new ScanContext(presence, mode, source), 0, limit);
+    }
+
     void submitMatchingIdentity(
             Inventory inventory,
             LocationDescriptor.Type type,
@@ -127,6 +138,19 @@ final class PaperPhysicalInventoryScanner {
 
     LoreItemIdentity trackedIdentity(ItemStack item) {
         return collector.trackedIdentity(item);
+    }
+
+    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        collector.collectItem(
+                item,
+                LocationDescriptor.Type.NESTED_CONTAINER,
+                "identity-tree",
+                "root",
+                observations,
+                0,
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
+        return Set.copyOf(observations.keySet());
     }
 
     private void collectPlayer(
@@ -332,16 +356,15 @@ final class PaperPhysicalInventoryScanner {
             LocationDescriptor.Type type,
             String key,
             LoreItemIdentity identity) {
-        List<LocationDescriptor> matches = new ArrayList<>();
-        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        ItemStack[] contents = contentsOrEmpty(inventory.getContents());
-        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            limit.consume();
-            if (identity.equals(trackedIdentity(contents[slot]))) {
-                matches.add(new LocationDescriptor(type, key, SLOT_PREFIX + slot));
-            }
-        }
-        return matches;
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        collector.collectArray(
+                contentsOrEmpty(inventory.getContents()),
+                type,
+                key,
+                SLOT_PREFIX,
+                observations,
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
+        return List.copyOf(observations.getOrDefault(identity, List.of()));
     }
 
     private static boolean scannable(ItemStack item, PaperScanLimit limit) {
