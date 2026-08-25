@@ -59,6 +59,12 @@ class PaperTrackedItemProtectionListenerTest {
             new LoreInstanceId(UUID.fromString(
                     "22222222-2222-2222-2222-222222222222")),
             new TemplateRevision(3));
+    private static final LoreItemIdentity OUTER_IDENTITY = new LoreItemIdentity(
+            new LoreDefinitionId(UUID.fromString(
+                    "55555555-5555-5555-5555-555555555555")),
+            new LoreInstanceId(UUID.fromString(
+                    "66666666-6666-6666-6666-666666666666")),
+            new TemplateRevision(4));
 
     private ServerMock server;
     private PlayerMock player;
@@ -126,6 +132,30 @@ class PaperTrackedItemProtectionListenerTest {
         listener.onItemDamage(fire);
         assertTrue(fire.isCancelled());
         assertFalse(useCase.prepareCalled);
+    }
+
+    @Test
+    void trackedContainerWithNestedLoreItemDoesNotEnterSingleInstanceVoidLoss() {
+        ItemStack trackedContainer = identityCodec.writeIdentity(
+                shulkerContaining(trackedItem()), OUTER_IDENTITY);
+        Item item = drop(trackedContainer);
+        assertTrue(item.teleport(new Location(
+                item.getWorld(),
+                0.0,
+                item.getWorld().getMinHeight() - 1.0,
+                0.0)));
+        EntityDamageEvent voidDamage = new EntityDamageEvent(
+                item,
+                EntityDamageEvent.DamageCause.VOID,
+                DamageSource.builder(DamageType.OUT_OF_WORLD).build(),
+                4.0);
+
+        listener.onItemDamage(voidDamage);
+
+        assertTrue(voidDamage.isCancelled());
+        assertFalse(useCase.prepareCalled);
+        assertFalse(item.isDead());
+        assertTrue(item.isValid());
     }
 
     @Test
