@@ -86,7 +86,7 @@ import org.bukkit.plugin.ServicesManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 // Paper plugins may own bounded lifecycle executors; this is not a J2EE web application.
-@SuppressWarnings("PMD.DoNotUseThreads")
+@SuppressWarnings({"PMD.DoNotUseThreads", "PMD.NullAssignment"})
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
@@ -816,7 +816,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+            displayObservationDelegate.set(unavailableDisplayItemUseCase());
             return true;
         }
     }
@@ -934,7 +934,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         };
     }
 
-    private static DisplayItemObservationUseCase unavailableDisplayItemObservationUseCase() {
+    private static DisplayItemObservationUseCase unavailableDisplayItemUseCase() {
         return request -> CompletableFuture.completedFuture(
                 DisplayItemObservationUseCase.Result.of(
                         DisplayItemObservationUseCase.Status.SERVICE_UNAVAILABLE,
