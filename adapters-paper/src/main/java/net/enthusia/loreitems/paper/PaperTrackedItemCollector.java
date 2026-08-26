@@ -48,7 +48,7 @@ final class PaperTrackedItemCollector {
             return;
         }
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH) {
+        if (depth < MAX_NESTING_DEPTH && hasNestedIdentityEvidence(item)) {
             collectNested(
                     item.getItemMeta(),
                     nestedLocationKey(type, key),
