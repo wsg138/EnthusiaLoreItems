@@ -44,6 +44,9 @@ public final class MigrationRunner {
                 }
                 applyIfMissing(connection, migration);
             }
+            if (targetVersion == LATEST_SCHEMA_VERSION) {
+                SQLiteSchemaHealthVerifier.verify(connection);
+            }
         } catch (SQLException | RuntimeException exception) {
             rollbackAfterFailure(connection, exception);
             restoreAutoCommitAfterFailure(connection, previousAutoCommit, exception);
