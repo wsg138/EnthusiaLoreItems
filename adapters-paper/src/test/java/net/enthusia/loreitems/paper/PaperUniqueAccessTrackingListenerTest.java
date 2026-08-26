@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -17,10 +18,12 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -139,6 +142,32 @@ class PaperUniqueAccessTrackingListenerTest {
     }
 
     @Test
+    void truncatedPlayerAndContainerScanNeverClaimsAuthoritativeMove() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        player.getInventory().setItem(0, trackedItem());
+        Inventory container = server.createInventory(null, 18);
+        for (int slot = 0; slot < 9; slot++) {
+            container.setItem(slot, filledShulker(-1));
+        }
+        container.setItem(9, filledShulker(26));
+
+        listener.submitPlayerAndInventory(
+                player,
+                container,
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "minecraft:overworld:0:64:0",
+                "test-truncated-cross-inventory-duplicate");
+
+        assertEquals(1, observed.size());
+        assertEquals(
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                observed.getFirst().mode());
+        listener.close();
+    }
+
+    @Test
     void playerAndDisplayCopiesShareOneUniquenessDecision() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
         TrackingObservationUseCase useCase = recordingUseCase(observed);
@@ -186,5 +215,20 @@ class PaperUniqueAccessTrackingListenerTest {
     private static ItemStack trackedItem() {
         return new PaperItemIdentityCodec().writeIdentity(
                 ItemStack.of(Material.NETHER_STAR), IDENTITY);
+    }
+
+    private static ItemStack filledShulker(int trackedSlot) {
+        ItemStack item = ItemStack.of(Material.SHULKER_BOX);
+        BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, item.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
+        for (int slot = 0; slot < shulker.getInventory().getSize(); slot++) {
+            shulker.getInventory().setItem(slot, ItemStack.of(Material.STONE));
+        }
+        if (trackedSlot >= 0) {
+            shulker.getInventory().setItem(trackedSlot, trackedItem());
+        }
+        meta.setBlockState(shulker);
+        assertTrue(item.setItemMeta(meta));
+        return item;
     }
 }
