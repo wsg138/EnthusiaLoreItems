@@ -1,6 +1,6 @@
 package net.enthusia.loreitems.paper;
 
-/** Mutable server-thread-only nested-container expansion budget shared by one bounded scan. */
+/** Mutable server-thread-only work budget shared by one bounded physical tracking scan. */
 final class PaperScanLimit {
     private static final int EXHAUSTED = 0;
     private static final int MINIMUM = 1;
@@ -15,14 +15,15 @@ final class PaperScanLimit {
         remaining = maximum;
     }
 
-    /** True unless a nested-container expansion was actually refused by the budget. */
+    /** True unless a scannable root or nested-container expansion was refused by the budget. */
     boolean hasRemaining() {
         return !truncated;
     }
 
     /**
-     * Reserves one nested-container expansion. Direct item identity inspection is not charged
-     * against this budget so later root slots cannot be permanently starved by ordinary leaves.
+     * Reserves one bounded work unit. Root items/entities and nested-container expansions spend
+     * units; ordinary nested leaf stacks do not, so dense container contents cannot starve later
+     * root locations while pathological root/entity counts and recursive nesting remain bounded.
      */
     boolean tryConsume() {
         if (remaining <= EXHAUSTED) {
