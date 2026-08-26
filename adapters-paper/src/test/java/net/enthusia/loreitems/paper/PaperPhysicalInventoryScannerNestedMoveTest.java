@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.ServerMock;
+import org.mockbukkit.mockbukkit.ServerMock;
 import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 class PaperPhysicalInventoryScannerNestedMoveTest {
@@ -79,7 +80,7 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
     }
 
     @Test
-    void truncatedNestedDestinationMatchNeverClaimsAuthoritativeMove() {
+    void denseNestedDestinationFindsDuplicateBeyondFormerLeafBudget() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
         PaperPhysicalInventoryScanner scanner = scanner(observed);
         Inventory destination = server.createInventory(null, 18);
@@ -96,11 +97,12 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
                 IDENTITY,
                 "inventory-move-destination");
 
-        assertEquals(1, observed.size());
+        assertEquals(2, observed.size());
+        assertTrue(observed.stream().allMatch(request ->
+                request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
         assertEquals(
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                observed.getFirst().mode());
-        assertEquals("slot:0/shulker:0", observed.getFirst().location().containerPath());
+                List.of("slot:0/shulker:0", "slot:9/shulker:26"),
+                observed.stream().map(request -> request.location().containerPath()).toList());
     }
 
     private PaperPhysicalInventoryScanner scanner(
