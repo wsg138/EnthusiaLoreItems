@@ -297,7 +297,7 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         submitItem(item, location, context.presence(), context.mode(), context.source());
-        if (depth >= MAX_NESTING_DEPTH) {
+        if (depth >= MAX_NESTING_DEPTH || !collector.hasNestedIdentityEvidence(item)) {
             return;
         }
         scanNested(item.getItemMeta(), location, context, depth, limit);
