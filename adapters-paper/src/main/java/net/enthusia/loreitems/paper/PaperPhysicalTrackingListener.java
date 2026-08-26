@@ -50,7 +50,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int QUEUE_MULTIPLIER = 32;
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
-    private static final String SLOT_PREFIX = "slot:";
     private static final Chunk[] EMPTY_CHUNKS = new Chunk[0];
     private static final UUID NO_WORLD = new UUID(0L, 0L);
 
@@ -110,13 +109,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onSlotChange(PlayerInventorySlotChangeEvent event) {
-        scanner.scanItemTree(
-                event.getNewItemStack(),
-                playerLocation(event.getPlayer().getUniqueId(), SLOT_PREFIX + event.getSlot()),
-                TrackingObservationUseCase.Presence.PRESENT,
-                TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                "inventory-slot-change",
-                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
+        schedulePlayerUnique(event.getPlayer().getUniqueId(), "inventory-slot-change");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -498,13 +491,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private int maxQueuedScans() {
         return Math.multiplyExact(currentBudget(), QUEUE_MULTIPLIER);
-    }
-
-    private static LocationDescriptor playerLocation(UUID playerId, String path) {
-        return new LocationDescriptor(
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                "player:" + playerId,
-                path);
     }
 
     @Override
