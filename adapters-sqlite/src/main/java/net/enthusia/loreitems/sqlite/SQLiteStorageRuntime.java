@@ -121,6 +121,10 @@ public final class SQLiteStorageRuntime {
         return executor.queueDepth();
     }
 
+    public boolean isTerminated() {
+        return executor.isTerminated();
+    }
+
     public MetricsPort metrics() {
         return metrics;
     }
