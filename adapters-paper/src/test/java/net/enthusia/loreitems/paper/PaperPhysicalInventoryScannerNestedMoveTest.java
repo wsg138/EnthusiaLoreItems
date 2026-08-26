@@ -78,6 +78,31 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
         assertTrue(request.location().locationKey().startsWith("root:BLOCK_CONTAINER:"));
     }
 
+    @Test
+    void truncatedNestedDestinationMatchNeverClaimsAuthoritativeMove() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperPhysicalInventoryScanner scanner = scanner(observed);
+        Inventory destination = server.createInventory(null, 18);
+        destination.setItem(0, filledShulker(0));
+        for (int slot = 1; slot < 9; slot++) {
+            destination.setItem(slot, filledShulker(-1));
+        }
+        destination.setItem(9, filledShulker(26));
+
+        scanner.submitMatchingIdentity(
+                destination,
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "minecraft:overworld:10:64:10",
+                IDENTITY,
+                "inventory-move-destination");
+
+        assertEquals(1, observed.size());
+        assertEquals(
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                observed.getFirst().mode());
+        assertEquals("slot:0/shulker:0", observed.getFirst().location().containerPath());
+    }
+
     private PaperPhysicalInventoryScanner scanner(
             List<TrackingObservationUseCase.Request> observed) {
         TrackingObservationUseCase useCase = request -> {
@@ -101,6 +126,21 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
         BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, item.getItemMeta());
         ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
         shulker.getInventory().setItem(0, nested);
+        meta.setBlockState(shulker);
+        assertTrue(item.setItemMeta(meta));
+        return item;
+    }
+
+    private static ItemStack filledShulker(int trackedSlot) {
+        ItemStack item = ItemStack.of(Material.SHULKER_BOX);
+        BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, item.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
+        for (int slot = 0; slot < shulker.getInventory().getSize(); slot++) {
+            shulker.getInventory().setItem(slot, ItemStack.of(Material.STONE));
+        }
+        if (trackedSlot >= 0) {
+            shulker.getInventory().setItem(trackedSlot, trackedItem());
+        }
         meta.setBlockState(shulker);
         assertTrue(item.setItemMeta(meta));
         return item;
