@@ -4,8 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +39,32 @@ class SQLiteStorageRuntimeTest {
                     runtime.start().toCompletableFuture().join();
 
             assertEquals(StorageState.DEGRADED_READ_ONLY, result.state());
+            assertThrows(CompletionException.class, () -> runtime
+                    .execute(connection -> 1)
+                    .toCompletableFuture()
+                    .join());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void bootstrapConnectionCloseFailureCannotLeaveRuntimeWritable() {
+        Path database = temporaryDirectory.resolve("close-failure.db");
+        SQLiteConnectionFactory factory = new SQLiteConnectionFactory(database, 5_000);
+        MetricsPort metrics = MetricsPort.noOp();
+        SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
+                () -> closeThenFail(factory.open()),
+                new MigrationRunner(),
+                new BoundedDatabaseExecutor("close-failure-test", 16, metrics),
+                metrics);
+        try {
+            SQLiteStorageRuntime.StartupResult result =
+                    runtime.start().toCompletableFuture().join();
+
+            assertEquals(StorageState.DEGRADED_READ_ONLY, result.state());
+            assertEquals(StorageState.DEGRADED_READ_ONLY, runtime.state());
+            assertTrue(result.detail().contains("simulated bootstrap close failure"));
             assertThrows(CompletionException.class, () -> runtime
                     .execute(connection -> 1)
                     .toCompletableFuture()
@@ -109,6 +140,28 @@ class SQLiteStorageRuntimeTest {
         SQLiteStorageRuntime.StartupResult result = startup.toCompletableFuture().join();
         assertEquals(StorageState.STOPPED, result.state());
         assertEquals(StorageState.STOPPED, runtime.state());
+    }
+
+    private static Connection closeThenFail(Connection delegate) {
+        return (Connection) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[] {Connection.class},
+                (proxy, method, arguments) -> invoke(delegate, method, arguments));
+    }
+
+    private static Object invoke(
+            Connection delegate,
+            Method method,
+            Object[] arguments) throws Throwable {
+        try {
+            Object result = method.invoke(delegate, arguments);
+            if ("close".equals(method.getName())) {
+                throw new SQLException("simulated bootstrap close failure");
+            }
+            return result;
+        } catch (InvocationTargetException exception) {
+            throw exception.getCause();
+        }
     }
 
     private SQLiteStorageRuntime runtime(String threadName, MetricsPort metrics) {
