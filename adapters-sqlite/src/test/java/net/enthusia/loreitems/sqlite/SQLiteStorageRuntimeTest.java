@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -140,6 +141,37 @@ class SQLiteStorageRuntimeTest {
         SQLiteStorageRuntime.StartupResult result = startup.toCompletableFuture().join();
         assertEquals(StorageState.STOPPED, result.state());
         assertEquals(StorageState.STOPPED, runtime.state());
+    }
+
+    @Test
+    void forcedShutdownExposesInterruptResistantRunningTaskUntilItExits() throws Exception {
+        MetricsPort metrics = MetricsPort.noOp();
+        SQLiteStorageRuntime runtime = runtime("surviving-task", metrics);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        assertEquals(
+                StorageState.READ_WRITE,
+                runtime.start().toCompletableFuture().join().state());
+        var running = runtime.execute(connection -> {
+            entered.countDown();
+            boolean released = false;
+            while (!released) {
+                try {
+                    released = release.await(10, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.interrupted();
+                }
+            }
+            return 1;
+        });
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertFalse(runtime.close(Duration.ZERO));
+            assertFalse(runtime.isTerminated());
+        } finally {
+            release.countDown();
+        }
+        assertEquals(1, running.toCompletableFuture().get(1, TimeUnit.SECONDS));
     }
 
     private static Connection closeThenFail(Connection delegate) {
