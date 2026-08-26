@@ -109,18 +109,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private final Object lifecycleLock = new Object();
     private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
             ConcurrentHashMap.newKeySet();
-    private final ThreadPoolExecutor lifecycleExecutor = new ThreadPoolExecutor(
-            1,
-            1,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(4),
-            runnable -> {
-                Thread thread = new Thread(runnable, "loreitems-lifecycle");
-                thread.setDaemon(true);
-                return thread;
-            },
-            new ThreadPoolExecutor.AbortPolicy());
+    private volatile ThreadPoolExecutor lifecycleExecutor = createLifecycleExecutor();
 
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
@@ -136,6 +125,12 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        if (!prepareForEnable()) {
+            getLogger().severe(
+                    "LoreItems cannot re-enable because the previous lifecycle worker has not terminated.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         registerCommands();
         if (!activateProtectionListeners()) {
             return;
@@ -153,6 +148,46 @@ public final class LoreItemsPlugin extends JavaPlugin {
             getLogger().severe("LoreItems startup was rejected: " + exception.getMessage());
         }
         getLogger().info("Foundation bootstrap enabled; durable storage is initializing off-thread.");
+    }
+
+    private boolean prepareForEnable() {
+        synchronized (lifecycleLock) {
+            if (!stopping) {
+                return true;
+            }
+            if (!lifecycleExecutor.isTerminated()) {
+                return false;
+            }
+            storageRuntime = null;
+            directDeliveryWorker = null;
+            mutationRecoveryWorker = null;
+            protectionListener = null;
+            displayItemListener = null;
+            identityAnomalyListener = null;
+            anomalyWarningWorker = null;
+            templateRevisionPlannerWorker = null;
+            administrationCommandExecutor = null;
+            distributionRuntime = null;
+            pendingReloads.clear();
+            lifecycleExecutor = createLifecycleExecutor();
+            stopping = false;
+            return true;
+        }
+    }
+
+    private static ThreadPoolExecutor createLifecycleExecutor() {
+        return new ThreadPoolExecutor(
+                1,
+                1,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(4),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "loreitems-lifecycle");
+                    thread.setDaemon(true);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void registerCommands() {
@@ -243,13 +278,30 @@ public final class LoreItemsPlugin extends JavaPlugin {
         lifecycleExecutor.shutdownNow();
         failPendingReloads(STOPPING_RELOAD_DETAIL);
 
+        int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
         SQLiteStorageRuntime runtime = storageRuntime;
         if (runtime != null) {
-            int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
             boolean drained = runtime.close(Duration.ofSeconds(timeoutSeconds));
             if (!drained) {
                 getLogger().warning("Database shutdown exceeded the configured bounded drain timeout.");
             }
+        }
+        awaitLifecycleTermination(Duration.ofSeconds(timeoutSeconds));
+    }
+
+    private void awaitLifecycleTermination(Duration timeout) {
+        try {
+            if (!lifecycleExecutor.awaitTermination(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                getLogger().warning(
+                        "Lifecycle worker shutdown exceeded the configured bounded drain timeout; "
+                                + "same-instance re-enable remains fenced until it terminates.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            getLogger().log(
+                    java.util.logging.Level.WARNING,
+                    "Interrupted while waiting for the LoreItems lifecycle worker to stop.",
+                    exception);
         }
     }
 
