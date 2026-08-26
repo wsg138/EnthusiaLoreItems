@@ -31,7 +31,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
+        for (int index = 0; index < contents.length; index++) {
             collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
         }
     }
@@ -44,12 +44,11 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item, limit)) {
+        if (!scannable(item)) {
             return;
         }
-        limit.consume();
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH && limit.hasRemaining()) {
+        if (depth < MAX_NESTING_DEPTH) {
             collectNested(
                     item.getItemMeta(),
                     nestedLocationKey(type, key),
@@ -162,7 +161,7 @@ final class PaperTrackedItemCollector {
         if (meta instanceof BlockStateMeta blockMeta) {
             collectShulker(blockMeta.getBlockState(), key, path, observations, depth, limit);
         }
-        if (meta instanceof BundleMeta bundle) {
+        if (meta instanceof BundleMeta bundle && limit.tryConsume()) {
             collectNestedArray(
                     bundle.getItems().toArray(ItemStack[]::new),
                     key,
@@ -180,7 +179,7 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (blockState instanceof ShulkerBox shulker) {
+        if (blockState instanceof ShulkerBox shulker && limit.tryConsume()) {
             collectNestedArray(
                     shulker.getInventory().getContents(),
                     key,
@@ -201,7 +200,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
+        for (int index = 0; index < contents.length; index++) {
             collectItem(
                     contents[index],
                     LocationDescriptor.Type.NESTED_CONTAINER,
@@ -213,7 +212,7 @@ final class PaperTrackedItemCollector {
         }
     }
 
-    private static boolean scannable(ItemStack item, PaperScanLimit limit) {
-        return item != null && !item.getType().isAir() && limit.hasRemaining();
+    private static boolean scannable(ItemStack item) {
+        return item != null && !item.getType().isAir();
     }
 }
