@@ -257,6 +257,10 @@ final class DistributionRuntime implements AutoCloseable {
         distributionExecutor.shutdownNow();
     }
 
+    boolean isTerminated() {
+        return distributionExecutor.isTerminated();
+    }
+
     private static ThreadPoolExecutor createDistributionExecutor() {
         return new ThreadPoolExecutor(
                 1,
