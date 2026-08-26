@@ -12,7 +12,7 @@ import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.StorageState;
 
 public final class SQLiteStorageRuntime {
-    private final SQLiteConnectionFactory connectionFactory;
+    private final ConnectionProvider connectionProvider;
     private final MigrationRunner migrationRunner;
     private final BoundedDatabaseExecutor executor;
     private final MetricsPort metrics;
@@ -25,7 +25,15 @@ public final class SQLiteStorageRuntime {
             MigrationRunner migrationRunner,
             BoundedDatabaseExecutor executor,
             MetricsPort metrics) {
-        this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory");
+        this(connectionProvider(connectionFactory), migrationRunner, executor, metrics);
+    }
+
+    SQLiteStorageRuntime(
+            ConnectionProvider connectionProvider,
+            MigrationRunner migrationRunner,
+            BoundedDatabaseExecutor executor,
+            MetricsPort metrics) {
+        this.connectionProvider = Objects.requireNonNull(connectionProvider, "connectionProvider");
         this.migrationRunner = Objects.requireNonNull(migrationRunner, "migrationRunner");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -60,8 +68,10 @@ public final class SQLiteStorageRuntime {
     }
 
     private StartupResult initializeStorage() {
-        try (Connection connection = connectionFactory.open()) {
-            migrationRunner.migrate(connection);
+        try {
+            try (Connection connection = connectionProvider.open()) {
+                migrationRunner.migrate(connection);
+            }
             if (!storageState.compareAndSet(StorageState.STARTING, StorageState.READ_WRITE)) {
                 return shutdownStartupResult();
             }
@@ -79,17 +89,6 @@ public final class SQLiteStorageRuntime {
         }
     }
 
-    private StartupResult resolveStartupCompletion(StartupResult result, Throwable failure) {
-        if (failure == null) {
-            return result;
-        }
-        StorageState state = storageState.get();
-        if (closed.get() || state == StorageState.STOPPING || state == StorageState.STOPPED) {
-            return shutdownStartupResult();
-        }
-        throw new CompletionException(unwrapCompletionFailure(failure));
-    }
-
     public <T> CompletionStage<T> execute(SqlWork<T> work) {
         Objects.requireNonNull(work, "work");
         if (storageState.get() != StorageState.READ_WRITE) {
@@ -97,7 +96,7 @@ public final class SQLiteStorageRuntime {
                     new StorageUnavailableException("SQLite storage is not writable: " + storageState.get()));
         }
         return executor.submit(() -> {
-            try (Connection connection = connectionFactory.open()) {
+            try (Connection connection = connectionProvider.open()) {
                 return work.execute(connection);
             }
         });
@@ -132,6 +131,11 @@ public final class SQLiteStorageRuntime {
         }
     }
 
+    private static ConnectionProvider connectionProvider(SQLiteConnectionFactory connectionFactory) {
+        Objects.requireNonNull(connectionFactory, "connectionFactory");
+        return connectionFactory::open;
+    }
+
     private static StartupResult shutdownStartupResult() {
         return new StartupResult(StorageState.STOPPED, "Storage startup was superseded by shutdown.");
     }
@@ -145,6 +149,11 @@ public final class SQLiteStorageRuntime {
     private static String safeMessage(Exception exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? "no detail" : message;
+    }
+
+    @FunctionalInterface
+    interface ConnectionProvider {
+        Connection open() throws Exception;
     }
 
     @FunctionalInterface
