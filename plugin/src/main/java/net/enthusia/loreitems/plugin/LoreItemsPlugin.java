@@ -128,7 +128,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     public void onEnable() {
         if (!prepareForEnable()) {
             getLogger().severe(
-                    "LoreItems cannot re-enable because the previous lifecycle worker has not terminated.");
+                    "LoreItems cannot re-enable because previous asynchronous workers have not terminated.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -157,6 +157,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 return true;
             }
             if (!lifecycleExecutor.isTerminated()) {
+                return false;
+            }
+            SQLiteStorageRuntime previousStorage = storageRuntime;
+            if (previousStorage != null && !previousStorage.isTerminated()) {
+                return false;
+            }
+            DistributionRuntime previousDistribution = distributionRuntime;
+            if (previousDistribution != null && !previousDistribution.isTerminated()) {
                 return false;
             }
             startupConfigurationGate.reset();
@@ -820,7 +828,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemUseCase());
+            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
             return true;
         }
     }
@@ -938,7 +946,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         };
     }
 
-    private static DisplayItemObservationUseCase unavailableDisplayItemUseCase() {
+    private static DisplayItemObservationUseCase unavailableDisplayItemObservationUseCase() {
         return request -> CompletableFuture.completedFuture(
                 DisplayItemObservationUseCase.Result.of(
                         DisplayItemObservationUseCase.Status.SERVICE_UNAVAILABLE,
