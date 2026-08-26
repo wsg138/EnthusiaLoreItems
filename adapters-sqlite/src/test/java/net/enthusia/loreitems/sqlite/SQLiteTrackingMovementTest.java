@@ -52,13 +52,27 @@ class SQLiteTrackingMovementTest {
             assertEquals(TrackingObservationUseCase.Status.RECORDED,
                     record(store, second, 1_100L).status());
 
-            InstanceCurrentState current = new SQLiteCurrentStateRepository(runtime)
-                    .findByInstance(INSTANCE_ID).toCompletableFuture().join().orElseThrow();
-            assertEquals(InstanceCurrentState.State.CONFIRMED_NOW, current.state());
-            assertEquals(second, current.location());
-            assertTrue(new SQLiteAnomalyRepository(runtime)
-                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
-                    .toCompletableFuture().join().items().isEmpty());
+            assertMovedWithoutAnomaly(runtime, second);
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void movingSameArmorStandDoesNotCreateDuplicate() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("moving-armor-stand.db"));
+        try {
+            seed(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor first = armorStand(1, 64, 1);
+            LocationDescriptor second = armorStand(2, 63, 1);
+
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, first, 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, second, 1_100L).status());
+
+            assertMovedWithoutAnomaly(runtime, second);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
@@ -106,6 +120,18 @@ class SQLiteTrackingMovementTest {
                 .toCompletableFuture().join();
     }
 
+    private static void assertMovedWithoutAnomaly(
+            SQLiteStorageRuntime runtime,
+            LocationDescriptor expected) {
+        InstanceCurrentState current = new SQLiteCurrentStateRepository(runtime)
+                .findByInstance(INSTANCE_ID).toCompletableFuture().join().orElseThrow();
+        assertEquals(InstanceCurrentState.State.CONFIRMED_NOW, current.state());
+        assertEquals(expected, current.location());
+        assertTrue(new SQLiteAnomalyRepository(runtime)
+                .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                .toCompletableFuture().join().items().isEmpty());
+    }
+
     private static int observationCount(SQLiteStorageRuntime runtime) {
         return new SQLiteObservationRepository(runtime)
                 .listByInstance(INSTANCE_ID, PageRequest.first(50))
@@ -117,6 +143,13 @@ class SQLiteTrackingMovementTest {
                 LocationDescriptor.Type.DROPPED_ITEM,
                 "minecraft:overworld:entity:" + ENTITY_ID + ':' + x + ':' + y + ':' + z,
                 "item-entity");
+    }
+
+    private static LocationDescriptor armorStand(int x, int y, int z) {
+        return new LocationDescriptor(
+                LocationDescriptor.Type.ARMOR_STAND,
+                "minecraft:overworld:" + x + ':' + y + ':' + z + ':' + ENTITY_ID,
+                "slot:head");
     }
 
     private static LocationDescriptor player(String path) {
