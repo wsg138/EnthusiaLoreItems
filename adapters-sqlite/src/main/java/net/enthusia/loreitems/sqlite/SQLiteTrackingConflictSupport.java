@@ -70,14 +70,24 @@ final class SQLiteTrackingConflictSupport {
     static boolean sameDroppedEntity(
             LocationDescriptor first,
             LocationDescriptor second) {
-        if (first == null || second == null
-                || first.type() != LocationDescriptor.Type.DROPPED_ITEM
-                || second.type() != LocationDescriptor.Type.DROPPED_ITEM) {
+        return first != null
+                && second != null
+                && first.type() == LocationDescriptor.Type.DROPPED_ITEM
+                && second.type() == LocationDescriptor.Type.DROPPED_ITEM
+                && sameEntityUuid(first, second);
+    }
+
+    static boolean samePhysicalEntity(
+            LocationDescriptor first,
+            LocationDescriptor second) {
+        if (first == null || second == null || first.type() != second.type()) {
             return false;
         }
-        String firstIdentity = droppedEntityIdentity(first.locationKey());
-        String secondIdentity = droppedEntityIdentity(second.locationKey());
-        return firstIdentity != null && firstIdentity.equals(secondIdentity);
+        return switch (first.type()) {
+            case DROPPED_ITEM, ITEM_FRAME, ITEM_DISPLAY, ARMOR_STAND ->
+                    sameEntityUuid(first, second);
+            default -> false;
+        };
     }
 
     static void appendAudit(
@@ -141,13 +151,39 @@ final class SQLiteTrackingConflictSupport {
                 InstanceAnomaly.MAX_DETAIL_LENGTH);
     }
 
-    private static String droppedEntityIdentity(String locationKey) {
-        int marker = locationKey.indexOf(ENTITY_MARKER);
-        if (marker < 0) {
+    private static boolean sameEntityUuid(
+            LocationDescriptor first,
+            LocationDescriptor second) {
+        UUID firstEntity = entityUuid(first);
+        UUID secondEntity = entityUuid(second);
+        return firstEntity != null && firstEntity.equals(secondEntity);
+    }
+
+    private static UUID entityUuid(LocationDescriptor location) {
+        String key = location.locationKey();
+        String candidate;
+        if (location.type() == LocationDescriptor.Type.DROPPED_ITEM) {
+            int marker = key.indexOf(ENTITY_MARKER);
+            if (marker < 0) {
+                return null;
+            }
+            int start = marker + ENTITY_MARKER.length();
+            int end = start + UUID_TEXT_LENGTH;
+            if (key.length() < end) {
+                return null;
+            }
+            candidate = key.substring(start, end);
+        } else {
+            if (key.length() < UUID_TEXT_LENGTH) {
+                return null;
+            }
+            candidate = key.substring(key.length() - UUID_TEXT_LENGTH);
+        }
+        try {
+            return UUID.fromString(candidate);
+        } catch (IllegalArgumentException exception) {
             return null;
         }
-        int end = marker + ENTITY_MARKER.length() + UUID_TEXT_LENGTH;
-        return locationKey.length() < end ? null : locationKey.substring(0, end);
     }
 
     private static String nullableJson(String value) {
