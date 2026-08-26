@@ -3,7 +3,7 @@ package net.enthusia.loreitems.sqlite;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.appendAudit;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.conflictLocation;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.refreshDuplicateAnomaly;
-import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.sameDroppedEntity;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.samePhysicalEntity;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.setNullableString;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.upsertDuplicateAnomaly;
 
@@ -134,7 +134,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     "Conflicting state was preserved while the location became inaccessible.");
         }
         if (!request.location().equals(current.location())
-                && !sameDroppedEntity(request.location(), current.location())) {
+                && !samePhysicalEntity(request.location(), current.location())) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
@@ -168,7 +168,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 || LAST_CONFIRMED.equals(current.state())
                 || MISSING_UNRESOLVED.equals(current.state())
                 || current.location() == null
-                || sameDroppedEntity(request.location(), current.location())) {
+                || samePhysicalEntity(request.location(), current.location())) {
             return true;
         }
         LocationDescriptor previous = current.location();
@@ -358,17 +358,10 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         LocationDescriptor location = request.location();
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM instance_observations observation "
-                        + "JOIN instance_anomalies anomaly "
-                        + "ON anomaly.instance_id = observation.instance_id "
-                        + "WHERE observation.instance_id = ? "
-                        + "AND observation.location_type = ? "
-                        + "AND observation.location_key = ? "
+                        + "WHERE observation.instance_id = ? AND observation.confidence = 'CONFLICTING' "
+                        + "AND observation.location_type = ? AND observation.location_key = ? "
                         + "AND ((observation.container_path IS NULL AND ? IS NULL) "
-                        + "OR observation.container_path = ?) "
-                        + "AND observation.confidence = 'CONFLICTING' "
-                        + "AND anomaly.anomaly_type = 'DUPLICATE_INSTANCE' "
-                        + "AND anomaly.status IN ('OPEN', 'ACKNOWLEDGED') "
-                        + "AND observation.observed_at >= anomaly.first_seen_at LIMIT 1")) {
+                        + "OR observation.container_path = ?) LIMIT 1")) {
             statement.setString(1, request.identity().instanceId().value().toString());
             statement.setString(2, location.type().name());
             statement.setString(3, location.locationKey());
@@ -378,6 +371,13 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 return resultSet.next();
             }
         }
+    }
+
+    private static InstanceObservation.Confidence confidenceFor(
+            TrackingObservationUseCase.Presence presence) {
+        return presence == TrackingObservationUseCase.Presence.PRESENT
+                ? InstanceObservation.Confidence.CONFIRMED_NOW
+                : InstanceObservation.Confidence.LAST_CONFIRMED;
     }
 
     private static long insertObservation(
@@ -402,7 +402,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (!keys.next()) {
-                    throw new SQLException("Tracking observation did not return an identifier");
+                    throw new SQLException("Observation insert did not return a generated id");
                 }
                 return keys.getLong(1);
             }
@@ -412,17 +412,15 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     private static void requireCurrentUpdate(
             Connection connection,
             TrackingObservationUseCase.Request request,
-            CurrentRow current,
+            CurrentRow expected,
             LocationDescriptor location,
             InstanceCurrentState.State state,
             long observationId,
             long observedAt) throws SQLException, StaleTrackingObservationException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE instance_current_state SET state = ?, location_type = ?, "
-                        + "location_key = ?, container_path = ?, last_observation_id = ?, "
-                        + "state_revision = state_revision + 1, updated_at = ? "
-                        + "WHERE instance_id = ? AND state_revision = ? "
-                        + "AND state <> 'TERMINAL_VOID' AND updated_at <= ?")) {
+                "UPDATE instance_current_state SET state = ?, location_type = ?, location_key = ?, "
+                        + "container_path = ?, observation_id = ?, state_revision = state_revision + 1, "
+                        + "updated_at = ? WHERE instance_id = ? AND state_revision = ? AND updated_at <= ?")) {
             statement.setString(1, state.name());
             statement.setString(2, location.type().name());
             statement.setString(3, location.locationKey());
@@ -430,15 +428,10 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             statement.setLong(5, observationId);
             statement.setLong(6, observedAt);
             statement.setString(7, request.identity().instanceId().value().toString());
-            statement.setLong(8, current.stateRevision());
+            statement.setLong(8, expected.stateRevision());
             statement.setLong(9, observedAt);
-            int updated = statement.executeUpdate();
-            if (updated == 0) {
+            if (statement.executeUpdate() != SINGLE_ROW) {
                 throw new StaleTrackingObservationException();
-            }
-            if (updated != SINGLE_ROW) {
-                throw new SQLException(
-                        "Tracking observation updated multiple current-state rows");
             }
         }
     }
@@ -458,8 +451,4 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             String state,
             LocationDescriptor location,
             long stateRevision) {}
-
-    private static final class StaleTrackingObservationException extends Exception {
-        private static final long serialVersionUID = 1L;
-    }
 }
