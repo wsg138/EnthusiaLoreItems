@@ -89,6 +89,17 @@ public final class SQLiteStorageRuntime {
         }
     }
 
+    private StartupResult resolveStartupCompletion(StartupResult result, Throwable failure) {
+        if (failure == null) {
+            return result;
+        }
+        StorageState state = storageState.get();
+        if (closed.get() || state == StorageState.STOPPING || state == StorageState.STOPPED) {
+            return shutdownStartupResult();
+        }
+        throw new CompletionException(unwrapCompletionFailure(failure));
+    }
+
     public <T> CompletionStage<T> execute(SqlWork<T> work) {
         Objects.requireNonNull(work, "work");
         if (storageState.get() != StorageState.READ_WRITE) {
