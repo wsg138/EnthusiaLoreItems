@@ -196,7 +196,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectItem(item, PaperDisplayEntityScanner.location(display, type, path), observations, limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private static ItemStack displayItem(
@@ -242,7 +242,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
-        submitUnique(observations, lastConfirmed, source);
+        submitUnique(observations, lastConfirmed, limit.hasRemaining(), source);
     }
 
     void submitPlayerAndInventory(
@@ -263,7 +263,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                     observations,
                     limit);
         }
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     void submitPlayerAndDisplay(
@@ -275,7 +275,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         collectItem(item, location, observations, limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private void collectItem(
@@ -353,18 +353,20 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 SLOT_PREFIX,
                 observations,
                 limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private void submitUnique(
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             boolean lastConfirmed,
+            boolean scanWithinBudget,
             String source) {
         observations.forEach((identity, locations) -> {
             TrackingObservationUseCase.Presence presence = lastConfirmed
                     ? TrackingObservationUseCase.Presence.LAST_CONFIRMED
                     : TrackingObservationUseCase.Presence.PRESENT;
             TrackingObservationUseCase.EvidenceMode mode = !lastConfirmed
+                            && scanWithinBudget
                             && locations.size() == UNIQUE_LOCATION_COUNT
                     ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                     : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
