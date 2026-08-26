@@ -95,6 +95,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
     private final AtomicReference<AtomicConfiguration> configuration =
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
+    private final StartupConfigurationGate startupConfigurationGate = new StartupConfigurationGate();
     private final AtomicReference<CreateDefinitionUseCase> createDefinitionDelegate =
             new AtomicReference<>(unavailableCreateDefinitionUseCase());
     private final AtomicReference<AdoptHeldItemUseCase> adoptHeldItemDelegate =
@@ -158,6 +159,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (!lifecycleExecutor.isTerminated()) {
                 return false;
             }
+            startupConfigurationGate.reset();
             storageRuntime = null;
             directDeliveryWorker = null;
             mutationRecoveryWorker = null;
@@ -233,7 +235,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     this,
                     voidLossDelegate::get,
                     () -> configuration.get().current().mutationBudgetPerTick(),
-                    () -> configuration.get().current().sharedContainersAllowed());
+                    () -> startupConfigurationGate.sharedContainersAllowed(
+                            configuration.get().current()));
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
@@ -382,6 +385,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 return false;
             }
             configuration.set(new AtomicConfiguration(loaded));
+            startupConfigurationGate.publish();
             return true;
         }
     }
