@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.logging.Level;
@@ -43,6 +44,7 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
             ThreadLocal.withInitial(ArrayDeque::new);
     private final ThreadLocal<Boolean> dispatching =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private boolean overflowLogged;
     private boolean closed;
@@ -55,6 +57,10 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         this.maxInFlight = maxInFlight;
         this.maxCooldowns = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
         this.maxPending = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
+    }
+
+    CompletionStage<Void> quiescence() {
+        return quiesced;
     }
 
     ItemIdentityReadResult inspect(
@@ -234,11 +240,12 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
                         completedKey,
                         System.nanoTime() + REPORT_COOLDOWN.toNanos());
             }
-            next = closed ? Optional.empty() : pollPending();
+            next = pollPending();
             next.ifPresent(report -> inFlight.add(report.key()));
             if (pending.size() < maxPending) {
                 overflowLogged = false;
             }
+            completeQuiescenceIfDrained();
         }
         next.ifPresent(this::dispatch);
     }
@@ -254,6 +261,12 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         return Optional.of(report);
     }
 
+    private void completeQuiescenceIfDrained() {
+        if (closed && inFlight.isEmpty() && pending.isEmpty()) {
+            quiesced.complete(null);
+        }
+    }
+
     private static Throwable unwrap(Throwable throwable) {
         if (throwable instanceof CompletionException exception && exception.getCause() != null) {
             return exception.getCause();
@@ -264,10 +277,12 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
     @Override
     public void close() {
         synchronized (lock) {
+            if (closed) {
+                return;
+            }
             closed = true;
-            inFlight.clear();
-            pending.clear();
             retryAfterNanos.clear();
+            completeQuiescenceIfDrained();
         }
     }
 
