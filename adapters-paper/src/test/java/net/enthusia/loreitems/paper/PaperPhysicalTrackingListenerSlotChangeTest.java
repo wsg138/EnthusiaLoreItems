@@ -54,17 +54,11 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
     @Test
     void slotChangeRescansCanonicalEquipmentLocationInsteadOfTrustingEventSlot() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        TrackingObservationUseCase useCase = request -> {
-            observed.add(request);
-            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
-                    TrackingObservationUseCase.Status.RECORDED,
-                    "ok"));
-        };
+        TrackingObservationUseCase useCase = recordingUseCase(observed);
         listener = new PaperPhysicalTrackingListener(
                 plugin, () -> useCase, () -> 4, MetricsPort.noOp());
         PlayerMock player = server.addPlayer();
-        ItemStack tracked = new PaperItemIdentityCodec().writeIdentity(
-                ItemStack.of(Material.NETHER_STAR), IDENTITY);
+        ItemStack tracked = trackedItem();
         player.getInventory().setHelmet(tracked);
         Inventory chest = server.createInventory(null, 9);
         player.openInventory(chest);
@@ -77,6 +71,48 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         listener.onSlotChange(event);
         server.getScheduler().performOneTick();
 
+        assertCanonicalHelmetObservation(observed);
+    }
+
+    @Test
+    void closeDrainsAcceptedSlotChangeBeforeScheduledTickAndDoesNotDuplicateIt() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        listener = new PaperPhysicalTrackingListener(
+                plugin, () -> recordingUseCase(observed), () -> 4, MetricsPort.noOp());
+        PlayerMock player = server.addPlayer();
+        ItemStack tracked = trackedItem();
+        player.getInventory().setHelmet(tracked);
+        PlayerInventorySlotChangeEvent event = new PlayerInventorySlotChangeEvent(
+                player,
+                0,
+                ItemStack.empty(),
+                tracked);
+
+        listener.onSlotChange(event);
+        listener.close();
+
+        assertCanonicalHelmetObservation(observed);
+        server.getScheduler().performOneTick();
+        assertEquals(1, observed.size());
+    }
+
+    private static TrackingObservationUseCase recordingUseCase(
+            List<TrackingObservationUseCase.Request> observed) {
+        return request -> {
+            observed.add(request);
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "ok"));
+        };
+    }
+
+    private static ItemStack trackedItem() {
+        return new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.NETHER_STAR), IDENTITY);
+    }
+
+    private static void assertCanonicalHelmetObservation(
+            List<TrackingObservationUseCase.Request> observed) {
         assertEquals(1, observed.size());
         TrackingObservationUseCase.Request request = observed.getFirst();
         assertEquals(IDENTITY, request.identity());
