@@ -82,9 +82,9 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     /**
      * Returns a barrier for every accepted Paper-side observation currently owned by the plugin.
-     * Tracking coordinators and identity-anomaly reporters remain registered after close until
-     * accepted durable work reaches quiescence, allowing shutdown to preserve ordering without
-     * blocking the Paper primary thread.
+     * Tracking coordinators, identity-anomaly reporters, and display persistence listeners remain
+     * registered after close until accepted durable work reaches quiescence, allowing shutdown to
+     * preserve ordering without blocking the Paper primary thread.
      */
     public static CompletionStage<Void> quiescenceFor(Plugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
@@ -99,8 +99,11 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         }
         CompletionStage<Void> tracking = CompletableFuture.allOf(barriers);
         CompletionStage<Void> anomalies = PaperItemAnomalyReporter.quiescenceFor(plugin);
+        CompletionStage<Void> displays = PaperDisplayItemListener.quiescenceFor(plugin);
         return CompletableFuture.allOf(
-                tracking.toCompletableFuture(), anomalies.toCompletableFuture());
+                tracking.toCompletableFuture(),
+                anomalies.toCompletableFuture(),
+                displays.toCompletableFuture());
     }
 
     private void registerCoordinator() {
