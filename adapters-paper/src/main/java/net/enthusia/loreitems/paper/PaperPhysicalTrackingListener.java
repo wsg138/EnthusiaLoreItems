@@ -11,7 +11,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -62,6 +61,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
+    private final PaperDeferredMainThreadActions deferredActions;
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
 
@@ -86,6 +86,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 plugin, useCaseSupplier, budgetSupplier, metrics);
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
         this.entityScanner = new PaperPhysicalEntityScanner(scanner);
+        this.deferredActions = new PaperDeferredMainThreadActions(
+                plugin,
+                "Could not schedule lore-item tracking during shutdown.");
         currentBudget();
     }
 
@@ -541,14 +544,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private void scheduleNextTick(Runnable action) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(
-                    Level.FINE,
-                    "Could not schedule lore-item tracking during shutdown.",
-                    exception);
-        }
+        deferredActions.schedule(action);
     }
 
     private int currentBudget() {
@@ -565,17 +561,21 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
         closed = true;
+        HandlerList.unregisterAll(this);
         if (scanTask != null) {
             scanTask.cancel();
         }
         if (seedTask != null) {
             seedTask.cancel();
         }
+        deferredActions.close();
         scans.clear();
         deathDrops.clear();
         scanSaturated = false;
         coordinator.close();
-        HandlerList.unregisterAll(this);
     }
 }
