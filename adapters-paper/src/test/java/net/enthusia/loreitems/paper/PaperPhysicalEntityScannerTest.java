@@ -164,7 +164,7 @@ class PaperPhysicalEntityScannerTest {
         TrackingObservationUseCase.Request request = observed.getFirst();
         assertEquals(IDENTITY, request.identity());
         assertEquals(LocationDescriptor.Type.BLOCK_CONTAINER, request.location().type());
-        assertEquals("minecraft:world:entity:" + entityId, request.location().locationKey());
+        assertEquals(world.getKey() + ":entity:" + entityId, request.location().locationKey());
         assertEquals("slot:3", request.location().containerPath());
         assertEquals("chunk-load-entities-entity-inventory", request.source());
     }
