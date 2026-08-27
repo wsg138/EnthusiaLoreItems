@@ -142,7 +142,7 @@ class PaperUniqueAccessTrackingListenerTest {
     }
 
     @Test
-    void truncatedPlayerAndContainerScanNeverClaimsAuthoritativeMove() {
+    void denseNestedLeavesDoNotStarveLaterTrackedCopy() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
         PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
         PlayerMock player = server.addPlayer(PLAYER_NAME);
@@ -158,12 +158,9 @@ class PaperUniqueAccessTrackingListenerTest {
                 container,
                 LocationDescriptor.Type.BLOCK_CONTAINER,
                 "minecraft:overworld:0:64:0",
-                "test-truncated-cross-inventory-duplicate");
+                "test-dense-nested-cross-inventory-duplicate");
 
-        assertEquals(1, observed.size());
-        assertEquals(
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                observed.getFirst().mode());
+        assertReconciliation(observed);
         listener.close();
     }
 
