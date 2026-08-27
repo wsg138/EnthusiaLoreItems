@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Locale;
 
 final class SQLiteSchemaHealthVerifier {
     private static final String SQLITE_OK = "ok";
@@ -46,6 +47,36 @@ final class SQLiteSchemaHealthVerifier {
             trigger("canonicalize_player_inventory_observation_insert"),
             trigger("canonicalize_player_inventory_current_insert"),
             trigger("canonicalize_player_inventory_current_update"));
+    private static final List<SchemaDefinition> REQUIRED_INDEX_DEFINITIONS = List.of(
+            indexDefinition(
+                    "uq_active_definition_lookup_key",
+                    "CREATE UNIQUE INDEX uq_active_definition_lookup_key "
+                            + "ON lore_definitions(lookup_key) WHERE deleted_at IS NULL"),
+            indexDefinition(
+                    "uq_anomalies_active_identity",
+                    "CREATE UNIQUE INDEX uq_anomalies_active_identity "
+                            + "ON instance_anomalies(anomaly_type, COALESCE(instance_id, ''), definition_id) "
+                            + "WHERE status IN ('OPEN', 'ACKNOWLEDGED')"),
+            indexDefinition(
+                    "uq_template_update_instance_revision",
+                    "CREATE UNIQUE INDEX uq_template_update_instance_revision "
+                            + "ON pending_mutations(instance_id, desired_revision) "
+                            + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
+                            + "AND instance_id IS NOT NULL AND desired_revision IS NOT NULL"),
+            indexDefinition(
+                    "uq_distribution_recipient_player",
+                    "CREATE UNIQUE INDEX uq_distribution_recipient_player "
+                            + "ON distribution_recipients(campaign_id, player_id) "
+                            + "WHERE player_id IS NOT NULL"),
+            indexDefinition(
+                    "uq_distribution_recipient_instance",
+                    "CREATE UNIQUE INDEX uq_distribution_recipient_instance "
+                            + "ON distribution_recipients(instance_id) WHERE instance_id IS NOT NULL"),
+            indexDefinition(
+                    "uq_destructive_target_active_instance",
+                    "CREATE UNIQUE INDEX uq_destructive_target_active_instance "
+                            + "ON destructive_targets(instance_id) "
+                            + "WHERE state NOT IN ('COMPLETED', 'ABORTED')"));
 
     private SQLiteSchemaHealthVerifier() {
     }
@@ -54,6 +85,7 @@ final class SQLiteSchemaHealthVerifier {
         verifyQuickCheck(connection);
         verifyForeignKeys(connection);
         verifyRequiredObjects(connection);
+        verifyRequiredDefinitions(connection);
     }
 
     private static void verifyQuickCheck(Connection connection) throws SQLException {
@@ -93,6 +125,39 @@ final class SQLiteSchemaHealthVerifier {
         }
     }
 
+    private static void verifyRequiredDefinitions(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?")) {
+            for (SchemaDefinition definition : REQUIRED_INDEX_DEFINITIONS) {
+                statement.setString(1, definition.type());
+                statement.setString(2, definition.name());
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (!resultSet.next()) {
+                        throw new SQLException(
+                                "SQLite schema is missing required " + definition.type()
+                                        + " " + definition.name());
+                    }
+                    String actualSql = resultSet.getString("sql");
+                    if (!normalizeSql(definition.sql()).equals(normalizeSql(actualSql))) {
+                        throw new SQLException(
+                                "SQLite schema has an invalid required " + definition.type()
+                                        + " " + definition.name());
+                    }
+                }
+            }
+        }
+    }
+
+    private static String normalizeSql(String sql) {
+        if (sql == null) {
+            return "";
+        }
+        String normalized = sql.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        return normalized.endsWith(";")
+                ? normalized.substring(0, normalized.length() - 1).stripTrailing()
+                : normalized;
+    }
+
     private static SchemaObject table(String name) {
         return new SchemaObject("table", name);
     }
@@ -105,5 +170,11 @@ final class SQLiteSchemaHealthVerifier {
         return new SchemaObject("trigger", name);
     }
 
+    private static SchemaDefinition indexDefinition(String name, String sql) {
+        return new SchemaDefinition("index", name, sql);
+    }
+
     private record SchemaObject(String type, String name) {}
+
+    private record SchemaDefinition(String type, String name, String sql) {}
 }
