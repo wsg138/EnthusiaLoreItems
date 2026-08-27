@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -19,6 +20,8 @@ import net.enthusia.loreitems.domain.TemplateRevision;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.block.ShulkerBox;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -94,6 +97,37 @@ class PaperUniqueAccessTrackingListenerTest {
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED, observed.get(0).presence());
         assertEquals("player-quit-unique", observed.get(0).source());
         listener.close();
+    }
+
+    @Test
+    void closeDrainsAcceptedDisplayAccessBeforeScheduledTickAndDoesNotDuplicateIt() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        ItemFrame frame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        ItemStack tracked = trackedItem();
+        PlayerItemFrameChangeEvent event = new PlayerItemFrameChangeEvent(
+                player,
+                frame,
+                tracked,
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE);
+
+        listener.onItemFrameChange(event);
+        frame.setItem(tracked);
+        listener.close();
+
+        assertEquals(1, observed.size());
+        TrackingObservationUseCase.Request request = observed.getFirst();
+        assertEquals(IDENTITY, request.identity());
+        assertEquals(LocationDescriptor.Type.ITEM_FRAME, request.location().type());
+        assertEquals("item", request.location().containerPath());
+        assertEquals(
+                TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
+                request.mode());
+        assertEquals("item-frame-change-unique", request.source());
+        server.getScheduler().performOneTick();
+        assertEquals(1, observed.size());
     }
 
     @Test
