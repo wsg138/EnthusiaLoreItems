@@ -46,6 +46,22 @@ class SQLiteSchemaHealthVerifierTest {
     }
 
     @Test
+    void rejectsCurrentHistoryWhenCorrectnessIndexDefinitionIsWeakened() throws SQLException {
+        try (Connection connection = migratedConnection("weakened-index.db")) {
+            execute(connection, "DROP INDEX uq_distribution_recipient_instance");
+            execute(connection,
+                    "CREATE INDEX uq_distribution_recipient_instance "
+                            + "ON distribution_recipients(instance_id) WHERE instance_id IS NOT NULL");
+
+            SQLException failure = assertThrows(
+                    SQLException.class, () -> new MigrationRunner().migrate(connection));
+
+            assertTrue(failure.getMessage()
+                    .contains("invalid required index uq_distribution_recipient_instance"));
+        }
+    }
+
+    @Test
     void rejectsCurrentHistoryWhenInvariantTriggerIsMissing() throws SQLException {
         try (Connection connection = migratedConnection("missing-trigger.db")) {
             execute(connection, "DROP TRIGGER destructive_target_identity_is_immutable");
