@@ -67,7 +67,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private final IntSupplier maxInFlightSupplier;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
     private final Object workLock = new Object();
-    private final Map<WorkKey, Set<LoreItemIdentity>> pending = new HashMap<>();
+    private final Map<WorkKey, PendingWork> pending = new HashMap<>();
     private final Queue<PendingObservation> queued = new ArrayDeque<>();
     private final ThreadLocal<ArrayDeque<PendingObservation>> submissionTrampoline =
             ThreadLocal.withInitial(ArrayDeque::new);
@@ -212,13 +212,25 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         if (identities.isEmpty()) {
             return;
         }
+        DisplayItemObservationUseCase useCase;
+        try {
+            useCase = Objects.requireNonNull(
+                    useCaseSupplier.get(),
+                    "display observation use case supplier returned null");
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not resolve display-item observation persistence.",
+                    exception);
+            return;
+        }
         WorkKey key = new WorkKey(
                 display.getUniqueId(),
                 type,
                 locationKey(display),
                 containerPath,
                 source);
-        if (!enqueueCandidates(key, identities)) {
+        if (!enqueueCandidates(key, identities, useCase)) {
             return;
         }
         try {
@@ -238,14 +250,15 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
 
     private boolean enqueueCandidates(
             WorkKey key,
-            List<LoreItemIdentity> identities) {
+            List<LoreItemIdentity> identities,
+            DisplayItemObservationUseCase useCase) {
         synchronized (workLock) {
             if (closing || closed) {
                 return false;
             }
-            Set<LoreItemIdentity> existing = pending.get(key);
+            PendingWork existing = pending.get(key);
             if (existing != null) {
-                if (!addBounded(existing, identities)) {
+                if (!addBounded(existing.candidates(), identities)) {
                     logCandidateOverflow();
                 }
                 return false;
@@ -259,7 +272,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             if (!addBounded(candidates, identities)) {
                 logCandidateOverflow();
             }
-            pending.put(key, candidates);
+            pending.put(key, new PendingWork(candidates, useCase));
             return true;
         }
     }
@@ -268,13 +281,14 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     // request and location value; reusing one mutable object would corrupt asynchronous evidence.
     @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private void reconcile(WorkKey key) {
-        Set<LoreItemIdentity> candidates;
+        PendingWork work;
         synchronized (workLock) {
-            candidates = pending.remove(key);
+            work = pending.remove(key);
         }
-        if (candidates == null || closed) {
+        if (work == null || closed) {
             return;
         }
+        Set<LoreItemIdentity> candidates = work.candidates();
 
         Entity entity = plugin.getServer().getEntity(key.entityId());
         ItemStack currentItem = currentItem(entity, key);
@@ -287,24 +301,28 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 : locationKey(entity);
 
         for (LoreItemIdentity identity : candidates) {
-            submit(new DisplayItemObservationUseCase.Request(
-                    identity,
-                    new LocationDescriptor(
-                            key.type(),
-                            key.locationKey(),
-                            key.containerPath()),
-                    DisplayItemObservationUseCase.Presence.ABSENT,
-                    key.source()));
+            submit(
+                    new DisplayItemObservationUseCase.Request(
+                            identity,
+                            new LocationDescriptor(
+                                    key.type(),
+                                    key.locationKey(),
+                                    key.containerPath()),
+                            DisplayItemObservationUseCase.Presence.ABSENT,
+                            key.source()),
+                    work.useCase());
         }
         if (currentIdentity != null) {
-            submit(new DisplayItemObservationUseCase.Request(
-                    currentIdentity,
-                    new LocationDescriptor(
-                            key.type(),
-                            currentLocation,
-                            key.containerPath()),
-                    DisplayItemObservationUseCase.Presence.PRESENT,
-                    key.source()));
+            submit(
+                    new DisplayItemObservationUseCase.Request(
+                            currentIdentity,
+                            new LocationDescriptor(
+                                    key.type(),
+                                    currentLocation,
+                                    key.containerPath()),
+                            DisplayItemObservationUseCase.Presence.PRESENT,
+                            key.source()),
+                    work.useCase());
         }
     }
 
@@ -323,21 +341,10 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         return null;
     }
 
-    private void submit(DisplayItemObservationUseCase.Request request) {
-        PendingObservation observation;
-        try {
-            observation = new PendingObservation(
-                    request,
-                    Objects.requireNonNull(
-                            useCaseSupplier.get(),
-                            "display observation use case supplier returned null"));
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(
-                    Level.SEVERE,
-                    "Could not resolve display-item observation persistence.",
-                    exception);
-            return;
-        }
+    private void submit(
+            DisplayItemObservationUseCase.Request request,
+            DisplayItemObservationUseCase useCase) {
+        PendingObservation observation = new PendingObservation(request, useCase);
         synchronized (workLock) {
             if (closed) {
                 return;
@@ -535,6 +542,15 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             String locationKey,
             String containerPath,
             String source) {}
+
+    private record PendingWork(
+            Set<LoreItemIdentity> candidates,
+            DisplayItemObservationUseCase useCase) {
+        private PendingWork {
+            Objects.requireNonNull(candidates, "candidates");
+            Objects.requireNonNull(useCase, "useCase");
+        }
+    }
 
     private record PendingObservation(
             DisplayItemObservationUseCase.Request request,
