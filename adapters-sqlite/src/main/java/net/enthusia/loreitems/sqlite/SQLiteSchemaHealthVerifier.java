@@ -152,7 +152,10 @@ final class SQLiteSchemaHealthVerifier {
         if (sql == null) {
             return "";
         }
-        String normalized = sql.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        String normalized = sql.strip()
+                .replaceAll("\\s+", " ")
+                .replaceAll("\\s*([(),])\\s*", "$1")
+                .toLowerCase(Locale.ROOT);
         return normalized.endsWith(";")
                 ? normalized.substring(0, normalized.length() - 1).stripTrailing()
                 : normalized;
