@@ -485,7 +485,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private static boolean losesIdentityOnInteraction(Material material) {
         String name = material.name();
-        return CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
+        return material.isEdible()
+                || CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
                 || name.endsWith("_DYE")
                 || name.endsWith("_SPAWN_EGG");
     }

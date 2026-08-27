@@ -1,11 +1,13 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -22,12 +24,15 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.junit.jupiter.api.AfterEach;
@@ -105,6 +110,63 @@ class PaperPhysicalEntityScannerTest {
         assertEquals("item-entity/shulker:0", request.location().containerPath());
         assertTrue(request.location().locationKey().startsWith("root:DROPPED_ITEM:"));
         assertEquals("chunk-load-entities-item", request.source());
+    }
+
+    @Test
+    void rootEntityScanningConsumesTheSharedBudget() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperPhysicalEntityScanner scanner = scanner(observed);
+        World world = server.addSimpleWorld("world");
+        Item first = world.dropItem(new Location(world, 4, 64, 7), trackedItem());
+        Item second = world.dropItem(new Location(world, 5, 64, 7), trackedItem());
+        PaperScanLimit limit = new PaperScanLimit(1);
+
+        scanner.scan(
+                List.of(first, second),
+                TrackingObservationUseCase.Presence.PRESENT,
+                "bounded-root-scan",
+                limit);
+
+        assertEquals(1, observed.size());
+        assertFalse(limit.hasRemaining());
+    }
+
+    @Test
+    void inventoryHoldingEntityIsReconciledWithStableEntityKey() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperPhysicalEntityScanner scanner = scanner(observed);
+        World world = server.addSimpleWorld("world");
+        UUID entityId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        Inventory inventory = server.createInventory(null, 9);
+        inventory.setItem(3, trackedItem());
+        Entity holder = (Entity) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[] {Entity.class, InventoryHolder.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getUniqueId" -> entityId;
+                    case "getWorld" -> world;
+                    case "getInventory" -> inventory;
+                    case "toString" -> "entity-inventory-test";
+                    case "hashCode" -> 1;
+                    case "equals" -> arguments != null
+                            && arguments.length == 1
+                            && proxy == arguments[0];
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+
+        scanner.scan(
+                List.of(holder),
+                TrackingObservationUseCase.Presence.PRESENT,
+                "chunk-load-entities",
+                new PaperScanLimit(8));
+
+        assertEquals(1, observed.size());
+        TrackingObservationUseCase.Request request = observed.getFirst();
+        assertEquals(IDENTITY, request.identity());
+        assertEquals(LocationDescriptor.Type.BLOCK_CONTAINER, request.location().type());
+        assertEquals("minecraft:world:entity:" + entityId, request.location().locationKey());
+        assertEquals("slot:3", request.location().containerPath());
+        assertEquals("chunk-load-entities-entity-inventory", request.source());
     }
 
     @Test

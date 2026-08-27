@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.papermc.paper.event.player.PlayerChangeBeaconEffectEvent;
 import java.lang.reflect.Array;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.UUID;
 import net.enthusia.loreitems.application.LoreItemIdentity;
@@ -117,6 +118,15 @@ class PaperTrackedItemConsumptiveBoundaryTest {
                 new PlayerInteractEntityEvent(player, piglin, EquipmentSlot.HAND);
         listener.onEntityInteraction(ordinaryBarter);
         assertFalse(ordinaryBarter.isCancelled());
+    }
+
+    @Test
+    void edibleTrackedItemsAreTreatedAsConsumptiveBlockInteractions() throws Exception {
+        Method method = PaperTrackedItemProtectionListener.class.getDeclaredMethod(
+                "losesIdentityOnInteraction", Material.class);
+        method.setAccessible(true);
+
+        assertTrue((Boolean) method.invoke(null, Material.CHICKEN));
     }
 
     private ItemStack tracked(Material material) {
