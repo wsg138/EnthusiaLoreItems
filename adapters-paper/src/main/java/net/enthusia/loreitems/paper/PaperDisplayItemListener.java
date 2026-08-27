@@ -76,6 +76,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private int inFlight;
+    private volatile boolean closing;
     private volatile boolean closed;
 
     public PaperDisplayItemListener(
@@ -239,7 +240,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             WorkKey key,
             List<LoreItemIdentity> identities) {
         synchronized (workLock) {
-            if (closed) {
+            if (closing || closed) {
                 return false;
             }
             Set<LoreItemIdentity> existing = pending.get(key);
@@ -508,14 +509,24 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     @Override
     public void close() {
         synchronized (workLock) {
-            if (closed) {
+            if (closing || closed) {
                 return;
             }
+            closing = true;
+        }
+        HandlerList.unregisterAll(this);
+
+        List<WorkKey> accepted;
+        synchronized (workLock) {
+            accepted = new ArrayList<>(pending.keySet());
+        }
+        accepted.forEach(this::reconcile);
+
+        synchronized (workLock) {
             closed = true;
             pending.clear();
             completeQuiescenceIfDrained();
         }
-        HandlerList.unregisterAll(this);
     }
 
     private record WorkKey(
