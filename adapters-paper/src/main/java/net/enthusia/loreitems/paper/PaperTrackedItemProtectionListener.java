@@ -41,6 +41,7 @@ import org.bukkit.event.hanging.HangingPlaceEvent;
 import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
@@ -225,6 +226,14 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onInventoryResultClick(InventoryClickEvent event) {
         if (event.getSlotType() == InventoryType.SlotType.RESULT
                 && containsLoreIdentityEvidence(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativeClone(InventoryClickEvent event) {
+        if (event.getAction() == InventoryAction.CLONE_STACK
+                && hasLoreIdentityEvidenceInTree(event.getCurrentItem())) {
             event.setCancelled(true);
         }
     }
