@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.TrackingObservationStore;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -62,9 +63,18 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             TrackingObservationUseCase.Request request,
             long observedAt) throws SQLException, StaleTrackingObservationException {
         InstanceRow instance = findInstance(connection, request);
-        TrackingObservationUseCase.Result validation = validateInstance(instance, request);
-        if (validation != null) {
-            return validation;
+        if (instance == null) {
+            return result(
+                    TrackingObservationUseCase.Status.UNKNOWN_INSTANCE,
+                    "The observed identity has no durable instance record.");
+        }
+        if (!ACTIVE.equals(instance.lifecycleState())) {
+            return result(
+                    TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
+                    "The durable instance is not active.");
+        }
+        if (!identityMatches(instance, request)) {
+            return recordIdentityMismatch(connection, request, instance, observedAt);
         }
         CurrentRow current = findCurrent(connection, request);
         if (current == null) {
@@ -85,6 +95,133 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         return request.presence() == TrackingObservationUseCase.Presence.PRESENT
                 ? recordPresent(connection, request, current, observedAt)
                 : recordLastConfirmed(connection, request, current, observedAt);
+    }
+
+    private static boolean identityMatches(
+            InstanceRow instance,
+            TrackingObservationUseCase.Request request) {
+        return instance.definitionId().equals(
+                        request.identity().definitionId().value().toString())
+                && instance.appliedRevision()
+                        == request.identity().appliedRevision().value();
+    }
+
+    private static TrackingObservationUseCase.Result recordIdentityMismatch(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            InstanceRow instance,
+            long observedAt) throws SQLException, StaleTrackingObservationException {
+        CurrentRow current = findCurrent(connection, request);
+        if (current == null) {
+            return result(
+                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                    "The observed identity does not match the durable instance record, and the "
+                            + "current-state projection is unavailable for fencing.");
+        }
+        if (TERMINAL_VOID.equals(current.state())) {
+            return result(
+                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                    "The observed identity does not match the durable instance record; terminal "
+                            + "void state was preserved.");
+        }
+
+        long observationId = insertObservation(
+                connection,
+                request,
+                instance.definitionId(),
+                request.location(),
+                InstanceObservation.Confidence.CONFLICTING,
+                observedAt);
+        if (!CONFLICTING.equals(current.state())) {
+            requireCurrentUpdate(
+                    connection,
+                    request,
+                    current,
+                    request.location(),
+                    InstanceCurrentState.State.CONFLICTING,
+                    observationId,
+                    observedAt);
+        }
+        upsertIdentityMismatchAnomaly(connection, request, instance, current, observedAt);
+        appendAudit(
+                connection,
+                request,
+                "tracking_identity_mismatch_fenced",
+                observedAt,
+                request.location());
+        return result(
+                TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                "The mismatched physical identity was preserved as conflicting evidence and "
+                        + "fenced for staff review.");
+    }
+
+    private static void upsertIdentityMismatchAnomaly(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            InstanceRow instance,
+            CurrentRow current,
+            long observedAt) throws SQLException {
+        String detail = identityMismatchDetail(request, instance, current);
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO instance_anomalies(anomaly_id, instance_id, definition_id, "
+                        + "anomaly_type, status, detail, first_seen_at, last_seen_at, "
+                        + "acknowledged_at, acknowledged_by, resolved_at, resolution_detail, "
+                        + "state_revision) VALUES (?, ?, ?, 'IDENTITY_MISMATCH', 'OPEN', ?, ?, ?, "
+                        + "NULL, NULL, NULL, NULL, 0) ON CONFLICT DO NOTHING")) {
+            statement.setString(1, UUID.randomUUID().toString());
+            statement.setString(2, request.identity().instanceId().value().toString());
+            statement.setString(3, instance.definitionId());
+            statement.setString(4, detail);
+            statement.setLong(5, observedAt);
+            statement.setLong(6, observedAt);
+            if (statement.executeUpdate() == 0) {
+                refreshIdentityMismatchAnomaly(
+                        connection, request, instance.definitionId(), detail, observedAt);
+            }
+        }
+    }
+
+    private static void refreshIdentityMismatchAnomaly(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            String durableDefinitionId,
+            String detail,
+            long observedAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE instance_anomalies SET detail = ?, last_seen_at = ?, "
+                        + "state_revision = state_revision + 1 WHERE instance_id = ? "
+                        + "AND definition_id = ? AND anomaly_type = 'IDENTITY_MISMATCH' "
+                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') AND last_seen_at <= ?")) {
+            statement.setString(1, detail);
+            statement.setLong(2, observedAt);
+            statement.setString(3, request.identity().instanceId().value().toString());
+            statement.setString(4, durableDefinitionId);
+            statement.setLong(5, observedAt);
+            statement.executeUpdate();
+        }
+    }
+
+    private static String identityMismatchDetail(
+            TrackingObservationUseCase.Request request,
+            InstanceRow instance,
+            CurrentRow current) {
+        String previous = current.location() == null
+                ? "none"
+                : current.location().type().name() + ':' + current.location().locationKey()
+                        + (current.location().containerPath() == null
+                                ? ""
+                                : ':' + current.location().containerPath());
+        LocationDescriptor observed = request.location();
+        String observedLocation = observed.type().name() + ':' + observed.locationKey()
+                + (observed.containerPath() == null ? "" : ':' + observed.containerPath());
+        return "Identity mismatch observed at " + observedLocation
+                + "; previous durable location=" + previous
+                + "; durable definition=" + instance.definitionId()
+                + " revision=" + instance.appliedRevision()
+                + "; observed definition="
+                + request.identity().definitionId().value()
+                + " revision=" + request.identity().appliedRevision().value()
+                + ". Physical evidence was preserved and current state was fenced.";
     }
 
     private static TrackingObservationUseCase.Result recordPresent(
@@ -288,30 +425,6 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         }
     }
 
-    private static TrackingObservationUseCase.Result validateInstance(
-            InstanceRow instance,
-            TrackingObservationUseCase.Request request) {
-        if (instance == null) {
-            return result(
-                    TrackingObservationUseCase.Status.UNKNOWN_INSTANCE,
-                    "The observed identity has no durable instance record.");
-        }
-        if (!instance.definitionId().equals(
-                        request.identity().definitionId().value().toString())
-                || instance.appliedRevision()
-                        != request.identity().appliedRevision().value()) {
-            return result(
-                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
-                    "The observed identity does not match the durable instance record.");
-        }
-        if (!ACTIVE.equals(instance.lifecycleState())) {
-            return result(
-                    TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
-                    "The durable instance is not active.");
-        }
-        return null;
-    }
-
     private static CurrentRow findCurrent(
             Connection connection,
             TrackingObservationUseCase.Request request) throws SQLException {
@@ -386,13 +499,29 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             LocationDescriptor location,
             InstanceObservation.Confidence confidence,
             long observedAt) throws SQLException {
+        return insertObservation(
+                connection,
+                request,
+                request.identity().definitionId().value().toString(),
+                location,
+                confidence,
+                observedAt);
+    }
+
+    private static long insertObservation(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            String definitionId,
+            LocationDescriptor location,
+            InstanceObservation.Confidence confidence,
+            long observedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
                         + "location_key, container_path, confidence, source, observed_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, request.identity().instanceId().value().toString());
-            statement.setString(2, request.identity().definitionId().value().toString());
+            statement.setString(2, definitionId);
             statement.setString(3, location.type().name());
             statement.setString(4, location.locationKey());
             setNullableString(statement, 5, location.containerPath());
