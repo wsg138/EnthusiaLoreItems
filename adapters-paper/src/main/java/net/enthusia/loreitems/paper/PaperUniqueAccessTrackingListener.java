@@ -12,7 +12,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -49,6 +48,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
     private final PaperTrackingCoordinator coordinator;
+    private final PaperDeferredMainThreadActions deferredActions;
     private final Set<UUID> quittingPlayers = new HashSet<>();
     private boolean closed;
 
@@ -63,6 +63,9 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
                 Objects.requireNonNull(budgetSupplier, "budgetSupplier"),
                 Objects.requireNonNull(metrics, "metrics"));
+        this.deferredActions = new PaperDeferredMainThreadActions(
+                plugin,
+                "Could not schedule unique lore-item tracking during shutdown.");
     }
 
     public void start() {
@@ -397,22 +400,19 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     }
 
     private void scheduleNextTick(Runnable action) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(
-                    Level.FINE,
-                    "Could not schedule unique lore-item tracking during shutdown.",
-                    exception);
-        }
+        deferredActions.schedule(action);
     }
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
         closed = true;
+        HandlerList.unregisterAll(this);
+        deferredActions.close();
         quittingPlayers.clear();
         coordinator.close();
-        HandlerList.unregisterAll(this);
     }
 
     private record InventorySnapshot(
