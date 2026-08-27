@@ -80,7 +80,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
         assertEquals(1, observed.size());
         TrackingObservationUseCase.Request request = observed.getFirst();
         assertEquals(LocationDescriptor.Type.BLOCK_CONTAINER, request.location().type());
-        assertEquals("minecraft:world:10:64:10", request.location().locationKey());
+        assertEquals(world.getKey() + ":10:64:10", request.location().locationKey());
         assertEquals("slot:0", request.location().containerPath());
     }
 
@@ -103,7 +103,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
 
         assertEquals(1, observed.size());
         assertEquals(
-                "minecraft:world:21:64:20",
+                world.getKey() + ":21:64:20",
                 observed.getFirst().location().locationKey());
     }
 
