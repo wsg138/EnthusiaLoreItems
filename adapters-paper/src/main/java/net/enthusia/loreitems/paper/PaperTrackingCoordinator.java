@@ -4,15 +4,17 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -26,8 +28,10 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private static final int QUEUE_MULTIPLIER = 8;
     private static final int NATURAL_ACCESS_DEBOUNCE_CAPACITY = 4_096;
     private static final long NATURAL_ACCESS_DEBOUNCE_MILLIS = 250L;
-    private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
     private static final String NATURAL_ACCESS_SUFFIX = "-unique";
+    private static final Object REGISTRY_LOCK = new Object();
+    private static final Map<Plugin, Set<PaperTrackingCoordinator>> ACTIVE_COORDINATORS =
+            new IdentityHashMap<>();
 
     private final Plugin plugin;
     private final Supplier<TrackingObservationUseCase> useCaseSupplier;
@@ -73,6 +77,49 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         this.naturalAccessDebounce = Objects.requireNonNull(
                 naturalAccessDebounce, "naturalAccessDebounce");
         currentMaxInFlight();
+        registerCoordinator();
+    }
+
+    /**
+     * Returns a barrier for every tracking coordinator currently owned by the plugin. Coordinators
+     * remain registered after close until their accepted durable work reaches quiescence, allowing
+     * shutdown to preserve ordering without blocking the Paper primary thread.
+     */
+    public static CompletionStage<Void> quiescenceFor(Plugin plugin) {
+        Objects.requireNonNull(plugin, "plugin");
+        CompletableFuture<?>[] barriers;
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperTrackingCoordinator> coordinators = ACTIVE_COORDINATORS.get(plugin);
+            if (coordinators == null || coordinators.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            barriers = coordinators.stream()
+                    .map(coordinator -> coordinator.quiesced)
+                    .toArray(CompletableFuture[]::new);
+        }
+        return CompletableFuture.allOf(barriers);
+    }
+
+    private void registerCoordinator() {
+        synchronized (REGISTRY_LOCK) {
+            ACTIVE_COORDINATORS
+                    .computeIfAbsent(plugin, ignored -> new HashSet<>())
+                    .add(this);
+        }
+        quiesced.whenComplete((ignored, failure) -> unregisterCoordinator());
+    }
+
+    private void unregisterCoordinator() {
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperTrackingCoordinator> coordinators = ACTIVE_COORDINATORS.get(plugin);
+            if (coordinators == null) {
+                return;
+            }
+            coordinators.remove(this);
+            if (coordinators.isEmpty()) {
+                ACTIVE_COORDINATORS.remove(plugin);
+            }
+        }
     }
 
     public boolean submit(TrackingObservationUseCase.Request request) {
@@ -315,28 +362,6 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         }
         naturalAccessDebounce.clear();
         metrics.setGauge("tracking.debounce.size", 0L);
-        awaitQuiescence();
-    }
-
-    private void awaitQuiescence() {
-        try {
-            quiesced.get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            plugin.getLogger().log(
-                    Level.WARNING,
-                    "Interrupted while draining lore-item tracking evidence.",
-                    exception);
-        } catch (TimeoutException exception) {
-            plugin.getLogger().warning(
-                    "Timed out while draining lore-item tracking evidence; SQLite shutdown will "
-                            + "still attempt its bounded executor drain.");
-        } catch (java.util.concurrent.ExecutionException exception) {
-            plugin.getLogger().log(
-                    Level.WARNING,
-                    "Lore-item tracking quiescence failed unexpectedly.",
-                    exception.getCause());
-        }
     }
 
     record DebounceKey(

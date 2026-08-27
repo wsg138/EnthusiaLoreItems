@@ -11,9 +11,11 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
 import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
@@ -61,6 +63,7 @@ import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
 import net.enthusia.loreitems.paper.PaperMutationRecoveryWorker;
+import net.enthusia.loreitems.paper.PaperTrackingCoordinator;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorker;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
@@ -90,6 +93,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
+    private static final Duration TRACKING_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5L);
 
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
@@ -122,6 +126,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperTemplateRevisionPlannerWorker templateRevisionPlannerWorker;
     private volatile LoreItemsAdministrationCommandExecutor administrationCommandExecutor;
     private volatile DistributionRuntime distributionRuntime;
+    private volatile boolean shutdownCleanupComplete = true;
     private volatile boolean stopping;
 
     @Override
@@ -156,7 +161,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (!stopping) {
                 return true;
             }
-            if (!lifecycleExecutor.isTerminated()) {
+            if (!shutdownCleanupComplete || !lifecycleExecutor.isTerminated()) {
                 return false;
             }
             SQLiteStorageRuntime previousStorage = storageRuntime;
@@ -269,13 +274,18 @@ public final class LoreItemsPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         synchronized (lifecycleLock) {
+            if (stopping && !shutdownCleanupComplete) {
+                return;
+            }
             stopping = true;
+            shutdownCleanupComplete = false;
             serviceDelegate.set(new UnavailableService("The plugin is stopping."));
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
             displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
         }
+        CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
         closeQuietly(distributionRuntime, "mass distribution runtime");
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
@@ -286,23 +296,93 @@ public final class LoreItemsPlugin extends JavaPlugin {
         closeQuietly(directDeliveryWorker, "direct-delivery worker");
         closeQuietly(mutationRecoveryWorker, "mutation-recovery worker");
         getServer().getServicesManager().unregisterAll(this);
-        lifecycleExecutor.shutdownNow();
+        ThreadPoolExecutor executor = lifecycleExecutor;
+        executor.shutdownNow();
         failPendingReloads(STOPPING_RELOAD_DETAIL);
 
         int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
-        SQLiteStorageRuntime runtime = storageRuntime;
-        if (runtime != null) {
-            boolean drained = runtime.close(Duration.ofSeconds(timeoutSeconds));
-            if (!drained) {
-                getLogger().warning("Database shutdown exceeded the configured bounded drain timeout.");
-            }
-        }
-        awaitLifecycleTermination(Duration.ofSeconds(timeoutSeconds));
+        startAsynchronousShutdown(
+                trackingQuiescence,
+                storageRuntime,
+                executor,
+                Duration.ofSeconds(timeoutSeconds));
     }
 
-    private void awaitLifecycleTermination(Duration timeout) {
+    private void startAsynchronousShutdown(
+            CompletionStage<Void> trackingQuiescence,
+            SQLiteStorageRuntime runtime,
+            ThreadPoolExecutor executor,
+            Duration timeout) {
+        Thread thread = new Thread(
+                () -> finishAsynchronousShutdown(
+                        trackingQuiescence,
+                        runtime,
+                        executor,
+                        timeout),
+                "loreitems-shutdown");
         try {
-            if (!lifecycleExecutor.awaitTermination(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+            thread.start();
+        } catch (RuntimeException exception) {
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not start asynchronous LoreItems shutdown; same-instance re-enable "
+                            + "will remain fenced for safety.",
+                    exception);
+        }
+    }
+
+    private void finishAsynchronousShutdown(
+            CompletionStage<Void> trackingQuiescence,
+            SQLiteStorageRuntime runtime,
+            ThreadPoolExecutor executor,
+            Duration timeout) {
+        try {
+            awaitTrackingQuiescence(trackingQuiescence, TRACKING_SHUTDOWN_TIMEOUT);
+            if (runtime != null) {
+                boolean drained = runtime.close(timeout);
+                if (!drained) {
+                    getLogger().warning(
+                            "Database shutdown exceeded the configured bounded drain timeout.");
+                }
+            }
+            awaitLifecycleTermination(executor, timeout);
+        } finally {
+            synchronized (lifecycleLock) {
+                shutdownCleanupComplete = true;
+            }
+        }
+    }
+
+    private void awaitTrackingQuiescence(
+            CompletionStage<Void> trackingQuiescence,
+            Duration timeout) {
+        try {
+            trackingQuiescence
+                    .toCompletableFuture()
+                    .get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            getLogger().log(
+                    java.util.logging.Level.WARNING,
+                    "Interrupted while draining lore-item tracking evidence.",
+                    exception);
+        } catch (TimeoutException exception) {
+            getLogger().warning(
+                    "Timed out while draining lore-item tracking evidence; database shutdown "
+                            + "will continue with its bounded executor drain.");
+        } catch (ExecutionException exception) {
+            getLogger().log(
+                    java.util.logging.Level.WARNING,
+                    "Lore-item tracking quiescence failed unexpectedly.",
+                    exception.getCause());
+        }
+    }
+
+    private void awaitLifecycleTermination(
+            ThreadPoolExecutor executor,
+            Duration timeout) {
+        try {
+            if (!executor.awaitTermination(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 getLogger().warning(
                         "Lifecycle worker shutdown exceeded the configured bounded drain timeout; "
                                 + "same-instance re-enable remains fenced until it terminates.");
