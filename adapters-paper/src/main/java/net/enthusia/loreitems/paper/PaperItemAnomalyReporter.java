@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,9 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
     private static final Duration REPORT_COOLDOWN = Duration.ofSeconds(5);
     private static final int CAPACITY_MULTIPLIER = 4;
     private static final int MIN_IN_FLIGHT = 1;
+    private static final Object REGISTRY_LOCK = new Object();
+    private static final Map<Plugin, Set<PaperItemAnomalyReporter>> ACTIVE_REPORTERS =
+            new IdentityHashMap<>();
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
@@ -57,6 +61,44 @@ final class PaperItemAnomalyReporter implements AutoCloseable {
         this.maxInFlight = maxInFlight;
         this.maxCooldowns = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
         this.maxPending = Math.multiplyExact(maxInFlight, CAPACITY_MULTIPLIER);
+        registerReporter();
+    }
+
+    static CompletionStage<Void> quiescenceFor(Plugin plugin) {
+        Objects.requireNonNull(plugin, "plugin");
+        CompletableFuture<?>[] barriers;
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperItemAnomalyReporter> reporters = ACTIVE_REPORTERS.get(plugin);
+            if (reporters == null || reporters.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            barriers = reporters.stream()
+                    .map(reporter -> reporter.quiesced)
+                    .toArray(CompletableFuture[]::new);
+        }
+        return CompletableFuture.allOf(barriers);
+    }
+
+    private void registerReporter() {
+        synchronized (REGISTRY_LOCK) {
+            ACTIVE_REPORTERS
+                    .computeIfAbsent(plugin, ignored -> new HashSet<>())
+                    .add(this);
+        }
+        quiesced.whenComplete((ignored, failure) -> unregisterReporter());
+    }
+
+    private void unregisterReporter() {
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperItemAnomalyReporter> reporters = ACTIVE_REPORTERS.get(plugin);
+            if (reporters == null) {
+                return;
+            }
+            reporters.remove(this);
+            if (reporters.isEmpty()) {
+                ACTIVE_REPORTERS.remove(plugin);
+            }
+        }
     }
 
     CompletionStage<Void> quiescence() {
