@@ -93,7 +93,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
-    private static final Duration TRACKING_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5L);
+    private static final Duration MIN_TRACKING_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5L);
 
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
             new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
@@ -283,7 +283,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+            displayObservationDelegate.set(unavailableDisplayObservationUseCase());
         }
         CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
         closeQuietly(distributionRuntime, "mass distribution runtime");
@@ -337,7 +337,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             ThreadPoolExecutor executor,
             Duration timeout) {
         try {
-            awaitTrackingQuiescence(trackingQuiescence, TRACKING_SHUTDOWN_TIMEOUT);
+            awaitTrackingQuiescence(trackingQuiescence, trackingShutdownTimeout(timeout));
             if (runtime != null) {
                 boolean drained = runtime.close(timeout);
                 if (!drained) {
@@ -351,6 +351,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 shutdownCleanupComplete = true;
             }
         }
+    }
+
+    static Duration trackingShutdownTimeout(Duration databaseShutdownTimeout) {
+        Objects.requireNonNull(databaseShutdownTimeout, "databaseShutdownTimeout");
+        return databaseShutdownTimeout.compareTo(MIN_TRACKING_SHUTDOWN_TIMEOUT) >= 0
+                ? databaseShutdownTimeout
+                : MIN_TRACKING_SHUTDOWN_TIMEOUT;
     }
 
     private void awaitTrackingQuiescence(
@@ -663,7 +670,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void activateDistributionRuntime(
-            SQLiteStorageRuntime runtime, FoundationConfiguration loaded) {
+            SQLiteStorageRuntime runtime,
+            FoundationConfiguration loaded) {
         DistributionRuntime distribution =
                 new DistributionRuntime(this, runtime, loaded, lifecycleExecutor);
         synchronized (lifecycleLock) {
@@ -683,7 +691,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     exception);
             try {
                 getServer().getScheduler().runTask(
-                        this, () -> getServer().getPluginManager().disablePlugin(this));
+                        this,
+                        () -> getServer().getPluginManager().disablePlugin(this));
             } catch (RuntimeException schedulingFailure) {
                 getLogger().log(
                         java.util.logging.Level.SEVERE,
@@ -908,13 +917,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
             createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
             adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
             voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+            displayObservationDelegate.set(unavailableDisplayObservationUseCase());
             return true;
         }
     }
 
     private void recoverExpiredClaims(
-            SQLiteDirectDeliveryRepository repository, int recoveryLimit) {
+            SQLiteDirectDeliveryRepository repository,
+            int recoveryLimit) {
         int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
                 .toCompletableFuture()
                 .join();
@@ -930,7 +940,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void recoverExpiredMutationClaims(
-            SQLitePendingMutationRepository repository, int recoveryLimit) {
+            SQLitePendingMutationRepository repository,
+            int recoveryLimit) {
         int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
                 .toCompletableFuture()
                 .join();
@@ -1026,7 +1037,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         };
     }
 
-    private static DisplayItemObservationUseCase unavailableDisplayItemObservationUseCase() {
+    private static DisplayItemObservationUseCase unavailableDisplayObservationUseCase() {
         return request -> CompletableFuture.completedFuture(
                 DisplayItemObservationUseCase.Result.of(
                         DisplayItemObservationUseCase.Status.SERVICE_UNAVAILABLE,
@@ -1047,7 +1058,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
         @Override
         public CompletionStage<LoreDeliveryResult> queueDelivery(
-                String definitionKey, UUID playerId, String externalOperationId) {
+                String definitionKey,
+                UUID playerId,
+                String externalOperationId) {
             return delegate.get().queueDelivery(definitionKey, playerId, externalOperationId);
         }
     }
@@ -1061,7 +1074,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
 
         @Override
         public CompletionStage<LoreDeliveryResult> queueDelivery(
-                String definitionKey, UUID playerId, String externalOperationId) {
+                String definitionKey,
+                UUID playerId,
+                String externalOperationId) {
             String safeOperationId = externalOperationId == null ? "" : externalOperationId.strip();
             if (definitionKey == null
                     || definitionKey.isBlank()
