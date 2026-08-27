@@ -165,6 +165,45 @@ class PaperDisplayItemListenerTest {
         assertEquals(2, blockingUseCase.requests.size());
     }
 
+    @Test
+    void closeDrainsAcceptedPersistenceQueueBeforeShutdownBarrierCompletes() {
+        listener.close();
+        BlockingUseCase blockingUseCase = new BlockingUseCase();
+        Plugin shutdownPlugin = MockBukkit.createMockPlugin();
+        listener = new PaperDisplayItemListener(shutdownPlugin, () -> blockingUseCase, 1);
+        ItemFrame firstFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        ItemFrame secondFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation().add(1.0, 0.0, 0.0), EntityType.ITEM_FRAME);
+
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                firstFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        firstFrame.setItem(trackedItem());
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                secondFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        secondFrame.setItem(trackedItem());
+        server.getScheduler().performOneTick();
+
+        CompletionStage<Void> shutdownBarrier = PaperTrackingCoordinator.quiescenceFor(shutdownPlugin);
+        listener.close();
+
+        assertEquals(1, blockingUseCase.requests.size());
+        assertFalse(shutdownBarrier.toCompletableFuture().isDone());
+
+        blockingUseCase.first.complete(DisplayItemObservationUseCase.Result.of(
+                DisplayItemObservationUseCase.Status.RECORDED,
+                "Recorded."));
+
+        assertEquals(2, blockingUseCase.requests.size());
+        assertTrue(shutdownBarrier.toCompletableFuture().isDone());
+    }
+
     // The bounded loop deliberately creates distinct immutable identities and event snapshots.
     @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     @Test
