@@ -107,7 +107,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private final AtomicReference<VoidLossUseCase> voidLossDelegate =
             new AtomicReference<>(unavailableVoidLossUseCase());
     private final AtomicReference<DisplayItemObservationUseCase> displayObservationDelegate =
-            new AtomicReference<>(unavailableDisplayItemObservationUseCase());
+            new AtomicReference<>(unavailableDisplayObservationUseCase());
     private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
     private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
             request -> createDefinitionDelegate.get().create(request);
