@@ -90,7 +90,7 @@ class MigrationRunnerTest {
             assertEquals(1, countMutationState(connection, "CANCELLED"));
             assertEquals(1, countIndex(connection, "idx_mutations_type_claimable"));
             assertEquals(1, countIndex(connection, "idx_mutations_type_review"));
-            assertEquals(1, countTable(connection, "destructive_targets"));
+            assertEquals(1, countTable(connection, "destructive_operations"));
         }
     }
 
@@ -264,7 +264,7 @@ class MigrationRunnerTest {
 
     private static int countMutationState(Connection connection, String state) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
-                "SELECT COUNT(*) FROM pending_mutations WHERE state = ?")) {
+                     "SELECT COUNT(*) FROM pending_mutations WHERE state = ?")) {
             query.setString(1, state);
             try (ResultSet resultSet = query.executeQuery()) {
                 resultSet.next();
@@ -275,9 +275,9 @@ class MigrationRunnerTest {
 
     private static int countTemplateUpdates(Connection connection) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
-                "SELECT COUNT(*) FROM pending_mutations "
-                        + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
-                        + "AND instance_id = ? AND desired_revision = 1")) {
+                     "SELECT COUNT(*) FROM pending_mutations "
+                             + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
+                             + "AND instance_id = ? AND desired_revision = 1")) {
             query.setString(1, INSTANCE_ID);
             try (ResultSet resultSet = query.executeQuery()) {
                 resultSet.next();
@@ -288,9 +288,9 @@ class MigrationRunnerTest {
 
     private static String findTemplateUpdateMutationId(Connection connection) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
-                "SELECT mutation_id FROM pending_mutations "
-                        + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
-                        + "AND instance_id = ? AND desired_revision = 1")) {
+                     "SELECT mutation_id FROM pending_mutations "
+                             + "WHERE mutation_type = 'TEMPLATE_UPDATE' "
+                             + "AND instance_id = ? AND desired_revision = 1")) {
             query.setString(1, INSTANCE_ID);
             try (ResultSet resultSet = query.executeQuery()) {
                 resultSet.next();
@@ -301,8 +301,8 @@ class MigrationRunnerTest {
 
     private static int countSchemaHistory(Connection connection) throws SQLException {
         try (PreparedStatement query =
-                connection.prepareStatement("SELECT COUNT(*) FROM schema_history");
-                ResultSet resultSet = query.executeQuery()) {
+                     connection.prepareStatement("SELECT COUNT(*) FROM schema_history");
+             ResultSet resultSet = query.executeQuery()) {
             resultSet.next();
             return resultSet.getInt(1);
         }
@@ -319,7 +319,7 @@ class MigrationRunnerTest {
     private static int countSchemaObject(
             Connection connection, String type, String name) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?")) {
+                     "SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?")) {
             query.setString(1, type);
             query.setString(2, name);
             try (ResultSet resultSet = query.executeQuery()) {
