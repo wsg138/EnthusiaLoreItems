@@ -16,7 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 class MigrationUpgradeMatrixTest {
     private static final int RECIPIENT_STATE_MIGRATION_VERSION = 6;
     private static final int REVISION_SNAPSHOT_MIGRATION_VERSION = 7;
-    private static final int LATEST_VERSION = 9;
+    private static final int LATEST_VERSION = 10;
     private static final String SQLITE_INDEX_TYPE = "index";
     private static final String SQL_VALUE_SEPARATOR = "', '";
     private static final String ACTIVE_DEFINITION = "10000000-0000-0000-0000-000000000001";
