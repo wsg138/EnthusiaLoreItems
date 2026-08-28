@@ -11,7 +11,6 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.MetricsPort;
@@ -57,23 +56,20 @@ class SQLitePersistenceHardeningRegressionTest {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("item-display.db"));
         try {
             seedActiveInstance(runtime);
-            SQLiteDisplayItemObservationStore displays =
-                    new SQLiteDisplayItemObservationStore(runtime);
-            DisplayItemObservationUseCase.Request displayRequest =
-                    new DisplayItemObservationUseCase.Request(
-                            IDENTITY,
-                            DISPLAY_ONE,
-                            DisplayItemObservationUseCase.Presence.PRESENT,
-                            "item-display-change");
-
-            DisplayItemObservationUseCase.Result recorded = displays.record(
-                            displayRequest, Instant.ofEpochMilli(1_000L))
+            SQLiteTrackingObservationStore tracking = new SQLiteTrackingObservationStore(runtime);
+            TrackingObservationUseCase.Result recorded = tracking.record(
+                            new TrackingObservationUseCase.Request(
+                                    IDENTITY,
+                                    DISPLAY_ONE,
+                                    TrackingObservationUseCase.Presence.PRESENT,
+                                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                                    "item-display-reconciliation"),
+                            Instant.ofEpochMilli(1_000L))
                     .toCompletableFuture().join();
-            assertEquals(DisplayItemObservationUseCase.Status.RECORDED, recorded.status());
+            assertEquals(TrackingObservationUseCase.Status.RECORDED, recorded.status());
             assertEquals(DISPLAY_ONE, current(runtime).location());
 
-            TrackingObservationUseCase.Result conflict = new SQLiteTrackingObservationStore(runtime)
-                    .record(
+            TrackingObservationUseCase.Result conflict = tracking.record(
                             new TrackingObservationUseCase.Request(
                                     IDENTITY,
                                     DISPLAY_TWO,
