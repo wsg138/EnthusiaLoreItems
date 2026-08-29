@@ -115,6 +115,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
             ConcurrentHashMap.newKeySet();
     private volatile ThreadPoolExecutor lifecycleExecutor = createLifecycleExecutor();
+    private volatile CompletionStage<Void> shutdownTrackingQuiescence =
+            CompletableFuture.completedFuture(null);
 
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
@@ -161,7 +163,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (!stopping) {
                 return true;
             }
-            if (!shutdownCleanupComplete || !lifecycleExecutor.isTerminated()) {
+            if (!shutdownCleanupComplete
+                    || !lifecycleExecutor.isTerminated()
+                    || !trackingQuiesced(shutdownTrackingQuiescence)) {
                 return false;
             }
             SQLiteStorageRuntime previousStorage = storageRuntime;
@@ -184,6 +188,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             administrationCommandExecutor = null;
             distributionRuntime = null;
             pendingReloads.clear();
+            shutdownTrackingQuiescence = CompletableFuture.completedFuture(null);
             lifecycleExecutor = createLifecycleExecutor();
             stopping = false;
             return true;
@@ -286,6 +291,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             displayObservationDelegate.set(unavailableDisplayObservationUseCase());
         }
         CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
+        shutdownTrackingQuiescence = trackingQuiescence;
         closeQuietly(distributionRuntime, "mass distribution runtime");
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
@@ -358,6 +364,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
         return databaseShutdownTimeout.compareTo(MIN_TRACKING_SHUTDOWN_TIMEOUT) >= 0
                 ? databaseShutdownTimeout
                 : MIN_TRACKING_SHUTDOWN_TIMEOUT;
+    }
+
+    static boolean trackingQuiesced(CompletionStage<Void> trackingQuiescence) {
+        CompletableFuture<Void> future = Objects.requireNonNull(
+                        trackingQuiescence, "trackingQuiescence")
+                .toCompletableFuture();
+        return future.isDone() && !future.isCompletedExceptionally() && !future.isCancelled();
     }
 
     private void awaitTrackingQuiescence(
