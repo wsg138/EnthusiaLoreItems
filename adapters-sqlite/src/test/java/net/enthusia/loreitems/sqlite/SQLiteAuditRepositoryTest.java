@@ -1,9 +1,17 @@
 package net.enthusia.loreitems.sqlite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.MetricsPort;
@@ -27,6 +35,31 @@ class SQLiteAuditRepositoryTest {
             assertPagedHistory(repository, events);
         } finally {
             runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void atomicAppendRollsBackWhenIdentifierLookupFails() throws Exception {
+        SQLiteConnectionFactory factory = new SQLiteConnectionFactory(
+                temporaryDirectory.resolve("audit-rollback.db"), 5_000);
+        try (Connection delegate = factory.open()) {
+            new MigrationRunner().migrate(delegate);
+            Connection failingConnection = rejectIdentifierLookup(delegate);
+            AuditEventRecord event = AuditEventRecord.pending(
+                    MUTATION_AGGREGATE,
+                    MUTATION_ID,
+                    "QUEUED",
+                    "SYSTEM",
+                    null,
+                    "{}",
+                    1_000L);
+
+            assertThrows(
+                    SQLException.class,
+                    () -> SQLiteAuditRepository.appendAtomically(failingConnection, event));
+
+            assertTrue(delegate.getAutoCommit());
+            assertEquals(0, countAuditEvents(delegate));
         }
     }
 
@@ -60,6 +93,39 @@ class SQLiteAuditRepositoryTest {
         assertEquals("CLAIMED", firstPage.items().getFirst().eventType());
         assertEquals(1, secondPage.items().size());
         assertEquals("QUEUED", secondPage.items().getFirst().eventType());
+    }
+
+    private static Connection rejectIdentifierLookup(Connection delegate) {
+        return (Connection) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[] {Connection.class},
+                (proxy, method, arguments) -> invoke(delegate, method, arguments));
+    }
+
+    private static Object invoke(
+            Connection delegate,
+            Method method,
+            Object[] arguments) throws Throwable {
+        if ("prepareStatement".equals(method.getName())
+                && arguments != null
+                && arguments.length > 0
+                && "SELECT last_insert_rowid()".equals(arguments[0])) {
+            throw new SQLException("simulated audit identifier lookup failure");
+        }
+        try {
+            return method.invoke(delegate, arguments);
+        } catch (InvocationTargetException exception) {
+            throw exception.getCause();
+        }
+    }
+
+    private static int countAuditEvents(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT COUNT(*) FROM audit_events");
+                ResultSet resultSet = statement.executeQuery()) {
+            resultSet.next();
+            return resultSet.getInt(1);
+        }
     }
 
     private record AppendedAuditEvents(AuditEventRecord first, AuditEventRecord second) {
