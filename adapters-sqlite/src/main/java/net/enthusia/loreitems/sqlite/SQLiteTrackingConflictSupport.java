@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Objects;
 import java.util.UUID;
 import net.enthusia.loreitems.application.AuditEventRecord;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -85,7 +86,8 @@ final class SQLiteTrackingConflictSupport {
         }
         return switch (first.type()) {
             case DROPPED_ITEM, ITEM_FRAME, ITEM_DISPLAY, ARMOR_STAND ->
-                    sameEntityUuid(first, second);
+                    sameEntityUuid(first, second)
+                            && Objects.equals(first.containerPath(), second.containerPath());
             default -> false;
         };
     }
