@@ -30,7 +30,7 @@ public final class SQLiteAuditRepository implements AuditRepository {
     }
 
     static AuditEventRecord appendAtomically(Connection connection, AuditEventRecord event)
-            throws SQLException {
+            throws Exception {
         return SQLiteTransactions.inTransaction(
                 connection,
                 transaction -> appendInTransaction(transaction, event));
