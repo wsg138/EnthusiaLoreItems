@@ -79,6 +79,31 @@ class SQLiteTrackingMovementTest {
     }
 
     @Test
+    void distinctSlotsOnSameArmorStandCreateDuplicateConflict() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("armor-stand-slot-duplicate.db"));
+        try {
+            seed(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor head = armorStand(1, 64, 1, "slot:head");
+            LocationDescriptor hand = armorStand(1, 64, 1, "slot:hand");
+
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, head, 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, hand, 1_100L).status());
+
+            InstanceCurrentState current = new SQLiteCurrentStateRepository(runtime)
+                    .findByInstance(INSTANCE_ID).toCompletableFuture().join().orElseThrow();
+            assertEquals(InstanceCurrentState.State.CONFLICTING, current.state());
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().size() == 1);
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void repeatedConflictLocationDoesNotGrowEvidence() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("deduplicate.db"));
         try {
@@ -146,10 +171,14 @@ class SQLiteTrackingMovementTest {
     }
 
     private static LocationDescriptor armorStand(int x, int y, int z) {
+        return armorStand(x, y, z, "slot:head");
+    }
+
+    private static LocationDescriptor armorStand(int x, int y, int z, String path) {
         return new LocationDescriptor(
                 LocationDescriptor.Type.ARMOR_STAND,
                 "minecraft:overworld:" + x + ':' + y + ':' + z + ':' + ENTITY_ID,
-                "slot:head");
+                path);
     }
 
     private static LocationDescriptor player(String path) {
