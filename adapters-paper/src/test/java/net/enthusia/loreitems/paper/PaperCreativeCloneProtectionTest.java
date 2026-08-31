@@ -22,6 +22,7 @@ import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -87,6 +88,29 @@ class PaperCreativeCloneProtectionTest {
         InventoryClickEvent ordinary = cloneEvent(2);
         listener.onCreativeClone(ordinary);
         assertFalse(ordinary.isCancelled());
+    }
+
+    @Test
+    void creativeInventoryPacketRejectsTrackedInjectionAndTrackedSlotRemoval() {
+        Inventory inventory = server.createInventory(null, 9);
+        player.openInventory(inventory);
+
+        InventoryCreativeEvent injection = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                trackedItem());
+        listener.onCreativeInventoryMutation(injection);
+        assertTrue(injection.isCancelled());
+
+        inventory.setItem(0, trackedItem());
+        InventoryCreativeEvent removal = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                ItemStack.empty());
+        listener.onCreativeInventoryMutation(removal);
+        assertTrue(removal.isCancelled());
     }
 
     @Test
