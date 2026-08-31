@@ -8,6 +8,8 @@ import io.papermc.paper.event.entity.EntityCompostItemEvent;
 import io.papermc.paper.event.entity.EntityDamageItemEvent;
 import io.papermc.paper.event.player.PlayerChangeBeaconEffectEvent;
 import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
+import io.papermc.paper.event.player.PlayerPickBlockEvent;
+import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -18,7 +20,9 @@ import net.enthusia.loreitems.application.VoidLossUseCase;
 import org.bukkit.Material;
 import org.bukkit.block.Crafter;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Piglin;
 import org.bukkit.entity.Player;
@@ -56,6 +60,7 @@ import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -89,6 +94,14 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             "SLIME_BALL",
             "WHEAT",
             "WOLF_ARMOR");
+    private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
+        EquipmentSlot.HAND,
+        EquipmentSlot.OFF_HAND,
+        EquipmentSlot.FEET,
+        EquipmentSlot.LEGS,
+        EquipmentSlot.CHEST,
+        EquipmentSlot.HEAD
+    };
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
@@ -234,6 +247,22 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onCreativeClone(InventoryClickEvent event) {
         if (event.getAction() == InventoryAction.CLONE_STACK
                 && hasLoreIdentityEvidenceInTree(event.getCurrentItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativePickBlock(PlayerPickBlockEvent event) {
+        if (event.isIncludeData()
+                && event.getBlock().getState() instanceof InventoryHolder holder
+                && containsLoreIdentityEvidenceInTree(holder.getInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativePickEntity(PlayerPickEntityEvent event) {
+        if (entityContainsLoreIdentityEvidence(event.getEntity())) {
             event.setCancelled(true);
         }
     }
@@ -482,6 +511,37 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             }
         }
         return false;
+    }
+
+    private boolean containsLoreIdentityEvidenceInTree(Inventory inventory) {
+        for (ItemStack item : inventory.getContents()) {
+            if (hasLoreIdentityEvidenceInTree(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean entityContainsLoreIdentityEvidence(Entity entity) {
+        if (entity instanceof Item item) {
+            return hasLoreIdentityEvidenceInTree(item.getItemStack());
+        }
+        if (entity instanceof ItemFrame frame) {
+            return hasLoreIdentityEvidenceInTree(frame.getItem());
+        }
+        if (entity instanceof ItemDisplay display) {
+            return hasLoreIdentityEvidenceInTree(display.getItemStack());
+        }
+        if (entity instanceof ArmorStand stand) {
+            for (EquipmentSlot slot : ARMOR_STAND_SLOTS) {
+                if (hasLoreIdentityEvidenceInTree(stand.getEquipment().getItem(slot))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return entity instanceof InventoryHolder holder
+                && containsLoreIdentityEvidenceInTree(holder.getInventory());
     }
 
     private boolean hasLoreIdentityEvidence(ItemStack item) {
