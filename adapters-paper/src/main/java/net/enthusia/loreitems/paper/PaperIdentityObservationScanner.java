@@ -16,6 +16,7 @@ import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -154,7 +155,10 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
     static LocationDescriptor inventoryLocation(Inventory inventory, String path) {
         InventoryHolder holder = inventory.getHolder();
         if (holder instanceof Player player) {
-            return playerLocation(player, path);
+            LocationDescriptor.Type type = inventory.getType() == InventoryType.ENDER_CHEST
+                    ? LocationDescriptor.Type.PLAYER_ENDER_CHEST
+                    : LocationDescriptor.Type.PLAYER_INVENTORY;
+            return new LocationDescriptor(type, "player:" + player.getUniqueId(), path);
         }
         Location location = inventory.getLocation();
         if (location != null && location.getWorld() != null) {
