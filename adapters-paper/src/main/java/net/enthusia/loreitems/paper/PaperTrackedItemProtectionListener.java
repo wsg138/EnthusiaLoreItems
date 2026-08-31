@@ -251,8 +251,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         }
         ItemStack current = event.getCurrentItem();
         ItemStack cursor = event.getCursor();
-        if ((isBundle(current) && hasLoreIdentityEvidence(cursor))
-                || (isBundle(cursor) && hasLoreIdentityEvidence(current))) {
+        if ((isBundle(current) && hasLoreIdentityEvidenceInTree(cursor))
+                || (isBundle(cursor) && hasLoreIdentityEvidenceInTree(current))) {
             event.setCancelled(true);
         }
     }
@@ -261,7 +261,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onSharedContainerDrag(InventoryDragEvent event) {
         if (sharedContainersAllowed()
                 || event.getView().getTopInventory().getType() != InventoryType.SHULKER_BOX
-                || !hasLoreIdentityEvidence(event.getOldCursor())) {
+                || !hasLoreIdentityEvidenceInTree(event.getOldCursor())) {
             return;
         }
         int topSize = event.getView().getTopInventory().getSize();
@@ -273,15 +273,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private boolean wouldInsertIntoTopInventory(InventoryClickEvent event, int topSize) {
         int rawSlot = event.getRawSlot();
         if (rawSlot >= 0 && rawSlot < topSize) {
-            if (hasLoreIdentityEvidence(event.getCursor())) {
+            if (hasLoreIdentityEvidenceInTree(event.getCursor())) {
                 return true;
             }
             int hotbarButton = event.getHotbarButton();
             return hotbarButton >= 0
-                    && hasLoreIdentityEvidence(
+                    && hasLoreIdentityEvidenceInTree(
                             event.getWhoClicked().getInventory().getItem(hotbarButton));
         }
-        return event.isShiftClick() && hasLoreIdentityEvidence(event.getCurrentItem());
+        return event.isShiftClick() && hasLoreIdentityEvidenceInTree(event.getCurrentItem());
     }
 
     private boolean sharedContainersAllowed() {
