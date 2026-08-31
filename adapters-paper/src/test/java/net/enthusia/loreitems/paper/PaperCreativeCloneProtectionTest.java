@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.papermc.paper.event.player.PlayerPickBlockEvent;
 import io.papermc.paper.event.player.PlayerPickEntityEvent;
+import java.lang.reflect.Proxy;
 import java.util.UUID;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
@@ -16,6 +17,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.ItemFrame;
@@ -25,6 +27,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.plugin.Plugin;
@@ -115,12 +118,9 @@ class PaperCreativeCloneProtectionTest {
 
     @Test
     void creativePickBlockWithDataRejectsTrackedContainerCopy() {
-        World world = server.addSimpleWorld("world");
-        Block block = world.getBlockAt(2, 64, 2);
-        block.setType(Material.SHULKER_BOX);
-        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, block.getState());
-        shulker.getInventory().setItem(0, trackedItem());
-        assertTrue(shulker.update());
+        Inventory inventory = server.createInventory(null, InventoryType.SHULKER_BOX);
+        inventory.setItem(0, trackedItem());
+        Block block = inventoryBlock(inventory);
         PlayerPickBlockEvent event = new PlayerPickBlockEvent(player, block, true, 0, -1);
 
         listener.onCreativePickBlock(event);
@@ -152,6 +152,36 @@ class PaperCreativeCloneProtectionTest {
 
     private ItemStack trackedItem() {
         return identityCodec.writeIdentity(ItemStack.of(Material.NETHER_STAR), IDENTITY);
+    }
+
+    private static Block inventoryBlock(Inventory inventory) {
+        BlockState state = (BlockState) Proxy.newProxyInstance(
+                PaperCreativeCloneProtectionTest.class.getClassLoader(),
+                new Class<?>[] {BlockState.class, InventoryHolder.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getInventory")) {
+                        return inventory;
+                    }
+                    return objectMethodOrFail(proxy, method.getName(), args);
+                });
+        return (Block) Proxy.newProxyInstance(
+                PaperCreativeCloneProtectionTest.class.getClassLoader(),
+                new Class<?>[] {Block.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getState")) {
+                        return state;
+                    }
+                    return objectMethodOrFail(proxy, method.getName(), args);
+                });
+    }
+
+    private static Object objectMethodOrFail(Object proxy, String methodName, Object[] args) {
+        return switch (methodName) {
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "toString" -> "inventory-block-test-double";
+            case "equals" -> proxy == args[0];
+            default -> throw new AssertionError("Unexpected test-double call: " + methodName);
+        };
     }
 
     private static ItemStack shulkerContaining(ItemStack nested) {
