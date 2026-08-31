@@ -1,8 +1,10 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -20,6 +22,7 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BundleMeta;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,6 +64,24 @@ class PaperSharedContainerRestrictionTest {
         Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
         InventoryView view = player.openInventory(shulker);
         player.setItemOnCursor(trackedItem());
+        InventoryClickEvent event = new InventoryClickEvent(
+                view,
+                InventoryType.SlotType.CONTAINER,
+                0,
+                ClickType.LEFT,
+                InventoryAction.PLACE_ALL);
+
+        listener.onSharedContainerClick(event);
+
+        assertTrue(event.isCancelled());
+    }
+
+    @Test
+    void restrictedModeBlocksNestedTrackedBundleInsertionIntoOpenShulker() {
+        plugin.getConfig().set(SHARED_CONTAINERS_ALLOWED, false);
+        Inventory shulker = server.createInventory(null, InventoryType.SHULKER_BOX);
+        InventoryView view = player.openInventory(shulker);
+        player.setItemOnCursor(bundleContaining(trackedItem()));
         InventoryClickEvent event = new InventoryClickEvent(
                 view,
                 InventoryType.SlotType.CONTAINER,
@@ -131,6 +152,14 @@ class PaperSharedContainerRestrictionTest {
 
     private ItemStack trackedItem() {
         return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND_SWORD), IDENTITY);
+    }
+
+    private static ItemStack bundleContaining(ItemStack nested) {
+        ItemStack item = ItemStack.of(Material.BUNDLE);
+        BundleMeta meta = assertInstanceOf(BundleMeta.class, item.getItemMeta());
+        meta.setItems(List.of(nested));
+        assertTrue(item.setItemMeta(meta));
+        return item;
     }
 
     private static final class NoOpVoidLossUseCase implements VoidLossUseCase {
