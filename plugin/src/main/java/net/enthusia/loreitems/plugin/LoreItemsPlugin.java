@@ -40,6 +40,7 @@ import net.enthusia.loreitems.application.PersistingItemAnomalyObservationUseCas
 import net.enthusia.loreitems.application.PersistingLoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.PersistingTemplateManagementUseCase;
 import net.enthusia.loreitems.application.PersistingTemplateRevisionRolloutUseCase;
+import net.enthusia.loreitems.application.PersistingTrackingObservationUseCase;
 import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
 import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
@@ -48,6 +49,7 @@ import net.enthusia.loreitems.application.PreparedVoidLoss;
 import net.enthusia.loreitems.application.StorageState;
 import net.enthusia.loreitems.application.TemplateManagementUseCase;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutUseCase;
+import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
@@ -63,9 +65,11 @@ import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
 import net.enthusia.loreitems.paper.PaperMutationRecoveryWorker;
+import net.enthusia.loreitems.paper.PaperPhysicalTrackingListener;
 import net.enthusia.loreitems.paper.PaperTrackingCoordinator;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorker;
+import net.enthusia.loreitems.paper.PaperUniqueAccessTrackingListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository;
@@ -81,6 +85,7 @@ import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
 import net.enthusia.loreitems.sqlite.SQLiteTemplateManagementQueryStore;
 import net.enthusia.loreitems.sqlite.SQLiteTemplateRevisionRolloutStore;
+import net.enthusia.loreitems.sqlite.SQLiteTrackingObservationStore;
 import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
 import net.enthusia.loreitems.sqlite.SQLiteVoidLossStore;
 import org.bukkit.command.PluginCommand;
@@ -123,6 +128,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperMutationRecoveryWorker mutationRecoveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
     private volatile PaperDisplayItemListener displayItemListener;
+    private volatile PaperPhysicalTrackingListener physicalTrackingListener;
+    private volatile PaperUniqueAccessTrackingListener uniqueAccessTrackingListener;
     private volatile PaperIdentityAnomalyListener identityAnomalyListener;
     private volatile PaperAnomalyWarningWorker anomalyWarningWorker;
     private volatile PaperTemplateRevisionPlannerWorker templateRevisionPlannerWorker;
@@ -182,6 +189,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
             mutationRecoveryWorker = null;
             protectionListener = null;
             displayItemListener = null;
+            physicalTrackingListener = null;
+            uniqueAccessTrackingListener = null;
             identityAnomalyListener = null;
             anomalyWarningWorker = null;
             templateRevisionPlannerWorker = null;
@@ -292,6 +301,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
         CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
         shutdownTrackingQuiescence = trackingQuiescence;
+        closeQuietly(uniqueAccessTrackingListener, "unique-access tracking listener");
+        closeQuietly(physicalTrackingListener, "physical tracking listener");
         closeQuietly(distributionRuntime, "mass distribution runtime");
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
@@ -559,6 +570,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 new PersistingDisplayItemObservationUseCase(
                         new SQLiteDisplayItemObservationStore(runtime),
                         clock);
+        TrackingObservationUseCase trackingObservationUseCase =
+                new PersistingTrackingObservationUseCase(
+                        new SQLiteTrackingObservationStore(runtime),
+                        clock);
         SQLiteAnomalyRepository anomalyRepository = new SQLiteAnomalyRepository(runtime);
         LoreItemsAdministrationUseCase administrationUseCase =
                 new PersistingLoreItemsAdministrationUseCase(
@@ -586,6 +601,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 adoptHeldItemUseCase,
                 voidLossUseCase,
                 displayObservationUseCase)) {
+            if (!activateTrackingListeners(trackingObservationUseCase, runtime.metrics())) {
+                return;
+            }
             activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
             activateMutationRecoveryWorker(mutationRepository, loaded);
             activateAdministrationServices(
@@ -597,9 +615,69 @@ public final class LoreItemsPlugin extends JavaPlugin {
             activateDistributionRuntime(runtime, loaded);
             getLogger().info(
                     "Durable storage is active; definition creation, adoption, protection, "
-                            + "display observations, terminal void loss, and mass distributions "
-                            + "are available. Delivery, recovery, anomaly, and administration "
-                            + "components are activating on the server thread.");
+                            + "physical tracking, display observations, terminal void loss, and "
+                            + "mass distributions are available. Delivery, recovery, anomaly, "
+                            + "tracking, and administration components are activating on the "
+                            + "server thread.");
+        }
+    }
+
+    private boolean activateTrackingListeners(
+            TrackingObservationUseCase useCase,
+            MetricsPort metrics) {
+        try {
+            getServer().getScheduler().runTask(
+                    this,
+                    () -> activateTrackingListenersOnMainThread(useCase, metrics));
+            return true;
+        } catch (RuntimeException exception) {
+            publishUnavailableServices(
+                    "Lore-item physical tracking activation could not be scheduled.");
+            getLogger().log(
+                    java.util.logging.Level.SEVERE,
+                    "Could not schedule lore-item physical tracking; writes remain unavailable.",
+                    exception);
+            return false;
+        }
+    }
+
+    private void activateTrackingListenersOnMainThread(
+            TrackingObservationUseCase useCase,
+            MetricsPort metrics) {
+        synchronized (lifecycleLock) {
+            if (stopping
+                    || physicalTrackingListener != null
+                    || uniqueAccessTrackingListener != null) {
+                return;
+            }
+            PaperPhysicalTrackingListener physical = null;
+            PaperUniqueAccessTrackingListener unique = null;
+            try {
+                physical = new PaperPhysicalTrackingListener(
+                        this,
+                        () -> useCase,
+                        () -> configuration.get().current().mutationBudgetPerTick(),
+                        metrics);
+                unique = new PaperUniqueAccessTrackingListener(
+                        this,
+                        () -> useCase,
+                        () -> configuration.get().current().mutationBudgetPerTick(),
+                        metrics);
+                physical.start();
+                unique.start();
+                physicalTrackingListener = physical;
+                uniqueAccessTrackingListener = unique;
+                getLogger().info(
+                        "Physical lore-item tracking and natural-access reconciliation are active.");
+            } catch (RuntimeException exception) {
+                closeQuietly(unique, "unique-access tracking listener");
+                closeQuietly(physical, "physical tracking listener");
+                getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not start lore-item physical tracking; disabling LoreItems.",
+                        exception);
+                getServer().getPluginManager().disablePlugin(this);
+            }
         }
     }
 
