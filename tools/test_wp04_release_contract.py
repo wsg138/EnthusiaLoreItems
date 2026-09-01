@@ -15,7 +15,8 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "getServer().getServicesManager().unregisterAll(this)",
             "lifecycleExecutor.shutdownNow()",
             "failPendingReloads(STOPPING_RELOAD_DETAIL)",
-            "runtime.close(Duration.ofSeconds(timeoutSeconds))",
+            "Duration.ofSeconds(timeoutSeconds)",
+            "runtime.close(timeout)",
             "if (stopping || result.isDone())",
             "configuration.get().replace(candidate)",
         ]
