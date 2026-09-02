@@ -113,6 +113,7 @@ class PaperAnomalyWarningWorkerTest {
         return HandlerList.getRegisteredListeners(plugin).stream()
                 .map(RegisteredListener::getListener)
                 .filter(type::isInstance)
+                .distinct()
                 .count();
     }
 
