@@ -8,14 +8,20 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.AuditEventRecord;
+import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
+import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
+import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import net.enthusia.loreitems.domain.InstanceCurrentState;
 import net.enthusia.loreitems.domain.InstanceObservation;
 import net.enthusia.loreitems.domain.LoreInstanceId;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.RegisteredListener;
+import org.bukkit.plugin.ServicePriority;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +60,44 @@ class PaperAnomalyWarningWorkerTest {
     }
 
     @Test
+    void replacesBootstrapTrackingPairInsteadOfLeavingDuplicateListenersActive() {
+        TrackingAndAnomalyUseCase observationUseCase = new TrackingAndAnomalyUseCase();
+        plugin.getServer().getServicesManager().register(
+                ItemAnomalyObservationUseCase.class,
+                observationUseCase,
+                plugin,
+                ServicePriority.Normal);
+        PaperUniqueAccessTrackingListener bootstrapUnique =
+                new PaperUniqueAccessTrackingListener(
+                        plugin,
+                        () -> observationUseCase,
+                        () -> 4,
+                        MetricsPort.noOp());
+        PaperPhysicalTrackingListener bootstrapPhysical =
+                new PaperPhysicalTrackingListener(
+                        plugin,
+                        () -> observationUseCase,
+                        () -> 4,
+                        MetricsPort.noOp());
+        bootstrapUnique.start();
+        bootstrapPhysical.start();
+        assertEquals(1L, listenerCount(PaperUniqueAccessTrackingListener.class));
+        assertEquals(1L, listenerCount(PaperPhysicalTrackingListener.class));
+
+        worker = new PaperAnomalyWarningWorker(
+                plugin,
+                new RecordingAdministrationUseCase(),
+                300,
+                10);
+        worker.start();
+
+        assertEquals(1L, listenerCount(PaperUniqueAccessTrackingListener.class));
+        assertEquals(1L, listenerCount(PaperPhysicalTrackingListener.class));
+        bootstrapPhysical.close();
+        bootstrapUnique.close();
+    }
+
+    @Test
     void rejectsANonPositiveTrackingBudget() {
         assertThrows(
                 IllegalArgumentException.class,
@@ -65,8 +109,34 @@ class PaperAnomalyWarningWorkerTest {
                         0));
     }
 
+    private long listenerCount(Class<?> type) {
+        return HandlerList.getRegisteredListeners(plugin).stream()
+                .map(RegisteredListener::getListener)
+                .filter(type::isInstance)
+                .count();
+    }
+
     private static Page<InstanceAnomaly> emptyPage() {
         return new Page<>(List.of(), 0, 10, false);
+    }
+
+    private static final class TrackingAndAnomalyUseCase
+            implements ItemAnomalyObservationUseCase, TrackingObservationUseCase {
+        @Override
+        public CompletionStage<ItemAnomalyObservationUseCase.Result> record(
+                ItemAnomalyObservationUseCase.Request request) {
+            return CompletableFuture.completedFuture(ItemAnomalyObservationUseCase.Result.of(
+                    ItemAnomalyObservationUseCase.Status.RECORDED,
+                    "Recorded anomaly."));
+        }
+
+        @Override
+        public CompletionStage<TrackingObservationUseCase.Result> record(
+                TrackingObservationUseCase.Request request) {
+            return CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    "Recorded tracking observation."));
+        }
     }
 
     private static final class RecordingAdministrationUseCase
