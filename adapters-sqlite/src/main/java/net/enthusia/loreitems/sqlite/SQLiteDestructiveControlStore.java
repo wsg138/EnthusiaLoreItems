@@ -222,9 +222,6 @@ final class SQLiteDestructiveControlStore {
     private static boolean evidenceAllows(
             ReviewResolution resolution,
             DestructiveEffectState effectState) {
-        if (effectState == DestructiveEffectState.AMBIGUOUS) {
-            return true;
-        }
         return switch (resolution) {
             case REQUEUE_NO_SIDE_EFFECT, ABORT_NO_SIDE_EFFECT ->
                     effectState == DestructiveEffectState.NONE_OBSERVED;
