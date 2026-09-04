@@ -65,6 +65,27 @@ class SQLiteDestructiveOperationStoreTest {
     }
 
     @Test
+    void activeDuplicateAnomalyBlocksFullDeleteAcceptance() {
+        try (SQLiteDestructiveTestFixture fixture = fixture("delete-anomaly.db")) {
+            var seed = fixture.seed(true);
+            fixture.addOpenAnomaly(seed, "DUPLICATE_INSTANCE");
+            var administration = fixture.administration();
+            var preview = fixture.preview(
+                    DestructiveOperationType.DELETE_DEFINITION, seed, null);
+
+            assertEquals(1L, preview.anomalyCount());
+            var result = administration.start(new StartRequest(
+                            preview, ADMIN_ACTOR, "delete-anomaly"))
+                    .toCompletableFuture().join();
+
+            assertEquals(StartStatus.TARGET_CONFLICT, result.status());
+            assertFalse(fixture.definitionDeleted(seed.definitionId()));
+            assertEquals(0L, fixture.deletedMarkerCount());
+            assertEquals(0L, fixture.destructiveTargetCount());
+        }
+    }
+
+    @Test
     void confirmationRejectsExactTargetMovementBeforeAcceptance() {
         try (SQLiteDestructiveTestFixture fixture = fixture("stale-target-snapshot.db")) {
             var seed = fixture.seed(true);
@@ -114,6 +135,32 @@ class SQLiteDestructiveOperationStoreTest {
             assertEquals(DestructiveOperationState.COMPLETED, operation.state());
             assertEquals(1L, operation.completedCount());
             assertEquals("REMOVED", fixture.instanceLifecycle(seed.instanceId()));
+        }
+    }
+
+    @Test
+    void anomalyAppearingAfterAcceptanceMovesTargetToReviewBeforeClaim() {
+        try (SQLiteDestructiveTestFixture fixture = fixture("late-anomaly.db")) {
+            var seed = fixture.seed(true);
+            var administration = fixture.administration();
+            var preview = fixture.preview(
+                    DestructiveOperationType.PURGE_DEFINITION, seed, null);
+            var started = administration.start(new StartRequest(
+                            preview, ADMIN_ACTOR, "purge-late-anomaly"))
+                    .toCompletableFuture().join();
+            assertEquals(StartStatus.STARTED, started.status());
+
+            fixture.addOpenAnomaly(seed, "DUPLICATE_INSTANCE");
+            var prepare = fixture.execution(30L).prepare(fixture.observation(seed, LOCATION_KEY))
+                    .toCompletableFuture().join();
+
+            assertEquals(Status.REVIEW_REQUIRED, prepare.status());
+            var target = administration.listTargets(
+                            started.operation().operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals(DestructiveTargetState.REVIEW_REQUIRED, target.state());
+            assertEquals(DestructiveEffectState.NONE_OBSERVED, target.effectState());
+            assertEquals("ACTIVE", fixture.instanceLifecycle(seed.instanceId()));
         }
     }
 
