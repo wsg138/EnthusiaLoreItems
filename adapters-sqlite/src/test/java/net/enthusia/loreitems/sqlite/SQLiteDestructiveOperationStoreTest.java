@@ -278,7 +278,7 @@ class SQLiteDestructiveOperationStoreTest {
     }
 
     @Test
-    void expiredClaimBecomesAmbiguousAndCanBeResolvedAfterStaffInspection() {
+    void expiredClaimBecomesAmbiguousAndCannotBlindlyRetry() {
         try (SQLiteDestructiveTestFixture fixture = fixture("expired.db")) {
             var seed = fixture.seed(true);
             var administration = fixture.administration();
@@ -297,21 +297,16 @@ class SQLiteDestructiveOperationStoreTest {
             var target = administration.listTargets(
                             started.operation().operationId(), PageRequest.first(10))
                     .toCompletableFuture().join().items().getFirst();
-            assertEquals(DestructiveTargetState.REVIEW_REQUIRED, target.state());
             assertEquals(DestructiveEffectState.AMBIGUOUS, target.effectState());
-            assertEquals(Status.NO_PENDING_WORK, execution.prepare(fixture.observation(seed, LOCATION_KEY))
-                    .toCompletableFuture().join().status());
 
-            var reviewed = administration.resolveReview(new ReviewRequest(
+            var retry = administration.resolveReview(new ReviewRequest(
                             started.operation().operationId(),
                             seed.instanceId(),
                             ReviewResolution.REQUEUE_NO_SIDE_EFFECT,
                             ADMIN_ACTOR,
-                            "Staff physically verified the original target remains present and unchanged."))
+                            "No physical inspection was performed."))
                     .toCompletableFuture().join();
-            assertEquals(ReviewStatus.RESOLVED, reviewed.status());
-            assertEquals(DestructiveTargetState.PENDING, reviewed.target().state());
-            assertEquals(DestructiveEffectState.NONE_OBSERVED, reviewed.target().effectState());
+            assertEquals(ReviewStatus.EVIDENCE_MISMATCH, retry.status());
         }
     }
 
