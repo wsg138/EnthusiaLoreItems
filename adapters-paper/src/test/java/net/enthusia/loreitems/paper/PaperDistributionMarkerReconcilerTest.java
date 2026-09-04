@@ -88,6 +88,36 @@ class PaperDistributionMarkerReconcilerTest {
     }
 
     @Test
+    void rejectsMismatchedTerminalMarkerWithoutDeletingAuthoritativeActiveMarker()
+            throws Exception {
+        PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);
+        GroupFileDefinition source = writeAndInspect(catalog, "corrupt.yml", "Corrupt");
+        DistributionCampaign completed = campaign(source, DistributionCampaignState.COMPLETED);
+        Path activeMarker = catalog.moveToActive(source, completed.campaignId());
+        Path completedDirectory = temporaryDirectory.resolve("groups/completed");
+        Files.createDirectories(completedDirectory);
+        Path corruptTerminal = completedDirectory.resolve(
+                "corrupt.completed-" + completed.campaignId() + ".yml");
+        Files.writeString(corruptTerminal, "unrelated marker bytes\n", StandardCharsets.UTF_8);
+        PageRequest request = PageRequest.first(1);
+        PaperDistributionMarkerReconciler reconciler = new PaperDistributionMarkerReconciler(
+                catalog,
+                ignored -> CompletableFuture.completedFuture(new Page<>(
+                        List.of(completed), request.offset(), request.limit(), false)),
+                Runnable::run);
+
+        DistributionMarkerReconciliationPage result = reconciler.reconcile(request)
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(
+                DistributionMarkerReconciliationPage.Status.FAILED,
+                result.entries().getFirst().status());
+        assertTrue(Files.isRegularFile(activeMarker));
+        assertEquals("unrelated marker bytes\n", Files.readString(corruptTerminal));
+    }
+
+    @Test
     void reconstructsMissingActiveMarkerFromDurableStateAndReturnsBoundedNextPage()
             throws Exception {
         PaperGroupFileCatalog catalog = new PaperGroupFileCatalog(temporaryDirectory);

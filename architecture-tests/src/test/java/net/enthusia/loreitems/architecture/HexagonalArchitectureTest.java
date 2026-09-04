@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.architecture;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
@@ -50,6 +51,33 @@ class HexagonalArchitectureTest {
                     .should()
                     .dependOnClassesThat()
                     .resideInAnyPackage("org.bukkit..", "io.papermc..");
+
+    @ArchTest
+    static final ArchRule PLUGIN_DEPENDS_ON_PHYSICAL_TRACKING_LISTENER =
+            classes()
+                    .that()
+                    .haveSimpleName("LoreItemsPlugin")
+                    .should()
+                    .dependOnClassesThat()
+                    .haveSimpleName("PaperPhysicalTrackingListener");
+
+    @ArchTest
+    static final ArchRule PLUGIN_DEPENDS_ON_UNIQUE_ACCESS_TRACKING_LISTENER =
+            classes()
+                    .that()
+                    .haveSimpleName("LoreItemsPlugin")
+                    .should()
+                    .dependOnClassesThat()
+                    .haveSimpleName("PaperUniqueAccessTrackingListener");
+
+    @ArchTest
+    static final ArchRule PLUGIN_DEPENDS_ON_SQLITE_TRACKING_STORE =
+            classes()
+                    .that()
+                    .haveSimpleName("LoreItemsPlugin")
+                    .should()
+                    .dependOnClassesThat()
+                    .haveSimpleName("SQLiteTrackingObservationStore");
 
     @ArchTest
     static final ArchRule PACKAGE_SLICES_ARE_ACYCLIC =

@@ -469,14 +469,22 @@ public final class DistributionCampaignCommandExecutor
         }
         if (args.length == RECIPIENT_STATE_TAB_ARGUMENT_COUNT
                 && RECIPIENTS_SUBCOMMAND.equalsIgnoreCase(args[0])) {
-            List<String> states = new ArrayList<>();
-            states.add("all");
-            for (CampaignRecipientState state : CampaignRecipientState.values()) {
-                states.add(state.name().toLowerCase(Locale.ROOT));
-            }
-            return states;
+            return recipientStateCompletions(sender);
         }
         return List.of();
+    }
+
+    static List<String> recipientStateCompletions(CommandSender sender) {
+        Objects.requireNonNull(sender, "sender");
+        if (!sender.hasPermission(INSPECT_PERMISSION)) {
+            return List.of();
+        }
+        List<String> states = new ArrayList<>();
+        states.add("all");
+        for (CampaignRecipientState state : CampaignRecipientState.values()) {
+            states.add(state.name().toLowerCase(Locale.ROOT));
+        }
+        return states;
     }
 
     @Override

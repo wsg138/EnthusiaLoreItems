@@ -1,9 +1,10 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -36,7 +37,7 @@ final class PaperPhysicalInventoryScanner {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
-        submitUnique(observations, source);
+        submitUnique(observations, limit.hasRemaining(), source);
     }
 
     void scanPlayer(
@@ -93,14 +94,26 @@ final class PaperPhysicalInventoryScanner {
                 limit);
     }
 
+    void scanItemTree(
+            ItemStack item,
+            LocationDescriptor location,
+            TrackingObservationUseCase.Presence presence,
+            TrackingObservationUseCase.EvidenceMode mode,
+            String source,
+            PaperScanLimit limit) {
+        scanItem(item, location, new ScanContext(presence, mode, source), 0, limit);
+    }
+
     void submitMatchingIdentity(
             Inventory inventory,
             LocationDescriptor.Type type,
             String key,
             LoreItemIdentity identity,
             String source) {
-        List<LocationDescriptor> matches = matchingLocations(inventory, type, key, identity);
-        TrackingObservationUseCase.EvidenceMode mode = matches.size() == 1
+        MatchingLocations matching = matchingLocations(inventory, type, key, identity);
+        List<LocationDescriptor> matches = matching.locations();
+        TrackingObservationUseCase.EvidenceMode mode = matching.scanWithinBudget()
+                        && matches.size() == 1
                 ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                 : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
         matches.forEach(location -> coordinator.submit(
@@ -127,6 +140,19 @@ final class PaperPhysicalInventoryScanner {
 
     LoreItemIdentity trackedIdentity(ItemStack item) {
         return collector.trackedIdentity(item);
+    }
+
+    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        collector.collectItem(
+                item,
+                LocationDescriptor.Type.NESTED_CONTAINER,
+                "identity-tree",
+                "root",
+                observations,
+                0,
+                new PaperScanLimit(MAX_ITEMS_PER_SCAN));
+        return Set.copyOf(observations.keySet());
     }
 
     private void collectPlayer(
@@ -185,9 +211,11 @@ final class PaperPhysicalInventoryScanner {
 
     private void submitUnique(
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
+            boolean scanWithinBudget,
             String source) {
         observations.forEach((identity, locations) -> {
-            TrackingObservationUseCase.EvidenceMode mode = locations.size() == 1
+            TrackingObservationUseCase.EvidenceMode mode = scanWithinBudget
+                            && locations.size() == 1
                     ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                     : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
             locations.forEach(location -> coordinator.submit(
@@ -241,7 +269,7 @@ final class PaperPhysicalInventoryScanner {
             String prefix,
             ScanContext context,
             PaperScanLimit limit) {
-        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
+        for (int slot = 0; slot < contents.length; slot++) {
             scanSlot(contents[slot], type, key, prefix + slot, context, limit);
         }
     }
@@ -253,7 +281,7 @@ final class PaperPhysicalInventoryScanner {
             String path,
             ScanContext context,
             PaperScanLimit limit) {
-        if (!scannable(item, limit)) {
+        if (!scannable(item)) {
             return;
         }
         scanItem(item, new LocationDescriptor(type, key, path), context, 0, limit);
@@ -265,12 +293,11 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item, limit)) {
+        if (!scannable(item)) {
             return;
         }
-        limit.consume();
         submitItem(item, location, context.presence(), context.mode(), context.source());
-        if (depth >= MAX_NESTING_DEPTH || !limit.hasRemaining()) {
+        if (depth >= MAX_NESTING_DEPTH || !collector.hasNestedIdentityEvidence(item)) {
             return;
         }
         scanNested(item.getItemMeta(), location, context, depth, limit);
@@ -296,11 +323,11 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
-        if (!(blockState instanceof ShulkerBox shulker)) {
+        if (!(blockState instanceof ShulkerBox shulker) || !limit.tryConsume()) {
             return;
         }
         ItemStack[] nested = contentsOrEmpty(shulker.getInventory().getContents());
-        for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
+        for (int slot = 0; slot < nested.length; slot++) {
             scanItem(
                     nested[slot],
                     nestedLocation(parent, "shulker", slot),
@@ -316,8 +343,11 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
+        if (!limit.tryConsume()) {
+            return;
+        }
         List<ItemStack> nested = bundle.getItems();
-        for (int index = 0; index < nested.size() && limit.hasRemaining(); index++) {
+        for (int index = 0; index < nested.size(); index++) {
             scanItem(
                     nested.get(index),
                     nestedLocation(parent, "bundle", index),
@@ -327,33 +357,36 @@ final class PaperPhysicalInventoryScanner {
         }
     }
 
-    private List<LocationDescriptor> matchingLocations(
+    private MatchingLocations matchingLocations(
             Inventory inventory,
             LocationDescriptor.Type type,
             String key,
             LoreItemIdentity identity) {
-        List<LocationDescriptor> matches = new ArrayList<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        ItemStack[] contents = contentsOrEmpty(inventory.getContents());
-        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            limit.consume();
-            if (identity.equals(trackedIdentity(contents[slot]))) {
-                matches.add(new LocationDescriptor(type, key, SLOT_PREFIX + slot));
-            }
-        }
-        return matches;
+        collector.collectArray(
+                contentsOrEmpty(inventory.getContents()),
+                type,
+                key,
+                SLOT_PREFIX,
+                observations,
+                limit);
+        return new MatchingLocations(
+                List.copyOf(observations.getOrDefault(identity, List.of())),
+                limit.hasRemaining());
     }
 
-    private static boolean scannable(ItemStack item, PaperScanLimit limit) {
-        return item != null && !item.getType().isAir() && limit.hasRemaining();
+    private static boolean scannable(ItemStack item) {
+        return item != null && !item.getType().isAir();
     }
 
-    private static LocationDescriptor nestedLocation(
+    static LocationDescriptor nestedLocation(
             LocationDescriptor parent, String container, int index) {
         String path = parent.containerPath() + '/' + container + ':' + index;
         return new LocationDescriptor(
                 LocationDescriptor.Type.NESTED_CONTAINER,
-                parent.locationKey(),
+                PaperTrackedItemCollector.nestedLocationKey(
+                        parent.type(), parent.locationKey()),
                 path);
     }
 
@@ -364,6 +397,10 @@ final class PaperPhysicalInventoryScanner {
     private static ItemStack[] contentsOrEmpty(ItemStack[] contents) {
         return contents == null ? EMPTY_CONTENTS : contents;
     }
+
+    private record MatchingLocations(
+            List<LocationDescriptor> locations,
+            boolean scanWithinBudget) {}
 
     private record ScanContext(
             TrackingObservationUseCase.Presence presence,

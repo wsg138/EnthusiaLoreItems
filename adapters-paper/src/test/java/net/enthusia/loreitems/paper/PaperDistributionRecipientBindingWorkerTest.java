@@ -1,8 +1,10 @@
 package net.enthusia.loreitems.paper;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -11,7 +13,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
 import net.enthusia.loreitems.application.DistributionRecipientBindingBatch;
+import net.enthusia.loreitems.application.DistributionRecipientRepository;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +50,20 @@ class PaperDistributionRecipientBindingWorkerTest {
             workerUnderTest.close();
         }
         MockBukkit.unmock();
+    }
+
+    @Test
+    void runtimeConstructionDoesNotTouchBukkitBeforeMainThreadActivation() {
+        Plugin plugin = throwingProxy(Plugin.class);
+        DistributionRecipientRepository repository = throwingProxy(DistributionRecipientRepository.class);
+        BindDistributionRecipientsUseCase useCase = new BindDistributionRecipientsUseCase(repository);
+
+        assertDoesNotThrow(() -> new PaperDistributionRecipientBindingWorker(
+                plugin,
+                useCase,
+                ignored -> {},
+                8,
+                1));
     }
 
     @Test
@@ -182,5 +200,15 @@ class PaperDistributionRecipientBindingWorkerTest {
                 CLOCK,
                 8,
                 budget);
+    }
+
+    private static <T> T throwingProxy(Class<T> type) {
+        return type.cast(Proxy.newProxyInstance(
+                type.getClassLoader(),
+                new Class<?>[] {type},
+                (proxy, method, arguments) -> {
+                    throw new AssertionError(
+                            "Construction must not call " + type.getSimpleName() + '.' + method.getName());
+                }));
     }
 }

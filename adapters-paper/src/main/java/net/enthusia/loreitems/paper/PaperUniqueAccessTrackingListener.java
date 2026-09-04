@@ -12,7 +12,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -49,6 +48,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
     private final PaperTrackingCoordinator coordinator;
+    private final PaperDeferredMainThreadActions deferredActions;
     private final Set<UUID> quittingPlayers = new HashSet<>();
     private boolean closed;
 
@@ -63,6 +63,9 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
                 Objects.requireNonNull(budgetSupplier, "budgetSupplier"),
                 Objects.requireNonNull(metrics, "metrics"));
+        this.deferredActions = new PaperDeferredMainThreadActions(
+                plugin,
+                "Could not schedule unique lore-item tracking during shutdown.");
     }
 
     public void start() {
@@ -196,7 +199,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectItem(item, PaperDisplayEntityScanner.location(display, type, path), observations, limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private static ItemStack displayItem(
@@ -242,7 +245,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
-        submitUnique(observations, lastConfirmed, source);
+        submitUnique(observations, lastConfirmed, limit.hasRemaining(), source);
     }
 
     void submitPlayerAndInventory(
@@ -263,7 +266,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                     observations,
                     limit);
         }
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     void submitPlayerAndDisplay(
@@ -275,7 +278,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
         collectItem(item, location, observations, limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private void collectItem(
@@ -353,18 +356,20 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
                 SLOT_PREFIX,
                 observations,
                 limit);
-        submitUnique(observations, false, source);
+        submitUnique(observations, false, limit.hasRemaining(), source);
     }
 
     private void submitUnique(
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             boolean lastConfirmed,
+            boolean scanWithinBudget,
             String source) {
         observations.forEach((identity, locations) -> {
             TrackingObservationUseCase.Presence presence = lastConfirmed
                     ? TrackingObservationUseCase.Presence.LAST_CONFIRMED
                     : TrackingObservationUseCase.Presence.PRESENT;
             TrackingObservationUseCase.EvidenceMode mode = !lastConfirmed
+                            && scanWithinBudget
                             && locations.size() == UNIQUE_LOCATION_COUNT
                     ? TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
                     : TrackingObservationUseCase.EvidenceMode.RECONCILIATION;
@@ -395,22 +400,19 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     }
 
     private void scheduleNextTick(Runnable action) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (RuntimeException exception) {
-            plugin.getLogger().log(
-                    Level.FINE,
-                    "Could not schedule unique lore-item tracking during shutdown.",
-                    exception);
-        }
+        deferredActions.schedule(action);
     }
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
         closed = true;
+        HandlerList.unregisterAll(this);
+        deferredActions.close();
         quittingPlayers.clear();
         coordinator.close();
-        HandlerList.unregisterAll(this);
     }
 
     private record InventorySnapshot(

@@ -17,7 +17,6 @@ import net.enthusia.loreitems.application.PageRequest;
 public final class SQLiteAuditRepository implements AuditRepository {
     private static final long UNASSIGNED_AUDIT_ID = 0L;
 
-
     private final SQLiteStorageRuntime storage;
 
     public SQLiteAuditRepository(SQLiteStorageRuntime storage) {
@@ -27,7 +26,14 @@ public final class SQLiteAuditRepository implements AuditRepository {
     @Override
     public CompletionStage<AuditEventRecord> append(AuditEventRecord event) {
         validatePendingEvent(event);
-        return storage.execute(connection -> appendInTransaction(connection, event));
+        return storage.execute(connection -> appendAtomically(connection, event));
+    }
+
+    static AuditEventRecord appendAtomically(Connection connection, AuditEventRecord event)
+            throws Exception {
+        return SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> appendInTransaction(transaction, event));
     }
 
     static AuditEventRecord appendInTransaction(Connection connection, AuditEventRecord event)

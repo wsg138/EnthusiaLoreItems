@@ -6,6 +6,7 @@ import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import java.util.Objects;
+import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.paper.PaperIdentityObservationScanner.ObservedCopy;
 import org.bukkit.entity.ArmorStand;
@@ -392,6 +393,10 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
                 PaperIdentityObservationScanner.playerLocation(
                         event.getPlayer(), "bucket:" + hand.name()),
                 "bucket-use");
+    }
+
+    public CompletionStage<Void> quiescence() {
+        return scanner.quiescence();
     }
 
     @Override

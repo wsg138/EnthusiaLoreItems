@@ -304,7 +304,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             long now) throws SQLException {
         ExistingRequest existing = findExistingRequest(connection, command.externalOperationId());
         if (existing != null) {
-            return replayExisting(command, existing);
+            return replayExisting(connection, command, existing, now);
         }
         DefinitionRevision definition = findDefinition(connection, command.definitionKey().value());
         if (definition == null) {
@@ -314,8 +314,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     private static ExternalDeliveryAcceptance replayExisting(
+            Connection connection,
             ExternalDeliveryCommand command,
-            ExistingRequest existing) {
+            ExistingRequest existing,
+            long now) throws SQLException {
         if (!existing.definitionKey().equals(command.definitionKey().value())
                 || !existing.playerId().equals(command.playerId())) {
             return new ExternalDeliveryAcceptance(
@@ -325,6 +327,12 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                     "The external operation ID was already used with different arguments.");
         }
         ExternalDeliveryOutcome stored = ExternalDeliveryOutcome.valueOf(existing.outcome());
+        if (stored == ExternalDeliveryOutcome.UNKNOWN_DEFINITION) {
+            DefinitionRevision definition = findDefinition(connection, command.definitionKey().value());
+            if (definition != null) {
+                return acceptPreviouslyUnknownDelivery(connection, command, definition, now);
+            }
+        }
         ExternalDeliveryOutcome replay = stored == ExternalDeliveryOutcome.ACCEPTED_QUEUED
                 ? ExternalDeliveryOutcome.ALREADY_ACCEPTED
                 : stored;
@@ -357,6 +365,23 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             ExternalDeliveryCommand command,
             DefinitionRevision definition,
             long now) throws SQLException {
+        return acceptDelivery(connection, command, definition, now, false);
+    }
+
+    private static ExternalDeliveryAcceptance acceptPreviouslyUnknownDelivery(
+            Connection connection,
+            ExternalDeliveryCommand command,
+            DefinitionRevision definition,
+            long now) throws SQLException {
+        return acceptDelivery(connection, command, definition, now, true);
+    }
+
+    private static ExternalDeliveryAcceptance acceptDelivery(
+            Connection connection,
+            ExternalDeliveryCommand command,
+            DefinitionRevision definition,
+            long now,
+            boolean replaceUnknownRequest) throws SQLException {
         UUID instanceId = UUID.randomUUID();
         UUID deliveryId = UUID.randomUUID();
         insertInstance(connection, instanceId, definition, now);
@@ -375,12 +400,16 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 observationId,
                 now);
         insertDelivery(connection, deliveryId, instanceId, command, now);
-        insertExternalRequest(
-                connection,
-                command,
-                deliveryId,
-                ExternalDeliveryOutcome.ACCEPTED_QUEUED,
-                now);
+        if (replaceUnknownRequest) {
+            updateUnknownExternalRequest(connection, command, deliveryId, now);
+        } else {
+            insertExternalRequest(
+                    connection,
+                    command,
+                    deliveryId,
+                    ExternalDeliveryOutcome.ACCEPTED_QUEUED,
+                    now);
+        }
         appendAudit(
                 connection,
                 instanceId,
@@ -801,6 +830,28 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             statement.setLong(6, now);
             statement.setLong(7, now);
             statement.executeUpdate();
+        }
+    }
+
+    private static void updateUnknownExternalRequest(
+            Connection connection,
+            ExternalDeliveryCommand command,
+            UUID deliveryId,
+            long now) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE external_delivery_requests SET delivery_id = ?, outcome = ?, updated_at = ? "
+                        + "WHERE external_operation_id = ? AND definition_key = ? AND player_id = ? "
+                        + "AND outcome = ? AND delivery_id IS NULL")) {
+            statement.setString(1, deliveryId.toString());
+            statement.setString(2, ExternalDeliveryOutcome.ACCEPTED_QUEUED.name());
+            statement.setLong(3, now);
+            statement.setString(4, command.externalOperationId());
+            statement.setString(5, command.definitionKey().value());
+            statement.setString(6, command.playerId().toString());
+            statement.setString(7, ExternalDeliveryOutcome.UNKNOWN_DEFINITION.name());
+            if (statement.executeUpdate() != SINGLE_UPDATED_ROW) {
+                throw new SQLException("External delivery retry lost its durable unknown-definition fence");
+            }
         }
     }
 

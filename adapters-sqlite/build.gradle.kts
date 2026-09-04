@@ -1,5 +1,7 @@
+val sqliteJdbcVersion = providers.gradleProperty("sqliteJdbcVersion").get()
+
 dependencies {
     implementation(project(":domain"))
     implementation(project(":application"))
-    implementation("org.xerial:sqlite-jdbc:3.53.2.0")
+    implementation("org.xerial:sqlite-jdbc:$sqliteJdbcVersion")
 }
