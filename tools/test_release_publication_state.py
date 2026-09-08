@@ -88,6 +88,25 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn("-F prerelease=false", publish)
         self.assertIn(".isDraft == false and .isPrerelease == false", final)
 
+    def test_release_probe_preserves_non_404_api_failures(self):
+        release_probe = self._between(
+            self.resolver,
+            'RELEASE_LOOKUP_ERROR="$(mktemp)"',
+            '\n\nTAG_LOOKUP_ERROR=',
+        )
+        self.assertIn(
+            'gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}"',
+            release_probe,
+        )
+        self.assertIn('2>"${RELEASE_LOOKUP_ERROR}"', release_probe)
+        self.assertIn("RELEASE_LOOKUP_STATUS=$?", release_probe)
+        self.assertIn(
+            "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${RELEASE_LOOKUP_ERROR}\"",
+            release_probe,
+        )
+        self.assertIn('cat "${RELEASE_LOOKUP_ERROR}" >&2', release_probe)
+        self.assertIn('exit "${RELEASE_LOOKUP_STATUS}"', release_probe)
+
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
         self.assertIn(
@@ -142,11 +161,14 @@ class ReleasePublicationStateTest(unittest.TestCase):
     def test_existing_release_requires_exact_tag_state_and_published_asset_set(self):
         release_branch = self._between(
             self.resolver,
-            'if gh release view "${FINAL_TAG}"',
-            '\nfi\n\nTAG_LOOKUP_ERROR=',
+            'RELEASE_LOOKUP_ERROR="$(mktemp)"',
+            '\n\nTAG_LOOKUP_ERROR=',
+        )
+        self.assertIn(
+            "--jq '[.tag_name, .draft, .prerelease] | @tsv'",
+            release_branch,
         )
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
-        self.assertIn("--json tagName,isDraft,isPrerelease", release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)
         self.assertIn(
             '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
@@ -154,6 +176,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         )
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_branch)
         self.assertIn('if [[ "${RELEASE_DRAFT}" == "false" ]]', release_branch)
+        self.assertIn("--jq '.assets[].name'", release_branch)
         self.assertIn('test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
