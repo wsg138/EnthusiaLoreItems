@@ -42,6 +42,23 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"', validation)
         self.assertNotIn('grep -F "version: ${RELEASE_VERSION}"', validation)
 
+    def test_first_tag_creation_rechecks_current_main_after_evidence_validation(self):
+        tag_create = self._between(
+            self.release,
+            "      - name: Create exact production tag",
+            "\n      - name: Reset interrupted draft release",
+        )
+        main_lookup = (
+            'MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" '
+            '--jq \'.object.sha\')"'
+        )
+        self.assertIn(main_lookup, tag_create)
+        self.assertIn('test "${TARGET_SHA}" = "${MAIN_SHA}"', tag_create)
+        self.assertLess(
+            tag_create.index('test "${TARGET_SHA}" = "${MAIN_SHA}"'),
+            tag_create.index('gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs"'),
+        )
+
     def test_release_creation_stays_draft_until_exact_candidate_is_verified(self):
         reset = self._between(
             self.release,
