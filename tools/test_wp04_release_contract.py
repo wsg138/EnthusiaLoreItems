@@ -92,13 +92,33 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn('bash "${RESOLVER}"', release)
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', resolver)
         self.assertIn("--json tagName,isDraft,isPrerelease", resolver)
-        self.assertIn('test "${RELEASE_DRAFT}" = "false"', resolver)
+        self.assertIn(
+            '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
+            resolver,
+        )
+        self.assertIn('echo "release_draft=${RELEASE_DRAFT}"', resolver)
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', resolver)
         self.assertIn("gh run download", release)
         self.assertIn("wp04-verification-${TARGET_SHA}", release)
         self.assertIn('ref="refs/tags/${FINAL_TAG}"', release)
         self.assertIn('sha="${TARGET_SHA}"', release)
         self.assertIn("--target \"${TARGET_SHA}\"", release)
+        self.assertIn("Reset interrupted draft release", release)
+        self.assertIn(
+            'gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}"',
+            release,
+        )
+        self.assertIn("Create draft production release from verified CI bundle", release)
+        self.assertIn("--draft", release)
+        self.assertIn("Verify exact release candidate assets", release)
+        self.assertIn('cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"', release)
+        self.assertIn("Publish verified draft release", release)
+        self.assertIn(
+            'gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"',
+            release,
+        )
+        self.assertIn("-F draft=false", release)
+        self.assertIn("-F prerelease=false", release)
         self.assertNotIn("--prerelease", release)
         self.assertNotIn("gradle --no-daemon", release)
         self.assertIn("RELEASE_READY=", release)
