@@ -51,19 +51,26 @@ run_case() {
     gh() {
       if [[ "$1" == "release" && "$2" == "view" ]]; then
         case "${scenario}" in
-          release|release-draft|release-prerelease) ;;
+          release|release-draft|release-prerelease|release-extra-asset) ;;
           *) return 1 ;;
         esac
         case " $* " in
           *" --json tagName,isDraft,isPrerelease "*)
             case "${scenario}" in
-              release) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
+              release|release-extra-asset) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
               release-draft) printf '%s\ttrue\tfalse\n' "${FINAL_TAG}" ;;
               release-prerelease) printf '%s\tfalse\ttrue\n' "${FINAL_TAG}" ;;
             esac
             ;;
           *" --json assets "*)
+            if [[ "${scenario}" == "release-draft" ]]; then
+              printf 'draft asset inventory must not be trusted before rebuild\n' >&2
+              return 95
+            fi
             printf '%s\n' "${REQUIRED_ASSETS[@]}"
+            if [[ "${scenario}" == "release-extra-asset" ]]; then
+              printf 'unexpected.bin\n'
+            fi
             ;;
           *)
             return 0
@@ -83,7 +90,7 @@ run_case() {
             printf 'null\n'
             return 0
             ;;
-          exact|release|release-draft|release-prerelease)
+          exact|release|release-draft|release-prerelease|release-extra-asset)
             printf '%s\n' "${EVENT_TARGET_SHA}"
             return 0
             ;;
@@ -133,8 +140,9 @@ assert_output "target_sha=target-sha"
 assert_output "ci_run_id=12345"
 assert_output "tag_exists=false"
 assert_output "release_exists=false"
+assert_output "release_draft=false"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || fail "missing: unexpected extra outputs"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || fail "missing: unexpected extra outputs"
 
 run_case null
 test "${LAST_RC}" -ne 0 || fail "null: successful null tag lookup must fail closed"
@@ -146,8 +154,9 @@ assert_output "target_sha=target-sha"
 assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
 assert_output "release_exists=false"
+assert_output "release_draft=false"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || fail "exact: unexpected extra outputs"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || fail "exact: unexpected extra outputs"
 
 for case_name in forbidden ratelimit server; do
   run_case "${case_name}"
@@ -169,14 +178,28 @@ assert_output "target_sha=target-sha"
 assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
 assert_output "release_exists=true"
+assert_output "release_draft=false"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || \
-  fail "release: existing release must route through exact evidence revalidation"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || \
+  fail "release: existing production release must route through exact evidence revalidation"
 
-for case_name in release-draft release-prerelease; do
-  run_case "${case_name}"
-  test "${LAST_RC}" -ne 0 || fail "${case_name}: non-production release must fail closed"
-  assert_empty_output
-done
+run_case release-draft
+test "${LAST_RC}" -eq 0 || fail "release-draft: expected recoverable success, got ${LAST_RC}"
+assert_output "target_sha=target-sha"
+assert_output "ci_run_id=12345"
+assert_output "tag_exists=true"
+assert_output "release_exists=true"
+assert_output "release_draft=true"
+assert_output "released=false"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || \
+  fail "release-draft: interrupted draft must route through rebuild"
+
+run_case release-prerelease
+test "${LAST_RC}" -ne 0 || fail "release-prerelease: prerelease state must fail closed"
+assert_empty_output
+
+run_case release-extra-asset
+test "${LAST_RC}" -ne 0 || fail "release-extra-asset: unexpected published asset must fail closed"
+assert_empty_output
 
 echo "RELEASE_PUBLICATION_STATE_OK"
