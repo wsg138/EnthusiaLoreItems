@@ -49,34 +49,51 @@ run_case() {
     export FINAL_TAG="v1.0.0"
 
     gh() {
-      if [[ "$1" == "release" && "$2" == "view" ]]; then
+      if [[ "$1" == "api" && "$2" == */releases/tags/* ]]; then
         case "${scenario}" in
-          release|release-draft|release-prerelease|release-extra-asset) ;;
-          *) return 1 ;;
-        esac
-        case " $* " in
-          *" --json tagName,isDraft,isPrerelease "*)
-            case "${scenario}" in
-              release|release-extra-asset) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
-              release-draft) printf '%s\ttrue\tfalse\n' "${FINAL_TAG}" ;;
-              release-prerelease) printf '%s\tfalse\ttrue\n' "${FINAL_TAG}" ;;
+          release-forbidden)
+            printf 'gh: Forbidden (HTTP 403)\n' >&2
+            return 43
+            ;;
+          release-ratelimit)
+            printf 'gh: rate limited (HTTP 429)\n' >&2
+            return 44
+            ;;
+          release-server)
+            printf 'gh: upstream failure (HTTP 500)\n' >&2
+            return 50
+            ;;
+          release|release-draft|release-prerelease|release-extra-asset)
+            case " $* " in
+              *" [.tag_name, .draft, .prerelease] | @tsv "*)
+                case "${scenario}" in
+                  release|release-extra-asset) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
+                  release-draft) printf '%s\ttrue\tfalse\n' "${FINAL_TAG}" ;;
+                  release-prerelease) printf '%s\tfalse\ttrue\n' "${FINAL_TAG}" ;;
+                esac
+                ;;
+              *" .assets[].name "*)
+                if [[ "${scenario}" == "release-draft" ]]; then
+                  printf 'draft asset inventory must not be trusted before rebuild\n' >&2
+                  return 95
+                fi
+                printf '%s\n' "${REQUIRED_ASSETS[@]}"
+                if [[ "${scenario}" == "release-extra-asset" ]]; then
+                  printf 'unexpected.bin\n'
+                fi
+                ;;
+              *)
+                printf 'unexpected release API invocation: %s\n' "$*" >&2
+                return 96
+                ;;
             esac
-            ;;
-          *" --json assets "*)
-            if [[ "${scenario}" == "release-draft" ]]; then
-              printf 'draft asset inventory must not be trusted before rebuild\n' >&2
-              return 95
-            fi
-            printf '%s\n' "${REQUIRED_ASSETS[@]}"
-            if [[ "${scenario}" == "release-extra-asset" ]]; then
-              printf 'unexpected.bin\n'
-            fi
-            ;;
-          *)
             return 0
             ;;
+          *)
+            printf 'gh: Not Found (HTTP 404)\n' >&2
+            return 1
+            ;;
         esac
-        return 0
       fi
 
       if [[ "$1" == "api" && "$2" == */git/ref/tags/* ]]; then
@@ -164,6 +181,20 @@ for case_name in forbidden ratelimit server; do
     forbidden) expected_rc=43; expected_http=403 ;;
     ratelimit) expected_rc=44; expected_http=429 ;;
     server) expected_rc=50; expected_http=500 ;;
+  esac
+  test "${LAST_RC}" -eq "${expected_rc}" || \
+    fail "${case_name}: expected exit ${expected_rc}, got ${LAST_RC}"
+  grep -F "HTTP ${expected_http}" "${LAST_DIR}/stderr" >/dev/null || \
+    fail "${case_name}: missing retained HTTP ${expected_http} diagnostic"
+  assert_empty_output
+done
+
+for case_name in release-forbidden release-ratelimit release-server; do
+  run_case "${case_name}"
+  case "${case_name}" in
+    release-forbidden) expected_rc=43; expected_http=403 ;;
+    release-ratelimit) expected_rc=44; expected_http=429 ;;
+    release-server) expected_rc=50; expected_http=500 ;;
   esac
   test "${LAST_RC}" -eq "${expected_rc}" || \
     fail "${case_name}: expected exit ${expected_rc}, got ${LAST_RC}"
