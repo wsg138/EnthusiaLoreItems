@@ -50,12 +50,13 @@ Never attempt all of Slice 08 in one worker.
 
 ### 08A — Build graph and dependency provenance
 
-08A is itself split into tiny units:
+08A is split into tiny units:
 
 - **08A1 Root graph/toolchain/version roots** — review exactly:
   - `settings.gradle.kts`
   - root `build.gradle.kts`
   - `gradle.properties`
+  - presence/absence of Gradle wrapper files only as a build-tool-provenance observation (do not expand into CI review here)
 
 - **08A2 Runtime module dependency declarations** — review exactly the `build.gradle.kts` files for:
   - `domain`
@@ -64,6 +65,7 @@ Never attempt all of Slice 08 in one worker.
   - `adapters-sqlite`
   - `adapters-paper`
   - `plugin`
+  - resolve whether the source-controlled `paperApiVersion` SNAPSHOT and SQLite dependency usage affect shipped-artifact provenance; defer CI Gradle-version pinning to 08B2 if needed
 
 - **08A3 Non-runtime build modules + plugin metadata wiring** — review exactly:
   - `architecture-tests/build.gradle.kts`
@@ -75,10 +77,10 @@ Never attempt all of Slice 08 in one worker.
 
 ### 08B — Release/version/tag/workflow correctness
 
-Use bounded units rather than one monolithic review:
+Use bounded units:
 
 - **08B1** `.github/workflows/release.yml` + scripts directly invoked by it.
-- **08B2** release-relevant portions of `.github/workflows/ci.yml` + scripts directly invoked by them.
+- **08B2** release-relevant portions of `.github/workflows/ci.yml` + scripts directly invoked by them; explicitly verify the Gradle version/tooling used to produce authoritative artifacts is pinned/reproducible enough for release provenance.
 - **08B3** immutable tag/version/rollback contract and versioned release docs.
 
 ### 08C — Artifact reproducibility and packaged JAR integrity
