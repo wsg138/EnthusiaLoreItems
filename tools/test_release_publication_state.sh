@@ -132,8 +132,9 @@ test "${LAST_RC}" -eq 0 || fail "missing: expected success, got ${LAST_RC}"
 assert_output "target_sha=target-sha"
 assert_output "ci_run_id=12345"
 assert_output "tag_exists=false"
+assert_output "release_exists=false"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 4 || fail "missing: unexpected extra outputs"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || fail "missing: unexpected extra outputs"
 
 run_case null
 test "${LAST_RC}" -ne 0 || fail "null: successful null tag lookup must fail closed"
@@ -144,8 +145,9 @@ test "${LAST_RC}" -eq 0 || fail "exact: expected success, got ${LAST_RC}"
 assert_output "target_sha=target-sha"
 assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
+assert_output "release_exists=false"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 4 || fail "exact: unexpected extra outputs"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || fail "exact: unexpected extra outputs"
 
 for case_name in forbidden ratelimit server; do
   run_case "${case_name}"
@@ -163,8 +165,13 @@ done
 
 run_case release
 test "${LAST_RC}" -eq 0 || fail "release: expected success, got ${LAST_RC}"
-assert_output "released=true"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 1 || fail "release: existing release must short-circuit"
+assert_output "target_sha=target-sha"
+assert_output "ci_run_id=12345"
+assert_output "tag_exists=true"
+assert_output "release_exists=true"
+assert_output "released=false"
+test "$(wc -l < "${LAST_DIR}/output")" -eq 5 || \
+  fail "release: existing release must route through exact evidence revalidation"
 
 for case_name in release-draft release-prerelease; do
   run_case "${case_name}"
