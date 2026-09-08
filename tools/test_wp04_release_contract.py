@@ -91,7 +91,17 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("--jq '.content' | base64 --decode", release)
         self.assertIn('bash "${RESOLVER}"', release)
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', resolver)
-        self.assertIn("--json tagName,isDraft,isPrerelease", resolver)
+        self.assertIn(
+            'gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}"',
+            resolver,
+        )
+        self.assertIn("RELEASE_LOOKUP_ERROR=", resolver)
+        self.assertIn("RELEASE_LOOKUP_STATUS=$?", resolver)
+        self.assertIn(
+            "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${RELEASE_LOOKUP_ERROR}\"",
+            resolver,
+        )
+        self.assertIn("--jq '[.tag_name, .draft, .prerelease] | @tsv'", resolver)
         self.assertIn(
             '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
             resolver,
