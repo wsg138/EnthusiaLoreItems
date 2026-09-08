@@ -121,8 +121,19 @@ jobs:
             -f ref="refs/tags/${FINAL_TAG}" \
             -f sha="${TARGET_SHA}" >/dev/null
 
-      - name: Publish production release from verified CI bundle
-        if: steps.state.outputs.released != 'true' && steps.state.outputs.release_exists != 'true'
+      - name: Reset interrupted draft release
+        if: steps.state.outputs.released != 'true' && steps.state.outputs.release_exists == 'true' && steps.state.outputs.release_draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+        run: |
+          DRAFT_RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
+          test -n "${DRAFT_RELEASE_ID}"
+          test "${DRAFT_RELEASE_ID}" != "null"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}" >/dev/null
+
+      - name: Create draft production release from verified CI bundle
+        if: steps.state.outputs.released != 'true' && (steps.state.outputs.release_exists != 'true' || steps.state.outputs.release_draft == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
@@ -135,6 +146,7 @@ jobs:
             --target "${TARGET_SHA}" \
             --title "EnthusiaLoreItems ${RELEASE_VERSION}" \
             --notes-file "${BUNDLE}/release-notes.md" \
+            --draft \
             "${BUNDLE}/EnthusiaLoreItems.jar" \
             "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
             "${BUNDLE}/bom.cyclonedx.json" \
@@ -145,29 +157,76 @@ jobs:
             "${BUNDLE}/acceptance-index.md" \
             "${BUNDLE}/rollback-instructions.md"
 
-      - name: Verify immutable tag and release assets
+      - name: Verify exact release candidate assets
         if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+          ORIGINAL_RELEASE_EXISTS: ${{ steps.state.outputs.release_exists }}
+          ORIGINAL_RELEASE_DRAFT: ${{ steps.state.outputs.release_draft }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
+          REQUIRED_ASSETS=(
+            EnthusiaLoreItems.jar
+            EnthusiaLoreItems.jar.sha256
+            bom.cyclonedx.json
+            gradle-dependencies.txt
+            normalized-entry-manifest.txt
+            wp04-profile.json
+            EnthusiaLoreItems-test-reports.tar.gz
+            acceptance-index.md
+            rollback-instructions.md
+          )
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
           test "${TAG_SHA}" = "${TARGET_SHA}"
-          gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
-            --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
+          RELEASE_METADATA="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
+          IFS=$'\t' read -r RELEASE_DRAFT RELEASE_PRERELEASE <<<"${RELEASE_METADATA}"
+          test "${RELEASE_PRERELEASE}" = "false"
+          if [[ "${ORIGINAL_RELEASE_EXISTS}" != "true" || "${ORIGINAL_RELEASE_DRAFT}" == "true" ]]; then
+            test "${RELEASE_DRAFT}" = "true"
+          else
+            test "${RELEASE_DRAFT}" = "false"
+          fi
           ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
-          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
+          ASSET_COUNT="$(printf '%s\n' "${ASSETS}" | sed '/^$/d' | wc -l)"
+          test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"
+          for asset in "${REQUIRED_ASSETS[@]}"; do
             grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
           done
           RELEASED_ASSETS=/tmp/released-assets
           rm -rf "${RELEASED_ASSETS}"
           mkdir -p "${RELEASED_ASSETS}"
           gh release download "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RELEASED_ASSETS}"
-          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
+          for asset in "${REQUIRED_ASSETS[@]}"; do
             cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
           done
           EXPECTED_NOTES="$(cat "${BUNDLE}/release-notes.md")"
           RELEASE_NOTES="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')"
           test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"
+
+      - name: Publish verified draft release
+        if: steps.state.outputs.released != 'true' && (steps.state.outputs.release_exists != 'true' || steps.state.outputs.release_draft == 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+        run: |
+          RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
+          test -n "${RELEASE_ID}"
+          test "${RELEASE_ID}" != "null"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=false >/dev/null
+
+      - name: Verify immutable tag and release state
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+        run: |
+          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
+          test "${TAG_SHA}" = "${TARGET_SHA}"
+          gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
+            --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
