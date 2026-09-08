@@ -122,7 +122,7 @@ jobs:
             -f sha="${TARGET_SHA}" >/dev/null
 
       - name: Publish production release from verified CI bundle
-        if: steps.state.outputs.released != 'true'
+        if: steps.state.outputs.released != 'true' && steps.state.outputs.release_exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
@@ -152,6 +152,7 @@ jobs:
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
+          BUNDLE=/tmp/evidence/rc-first
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
           test "${TAG_SHA}" = "${TARGET_SHA}"
           gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
@@ -160,3 +161,13 @@ jobs:
           for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
             grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
           done
+          RELEASED_ASSETS=/tmp/released-assets
+          rm -rf "${RELEASED_ASSETS}"
+          mkdir -p "${RELEASED_ASSETS}"
+          gh release download "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RELEASED_ASSETS}"
+          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
+            cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
+          done
+          EXPECTED_NOTES="$(cat "${BUNDLE}/release-notes.md")"
+          RELEASE_NOTES="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')"
+          test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"
