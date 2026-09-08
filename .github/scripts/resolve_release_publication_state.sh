@@ -19,17 +19,18 @@ REQUIRED_ASSETS=(
   rollback-instructions.md
 )
 
-if gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+RELEASE_LOOKUP_ERROR="$(mktemp)"
+if RELEASE_METADATA="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" \
+  --jq '[.tag_name, .draft, .prerelease] | @tsv' 2>"${RELEASE_LOOKUP_ERROR}")"; then
+  rm -f "${RELEASE_LOOKUP_ERROR}"
   TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
   test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"
-  RELEASE_METADATA="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" \
-    --json tagName,isDraft,isPrerelease --jq '[.tagName, .isDraft, .isPrerelease] | @tsv')"
   IFS=$'\t' read -r RELEASE_TAG RELEASE_DRAFT RELEASE_PRERELEASE <<<"${RELEASE_METADATA}"
   test "${RELEASE_TAG}" = "${FINAL_TAG}"
   [[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]
   test "${RELEASE_PRERELEASE}" = "false"
   if [[ "${RELEASE_DRAFT}" == "false" ]]; then
-    ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+    ASSETS="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.assets[].name')"
     ASSET_COUNT="$(printf '%s\n' "${ASSETS}" | sed '/^$/d' | wc -l)"
     test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"
     for asset in "${REQUIRED_ASSETS[@]}"; do
@@ -43,6 +44,14 @@ if gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1;
   echo "release_draft=${RELEASE_DRAFT}" >> "${GITHUB_OUTPUT}"
   echo "released=false" >> "${GITHUB_OUTPUT}"
   exit 0
+else
+  RELEASE_LOOKUP_STATUS=$?
+  if ! grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' "${RELEASE_LOOKUP_ERROR}"; then
+    cat "${RELEASE_LOOKUP_ERROR}" >&2
+    rm -f "${RELEASE_LOOKUP_ERROR}"
+    exit "${RELEASE_LOOKUP_STATUS}"
+  fi
+  rm -f "${RELEASE_LOOKUP_ERROR}"
 fi
 
 TAG_LOOKUP_ERROR="$(mktemp)"
