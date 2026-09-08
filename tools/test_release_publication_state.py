@@ -42,6 +42,20 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"', validation)
         self.assertNotIn('grep -F "version: ${RELEASE_VERSION}"', validation)
 
+    def test_existing_release_is_revalidated_against_exact_ci_bundle(self):
+        publish = self._between(
+            self.release,
+            "      - name: Publish production release from verified CI bundle",
+            "\n      - name: Verify immutable tag and release assets",
+        )
+        verify = self.release.split(
+            "      - name: Verify immutable tag and release assets", 1
+        )[1]
+        self.assertIn("steps.state.outputs.release_exists != 'true'", publish)
+        self.assertIn('gh release download "${FINAL_TAG}"', verify)
+        self.assertIn('cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"', verify)
+        self.assertIn('test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"', verify)
+
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
         self.assertIn(
@@ -75,6 +89,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test -n "${TAG_SHA}"', tag_branch)
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', tag_branch)
         self.assertIn('echo "tag_exists=true"', tag_branch)
+        self.assertIn('echo "release_exists=false"', tag_branch)
         self.assertIn('echo "released=false"', tag_branch)
         self.assertIn("exit 0", tag_branch)
 
@@ -87,6 +102,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         )
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', missing_tag_branch)
         self.assertIn('echo "tag_exists=false"', missing_tag_branch)
+        self.assertIn('echo "release_exists=false"', missing_tag_branch)
         self.assertIn('echo "released=false"', missing_tag_branch)
 
     def test_existing_release_requires_exact_tag_production_state_and_assets(self):
@@ -102,7 +118,10 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
-        self.assertIn('echo "released=true"', release_branch)
+        self.assertIn('echo "tag_exists=true"', release_branch)
+        self.assertIn('echo "release_exists=true"', release_branch)
+        self.assertIn('echo "released=false"', release_branch)
+        self.assertNotIn('echo "released=true"', release_branch)
 
     @staticmethod
     def _between(text, start_marker, end_marker):
