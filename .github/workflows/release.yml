@@ -87,10 +87,20 @@ jobs:
             acceptance-index.md; do
             test -f "${BUNDLE}/${file}"
           done
+          CHECKSUM_ENTRIES="$(awk 'NF {count++} END {print count + 0}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          test "${CHECKSUM_ENTRIES}" -eq 1
+          CHECKSUM_FIELDS="$(awk 'NF {print NF}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          test "${CHECKSUM_FIELDS}" -eq 2
+          read -r JAR_SHA CHECKSUM_TARGET < "${BUNDLE}/EnthusiaLoreItems.jar.sha256"
+          [[ "${JAR_SHA}" =~ ^[0-9a-f]{64}$ ]]
+          test "${CHECKSUM_TARGET}" = "EnthusiaLoreItems.jar"
+          ACTUAL_JAR_SHA="$(sha256sum "${BUNDLE}/EnthusiaLoreItems.jar" | awk '{print $1}')"
+          test "${ACTUAL_JAR_SHA}" = "${JAR_SHA}"
           (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
-          JAR_SHA="$(awk 'NR == 1 {print $1}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
-          test -n "${JAR_SHA}"
-          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F "version: ${RELEASE_VERSION}" >/dev/null
+          PLUGIN_VERSION_LINES="$(unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | sed -n 's/^version: //p' | wc -l)"
+          test "${PLUGIN_VERSION_LINES}" -eq 1
+          PLUGIN_VERSION="$(unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | sed -n 's/^version: //p')"
+          test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"
           jq -e --arg version "${RELEASE_VERSION}" '.metadata.component.version == $version' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
           jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
           RELEASE_READY="$(sed -n 's/^release_ready: //p' "${BUNDLE}/acceptance-index.md")"
