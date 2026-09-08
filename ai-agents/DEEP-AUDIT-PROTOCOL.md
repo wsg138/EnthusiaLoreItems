@@ -16,13 +16,39 @@ No process can prove literal zero bugs. Release readiness requires:
 
 Workers must prefer durable progress over repeating already-completed work.
 
+# Worker execution contract
+
+Routing is setup, not a deliverable. A worker given the standard continuation prompt MUST execute the routed GitHub work in the same session; it must not merely restate, rewrite, or hand back the prompt or tell the owner to start another worker.
+
+A worker may stop only after one of these outcomes is durably published on PR #30:
+
+1. the routed slice/recheck/gate was substantively performed and a V3 clean result was posted;
+2. confirmed defects were fixed with appropriate regression coverage and a V3 result/checkpoint was posted;
+3. meaningful partial work was completed and a precise resumable `PARTIAL` checkpoint was posted because the bounded slice could not be responsibly finished in the current session;
+4. a genuine external blocker outside the repository workflow prevents further work, and the blocker plus the exact already-attempted evidence is posted durably.
+
+The following are **not valid worker outcomes**:
+
+- repeating the user's continuation prompt;
+- replying primarily with a suggested prompt for the next worker;
+- only stating which slice is next without inspecting/working that slice;
+- only summarizing prior V3 comments;
+- stopping because another worker moved the head, when live reconciliation can route useful non-conflicting work;
+- asking the owner to assign a slice that the protocol can route automatically.
+
+Every worker must use live GitHub state and inspect the actual current implementation/evidence relevant to its routed action. A clean slice still requires substantive review; “no code changes” does not mean “no work.”
+
+If the V3 ledger or PR head changes while a worker is active, re-reconcile before writing. If another worker already completed the action this worker was about to perform, immediately take the newly routed action in the same session when doing so does not violate a fresh-worker boundary. Do not respond with the original prompt as a substitute for work.
+
+The final chat response should summarize concrete work completed, durable GitHub evidence, current phase/head, and the exact remaining state. It must not consist primarily of instructions for launching another worker. During phases that explicitly require a fresh independent worker, the current worker should still complete its own routed action and publish its result before stopping.
+
 ## Current routing baseline
 
 At adoption of V3, PR #30 had already performed repeated deep implementation reviews of:
 
 - SLICE-01 — lifecycle, threading, runtime coordination;
 - SLICE-02 — SQLite, persistence, migrations;
-- SLICE-03 — item identity, tracking, physical-world lifecycle.
+- SLICE-03 — item identity, tracking and physical-world lifecycle.
 
 Those reviews found and fixed numerous real defects. The latest pre-V3 head change (`95ccbff1be336c005e20ada73afa1ee0d71a8eaf`) corrected a regression-test helper and did not change production source.
 
@@ -167,9 +193,10 @@ No worker may claim literal zero bugs.
 1. Fetch live PR #30 info/head.
 2. Read this file from PR #30 head.
 3. Find the latest PR comments containing `LOREITEMS_DEEP_AUDIT_V3`.
-4. Determine the current phase and exact next slice/recheck.
-5. Perform that bounded work only.
-6. Persist a V3 result/checkpoint comment.
-7. Stop cleanly.
+4. Determine the current phase and exact next slice/recheck. This is routing setup, not completion.
+5. Perform the bounded work itself using live GitHub source/evidence.
+6. If live state moved, re-reconcile and continue with the newly routed action when allowed by fresh-worker boundaries.
+7. Persist a V3 result/checkpoint comment containing concrete work/evidence.
+8. Only then stop cleanly and summarize what was actually accomplished.
 
 If no V3 result exists after this protocol commit, start at `REMEDIATION / SLICE-04`.
