@@ -27,6 +27,21 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn("--jq '.content' | base64 --decode", release_job)
         self.assertIn('bash "${RESOLVER}"', release_job)
 
+    def test_bundle_validation_binds_checksum_and_plugin_version_exactly(self):
+        validation = self._between(
+            self.release,
+            "      - name: Validate immutable production evidence and approvals",
+            "\n      - name: Create exact production tag",
+        )
+        self.assertIn('test "${CHECKSUM_ENTRIES}" -eq 1', validation)
+        self.assertIn('test "${CHECKSUM_FIELDS}" -eq 2', validation)
+        self.assertIn('test "${CHECKSUM_TARGET}" = "EnthusiaLoreItems.jar"', validation)
+        self.assertIn('ACTUAL_JAR_SHA=', validation)
+        self.assertIn('test "${ACTUAL_JAR_SHA}" = "${JAR_SHA}"', validation)
+        self.assertIn('test "${PLUGIN_VERSION_LINES}" -eq 1', validation)
+        self.assertIn('test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"', validation)
+        self.assertNotIn('grep -F "version: ${RELEASE_VERSION}"', validation)
+
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
         self.assertIn(
