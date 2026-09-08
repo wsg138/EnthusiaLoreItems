@@ -117,6 +117,8 @@ jobs:
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${TARGET_SHA}" = "${MAIN_SHA}"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${FINAL_TAG}" \
             -f sha="${TARGET_SHA}" >/dev/null
