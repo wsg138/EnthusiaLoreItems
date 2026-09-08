@@ -24,12 +24,29 @@ jobs:
     env:
       EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
       EVENT_CI_RUN_ID: ${{ github.event.workflow_run.id }}
-      FINAL_TAG: v1.0.0
     steps:
+      - name: Resolve exact source release identity
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PROPERTIES=/tmp/gradle.properties
+          gh api "repos/${GITHUB_REPOSITORY}/contents/gradle.properties?ref=${EVENT_TARGET_SHA}" \
+            --jq '.content' | base64 --decode > "${PROPERTIES}"
+          test -s "${PROPERTIES}"
+          VERSION_LINES="$(sed -n 's/^releaseVersion=//p' "${PROPERTIES}" | wc -l)"
+          test "${VERSION_LINES}" -eq 1
+          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' "${PROPERTIES}")"
+          test -n "${RELEASE_VERSION}"
+          [[ "${RELEASE_VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          echo "release_version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "final_tag=v${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+
       - name: Resolve publication state
         id: state
         env:
           GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           RESOLVER=/tmp/resolve_release_publication_state.sh
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/scripts/resolve_release_publication_state.sh?ref=${EVENT_TARGET_SHA}" \
@@ -54,6 +71,7 @@ jobs:
         if: steps.state.outputs.released != 'true'
         env:
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           for file in \
@@ -69,11 +87,21 @@ jobs:
             acceptance-index.md; do
             test -f "${BUNDLE}/${file}"
           done
+          CHECKSUM_ENTRIES="$(awk 'NF {count++} END {print count + 0}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          test "${CHECKSUM_ENTRIES}" -eq 1
+          CHECKSUM_FIELDS="$(awk 'NF {print NF}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          test "${CHECKSUM_FIELDS}" -eq 2
+          read -r JAR_SHA CHECKSUM_TARGET < "${BUNDLE}/EnthusiaLoreItems.jar.sha256"
+          [[ "${JAR_SHA}" =~ ^[0-9a-f]{64}$ ]]
+          test "${CHECKSUM_TARGET}" = "EnthusiaLoreItems.jar"
+          ACTUAL_JAR_SHA="$(sha256sum "${BUNDLE}/EnthusiaLoreItems.jar" | awk '{print $1}')"
+          test "${ACTUAL_JAR_SHA}" = "${JAR_SHA}"
           (cd "${BUNDLE}" && sha256sum -c EnthusiaLoreItems.jar.sha256)
-          JAR_SHA="$(awk 'NR == 1 {print $1}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
-          test -n "${JAR_SHA}"
-          unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | grep -F 'version: 1.0.0' >/dev/null
-          jq -e '.metadata.component.version == "1.0.0"' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
+          PLUGIN_VERSION_LINES="$(unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | sed -n 's/^version: //p' | wc -l)"
+          test "${PLUGIN_VERSION_LINES}" -eq 1
+          PLUGIN_VERSION="$(unzip -p "${BUNDLE}/EnthusiaLoreItems.jar" plugin.yml | sed -n 's/^version: //p')"
+          test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"
+          jq -e --arg version "${RELEASE_VERSION}" '.metadata.component.version == $version' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
           jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
           RELEASE_READY="$(sed -n 's/^release_ready: //p' "${BUNDLE}/acceptance-index.md")"
           ACCEPTED_SOURCE_HEAD="$(sed -n 's/^release_source_head: //p' "${BUNDLE}/acceptance-index.md")"
@@ -87,23 +115,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${TARGET_SHA}" = "${MAIN_SHA}"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${FINAL_TAG}" \
             -f sha="${TARGET_SHA}" >/dev/null
 
-      - name: Publish production release from verified CI bundle
-        if: steps.state.outputs.released != 'true'
+      - name: Reset interrupted draft release
+        if: steps.state.outputs.released != 'true' && steps.state.outputs.release_exists == 'true' && steps.state.outputs.release_draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+        run: |
+          DRAFT_RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
+          test -n "${DRAFT_RELEASE_ID}"
+          test "${DRAFT_RELEASE_ID}" != "null"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}" >/dev/null
+
+      - name: Create draft production release from verified CI bundle
+        if: steps.state.outputs.released != 'true' && (steps.state.outputs.release_exists != 'true' || steps.state.outputs.release_draft == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           BUNDLE=/tmp/evidence/rc-first
           gh release create "${FINAL_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${TARGET_SHA}" \
-            --title "EnthusiaLoreItems 1.0.0" \
+            --title "EnthusiaLoreItems ${RELEASE_VERSION}" \
             --notes-file "${BUNDLE}/release-notes.md" \
+            --draft \
             "${BUNDLE}/EnthusiaLoreItems.jar" \
             "${BUNDLE}/EnthusiaLoreItems.jar.sha256" \
             "${BUNDLE}/bom.cyclonedx.json" \
@@ -114,17 +159,76 @@ jobs:
             "${BUNDLE}/acceptance-index.md" \
             "${BUNDLE}/rollback-instructions.md"
 
-      - name: Verify immutable tag and release assets
+      - name: Verify exact release candidate assets
         if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+          ORIGINAL_RELEASE_EXISTS: ${{ steps.state.outputs.release_exists }}
+          ORIGINAL_RELEASE_DRAFT: ${{ steps.state.outputs.release_draft }}
+        run: |
+          BUNDLE=/tmp/evidence/rc-first
+          REQUIRED_ASSETS=(
+            EnthusiaLoreItems.jar
+            EnthusiaLoreItems.jar.sha256
+            bom.cyclonedx.json
+            gradle-dependencies.txt
+            normalized-entry-manifest.txt
+            wp04-profile.json
+            EnthusiaLoreItems-test-reports.tar.gz
+            acceptance-index.md
+            rollback-instructions.md
+          )
+          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
+          test "${TAG_SHA}" = "${TARGET_SHA}"
+          RELEASE_METADATA="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
+          IFS=$'\t' read -r RELEASE_DRAFT RELEASE_PRERELEASE <<<"${RELEASE_METADATA}"
+          test "${RELEASE_PRERELEASE}" = "false"
+          if [[ "${ORIGINAL_RELEASE_EXISTS}" != "true" || "${ORIGINAL_RELEASE_DRAFT}" == "true" ]]; then
+            test "${RELEASE_DRAFT}" = "true"
+          else
+            test "${RELEASE_DRAFT}" = "false"
+          fi
+          ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          ASSET_COUNT="$(printf '%s\n' "${ASSETS}" | sed '/^$/d' | wc -l)"
+          test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"
+          for asset in "${REQUIRED_ASSETS[@]}"; do
+            grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
+          done
+          RELEASED_ASSETS=/tmp/released-assets
+          rm -rf "${RELEASED_ASSETS}"
+          mkdir -p "${RELEASED_ASSETS}"
+          gh release download "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RELEASED_ASSETS}"
+          for asset in "${REQUIRED_ASSETS[@]}"; do
+            cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
+          done
+          EXPECTED_NOTES="$(cat "${BUNDLE}/release-notes.md")"
+          RELEASE_NOTES="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')"
+          test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"
+
+      - name: Publish verified draft release
+        if: steps.state.outputs.released != 'true' && (steps.state.outputs.release_exists != 'true' || steps.state.outputs.release_draft == 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+        run: |
+          RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
+          test -n "${RELEASE_ID}"
+          test "${RELEASE_ID}" != "null"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=false >/dev/null
+
+      - name: Verify immutable tag and release state
+        if: steps.state.outputs.released != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
           test "${TAG_SHA}" = "${TARGET_SHA}"
           gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
             --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
-          ASSETS="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
-          for asset in EnthusiaLoreItems.jar EnthusiaLoreItems.jar.sha256 bom.cyclonedx.json gradle-dependencies.txt normalized-entry-manifest.txt wp04-profile.json EnthusiaLoreItems-test-reports.tar.gz acceptance-index.md rollback-instructions.md; do
-            grep -Fx "${asset}" <<<"${ASSETS}" >/dev/null
-          done

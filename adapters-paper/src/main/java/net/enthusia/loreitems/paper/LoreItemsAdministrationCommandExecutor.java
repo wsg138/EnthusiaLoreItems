@@ -39,6 +39,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private static final String ANOMALIES_SUBCOMMAND = "anomalies";
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
+    private static final String CONFIGURATION_RELOAD_REASON = "configuration reload";
     private static final String USAGE = "Usage: /loreitems browse | "
             + "/loreitems anomalies [page] | "
             + "/loreitems audit <instance-uuid> [page] | /loreitems recovery [page]";
@@ -517,6 +518,12 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             boolean distributionAvailable) {}
 
     public void closeEditorSessions(String reason) {
+        Objects.requireNonNull(reason, "reason");
+        if (CONFIGURATION_RELOAD_REASON.equals(reason)) {
+            // The only supported hot reload is a live-read policy toggle. Reload attempts must not
+            // discard unrelated operator drafts or confirmations, especially when validation fails.
+            return;
+        }
         destructiveExecutor.clearConfirmations();
         templateEditor.closeSessions(reason);
     }

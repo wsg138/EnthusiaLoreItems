@@ -95,6 +95,24 @@ final class SQLiteDestructiveTestFixture implements AutoCloseable {
         return new Seed(definitionId, instanceId);
     }
 
+    void addOpenAnomaly(Seed seed, String anomalyType) {
+        runtime.execute(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO instance_anomalies(anomaly_id, instance_id, definition_id, "
+                            + "anomaly_type, status, detail, first_seen_at, last_seen_at, "
+                            + "acknowledged_at, acknowledged_by, resolved_at, resolution_detail, "
+                            + "state_revision) VALUES (?, ?, ?, ?, 'OPEN', 'destructive test anomaly', "
+                            + "1000, 1000, NULL, NULL, NULL, NULL, 0)")) {
+                statement.setString(1, UUID.randomUUID().toString());
+                statement.setString(2, seed.instanceId().value().toString());
+                statement.setString(3, seed.definitionId().value().toString());
+                statement.setString(4, anomalyType);
+                statement.executeUpdate();
+            }
+            return null;
+        }).toCompletableFuture().join();
+    }
+
     boolean definitionDeleted(LoreDefinitionId definitionId) {
         return runtime.execute(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(

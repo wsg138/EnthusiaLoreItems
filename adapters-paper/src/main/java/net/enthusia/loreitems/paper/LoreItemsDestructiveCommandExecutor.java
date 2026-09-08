@@ -467,7 +467,9 @@ public final class LoreItemsDestructiveCommandExecutor implements AutoCloseable,
         if (arguments.length == 1) {
             return topLevelCompletions(sender, arguments[0]);
         }
-        if (arguments.length == 4 && RESOLVE_REMOVAL.equalsIgnoreCase(arguments[0])) {
+        if (arguments.length == 4
+                && RESOLVE_REMOVAL.equalsIgnoreCase(arguments[0])
+                && sender.hasPermission(REVIEW_PERMISSION)) {
             return List.of("requeue", "removed", "abort").stream()
                     .filter(value -> value.startsWith(arguments[3].toLowerCase(Locale.ROOT)))
                     .toList();

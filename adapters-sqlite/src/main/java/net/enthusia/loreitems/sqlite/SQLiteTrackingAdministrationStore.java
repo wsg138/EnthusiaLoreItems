@@ -346,6 +346,7 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                         BLOCK_CONTAINER,
                         DROPPED_ITEM,
                         ITEM_FRAME,
+                        ITEM_DISPLAY,
                         ARMOR_STAND,
                         NESTED_CONTAINER -> true;
                 default -> false;

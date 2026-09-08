@@ -31,11 +31,22 @@ public record FoundationConfiguration(
         return new FoundationConfiguration(5_000, 256, 10, 32, 30, 300, 45, 100, 16, true);
     }
 
-    public boolean hasSameStartupResources(FoundationConfiguration other) {
+    /**
+     * Returns whether every setting captured by startup-created workers is unchanged.
+     * Shared-container policy is intentionally excluded because its listeners read the
+     * current atomic configuration for every decision.
+     */
+    public boolean hasSameRestartRequiredSettings(FoundationConfiguration other) {
         return other != null
                 && databaseBusyTimeoutMillis == other.databaseBusyTimeoutMillis
                 && databaseQueueCapacity == other.databaseQueueCapacity
-                && databaseShutdownTimeoutSeconds == other.databaseShutdownTimeoutSeconds;
+                && databaseShutdownTimeoutSeconds == other.databaseShutdownTimeoutSeconds
+                && deliveryClaimBatchSize == other.deliveryClaimBatchSize
+                && deliveryClaimLeaseSeconds == other.deliveryClaimLeaseSeconds
+                && duplicateWarningIntervalSeconds == other.duplicateWarningIntervalSeconds
+                && defaultPageSize == other.defaultPageSize
+                && maxPageSize == other.maxPageSize
+                && mutationBudgetPerTick == other.mutationBudgetPerTick;
     }
 
     private static void requireRange(int value, int minimum, int maximum, String name) {

@@ -2,13 +2,11 @@ package net.enthusia.loreitems.paper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -364,12 +362,12 @@ public final class PaperGroupFileCatalog {
         }
     }
 
+    /**
+     * Preserve the one-use marker contract even when the target already exists. Omitting both
+     * REPLACE_EXISTING and ATOMIC_MOVE gives Files.move its portable no-replace behavior.
+     */
     private static Path moveNoReplace(Path source, Path target) throws IOException {
-        try {
-            return Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException exception) {
-            return Files.move(source, target);
-        }
+        return Files.move(source, target);
     }
 
     private static boolean isDiscoverableName(String name) {

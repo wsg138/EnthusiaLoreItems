@@ -5,6 +5,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.IntSupplier;
@@ -48,6 +50,9 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private static final int MAX_IDENTITIES_PER_WORK = 16;
     private static final String ITEM_FRAME_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
+    private static final Object REGISTRY_LOCK = new Object();
+    private static final Map<Plugin, Set<PaperDisplayItemListener>> ACTIVE_LISTENERS =
+            new IdentityHashMap<>();
     private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
         EquipmentSlot.HAND,
         EquipmentSlot.OFF_HAND,
@@ -62,14 +67,16 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private final IntSupplier maxInFlightSupplier;
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
     private final Object workLock = new Object();
-    private final Map<WorkKey, Set<LoreItemIdentity>> pending = new HashMap<>();
-    private final Queue<DisplayItemObservationUseCase.Request> queued = new ArrayDeque<>();
-    private final ThreadLocal<ArrayDeque<DisplayItemObservationUseCase.Request>>
-            submissionTrampoline = ThreadLocal.withInitial(ArrayDeque::new);
+    private final Map<WorkKey, PendingWork> pending = new HashMap<>();
+    private final Queue<PendingObservation> queued = new ArrayDeque<>();
+    private final ThreadLocal<ArrayDeque<PendingObservation>> submissionTrampoline =
+            ThreadLocal.withInitial(ArrayDeque::new);
     private final ThreadLocal<Boolean> submitting =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
 
     private int inFlight;
+    private volatile boolean closing;
     private volatile boolean closed;
 
     public PaperDisplayItemListener(
@@ -88,6 +95,44 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         this.maxInFlightSupplier = Objects.requireNonNull(
                 maxInFlightSupplier, "maxInFlightSupplier");
         currentMaxInFlight();
+        registerListener();
+    }
+
+    static CompletionStage<Void> quiescenceFor(Plugin plugin) {
+        Objects.requireNonNull(plugin, "plugin");
+        CompletableFuture<?>[] barriers;
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperDisplayItemListener> listeners = ACTIVE_LISTENERS.get(plugin);
+            if (listeners == null || listeners.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            barriers = listeners.stream()
+                    .map(listener -> listener.quiesced)
+                    .toArray(CompletableFuture[]::new);
+        }
+        return CompletableFuture.allOf(barriers);
+    }
+
+    private void registerListener() {
+        synchronized (REGISTRY_LOCK) {
+            ACTIVE_LISTENERS
+                    .computeIfAbsent(plugin, ignored -> new HashSet<>())
+                    .add(this);
+        }
+        quiesced.whenComplete((ignored, failure) -> unregisterListener());
+    }
+
+    private void unregisterListener() {
+        synchronized (REGISTRY_LOCK) {
+            Set<PaperDisplayItemListener> listeners = ACTIVE_LISTENERS.get(plugin);
+            if (listeners == null) {
+                return;
+            }
+            listeners.remove(this);
+            if (listeners.isEmpty()) {
+                ACTIVE_LISTENERS.remove(plugin);
+            }
+        }
     }
 
     public void start() {
@@ -167,13 +212,25 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         if (identities.isEmpty()) {
             return;
         }
+        DisplayItemObservationUseCase useCase;
+        try {
+            useCase = Objects.requireNonNull(
+                    useCaseSupplier.get(),
+                    "display observation use case supplier returned null");
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not resolve display-item observation persistence.",
+                    exception);
+            return;
+        }
         WorkKey key = new WorkKey(
                 display.getUniqueId(),
                 type,
                 locationKey(display),
                 containerPath,
                 source);
-        if (!enqueueCandidates(key, identities)) {
+        if (!enqueueCandidates(key, identities, useCase)) {
             return;
         }
         try {
@@ -193,14 +250,15 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
 
     private boolean enqueueCandidates(
             WorkKey key,
-            List<LoreItemIdentity> identities) {
+            List<LoreItemIdentity> identities,
+            DisplayItemObservationUseCase useCase) {
         synchronized (workLock) {
-            if (closed) {
+            if (closing || closed) {
                 return false;
             }
-            Set<LoreItemIdentity> existing = pending.get(key);
+            PendingWork existing = pending.get(key);
             if (existing != null) {
-                if (!addBounded(existing, identities)) {
+                if (!addBounded(existing.candidates(), identities)) {
                     logCandidateOverflow();
                 }
                 return false;
@@ -214,7 +272,7 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             if (!addBounded(candidates, identities)) {
                 logCandidateOverflow();
             }
-            pending.put(key, candidates);
+            pending.put(key, new PendingWork(candidates, useCase));
             return true;
         }
     }
@@ -223,13 +281,14 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     // request and location value; reusing one mutable object would corrupt asynchronous evidence.
     @SuppressWarnings("PMD.AvoidInstantiatingObjectsInLoops")
     private void reconcile(WorkKey key) {
-        Set<LoreItemIdentity> candidates;
+        PendingWork work;
         synchronized (workLock) {
-            candidates = pending.remove(key);
+            work = pending.remove(key);
         }
-        if (candidates == null || closed) {
+        if (work == null || closed) {
             return;
         }
+        Set<LoreItemIdentity> candidates = work.candidates();
 
         Entity entity = plugin.getServer().getEntity(key.entityId());
         ItemStack currentItem = currentItem(entity, key);
@@ -242,24 +301,28 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
                 : locationKey(entity);
 
         for (LoreItemIdentity identity : candidates) {
-            submit(new DisplayItemObservationUseCase.Request(
-                    identity,
-                    new LocationDescriptor(
-                            key.type(),
-                            key.locationKey(),
-                            key.containerPath()),
-                    DisplayItemObservationUseCase.Presence.ABSENT,
-                    key.source()));
+            submit(
+                    new DisplayItemObservationUseCase.Request(
+                            identity,
+                            new LocationDescriptor(
+                                    key.type(),
+                                    key.locationKey(),
+                                    key.containerPath()),
+                            DisplayItemObservationUseCase.Presence.ABSENT,
+                            key.source()),
+                    work.useCase());
         }
         if (currentIdentity != null) {
-            submit(new DisplayItemObservationUseCase.Request(
-                    currentIdentity,
-                    new LocationDescriptor(
-                            key.type(),
-                            currentLocation,
-                            key.containerPath()),
-                    DisplayItemObservationUseCase.Presence.PRESENT,
-                    key.source()));
+            submit(
+                    new DisplayItemObservationUseCase.Request(
+                            currentIdentity,
+                            new LocationDescriptor(
+                                    key.type(),
+                                    currentLocation,
+                                    key.containerPath()),
+                            DisplayItemObservationUseCase.Presence.PRESENT,
+                            key.source()),
+                    work.useCase());
         }
     }
 
@@ -278,14 +341,17 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         return null;
     }
 
-    private void submit(DisplayItemObservationUseCase.Request request) {
+    private void submit(
+            DisplayItemObservationUseCase.Request request,
+            DisplayItemObservationUseCase useCase) {
+        PendingObservation observation = new PendingObservation(request, useCase);
         synchronized (workLock) {
             if (closed) {
                 return;
             }
             if (inFlight >= currentMaxInFlight()) {
                 if (queued.size() < currentMaxPending()) {
-                    queued.add(request);
+                    queued.add(observation);
                 } else {
                     plugin.getLogger().warning(
                             "Display-item persistence backlog is full; current durable evidence was preserved.");
@@ -294,20 +360,19 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             }
             inFlight++;
         }
-        dispatchSubmission(request);
+        dispatchSubmission(observation);
     }
 
-    private void dispatchSubmission(DisplayItemObservationUseCase.Request request) {
-        ArrayDeque<DisplayItemObservationUseCase.Request> trampoline =
-                submissionTrampoline.get();
-        trampoline.addLast(request);
+    private void dispatchSubmission(PendingObservation observation) {
+        ArrayDeque<PendingObservation> trampoline = submissionTrampoline.get();
+        trampoline.addLast(observation);
         if (submitting.get()) {
             return;
         }
         submitting.set(Boolean.TRUE);
         try {
             while (true) {
-                DisplayItemObservationUseCase.Request next = trampoline.pollFirst();
+                PendingObservation next = trampoline.pollFirst();
                 if (next == null) {
                     break;
                 }
@@ -320,14 +385,11 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         }
     }
 
-    private void startSubmission(DisplayItemObservationUseCase.Request request) {
+    private void startSubmission(PendingObservation observation) {
         CompletionStage<DisplayItemObservationUseCase.Result> stage;
         try {
-            DisplayItemObservationUseCase useCase = Objects.requireNonNull(
-                    useCaseSupplier.get(),
-                    "display observation use case supplier returned null");
             stage = Objects.requireNonNull(
-                    useCase.record(request),
+                    observation.useCase().record(observation.request()),
                     "display observation use case returned null");
         } catch (RuntimeException exception) {
             finishSubmission();
@@ -349,17 +411,26 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     }
 
     private void finishSubmission() {
-        Optional<DisplayItemObservationUseCase.Request> next = Optional.empty();
+        Optional<PendingObservation> next = Optional.empty();
         synchronized (workLock) {
+            if (inFlight <= 0) {
+                throw new IllegalStateException("Display-item in-flight accounting underflow");
+            }
             inFlight--;
-            if (!closed
-                    && !queued.isEmpty()
-                    && inFlight < currentMaxInFlight()) {
+            if (!queued.isEmpty()
+                    && (closed || inFlight < currentMaxInFlight())) {
                 next = Optional.of(queued.remove());
                 inFlight++;
             }
+            completeQuiescenceIfDrained();
         }
         next.ifPresent(this::dispatchSubmission);
+    }
+
+    private void completeQuiescenceIfDrained() {
+        if (closed && queued.isEmpty() && inFlight == 0) {
+            quiesced.complete(null);
+        }
     }
 
     private static boolean addBounded(
@@ -445,11 +516,24 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     @Override
     public void close() {
         synchronized (workLock) {
-            closed = true;
-            pending.clear();
-            queued.clear();
+            if (closing || closed) {
+                return;
+            }
+            closing = true;
         }
         HandlerList.unregisterAll(this);
+
+        List<WorkKey> accepted;
+        synchronized (workLock) {
+            accepted = new ArrayList<>(pending.keySet());
+        }
+        accepted.forEach(this::reconcile);
+
+        synchronized (workLock) {
+            closed = true;
+            pending.clear();
+            completeQuiescenceIfDrained();
+        }
     }
 
     private record WorkKey(
@@ -458,4 +542,22 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
             String locationKey,
             String containerPath,
             String source) {}
+
+    private record PendingWork(
+            Set<LoreItemIdentity> candidates,
+            DisplayItemObservationUseCase useCase) {
+        private PendingWork {
+            Objects.requireNonNull(candidates, "candidates");
+            Objects.requireNonNull(useCase, "useCase");
+        }
+    }
+
+    private record PendingObservation(
+            DisplayItemObservationUseCase.Request request,
+            DisplayItemObservationUseCase useCase) {
+        private PendingObservation {
+            Objects.requireNonNull(request, "request");
+            Objects.requireNonNull(useCase, "useCase");
+        }
+    }
 }

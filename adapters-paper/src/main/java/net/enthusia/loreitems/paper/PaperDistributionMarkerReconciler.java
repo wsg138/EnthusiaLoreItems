@@ -1,11 +1,16 @@
 package net.enthusia.loreitems.paper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -89,6 +94,7 @@ public final class PaperDistributionMarkerReconciler {
         groupCatalog.repairActiveMarker(
                 campaign.sourceName(), campaign.sourceFingerprint(), campaign.campaignId());
         Path marker = groupCatalog.moveToCompleted(campaign.sourceName(), campaign.campaignId());
+        requireMatchingMarker(campaign, marker);
         removeDuplicateActiveMarker(campaign, marker);
         return marker;
     }
@@ -97,8 +103,17 @@ public final class PaperDistributionMarkerReconciler {
         groupCatalog.repairActiveMarker(
                 campaign.sourceName(), campaign.sourceFingerprint(), campaign.campaignId());
         Path marker = groupCatalog.moveToCancelled(campaign.sourceName(), campaign.campaignId());
+        requireMatchingMarker(campaign, marker);
         removeDuplicateActiveMarker(campaign, marker);
         return marker;
+    }
+
+    private static void requireMatchingMarker(
+            DistributionCampaign campaign, Path marker) throws IOException {
+        if (!markerMatchesCampaign(campaign, marker)) {
+            throw new IOException(
+                    "Existing campaign marker does not match durable campaign source evidence");
+        }
     }
 
     private static void removeDuplicateActiveMarker(
@@ -136,11 +151,56 @@ public final class PaperDistributionMarkerReconciler {
                     null,
                     "Durable campaign state is authoritative, but no matching source marker is recoverable.");
         }
+        try {
+            if (!markerMatchesCampaign(campaign, markerPath)) {
+                return entry(
+                        campaign,
+                        DistributionMarkerReconciliationPage.Status.FAILED,
+                        markerPath,
+                        "Filesystem marker is safe but does not match durable campaign source evidence.");
+            }
+        } catch (IOException exception) {
+            return entry(
+                    campaign,
+                    DistributionMarkerReconciliationPage.Status.FAILED,
+                    markerPath,
+                    safeMessage(exception));
+        }
         return entry(
                 campaign,
                 DistributionMarkerReconciliationPage.Status.RECONCILED,
                 markerPath,
                 "Filesystem marker matches durable campaign state.");
+    }
+
+    private static boolean markerMatchesCampaign(
+            DistributionCampaign campaign, Path markerPath) throws IOException {
+        byte[] markerBytes = Files.readAllBytes(markerPath);
+        if (campaign.sourceFingerprint().equals(sourceFingerprint(campaign.sourceName(), markerBytes))) {
+            return true;
+        }
+        String recovered = new String(markerBytes, StandardCharsets.UTF_8);
+        return recovered.equals(recoveryMarkerContent(campaign));
+    }
+
+    private static String recoveryMarkerContent(DistributionCampaign campaign) {
+        return "# Recovered by EnthusiaLoreItems from durable campaign state.\n"
+                + "# This operator marker is not a reusable distribution source.\n"
+                + "campaign-id: " + campaign.campaignId() + '\n'
+                + "source-name: " + campaign.sourceName() + '\n'
+                + "source-fingerprint: " + campaign.sourceFingerprint() + '\n';
+    }
+
+    private static String sourceFingerprint(String sourceName, byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(sourceName.toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(bytes);
+            return "sha256:" + HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Java runtime does not provide SHA-256", exception);
+        }
     }
 
     private static DistributionMarkerReconciliationPage.Entry entry(

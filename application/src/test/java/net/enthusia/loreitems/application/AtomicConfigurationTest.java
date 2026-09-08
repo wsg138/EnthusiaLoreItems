@@ -9,20 +9,20 @@ import org.junit.jupiter.api.Test;
 
 class AtomicConfigurationTest {
     @Test
-    void replacesReloadableSettingsAsOneSnapshot() {
+    void replacesSharedContainerPolicyAsOneSnapshot() {
         FoundationConfiguration initial = FoundationConfiguration.defaults();
         AtomicConfiguration configuration = new AtomicConfiguration(initial);
         FoundationConfiguration replacement = new FoundationConfiguration(
                 initial.databaseBusyTimeoutMillis(),
                 initial.databaseQueueCapacity(),
                 initial.databaseShutdownTimeoutSeconds(),
-                12,
-                45,
-                600,
-                25,
-                80,
-                8,
-                true);
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                !initial.sharedContainersAllowed());
 
         AtomicConfiguration.ReloadResult result = configuration.replace(replacement);
 
@@ -31,10 +31,20 @@ class AtomicConfigurationTest {
     }
 
     @Test
-    void rejectsStartupResourceChangesWithoutMutatingCurrentSnapshot() {
+    void rejectsDatabaseConstructionSettingsWithoutMutatingCurrentSnapshot() {
         FoundationConfiguration initial = FoundationConfiguration.defaults();
-        AtomicConfiguration configuration = new AtomicConfiguration(initial);
-        FoundationConfiguration incompatible = new FoundationConfiguration(
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis() + 1,
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
                 initial.databaseBusyTimeoutMillis(),
                 initial.databaseQueueCapacity() + 1,
                 initial.databaseShutdownTimeoutSeconds(),
@@ -44,11 +54,105 @@ class AtomicConfigurationTest {
                 initial.defaultPageSize(),
                 initial.maxPageSize(),
                 initial.mutationBudgetPerTick(),
-                initial.sharedContainersAllowed());
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds() + 1,
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+    }
+
+    @Test
+    void rejectsDeliveryConstructionSettingsWithoutMutatingCurrentSnapshot() {
+        FoundationConfiguration initial = FoundationConfiguration.defaults();
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize() + 1,
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds() + 1,
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds() + 1,
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+    }
+
+    @Test
+    void rejectsPagingAndWorkerConstructionSettingsWithoutMutatingCurrentSnapshot() {
+        FoundationConfiguration initial = FoundationConfiguration.defaults();
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize() - 1,
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize() - 1,
+                initial.mutationBudgetPerTick(),
+                initial.sharedContainersAllowed()));
+        assertRestartRequired(initial, new FoundationConfiguration(
+                initial.databaseBusyTimeoutMillis(),
+                initial.databaseQueueCapacity(),
+                initial.databaseShutdownTimeoutSeconds(),
+                initial.deliveryClaimBatchSize(),
+                initial.deliveryClaimLeaseSeconds(),
+                initial.duplicateWarningIntervalSeconds(),
+                initial.defaultPageSize(),
+                initial.maxPageSize(),
+                initial.mutationBudgetPerTick() + 1,
+                initial.sharedContainersAllowed()));
+    }
+
+    private static void assertRestartRequired(
+            FoundationConfiguration initial,
+            FoundationConfiguration incompatible) {
+        AtomicConfiguration configuration = new AtomicConfiguration(initial);
 
         AtomicConfiguration.ReloadResult result = configuration.replace(incompatible);
 
         assertFalse(result.applied());
+        assertTrue(result.detail().contains("require a restart"));
         assertEquals(initial, configuration.current());
     }
 

@@ -66,7 +66,7 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
 
         CurrentRow current = findCurrentState(
                 connection, request.identity().instanceId().value());
-        validation = validateCurrentState(current);
+        validation = validateCurrentState(current, observedAt);
         if (validation != null) {
             return validation;
         }
@@ -100,7 +100,8 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
         return null;
     }
 
-    private static DisplayItemObservationUseCase.Result validateCurrentState(CurrentRow current) {
+    private static DisplayItemObservationUseCase.Result validateCurrentState(
+            CurrentRow current, long observedAt) {
         if (current == null) {
             return result(
                     DisplayItemObservationUseCase.Status.STALE,
@@ -111,6 +112,11 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
             return result(
                     DisplayItemObservationUseCase.Status.BLOCKED_ANOMALY,
                     "Conflicting or terminal current state was preserved.");
+        }
+        if (observedAt < current.updatedAt()) {
+            return result(
+                    DisplayItemObservationUseCase.Status.STALE,
+                    "The display evidence is older than the durable current state.");
         }
         return null;
     }
@@ -218,8 +224,8 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
     private static CurrentRow findCurrentState(Connection connection, UUID instanceId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT state, location_type, location_key, container_path, state_revision "
-                        + "FROM instance_current_state WHERE instance_id = ?")) {
+                "SELECT state, location_type, location_key, container_path, state_revision, "
+                        + "updated_at FROM instance_current_state WHERE instance_id = ?")) {
             statement.setString(1, instanceId.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {
@@ -235,7 +241,8 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
                 return new CurrentRow(
                         resultSet.getString("state"),
                         location,
-                        resultSet.getLong("state_revision"));
+                        resultSet.getLong("state_revision"),
+                        resultSet.getLong("updated_at"));
             }
         }
     }
@@ -286,6 +293,7 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
                         + "state_revision = state_revision + 1, updated_at = ? "
                         + "WHERE instance_id = ? AND state_revision = ? "
                         + "AND state NOT IN ('CONFLICTING', 'TERMINAL_VOID') "
+                        + "AND updated_at <= ? "
                         + matchingLocation)) {
             statement.setString(1, targetState.name());
             statement.setString(2, request.location().type().name());
@@ -295,10 +303,11 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
             statement.setLong(6, observedAt);
             statement.setString(7, request.identity().instanceId().value().toString());
             statement.setLong(8, expectedRevision);
+            statement.setLong(9, observedAt);
             if (requireMatchingLocation) {
-                statement.setString(9, request.location().type().name());
-                statement.setString(10, request.location().locationKey());
-                statement.setString(11, request.location().containerPath());
+                statement.setString(10, request.location().type().name());
+                statement.setString(11, request.location().locationKey());
+                statement.setString(12, request.location().containerPath());
             }
             if (statement.executeUpdate() != SINGLE_ROW) {
                 throw new SQLException(
@@ -367,5 +376,6 @@ public final class SQLiteDisplayItemObservationStore implements DisplayItemObser
     private record CurrentRow(
             String state,
             LocationDescriptor location,
-            long stateRevision) {}
+            long stateRevision,
+            long updatedAt) {}
 }

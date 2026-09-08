@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
 public interface HeldItemAdoptionStore {
+    String MUTATION_TYPE = "ADOPT_HELD_ITEM";
+
     CompletionStage<Optional<PreparedHeldItemAdoption>> prepare(
             HeldItemAdoptionPreparation preparation);
 

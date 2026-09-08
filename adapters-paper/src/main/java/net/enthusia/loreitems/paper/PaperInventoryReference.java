@@ -6,7 +6,6 @@ import java.util.UUID;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
-import org.bukkit.block.Container;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
@@ -78,8 +77,8 @@ sealed interface PaperInventoryReference
                 return Optional.empty();
             }
             BlockState state = world.getBlockAt(x, y, z).getState();
-            return state instanceof Container container
-                    ? Optional.of(container.getInventory())
+            return state instanceof InventoryHolder holder
+                    ? Optional.of(holder.getInventory())
                     : Optional.empty();
         }
     }

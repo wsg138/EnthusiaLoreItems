@@ -27,6 +27,103 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn("--jq '.content' | base64 --decode", release_job)
         self.assertIn('bash "${RESOLVER}"', release_job)
 
+    def test_bundle_validation_binds_checksum_and_plugin_version_exactly(self):
+        validation = self._between(
+            self.release,
+            "      - name: Validate immutable production evidence and approvals",
+            "\n      - name: Create exact production tag",
+        )
+        self.assertIn('test "${CHECKSUM_ENTRIES}" -eq 1', validation)
+        self.assertIn('test "${CHECKSUM_FIELDS}" -eq 2', validation)
+        self.assertIn('test "${CHECKSUM_TARGET}" = "EnthusiaLoreItems.jar"', validation)
+        self.assertIn('ACTUAL_JAR_SHA=', validation)
+        self.assertIn('test "${ACTUAL_JAR_SHA}" = "${JAR_SHA}"', validation)
+        self.assertIn('test "${PLUGIN_VERSION_LINES}" -eq 1', validation)
+        self.assertIn('test "${PLUGIN_VERSION}" = "${RELEASE_VERSION}"', validation)
+        self.assertNotIn('grep -F "version: ${RELEASE_VERSION}"', validation)
+
+    def test_first_tag_creation_rechecks_current_main_after_evidence_validation(self):
+        tag_create = self._between(
+            self.release,
+            "      - name: Create exact production tag",
+            "\n      - name: Reset interrupted draft release",
+        )
+        main_lookup = (
+            'MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" '
+            '--jq \'.object.sha\')"'
+        )
+        self.assertIn(main_lookup, tag_create)
+        self.assertIn('test "${TARGET_SHA}" = "${MAIN_SHA}"', tag_create)
+        self.assertLess(
+            tag_create.index('test "${TARGET_SHA}" = "${MAIN_SHA}"'),
+            tag_create.index('gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs"'),
+        )
+
+    def test_release_creation_stays_draft_until_exact_candidate_is_verified(self):
+        reset = self._between(
+            self.release,
+            "      - name: Reset interrupted draft release",
+            "\n      - name: Create draft production release from verified CI bundle",
+        )
+        create = self._between(
+            self.release,
+            "      - name: Create draft production release from verified CI bundle",
+            "\n      - name: Verify exact release candidate assets",
+        )
+        verify = self._between(
+            self.release,
+            "      - name: Verify exact release candidate assets",
+            "\n      - name: Publish verified draft release",
+        )
+        publish = self._between(
+            self.release,
+            "      - name: Publish verified draft release",
+            "\n      - name: Verify immutable tag and release state",
+        )
+        final = self.release.split(
+            "      - name: Verify immutable tag and release state", 1
+        )[1]
+
+        self.assertIn(
+            'gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}"',
+            reset,
+        )
+        self.assertIn("--draft", create)
+        self.assertIn("steps.state.outputs.release_exists != 'true'", create)
+        self.assertIn("steps.state.outputs.release_draft == 'true'", create)
+        self.assertIn('test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"', verify)
+        self.assertIn('gh release download "${FINAL_TAG}"', verify)
+        self.assertIn('cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"', verify)
+        self.assertIn('test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"', verify)
+        self.assertIn('test "${RELEASE_DRAFT}" = "true"', verify)
+        self.assertIn('test "${RELEASE_DRAFT}" = "false"', verify)
+        self.assertIn(
+            'gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"',
+            publish,
+        )
+        self.assertIn("-F draft=false", publish)
+        self.assertIn("-F prerelease=false", publish)
+        self.assertIn(".isDraft == false and .isPrerelease == false", final)
+
+    def test_release_probe_preserves_non_404_api_failures(self):
+        release_probe = self._between(
+            self.resolver,
+            'RELEASE_LOOKUP_ERROR="$(mktemp)"',
+            '\n\nTAG_LOOKUP_ERROR=',
+        )
+        self.assertIn(
+            'gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}"',
+            release_probe,
+        )
+        self.assertIn('2>"${RELEASE_LOOKUP_ERROR}"', release_probe)
+        self.assertIn("RELEASE_LOOKUP_STATUS=$?", release_probe)
+        self.assertIn(
+            "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${RELEASE_LOOKUP_ERROR}\"",
+            release_probe,
+        )
+        self.assertIn('cat "${RELEASE_LOOKUP_ERROR}" >&2', release_probe)
+        self.assertIn('exit "${RELEASE_LOOKUP_STATUS}"', release_probe)
+
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
         self.assertIn(
@@ -60,6 +157,8 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test -n "${TAG_SHA}"', tag_branch)
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', tag_branch)
         self.assertIn('echo "tag_exists=true"', tag_branch)
+        self.assertIn('echo "release_exists=false"', tag_branch)
+        self.assertIn('echo "release_draft=false"', tag_branch)
         self.assertIn('echo "released=false"', tag_branch)
         self.assertIn("exit 0", tag_branch)
 
@@ -72,22 +171,37 @@ class ReleasePublicationStateTest(unittest.TestCase):
         )
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', missing_tag_branch)
         self.assertIn('echo "tag_exists=false"', missing_tag_branch)
+        self.assertIn('echo "release_exists=false"', missing_tag_branch)
+        self.assertIn('echo "release_draft=false"', missing_tag_branch)
         self.assertIn('echo "released=false"', missing_tag_branch)
 
-    def test_existing_release_requires_exact_tag_production_state_and_assets(self):
+    def test_existing_release_requires_exact_tag_state_and_published_asset_set(self):
         release_branch = self._between(
             self.resolver,
-            'if gh release view "${FINAL_TAG}"',
-            '\nfi\n\nTAG_LOOKUP_ERROR=',
+            'RELEASE_LOOKUP_ERROR="$(mktemp)"',
+            '\n\nTAG_LOOKUP_ERROR=',
+        )
+        self.assertIn(
+            "--jq '[.tag_name, .draft, .prerelease] | @tsv'",
+            release_branch,
         )
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
-        self.assertIn("--json tagName,isDraft,isPrerelease", release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)
-        self.assertIn('test "${RELEASE_DRAFT}" = "false"', release_branch)
+        self.assertIn(
+            '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
+            release_branch,
+        )
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_branch)
+        self.assertIn('if [[ "${RELEASE_DRAFT}" == "false" ]]', release_branch)
+        self.assertIn("--jq '.assets[].name'", release_branch)
+        self.assertIn('test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
-        self.assertIn('echo "released=true"', release_branch)
+        self.assertIn('echo "tag_exists=true"', release_branch)
+        self.assertIn('echo "release_exists=true"', release_branch)
+        self.assertIn('echo "release_draft=${RELEASE_DRAFT}"', release_branch)
+        self.assertIn('echo "released=false"', release_branch)
+        self.assertNotIn('echo "released=true"', release_branch)
 
     @staticmethod
     def _between(text, start_marker, end_marker):

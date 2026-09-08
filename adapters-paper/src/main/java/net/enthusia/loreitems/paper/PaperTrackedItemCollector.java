@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -16,6 +17,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 /** Shared bounded collector for tracked identities, including nested shulkers and bundles. */
 final class PaperTrackedItemCollector {
     private static final int MAX_NESTING_DEPTH = 8;
+    private static final String ROOT_KEY_PREFIX = "root:";
 
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
 
@@ -29,7 +31,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
+        for (int index = 0; index < contents.length; index++) {
             collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
         }
     }
@@ -42,13 +44,18 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item, limit)) {
+        if (!scannable(item)) {
             return;
         }
-        limit.consume();
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH && limit.hasRemaining()) {
-            collectNested(item.getItemMeta(), key, path, observations, depth, limit);
+        if (depth < MAX_NESTING_DEPTH && hasNestedIdentityEvidence(item)) {
+            collectNested(
+                    item.getItemMeta(),
+                    nestedLocationKey(type, key),
+                    path,
+                    observations,
+                    depth,
+                    limit);
         }
     }
 
@@ -60,6 +67,75 @@ final class PaperTrackedItemCollector {
         return result instanceof ItemIdentityReadResult.Tracked tracked
                 ? tracked.identity()
                 : null;
+    }
+
+    boolean hasIdentityEvidence(ItemStack item) {
+        return hasIdentityEvidence(item, 0);
+    }
+
+    boolean hasNestedIdentityEvidence(ItemStack item) {
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta
+                && hasIdentityEvidence(blockMeta.getBlockState(), 0)) {
+            return true;
+        }
+        if (meta instanceof BundleMeta bundle) {
+            for (ItemStack nested : bundle.getItems()) {
+                if (hasIdentityEvidence(nested, 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
+        Objects.requireNonNull(parentType, "parentType");
+        Objects.requireNonNull(locationKey, "locationKey");
+        if (parentType == LocationDescriptor.Type.NESTED_CONTAINER) {
+            return locationKey;
+        }
+        return ROOT_KEY_PREFIX + parentType.name() + ':' + locationKey;
+    }
+
+    private boolean hasIdentityEvidence(ItemStack item, int depth) {
+        if (item == null || item.getType().isAir()) {
+            return false;
+        }
+        if (identityCodec.hasIdentityEvidence(item)) {
+            return true;
+        }
+        if (depth >= MAX_NESTING_DEPTH) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta
+                && hasIdentityEvidence(blockMeta.getBlockState(), depth)) {
+            return true;
+        }
+        if (meta instanceof BundleMeta bundle) {
+            for (ItemStack nested : bundle.getItems()) {
+                if (hasIdentityEvidence(nested, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasIdentityEvidence(BlockState blockState, int depth) {
+        if (!(blockState instanceof ShulkerBox shulker)) {
+            return false;
+        }
+        for (ItemStack nested : shulker.getInventory().getContents()) {
+            if (hasIdentityEvidence(nested, depth + 1)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void collectIdentity(
@@ -85,7 +161,7 @@ final class PaperTrackedItemCollector {
         if (meta instanceof BlockStateMeta blockMeta) {
             collectShulker(blockMeta.getBlockState(), key, path, observations, depth, limit);
         }
-        if (meta instanceof BundleMeta bundle) {
+        if (meta instanceof BundleMeta bundle && limit.tryConsume()) {
             collectNestedArray(
                     bundle.getItems().toArray(ItemStack[]::new),
                     key,
@@ -103,7 +179,7 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (blockState instanceof ShulkerBox shulker) {
+        if (blockState instanceof ShulkerBox shulker && limit.tryConsume()) {
             collectNestedArray(
                     shulker.getInventory().getContents(),
                     key,
@@ -124,7 +200,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
+        for (int index = 0; index < contents.length; index++) {
             collectItem(
                     contents[index],
                     LocationDescriptor.Type.NESTED_CONTAINER,
@@ -136,7 +212,7 @@ final class PaperTrackedItemCollector {
         }
     }
 
-    private static boolean scannable(ItemStack item, PaperScanLimit limit) {
-        return item != null && !item.getType().isAir() && limit.hasRemaining();
+    private static boolean scannable(ItemStack item) {
+        return item != null && !item.getType().isAir();
     }
 }

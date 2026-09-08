@@ -107,6 +107,11 @@ final class SQLiteDestructiveAcceptanceStore {
                     "The definition, target set, queued work, or anomaly evidence changed; "
                             + "review a fresh confirmation summary.");
         }
+        if (refreshed.anomalyCount() > 0L) {
+            return StartResult.failure(
+                    StartStatus.TARGET_CONFLICT,
+                    "Resolve active tracking anomalies before starting destructive removal.");
+        }
         if (hasTargetConflict(connection, refreshed)) {
             return StartResult.failure(
                     StartStatus.TARGET_CONFLICT,

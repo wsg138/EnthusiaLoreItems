@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -12,7 +13,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -27,6 +27,8 @@ import net.enthusia.loreitems.domain.DistributionCampaignState;
 import net.enthusia.loreitems.domain.LoreDefinition;
 
 public final class PaperDistributionCampaignCoordinator {
+    private static final int MAX_CACHED_IDENTITIES_PER_SERVER_PASS = 256;
+
     private final PaperGroupFileCatalog groupCatalog;
     private final Function<DefinitionKey, CompletionStage<Optional<LoreDefinition>>> definitionLookup;
     private final DistributionCampaignStartRepository startRepository;
@@ -210,19 +212,34 @@ public final class PaperDistributionCampaignCoordinator {
         }, blockingExecutor);
     }
 
-    private CompletionStage<Map<Integer, UUID>> resolveCachedIdentities(GroupFileDefinition groupFile) {
-        return CompletableFuture.supplyAsync(() -> {
-            Map<Integer, UUID> resolved = new ConcurrentHashMap<>();
-            for (int index = 0; index < groupFile.recipients().size(); index++) {
-                GroupFileRecipient recipient = groupFile.recipients().get(index);
-                if (recipient.explicitPlayerId() == null) {
-                    int recipientIndex = index;
-                    cachedIdentityLookup.apply(recipient.originalValue())
-                            .ifPresent(playerId -> resolved.put(recipientIndex, playerId));
-                }
-            }
-            return Map.copyOf(resolved);
-        }, serverExecutor);
+    private CompletionStage<Map<Integer, UUID>> resolveCachedIdentities(
+            GroupFileDefinition groupFile) {
+        Map<Integer, UUID> resolved = new HashMap<>();
+        return resolveCachedIdentityBatch(groupFile, 0, resolved)
+                .thenApply(ignored -> Map.copyOf(resolved));
+    }
+
+    private CompletionStage<Void> resolveCachedIdentityBatch(
+            GroupFileDefinition groupFile,
+            int startIndex,
+            Map<Integer, UUID> resolved) {
+        if (startIndex >= groupFile.recipients().size()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        int endIndex = Math.min(
+                groupFile.recipients().size(),
+                Math.addExact(startIndex, MAX_CACHED_IDENTITIES_PER_SERVER_PASS));
+        return CompletableFuture.runAsync(() -> {
+                    for (int index = startIndex; index < endIndex; index++) {
+                        GroupFileRecipient recipient = groupFile.recipients().get(index);
+                        if (recipient.explicitPlayerId() == null) {
+                            int recipientIndex = index;
+                            cachedIdentityLookup.apply(recipient.originalValue())
+                                    .ifPresent(playerId -> resolved.put(recipientIndex, playerId));
+                        }
+                    }
+                }, serverExecutor)
+                .thenCompose(ignored -> resolveCachedIdentityBatch(groupFile, endIndex, resolved));
     }
 
     private CompletionStage<Boolean> sourceStillMatches(DistributionCampaignPreview preview) {

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -163,6 +164,76 @@ class PaperDisplayItemListenerTest {
                 DisplayItemObservationUseCase.Status.RECORDED,
                 "Recorded."));
         assertEquals(2, blockingUseCase.requests.size());
+    }
+
+    @Test
+    void closeDrainsAcceptedPersistenceQueueBeforeShutdownBarrierCompletes() {
+        listener.close();
+        BlockingUseCase blockingUseCase = new BlockingUseCase();
+        Plugin shutdownPlugin = MockBukkit.createMockPlugin();
+        listener = new PaperDisplayItemListener(shutdownPlugin, () -> blockingUseCase, 1);
+        ItemFrame firstFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        ItemFrame secondFrame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation().add(1.0, 0.0, 0.0), EntityType.ITEM_FRAME);
+
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                firstFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        firstFrame.setItem(trackedItem());
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                secondFrame,
+                trackedItem(),
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        secondFrame.setItem(trackedItem());
+        server.getScheduler().performOneTick();
+
+        CompletionStage<Void> shutdownBarrier = PaperTrackingCoordinator.quiescenceFor(shutdownPlugin);
+        listener.close();
+
+        assertEquals(1, blockingUseCase.requests.size());
+        assertFalse(shutdownBarrier.toCompletableFuture().isDone());
+
+        blockingUseCase.first.complete(DisplayItemObservationUseCase.Result.of(
+                DisplayItemObservationUseCase.Status.RECORDED,
+                "Recorded."));
+
+        assertEquals(2, blockingUseCase.requests.size());
+        assertTrue(shutdownBarrier.toCompletableFuture().isDone());
+    }
+
+    @Test
+    void closeDrainsAcceptedNextTickObservationWithAcceptanceTimePersistenceOwner() {
+        listener.close();
+        RecordingUseCase acceptedUseCase = new RecordingUseCase();
+        RecordingUseCase replacementUseCase = new RecordingUseCase();
+        AtomicReference<DisplayItemObservationUseCase> delegate =
+                new AtomicReference<>(acceptedUseCase);
+        Plugin shutdownPlugin = MockBukkit.createMockPlugin();
+        listener = new PaperDisplayItemListener(shutdownPlugin, delegate::get, 1);
+        ItemFrame frame = (ItemFrame) player.getWorld().spawnEntity(
+                player.getLocation(), EntityType.ITEM_FRAME);
+        ItemStack tracked = trackedItem();
+
+        listener.onItemFrameChange(new PlayerItemFrameChangeEvent(
+                player,
+                frame,
+                tracked,
+                PlayerItemFrameChangeEvent.ItemFrameChangeAction.PLACE));
+        frame.setItem(tracked);
+        CompletionStage<Void> shutdownBarrier = PaperTrackingCoordinator.quiescenceFor(shutdownPlugin);
+        delegate.set(replacementUseCase);
+
+        listener.close();
+
+        assertEquals(1, acceptedUseCase.requests.size());
+        assertEquals(0, replacementUseCase.requests.size());
+        assertTrue(shutdownBarrier.toCompletableFuture().isDone());
+        server.getScheduler().performOneTick();
+        assertEquals(1, acceptedUseCase.requests.size());
     }
 
     // The bounded loop deliberately creates distinct immutable identities and event snapshots.
