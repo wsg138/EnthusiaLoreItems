@@ -13,7 +13,8 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "stopping = true",
             "new UnavailableService(\"The plugin is stopping.\")",
             "getServer().getServicesManager().unregisterAll(this)",
-            "lifecycleExecutor.shutdownNow()",
+            "ThreadPoolExecutor executor = lifecycleExecutor;",
+            "executor.shutdownNow();",
             "failPendingReloads(STOPPING_RELOAD_DETAIL)",
             "Duration.ofSeconds(timeoutSeconds)",
             "runtime.close(timeout)",
@@ -22,6 +23,14 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         ]
         for token in required:
             self.assertIn(token, source, token)
+        self.assertLess(
+            source.index("ThreadPoolExecutor executor = lifecycleExecutor;"),
+            source.index("executor.shutdownNow();"),
+        )
+        self.assertLess(
+            source.index("executor.shutdownNow();"),
+            source.index("startAsynchronousShutdown("),
+        )
 
     def test_existing_behavioral_tests_cover_atomic_reload_storage_shutdown_and_campaign_restart(self):
         required_tests = [
