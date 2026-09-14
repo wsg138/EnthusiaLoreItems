@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   ambiguous-mutation:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -105,7 +104,7 @@ jobs:
           SERVER_PID=''; BOT_PID=''
           wait_marker(){ local m="$1" n="${2:-360}"; for _ in $(seq 1 "$n"); do [[ ! -f "$ROOT/bot.failed" ]] || { cat "$ROOT/bot.failed" >&2; return 1; }; [[ -f "$ROOT/$m" ]] && return 0; sleep .25; done; echo "marker timed out: $m" >&2; return 1; }
           start_server(){ local log="$1"; cd "$SERVER"; rm -f server.stdin; mkfifo server.stdin; exec 3<>server.stdin; java -Xms512M -Xmx1536M -Dpaper.disablePluginRemapping=true -jar paper.jar --nogui <server.stdin >"$log" 2>&1 & SERVER_PID=$!; for _ in $(seq 1 180); do grep -q 'Queued direct-delivery processing is active.' "$log" && grep -q 'WP-05 deterministic acceptance helper is active' "$log" && return; kill -0 "$SERVER_PID" 2>/dev/null || { cat "$log"; exit 1; }; sleep 1; done; echo 'server readiness timed out' >&2; exit 1; }
-          stop_server(){ if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then echo stop >&3 || true; wait "$SERVER_PID" || true; fi; exec 3>&- || true; SERVER_PID=''; rm -f "$SERVER/server.stdin"; }
+          stop_server(){ if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then echo stop >&3 || true; wait "$SERVER_PID"; fi; exec 3>&- || true; SERVER_PID=''; rm -f "$SERVER/server.stdin"; }
           cleanup(){ touch "$ROOT/bot.stop" || true; [[ -z "$BOT_PID" ]] || wait "$BOT_PID" || true; stop_server; }
           trap cleanup EXIT
 
