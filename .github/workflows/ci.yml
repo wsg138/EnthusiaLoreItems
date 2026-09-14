@@ -69,7 +69,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git diff --name-only --diff-filter=ACMR "${BASE_SHA}...HEAD" -- '*.java' > .lizard-files
+          git diff --name-status --find-renames --diff-filter=AMR "${BASE_SHA}...HEAD" -- '*.java' > .lizard-files
           git worktree add --detach .lizard-base "${BASE_SHA}"
           python3 -m venv .lizard-venv
           .lizard-venv/bin/pip install --disable-pip-version-check lizard==1.23.0
