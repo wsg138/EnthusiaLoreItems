@@ -150,18 +150,27 @@ function displayMatches(entity, kind) {
   const name = String(entity.name || '').toLowerCase()
   const display = String(entity.displayName || '').toLowerCase().replaceAll(' ', '_')
   if (kind === 'item_frame') return name === 'item_frame' || display === 'item_frame'
-  if (kind === 'glow_item_frame') return name === 'glow_item_frame' || display === 'glow_item_frame'
+  if (kind === 'glow_item_frame') {
+    return name === 'glow_item_frame'
+      || display === 'glow_item_frame'
+      || name === 'item_frame'
+      || display === 'item_frame'
+  }
   if (kind === 'armor_stand') return name === 'armor_stand' || display === 'armor_stand'
   return false
 }
 
 async function waitDisplayEntity(bot, kind, x, y, z, label) {
+  const target = new Vec3(x, y, z)
+  const maxDistance = kind === 'armor_stand' ? 3 : 1.5
   for (let i = 0; i < 300; i++) {
-    const entity = Object.values(bot.entities).find(candidate =>
-      displayMatches(candidate, kind)
-      && candidate.position.distanceTo(new Vec3(x, y, z)) < 3)
+    const entity = Object.values(bot.entities)
+      .filter(candidate => displayMatches(candidate, kind))
+      .map(candidate => ({ candidate, distance: candidate.position.distanceTo(target) }))
+      .filter(entry => entry.distance < maxDistance)
+      .sort((left, right) => left.distance - right.distance)[0]?.candidate
     if (entity) {
-      log(`${label} entity=${kind} id=${entity.id} position=${entity.position.x.toFixed(2)},${entity.position.y.toFixed(2)},${entity.position.z.toFixed(2)}`)
+      log(`${label} entity=${kind} observedName=${entity.name || ''} observedDisplay=${entity.displayName || ''} id=${entity.id} position=${entity.position.x.toFixed(2)},${entity.position.y.toFixed(2)},${entity.position.z.toFixed(2)}`)
       return entity
     }
     await sleep(100)
