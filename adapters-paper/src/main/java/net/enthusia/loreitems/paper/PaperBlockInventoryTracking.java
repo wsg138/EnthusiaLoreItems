@@ -7,11 +7,11 @@ import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
-import org.bukkit.block.InventoryHolder;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.plugin.Plugin;
 
 /** Handles block-inventory transitions captured by the physical tracking listener. */
