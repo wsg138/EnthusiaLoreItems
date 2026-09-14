@@ -73,7 +73,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
                     "The durable instance is not active.");
         }
-        if (!identityMatches(instance, request)) {
+        if (!identityMatches(connection, instance, request)) {
             return recordIdentityMismatch(connection, request, instance, observedAt);
         }
         CurrentRow current = findCurrent(connection, request);
@@ -98,12 +98,38 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     }
 
     private static boolean identityMatches(
+            Connection connection,
             InstanceRow instance,
-            TrackingObservationUseCase.Request request) {
-        return instance.definitionId().equals(
-                        request.identity().definitionId().value().toString())
-                && instance.appliedRevision()
-                        == request.identity().appliedRevision().value();
+            TrackingObservationUseCase.Request request) throws SQLException {
+        if (!instance.definitionId().equals(
+                request.identity().definitionId().value().toString())) {
+            return false;
+        }
+        long observedRevision = request.identity().appliedRevision().value();
+        if (instance.appliedRevision() == observedRevision) {
+            return true;
+        }
+        return instance.desiredRevision() == observedRevision
+                && hasRecoverableTemplateUpdate(
+                        connection, request, instance.definitionId(), observedRevision);
+    }
+
+    private static boolean hasRecoverableTemplateUpdate(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            String definitionId,
+            long desiredRevision) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM pending_mutations WHERE mutation_type = 'TEMPLATE_UPDATE' "
+                        + "AND definition_id = ? AND instance_id = ? AND desired_revision = ? "
+                        + "AND state IN ('PENDING', 'CLAIMED', 'REVIEW_REQUIRED') LIMIT 1")) {
+            statement.setString(1, definitionId);
+            statement.setString(2, request.identity().instanceId().value().toString());
+            statement.setLong(3, desiredRevision);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
     }
 
     private static TrackingObservationUseCase.Result recordIdentityMismatch(
@@ -411,7 +437,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             Connection connection,
             TrackingObservationUseCase.Request request) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT definition_id, applied_revision, lifecycle_state "
+                "SELECT definition_id, applied_revision, desired_revision, lifecycle_state "
                         + "FROM lore_instances WHERE instance_id = ?")) {
             statement.setString(1, request.identity().instanceId().value().toString());
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -419,6 +445,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                         ? new InstanceRow(
                                 resultSet.getString("definition_id"),
                                 resultSet.getLong("applied_revision"),
+                                resultSet.getLong("desired_revision"),
                                 resultSet.getString("lifecycle_state"))
                         : null;
             }
@@ -581,6 +608,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     private record InstanceRow(
             String definitionId,
             long appliedRevision,
+            long desiredRevision,
             String lifecycleState) {}
 
     private record CurrentRow(
