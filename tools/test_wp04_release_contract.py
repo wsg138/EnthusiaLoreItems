@@ -216,7 +216,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         preparer = (ROOT / "tools/prepare_rc_artifacts.py").read_text()
         self.assertIn('parser.add_argument("--version", required=True)', preparer)
         self.assertIn("release jar missing required entries", preparer)
-        self.assertIn("plugin.yml does not contain release version", preparer)
+        self.assertIn("plugin.yml release version mismatch", preparer)
 
     def test_profile_harness_declares_every_fixed_scenario(self):
         profile = (ROOT / "tools/wp04_profile.py").read_text()
