@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   environment-and-degraded-startup:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
