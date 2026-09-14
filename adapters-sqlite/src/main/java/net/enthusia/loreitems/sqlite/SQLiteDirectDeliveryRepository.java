@@ -302,7 +302,9 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             Connection connection,
             ExternalDeliveryCommand command,
             long now) throws SQLException {
-        ExistingRequest existing = findExistingRequest(connection, command.externalOperationId());
+        SQLiteExternalDeliveryRequestStore.ExistingRequest existing =
+                SQLiteExternalDeliveryRequestStore.find(
+                        connection, command.externalOperationId());
         if (existing != null) {
             return replayExisting(connection, command, existing, now);
         }
@@ -316,7 +318,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     private static ExternalDeliveryAcceptance replayExisting(
             Connection connection,
             ExternalDeliveryCommand command,
-            ExistingRequest existing,
+            SQLiteExternalDeliveryRequestStore.ExistingRequest existing,
             long now) throws SQLException {
         if (!existing.definitionKey().equals(command.definitionKey().value())
                 || !existing.playerId().equals(command.playerId())) {
@@ -347,7 +349,7 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             Connection connection,
             ExternalDeliveryCommand command,
             long now) throws SQLException {
-        insertExternalRequest(
+        SQLiteExternalDeliveryRequestStore.insert(
                 connection,
                 command,
                 null,
@@ -401,9 +403,10 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
                 now);
         insertDelivery(connection, deliveryId, instanceId, command, now);
         if (replaceUnknownRequest) {
-            updateUnknownExternalRequest(connection, command, deliveryId, now);
+            SQLiteExternalDeliveryRequestStore.replaceUnknown(
+                    connection, command, deliveryId, now);
         } else {
-            insertExternalRequest(
+            SQLiteExternalDeliveryRequestStore.insert(
                     connection,
                     command,
                     deliveryId,
@@ -674,27 +677,6 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         }
     }
 
-    private static ExistingRequest findExistingRequest(
-            Connection connection,
-            String operationId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT definition_key, player_id, delivery_id, outcome "
-                        + "FROM external_delivery_requests WHERE external_operation_id = ?")) {
-            statement.setString(1, operationId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    return null;
-                }
-                String deliveryValue = resultSet.getString(DELIVERY_ID_COLUMN);
-                return new ExistingRequest(
-                        resultSet.getString("definition_key"),
-                        UUID.fromString(resultSet.getString(PLAYER_ID_COLUMN)),
-                        deliveryValue == null ? null : UUID.fromString(deliveryValue),
-                        resultSet.getString("outcome"));
-            }
-        }
-    }
-
     private static DeliveryState findDeliveryState(
             Connection connection,
             UUID deliveryId) throws SQLException {
@@ -812,49 +794,6 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
         }
     }
 
-    private static void insertExternalRequest(
-            Connection connection,
-            ExternalDeliveryCommand command,
-            UUID deliveryId,
-            ExternalDeliveryOutcome outcome,
-            long now) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO external_delivery_requests(external_operation_id, definition_key, "
-                        + "player_id, delivery_id, outcome, created_at, updated_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
-            statement.setString(1, command.externalOperationId());
-            statement.setString(2, command.definitionKey().value());
-            statement.setString(3, command.playerId().toString());
-            statement.setString(4, deliveryId == null ? null : deliveryId.toString());
-            statement.setString(5, outcome.name());
-            statement.setLong(6, now);
-            statement.setLong(7, now);
-            statement.executeUpdate();
-        }
-    }
-
-    private static void updateUnknownExternalRequest(
-            Connection connection,
-            ExternalDeliveryCommand command,
-            UUID deliveryId,
-            long now) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE external_delivery_requests SET delivery_id = ?, outcome = ?, updated_at = ? "
-                        + "WHERE external_operation_id = ? AND definition_key = ? AND player_id = ? "
-                        + "AND outcome = ? AND delivery_id IS NULL")) {
-            statement.setString(1, deliveryId.toString());
-            statement.setString(2, ExternalDeliveryOutcome.ACCEPTED_QUEUED.name());
-            statement.setLong(3, now);
-            statement.setString(4, command.externalOperationId());
-            statement.setString(5, command.definitionKey().value());
-            statement.setString(6, command.playerId().toString());
-            statement.setString(7, ExternalDeliveryOutcome.UNKNOWN_DEFINITION.name());
-            if (statement.executeUpdate() != SINGLE_UPDATED_ROW) {
-                throw new SQLException("External delivery retry lost its durable unknown-definition fence");
-            }
-        }
-    }
-
     private static long insertCompletedObservation(
             Connection connection,
             PreparedDirectDelivery delivery,
@@ -902,7 +841,6 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
             }
         }
     }
-
 
     private static void markQueuedCurrentStateUnresolved(
             Connection connection,
@@ -1056,13 +994,6 @@ public final class SQLiteDirectDeliveryRepository implements DirectDeliveryRepos
     }
 
     private record ClaimArguments(String claimToken, long nowMillis, long leaseMillis) {
-    }
-
-    private record ExistingRequest(
-            String definitionKey,
-            UUID playerId,
-            UUID deliveryId,
-            String outcome) {
     }
 
     private record DefinitionRevision(UUID definitionId, int revision) {
