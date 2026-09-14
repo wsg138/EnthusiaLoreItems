@@ -89,8 +89,12 @@ jobs:
           test -n "${RELEASE_VERSION}"
           gradle --no-daemon :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies.txt
-          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$JAR"
+          mapfile -t JARS < <(
+            find plugin/build/libs -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-plain.jar' ! -name '*-sources.jar' -print | sort
+          )
+          test "${#JARS[@]}" -eq 1
+          JAR="${JARS[0]}"
           mkdir -p /tmp/rc-first
           cp "$JAR" /tmp/rc-first/EnthusiaLoreItems.jar
           python3 tools/prepare_rc_artifacts.py \
@@ -133,8 +137,12 @@ jobs:
           test -n "${RELEASE_VERSION}"
           gradle --no-daemon clean :plugin:shadowJar
           gradle --no-daemon :plugin:dependencies --configuration runtimeClasspath > /tmp/gradle-dependencies-second.txt
-          JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$JAR"
+          mapfile -t JARS < <(
+            find plugin/build/libs -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-plain.jar' ! -name '*-sources.jar' -print | sort
+          )
+          test "${#JARS[@]}" -eq 1
+          JAR="${JARS[0]}"
           mkdir -p /tmp/rc-second
           cp "$JAR" /tmp/rc-second/EnthusiaLoreItems.jar
           python3 tools/prepare_rc_artifacts.py \
@@ -144,6 +152,8 @@ jobs:
             --version "${RELEASE_VERSION}"
           diff -u /tmp/rc-first/normalized-entry-manifest.txt /tmp/rc-second/normalized-entry-manifest.txt
           diff -u /tmp/rc-first/EnthusiaLoreItems.jar.sha256 /tmp/rc-second/EnthusiaLoreItems.jar.sha256
+          diff -u /tmp/rc-first/gradle-dependencies.txt /tmp/rc-second/gradle-dependencies.txt
+          diff -u /tmp/rc-first/bom.cyclonedx.json /tmp/rc-second/bom.cyclonedx.json
       - name: Upload WP-05 verification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
