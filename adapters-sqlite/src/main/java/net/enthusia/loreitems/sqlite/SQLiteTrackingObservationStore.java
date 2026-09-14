@@ -73,7 +73,12 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
                     "The durable instance is not active.");
         }
-        if (!identityMatches(connection, instance, request)) {
+        if (!SQLiteTrackingRevisionCompatibility.matches(
+                connection,
+                instance.definitionId(),
+                instance.appliedRevision(),
+                instance.desiredRevision(),
+                request)) {
             return recordIdentityMismatch(connection, request, instance, observedAt);
         }
         CurrentRow current = findCurrent(connection, request);
@@ -95,41 +100,6 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         return request.presence() == TrackingObservationUseCase.Presence.PRESENT
                 ? recordPresent(connection, request, current, observedAt)
                 : recordLastConfirmed(connection, request, current, observedAt);
-    }
-
-    private static boolean identityMatches(
-            Connection connection,
-            InstanceRow instance,
-            TrackingObservationUseCase.Request request) throws SQLException {
-        if (!instance.definitionId().equals(
-                request.identity().definitionId().value().toString())) {
-            return false;
-        }
-        long observedRevision = request.identity().appliedRevision().value();
-        if (instance.appliedRevision() == observedRevision) {
-            return true;
-        }
-        return instance.desiredRevision() == observedRevision
-                && hasRecoverableTemplateUpdate(
-                        connection, request, instance.definitionId(), observedRevision);
-    }
-
-    private static boolean hasRecoverableTemplateUpdate(
-            Connection connection,
-            TrackingObservationUseCase.Request request,
-            String definitionId,
-            long desiredRevision) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM pending_mutations WHERE mutation_type = 'TEMPLATE_UPDATE' "
-                        + "AND definition_id = ? AND instance_id = ? AND desired_revision = ? "
-                        + "AND state IN ('PENDING', 'CLAIMED', 'REVIEW_REQUIRED') LIMIT 1")) {
-            statement.setString(1, definitionId);
-            statement.setString(2, request.identity().instanceId().value().toString());
-            statement.setLong(3, desiredRevision);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next();
-            }
-        }
     }
 
     private static TrackingObservationUseCase.Result recordIdentityMismatch(
