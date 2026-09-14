@@ -20,9 +20,7 @@ import net.enthusia.loreitems.application.VoidLossUseCase;
 import org.bukkit.Material;
 import org.bukkit.block.Crafter;
 import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
-import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Piglin;
 import org.bukkit.entity.Player;
@@ -45,7 +43,6 @@ import org.bukkit.event.hanging.HangingPlaceEvent;
 import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -61,7 +58,6 @@ import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -95,18 +91,11 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             "SLIME_BALL",
             "WHEAT",
             "WOLF_ARMOR");
-    private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
-        EquipmentSlot.HAND,
-        EquipmentSlot.OFF_HAND,
-        EquipmentSlot.FEET,
-        EquipmentSlot.LEGS,
-        EquipmentSlot.CHEST,
-        EquipmentSlot.HEAD
-    };
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
     private final PaperTrackedItemCollector itemCollector = new PaperTrackedItemCollector();
+    private final PaperCreativeIdentityProtection creativeIdentityProtection;
     private final PaperVoidLossCoordinator voidLossCoordinator;
     private final BooleanSupplier sharedContainersAllowedSupplier;
 
@@ -143,6 +132,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         this.identityCodec = new PaperItemIdentityCodec();
         this.sharedContainersAllowedSupplier = Objects.requireNonNull(
                 sharedContainersAllowedSupplier, "sharedContainersAllowedSupplier");
+        this.creativeIdentityProtection = new PaperCreativeIdentityProtection(itemCollector);
         this.voidLossCoordinator = new PaperVoidLossCoordinator(
                 plugin,
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
@@ -246,32 +236,28 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreativeClone(InventoryClickEvent event) {
-        if (event.getAction() == InventoryAction.CLONE_STACK
-                && hasLoreIdentityEvidenceInTree(event.getCurrentItem())) {
+        if (creativeIdentityProtection.shouldCancelClone(event)) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreativeInventoryMutation(InventoryCreativeEvent event) {
-        if (hasLoreIdentityEvidenceInTree(event.getCurrentItem())
-                || hasLoreIdentityEvidenceInTree(event.getCursor())) {
+        if (creativeIdentityProtection.shouldCancelInventoryMutation(event)) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreativePickBlock(PlayerPickBlockEvent event) {
-        if (event.isIncludeData()
-                && event.getBlock().getState() instanceof InventoryHolder holder
-                && containsLoreIdentityEvidenceInTree(holder.getInventory())) {
+        if (creativeIdentityProtection.shouldCancelPickBlock(event)) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreativePickEntity(PlayerPickEntityEvent event) {
-        if (entityContainsLoreIdentityEvidence(event.getEntity())) {
+        if (creativeIdentityProtection.shouldCancelPickEntity(event)) {
             event.setCancelled(true);
         }
     }
@@ -520,37 +506,6 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             }
         }
         return false;
-    }
-
-    private boolean containsLoreIdentityEvidenceInTree(Inventory inventory) {
-        for (ItemStack item : inventory.getContents()) {
-            if (hasLoreIdentityEvidenceInTree(item)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean entityContainsLoreIdentityEvidence(Entity entity) {
-        if (entity instanceof Item item) {
-            return hasLoreIdentityEvidenceInTree(item.getItemStack());
-        }
-        if (entity instanceof ItemFrame frame) {
-            return hasLoreIdentityEvidenceInTree(frame.getItem());
-        }
-        if (entity instanceof ItemDisplay display) {
-            return hasLoreIdentityEvidenceInTree(display.getItemStack());
-        }
-        if (entity instanceof ArmorStand stand) {
-            for (EquipmentSlot slot : ARMOR_STAND_SLOTS) {
-                if (hasLoreIdentityEvidenceInTree(stand.getEquipment().getItem(slot))) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        return entity instanceof InventoryHolder holder
-                && containsLoreIdentityEvidenceInTree(holder.getInventory());
     }
 
     private boolean hasLoreIdentityEvidence(ItemStack item) {
