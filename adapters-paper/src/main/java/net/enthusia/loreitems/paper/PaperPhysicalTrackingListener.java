@@ -17,7 +17,7 @@ import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import org.bukkit.Chunk;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
-import org.bukkit.block.Container;
+import org.bukkit.block.InventoryHolder;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -40,8 +40,6 @@ import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -62,6 +60,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
     private final PaperDeferredMainThreadActions deferredActions;
+    private final PaperBlockInventoryTracking blockInventoryTracking;
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
 
@@ -89,6 +88,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
+        this.blockInventoryTracking = new PaperBlockInventoryTracking(
+                plugin, scanner, deferredActions, MAX_ITEMS_PER_SCAN);
         currentBudget();
     }
 
@@ -230,58 +231,17 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        BlockState state = event.getBlock().getState();
-        if (state instanceof InventoryHolder holder) {
-            scanBlockInventory(
-                    holder.getInventory(),
-                    TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                    "container-break",
-                    new PaperScanLimit(MAX_ITEMS_PER_SCAN));
-        }
+        blockInventoryTracking.onBlockBreak(event);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (!(event.getBlockPlaced().getState() instanceof InventoryHolder holder)) {
-            return;
-        }
-        Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItemInHand());
-        if (identities.isEmpty()) {
-            return;
-        }
-        Optional<PaperPhysicalInventorySnapshot> destination =
-                PaperPhysicalInventorySnapshot.capture(holder.getInventory());
-        scheduleNextTick(() -> {
-            submitMatchingIdentities(destination, identities, "container-place-destination");
-            scanReference(destination, "container-place-destination");
-        });
+        blockInventoryTracking.onBlockPlace(event);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSpecialBlockInventoryInteract(PlayerInteractEvent event) {
-        if (event.getClickedBlock() == null) {
-            return;
-        }
-        BlockState state = event.getClickedBlock().getState();
-        if (!(state instanceof InventoryHolder holder) || state instanceof Container) {
-            return;
-        }
-        Inventory inventory = holder.getInventory();
-        Optional<PaperPhysicalInventorySnapshot> snapshot =
-                PaperPhysicalInventorySnapshot.capture(inventory);
-        snapshot.ifPresent(reference -> scanner.scanInventory(
-                inventory,
-                reference.type(),
-                reference.key(),
-                TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                "special-container-interact-source"));
-        Set<LoreItemIdentity> heldIdentities = scanner.trackedIdentities(event.getItem());
-        scheduleNextTick(() -> {
-            submitMatchingIdentities(
-                    snapshot, heldIdentities, "special-container-interact-destination");
-            scanReference(snapshot, "special-container-interact-destination");
-        });
+        blockInventoryTracking.onSpecialBlockInventoryInteract(event);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -520,27 +480,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     source + "-container",
                     limit);
         }
-    }
-
-    private void scanBlockInventory(
-            Inventory inventory,
-            TrackingObservationUseCase.Presence presence,
-            String source,
-            PaperScanLimit limit) {
-        Optional<PaperPhysicalInventorySnapshot> snapshot =
-                PaperPhysicalInventorySnapshot.capture(inventory);
-        if (snapshot.isEmpty() || !limit.tryConsume()) {
-            return;
-        }
-        PaperPhysicalInventorySnapshot reference = snapshot.orElseThrow();
-        scanner.scanInventory(
-                inventory,
-                reference.type(),
-                reference.key(),
-                presence,
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                source,
-                limit);
     }
 
     private void scheduleNextTick(Runnable action) {
