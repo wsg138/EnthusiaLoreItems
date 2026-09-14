@@ -5,7 +5,6 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,9 +49,6 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
     private static final int MAX_IDENTITIES_PER_WORK = 16;
     private static final String ITEM_FRAME_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
-    private static final Object REGISTRY_LOCK = new Object();
-    private static final Map<Plugin, Set<PaperDisplayItemListener>> ACTIVE_LISTENERS =
-            new IdentityHashMap<>();
     private static final EquipmentSlot[] ARMOR_STAND_SLOTS = {
         EquipmentSlot.HAND,
         EquipmentSlot.OFF_HAND,
@@ -95,44 +91,11 @@ public final class PaperDisplayItemListener implements Listener, AutoCloseable {
         this.maxInFlightSupplier = Objects.requireNonNull(
                 maxInFlightSupplier, "maxInFlightSupplier");
         currentMaxInFlight();
-        registerListener();
+        PaperDisplayListenerRegistry.register(plugin, quiesced);
     }
 
     static CompletionStage<Void> quiescenceFor(Plugin plugin) {
-        Objects.requireNonNull(plugin, "plugin");
-        CompletableFuture<?>[] barriers;
-        synchronized (REGISTRY_LOCK) {
-            Set<PaperDisplayItemListener> listeners = ACTIVE_LISTENERS.get(plugin);
-            if (listeners == null || listeners.isEmpty()) {
-                return CompletableFuture.completedFuture(null);
-            }
-            barriers = listeners.stream()
-                    .map(listener -> listener.quiesced)
-                    .toArray(CompletableFuture[]::new);
-        }
-        return CompletableFuture.allOf(barriers);
-    }
-
-    private void registerListener() {
-        synchronized (REGISTRY_LOCK) {
-            ACTIVE_LISTENERS
-                    .computeIfAbsent(plugin, ignored -> new HashSet<>())
-                    .add(this);
-        }
-        quiesced.whenComplete((ignored, failure) -> unregisterListener());
-    }
-
-    private void unregisterListener() {
-        synchronized (REGISTRY_LOCK) {
-            Set<PaperDisplayItemListener> listeners = ACTIVE_LISTENERS.get(plugin);
-            if (listeners == null) {
-                return;
-            }
-            listeners.remove(this);
-            if (listeners.isEmpty()) {
-                ACTIVE_LISTENERS.remove(plugin);
-            }
-        }
+        return PaperDisplayListenerRegistry.quiescenceFor(plugin);
     }
 
     public void start() {
