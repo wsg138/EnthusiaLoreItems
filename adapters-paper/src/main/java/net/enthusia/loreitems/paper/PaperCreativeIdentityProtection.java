@@ -1,5 +1,7 @@
 package net.enthusia.loreitems.paper;
 
+import io.papermc.paper.event.player.PlayerPickBlockEvent;
+import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
@@ -9,8 +11,6 @@ import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCreativeEvent;
-import org.bukkit.event.player.PlayerPickBlockEvent;
-import org.bukkit.event.player.PlayerPickEntityEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
