@@ -316,23 +316,20 @@ PY
 
 touch "$ROOT/go-track3-pickup"
 wait_marker track3-pickup-done 160
-# The bot still carries an obsolete spawn-relative helper command from the earlier harness design.
 # Move world spawn away immediately after pickup so the display chunk is held only by ordinary player
 # presence during placement and can unload naturally once the player leaves.
 echo 'setworldspawn 256 70 0' >&3
 sleep .5
 
-# Create empty fixtures only. The real client moves each tracked instance into the entity so normal
-# PlayerItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
+# The real client places each frame fixture against a support block, then moves the tracked instance
+# into it so PaperItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
 echo 'setblock 72 71 1 minecraft:stone' >&3
-echo 'summon minecraft:item_frame 72 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
 touch "$ROOT/go-track3-frame"
 wait_marker track3-frame-done 160
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
 echo 'setblock 74 71 1 minecraft:stone' >&3
-echo 'summon minecraft:glow_item_frame 74 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
 touch "$ROOT/go-track3-glowframe"
 wait_marker track3-glowframe-done 160
 
