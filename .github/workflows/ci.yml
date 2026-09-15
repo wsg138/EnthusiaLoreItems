@@ -73,7 +73,12 @@ jobs:
           git worktree add --detach .lizard-base "${BASE_SHA}"
           python3 -m venv .lizard-venv
           .lizard-venv/bin/pip install --disable-pip-version-check lizard==1.23.0
-          .lizard-venv/bin/python tools/check_lizard.py .lizard-base .lizard-files
+          set +e
+          .lizard-venv/bin/python tools/check_lizard.py .lizard-base .lizard-files 2>&1 \
+            | tee /tmp/loreitems-test-reports/lizard.txt
+          LIZARD_STATUS=${PIPESTATUS[0]}
+          set -e
+          exit "${LIZARD_STATUS}"
       - name: Verify exact-head Codacy
         if: github.event_name == 'pull_request'
         env:
