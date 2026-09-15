@@ -41,6 +41,9 @@ jobs:
           echo "44240e9996f4fcf5690d6bd3ac4563c426d79f1dbd753f091ffa42b6919a66cb  /tmp/pr30-codacy-repair.patch.gz" | sha256sum --check -
           gzip --decompress --stdout /tmp/pr30-codacy-repair.patch.gz > /tmp/pr30-codacy-repair.patch
           echo "d0c7e24c4e52a00e7f2a57ab0189c9e24a95847987f4ff80d47ef95c0566068b  /tmp/pr30-codacy-repair.patch" | sha256sum --check -
+          git apply --numstat /tmp/pr30-codacy-repair.patch | cut -f3- | sort -u > /tmp/expected-repair-paths
+          printf '%s\n' '.github/workflows/codacy-pr30-evidence.yml' >> /tmp/expected-repair-paths
+          sort -u -o /tmp/expected-repair-paths /tmp/expected-repair-paths
           git apply --check /tmp/pr30-codacy-repair.patch
           git apply /tmp/pr30-codacy-repair.patch
           rm .github/workflows/codacy-pr30-evidence.yml
@@ -62,8 +65,20 @@ jobs:
           python3 -m venv .lizard-venv
           .lizard-venv/bin/pip install --disable-pip-version-check lizard==1.23.0
           .lizard-venv/bin/python tools/check_lizard.py .lizard-base .lizard-files
+      - name: Clean validation artifacts and verify staged scope
+        run: |
+          set -euo pipefail
+          git worktree remove --force .lizard-base
+          rm -rf .lizard-venv
           rm -f .lizard-files
-      - name: Commit validated repair to staging ref
+          find . -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          git clean -fdX
+          git diff --name-only HEAD | sort -u > /tmp/actual-repair-paths
+          diff -u /tmp/expected-repair-paths /tmp/actual-repair-paths
+          test -z "$(git ls-files --others --exclude-standard)"
+          git diff --check
+      - name: Commit validated repair to clean staging ref
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -74,5 +89,5 @@ jobs:
           git add -A
           git commit -m "fix: clear Codacy pre-freeze findings"
           REPAIR_SHA="$(git rev-parse HEAD)"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" "HEAD:refs/heads/pr30-codacy-repair-staging"
-          printf 'Validated repair staged at %s\n' "${REPAIR_SHA}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" "HEAD:refs/heads/pr30-codacy-repair-staging-v2"
+          printf 'Validated clean repair staged at %s\n' "${REPAIR_SHA}"
