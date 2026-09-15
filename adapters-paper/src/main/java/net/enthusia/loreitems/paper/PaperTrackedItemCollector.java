@@ -102,25 +102,29 @@ final class PaperTrackedItemCollector {
     }
 
     private boolean hasIdentityEvidence(ItemStack item, int depth) {
-        if (item == null || item.getType().isAir()) {
+        if (!scannable(item)) {
             return false;
         }
         if (identityCodec.hasIdentityEvidence(item)) {
             return true;
         }
-        if (depth >= MAX_NESTING_DEPTH) {
-            return false;
-        }
-        ItemMeta meta = item.getItemMeta();
+        return depth < MAX_NESTING_DEPTH
+                && hasNestedIdentityEvidence(item.getItemMeta(), depth);
+    }
+
+    private boolean hasNestedIdentityEvidence(ItemMeta meta, int depth) {
         if (meta instanceof BlockStateMeta blockMeta
                 && hasIdentityEvidence(blockMeta.getBlockState(), depth)) {
             return true;
         }
-        if (meta instanceof BundleMeta bundle) {
-            for (ItemStack nested : bundle.getItems()) {
-                if (hasIdentityEvidence(nested, depth + 1)) {
-                    return true;
-                }
+        return meta instanceof BundleMeta bundle
+                && bundleHasIdentityEvidence(bundle, depth);
+    }
+
+    private boolean bundleHasIdentityEvidence(BundleMeta bundle, int depth) {
+        for (ItemStack nested : bundle.getItems()) {
+            if (hasIdentityEvidence(nested, depth + 1)) {
+                return true;
             }
         }
         return false;

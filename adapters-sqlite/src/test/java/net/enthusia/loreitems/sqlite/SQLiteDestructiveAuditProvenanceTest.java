@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteDestructiveAuditProvenanceTest {
+    private static final String AUDIT_ACTOR_QUERY =
+            "SELECT actor_type, actor_id FROM audit_events "
+                    + "WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?";
     @TempDir
     Path temporaryDirectory;
 
@@ -60,9 +63,7 @@ class SQLiteDestructiveAuditProvenanceTest {
             UUID operationId,
             String expectedActorType,
             String expectedActorId) throws Exception {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT actor_type, actor_id FROM audit_events "
-                        + "WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement(AUDIT_ACTOR_QUERY)) {
             statement.setString(1, operationId.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
                 resultSet.next();

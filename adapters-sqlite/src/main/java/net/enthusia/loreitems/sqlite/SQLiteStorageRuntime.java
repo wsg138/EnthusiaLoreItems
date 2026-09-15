@@ -25,7 +25,7 @@ public final class SQLiteStorageRuntime {
             MigrationRunner migrationRunner,
             BoundedDatabaseExecutor executor,
             MetricsPort metrics) {
-        this(connectionProvider(connectionFactory), migrationRunner, executor, metrics);
+        this(createConnectionProvider(connectionFactory), migrationRunner, executor, metrics);
     }
 
     SQLiteStorageRuntime(
@@ -146,7 +146,7 @@ public final class SQLiteStorageRuntime {
         }
     }
 
-    private static ConnectionProvider connectionProvider(SQLiteConnectionFactory connectionFactory) {
+    private static ConnectionProvider createConnectionProvider(SQLiteConnectionFactory connectionFactory) {
         Objects.requireNonNull(connectionFactory, "connectionFactory");
         return connectionFactory::open;
     }

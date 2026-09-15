@@ -156,7 +156,7 @@ class PaperCreativeCloneProtectionTest {
 
     private static Block inventoryBlock(Inventory inventory) {
         BlockState state = (BlockState) Proxy.newProxyInstance(
-                PaperCreativeCloneProtectionTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {BlockState.class, InventoryHolder.class},
                 (proxy, method, args) -> {
                     if (method.getName().equals("getInventory")) {
@@ -165,7 +165,7 @@ class PaperCreativeCloneProtectionTest {
                     return objectMethodOrFail(proxy, method.getName(), args);
                 });
         return (Block) Proxy.newProxyInstance(
-                PaperCreativeCloneProtectionTest.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {Block.class},
                 (proxy, method, args) -> {
                     if (method.getName().equals("getState")) {
@@ -179,7 +179,7 @@ class PaperCreativeCloneProtectionTest {
         return switch (methodName) {
             case "hashCode" -> System.identityHashCode(proxy);
             case "toString" -> "inventory-block-test-double";
-            case "equals" -> proxy == args[0];
+            case "equals" -> proxy == args[0]; // NOPMD - proxy identity
             default -> throw new AssertionError("Unexpected test-double call: " + methodName);
         };
     }

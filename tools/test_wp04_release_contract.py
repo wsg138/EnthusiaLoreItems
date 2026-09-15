@@ -88,15 +88,18 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\."
             "(0|[1-9][0-9]*)$"
         )
+        self.assert_production_version_resolution(release, strict_semver)
+        self.assert_publication_state_contract(release, resolver)
+        self.assert_verified_release_publication(release)
+        self.assert_ci_release_provenance(ci, strict_semver)
+
+    def assert_production_version_resolution(self, release, strict_semver):
         self.assertIn("workflows:\n      - CI", release)
         self.assertIn("workflow_run.event == 'push'", release)
         self.assertIn("head_branch == 'main'", release)
         self.assertIn("EVENT_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}", release)
         self.assertNotIn("actions/checkout", release)
-        self.assertIn(
-            "contents/gradle.properties?ref=${EVENT_TARGET_SHA}",
-            release,
-        )
+        self.assertIn("contents/gradle.properties?ref=${EVENT_TARGET_SHA}", release)
         self.assertIn(strict_semver, release)
         self.assertIn('echo "release_version=${RELEASE_VERSION}"', release)
         self.assertIn('echo "final_tag=v${RELEASE_VERSION}"', release)
@@ -111,10 +114,11 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         )
         self.assertIn("--jq '.content' | base64 --decode", release)
         self.assertIn('bash "${RESOLVER}"', release)
+
+    def assert_publication_state_contract(self, release, resolver):
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', resolver)
         self.assertIn(
-            'gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}"',
-            resolver,
+            'gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}"', resolver
         )
         self.assertIn("RELEASE_LOOKUP_ERROR=", resolver)
         self.assertIn("RELEASE_LOOKUP_STATUS=$?", resolver)
@@ -129,11 +133,19 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         )
         self.assertIn('echo "release_draft=${RELEASE_DRAFT}"', resolver)
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', resolver)
+        self.assertIn("RELEASE_READY=", release)
+        self.assertIn("ACCEPTED_SOURCE_HEAD=", release)
+        self.assertIn("ACCEPTED_JAR_SHA=", release)
+        self.assertIn('test "${RELEASE_READY}" = "APPROVED"', release)
+        self.assertIn('test "${ACCEPTED_SOURCE_HEAD}" = "${TARGET_SHA}"', release)
+        self.assertIn('test "${ACCEPTED_JAR_SHA}" = "${JAR_SHA}"', release)
+
+    def assert_verified_release_publication(self, release):
         self.assertIn("gh run download", release)
         self.assertIn("wp04-verification-${TARGET_SHA}", release)
         self.assertIn('ref="refs/tags/${FINAL_TAG}"', release)
         self.assertIn('sha="${TARGET_SHA}"', release)
-        self.assertIn("--target \"${TARGET_SHA}\"", release)
+        self.assertIn('--target "${TARGET_SHA}"', release)
         self.assertIn("Reset interrupted draft release", release)
         self.assertIn(
             'gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}"',
@@ -152,51 +164,45 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("-F prerelease=false", release)
         self.assertNotIn("--prerelease", release)
         self.assertNotIn("gradle --no-daemon", release)
-        self.assertIn("RELEASE_READY=", release)
-        self.assertIn("ACCEPTED_SOURCE_HEAD=", release)
-        self.assertIn("ACCEPTED_JAR_SHA=", release)
-        self.assertIn('test "${RELEASE_READY}" = "APPROVED"', release)
-        self.assertIn('test "${ACCEPTED_SOURCE_HEAD}" = "${TARGET_SHA}"', release)
-        self.assertIn('test "${ACCEPTED_JAR_SHA}" = "${JAR_SHA}"', release)
+        for asset in self.production_release_assets():
+            self.assertIn(asset, release)
+
+    def assert_ci_release_provenance(self, ci, strict_semver):
         self.assertIn("STATIC_RELEASE_READY=", ci)
         self.assertIn("release_ready: %s", ci)
         self.assertIn("release_source_head: %s", ci)
         self.assertIn("release_jar_sha256: %s", ci)
         self.assertIn(strict_semver, ci)
+        self.assertIn('git show "${RELEASE_SOURCE_HEAD}:gradle.properties"', ci)
         self.assertIn(
-            'git show "${RELEASE_SOURCE_HEAD}:gradle.properties"',
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}.md"', ci
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}-rollback.md"', ci
+        )
+        self.assertIn(
+            'git show "${RELEASE_SOURCE_HEAD}:docs/wp-05-acceptance/index.md"', ci
+        )
+        self.assertIn(
+            "cp /tmp/release-source/release-notes.md /tmp/rc-first/release-notes.md", ci
+        )
+        self.assertIn(
+            "cp /tmp/release-source/rollback-instructions.md "
+            "/tmp/rc-first/rollback-instructions.md",
             ci,
         )
         self.assertIn(
-            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}.md"',
-            ci,
-        )
-        self.assertIn(
-            'git show "${RELEASE_SOURCE_HEAD}:docs/releases/v${RELEASE_VERSION}-rollback.md"',
-            ci,
-        )
-        self.assertIn(
-            'git show "${RELEASE_SOURCE_HEAD}:docs/wp-05-acceptance/index.md"',
-            ci,
-        )
-        self.assertIn(
-            "cp /tmp/release-source/release-notes.md /tmp/rc-first/release-notes.md",
-            ci,
-        )
-        self.assertIn(
-            "cp /tmp/release-source/rollback-instructions.md /tmp/rc-first/rollback-instructions.md",
-            ci,
-        )
-        self.assertIn(
-            "cp /tmp/release-source/acceptance-index.md /tmp/rc-first/acceptance-index.md",
-            ci,
+            "cp /tmp/release-source/acceptance-index.md /tmp/rc-first/acceptance-index.md", ci
         )
         self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}.md"', ci)
         self.assertNotIn('cp "docs/releases/v${RELEASE_VERSION}-rollback.md"', ci)
         self.assertNotIn('test "${RELEASE_VERSION}" = "1.0.0"', ci)
         self.assertIn('--version "${RELEASE_VERSION}"', ci)
         self.assertIn("Verify release publication-state behavior", ci)
-        for asset in [
+
+    @staticmethod
+    def production_release_assets():
+        return [
             "EnthusiaLoreItems.jar",
             "EnthusiaLoreItems.jar.sha256",
             "bom.cyclonedx.json",
@@ -206,8 +212,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "EnthusiaLoreItems-test-reports.tar.gz",
             "acceptance-index.md",
             "rollback-instructions.md",
-        ]:
-            self.assertIn(asset, release)
+        ]
 
     def test_patch_release_notes_and_rollback_are_present(self):
         for source in [

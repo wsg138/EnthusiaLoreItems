@@ -137,38 +137,46 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (!stopping) {
                 return true;
             }
-            if (!shutdownCleanupComplete
-                    || !lifecycleExecutor.isTerminated()
-                    || !LoreItemsShutdownSupport.trackingQuiesced(shutdownTrackingQuiescence)) {
+            if (!shutdownReadyForEnable()) {
                 return false;
             }
-            SQLiteStorageRuntime previousStorage = storageRuntime;
-            if (previousStorage != null && !previousStorage.isTerminated()) {
-                return false;
-            }
-            DistributionRuntime previousDistribution = distributionRuntime;
-            if (previousDistribution != null && !previousDistribution.isTerminated()) {
-                return false;
-            }
-            startupConfigurationGate.reset();
-            storageRuntime = null;
-            directDeliveryWorker = null;
-            mutationRecoveryWorker = null;
-            protectionListener = null;
-            displayItemListener = null;
-            physicalTrackingListener = null;
-            uniqueAccessTrackingListener = null;
-            identityAnomalyListener = null;
-            anomalyWarningWorker = null;
-            templateRevisionPlannerWorker = null;
-            administrationCommandExecutor = null;
-            distributionRuntime = null;
-            pendingReloads.clear();
-            shutdownTrackingQuiescence = CompletableFuture.completedFuture(null);
-            lifecycleExecutor = LoreItemsShutdownSupport.createLifecycleExecutor();
-            stopping = false;
+            resetAfterShutdown();
             return true;
         }
+    }
+
+    private boolean shutdownReadyForEnable() {
+        if (!shutdownCleanupComplete
+                || !lifecycleExecutor.isTerminated()
+                || !LoreItemsShutdownSupport.trackingQuiesced(shutdownTrackingQuiescence)) {
+            return false;
+        }
+        SQLiteStorageRuntime previousStorage = storageRuntime;
+        if (previousStorage != null && !previousStorage.isTerminated()) {
+            return false;
+        }
+        DistributionRuntime previousDistribution = distributionRuntime;
+        return previousDistribution == null || previousDistribution.isTerminated();
+    }
+
+    private void resetAfterShutdown() {
+        startupConfigurationGate.reset();
+        storageRuntime = null;
+        directDeliveryWorker = null;
+        mutationRecoveryWorker = null;
+        protectionListener = null;
+        displayItemListener = null;
+        physicalTrackingListener = null;
+        uniqueAccessTrackingListener = null;
+        identityAnomalyListener = null;
+        anomalyWarningWorker = null;
+        templateRevisionPlannerWorker = null;
+        administrationCommandExecutor = null;
+        distributionRuntime = null;
+        pendingReloads.clear();
+        shutdownTrackingQuiescence = CompletableFuture.completedFuture(null);
+        lifecycleExecutor = LoreItemsShutdownSupport.createLifecycleExecutor();
+        stopping = false;
     }
 
     private void registerCommands() {

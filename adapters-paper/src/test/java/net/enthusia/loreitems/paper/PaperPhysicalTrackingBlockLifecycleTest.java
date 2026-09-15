@@ -46,7 +46,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
 
     private ServerMock server;
     private PluginMock plugin;
-    private PaperPhysicalTrackingListener listener;
+    private PaperPhysicalTrackingListener trackingListener;
 
     @BeforeEach
     void setUp() {
@@ -56,8 +56,8 @@ class PaperPhysicalTrackingBlockLifecycleTest {
 
     @AfterEach
     void tearDown() {
-        if (listener != null) {
-            listener.close();
+        if (trackingListener != null) {
+            trackingListener.close();
         }
         MockBukkit.unmock();
     }
@@ -65,14 +65,14 @@ class PaperPhysicalTrackingBlockLifecycleTest {
     @Test
     void nonContainerBlockInventoryIsIncludedInChunkReconciliation() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        listener = listener(observed);
+        trackingListener = createListener(observed);
         World world = server.addSimpleWorld("world");
         Location canonicalLocation = new Location(world, 10, 64, 10);
         Inventory inventory = inventory(canonicalLocation, trackedItem());
         BlockState holder = blockHolder(InventoryHolder.class, canonicalLocation, inventory);
         Chunk chunk = chunk(holder);
 
-        listener.scanChunk(
+        trackingListener.scanChunk(
                 chunk,
                 TrackingObservationUseCase.Presence.PRESENT,
                 "test-non-container");
@@ -87,7 +87,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
     @Test
     void sharedDoubleChestInventoryIsScannedOnceAtCanonicalInventoryLocation() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
-        listener = listener(observed);
+        trackingListener = createListener(observed);
         World world = server.addSimpleWorld("world");
         Location canonicalLocation = new Location(world, 21, 64, 20);
         Inventory sharedInventory = inventory(canonicalLocation, trackedItem());
@@ -96,7 +96,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
         BlockState right = blockHolder(
                 Container.class, new Location(world, 21, 64, 20), sharedInventory);
 
-        listener.scanChunk(
+        trackingListener.scanChunk(
                 chunk(left, right),
                 TrackingObservationUseCase.Presence.PRESENT,
                 "test-double-chest");
@@ -117,7 +117,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
         assertEquals(EventPriority.MONITOR, handler.priority());
     }
 
-    private PaperPhysicalTrackingListener listener(
+    private PaperPhysicalTrackingListener createListener(
             List<TrackingObservationUseCase.Request> observed) {
         TrackingObservationUseCase useCase = request -> {
             observed.add(request);
@@ -138,11 +138,16 @@ class PaperPhysicalTrackingBlockLifecycleTest {
                     case "getLocation" -> location;
                     case "getContents" -> contents.clone();
                     case "getSize" -> contents.length;
-                    case "getItem" -> arguments != null && arguments.length == 1
-                            ? contents[(Integer) arguments[0]]
-                            : null;
+                    case "getItem" -> inventoryItem(contents, arguments);
                     default -> objectMethod(proxy, method, arguments);
                 });
+    }
+
+    private static ItemStack inventoryItem(ItemStack[] contents, Object[] arguments) {
+        if (arguments == null || arguments.length != 1) {
+            return null;
+        }
+        return contents[(Integer) arguments[0]];
     }
 
     private static BlockState blockHolder(
@@ -185,7 +190,7 @@ class PaperPhysicalTrackingBlockLifecycleTest {
         return switch (method) {
             case "toString" -> "test-proxy";
             case "hashCode" -> System.identityHashCode(proxy);
-            case "equals" -> arguments.length == 1 && proxy == arguments[0];
+            case "equals" -> arguments.length == 1 && proxy == arguments[0]; // NOPMD - proxy identity
             default -> throw new UnsupportedOperationException(method);
         };
     }

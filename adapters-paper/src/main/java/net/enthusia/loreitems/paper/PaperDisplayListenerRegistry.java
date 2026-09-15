@@ -12,6 +12,7 @@ import org.bukkit.plugin.Plugin;
 /** Tracks display-observation shutdown barriers without coupling registry state to event handling. */
 final class PaperDisplayListenerRegistry {
     private static final Object LOCK = new Object();
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Guarded by LOCK; plugin keys require identity semantics.
     private static final Map<Plugin, Set<CompletableFuture<Void>>> BARRIERS =
             new IdentityHashMap<>();
 
