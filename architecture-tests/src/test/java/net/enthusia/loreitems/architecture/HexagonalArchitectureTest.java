@@ -71,10 +71,19 @@ class HexagonalArchitectureTest {
                     .haveSimpleName("PaperUniqueAccessTrackingListener");
 
     @ArchTest
-    static final ArchRule PLUGIN_DEPENDS_ON_SQLITE_TRACKING_STORE =
+    static final ArchRule PLUGIN_DEPENDS_ON_STORAGE_SERVICES =
             classes()
                     .that()
                     .haveSimpleName("LoreItemsPlugin")
+                    .should()
+                    .dependOnClassesThat()
+                    .haveSimpleName("LoreItemsStorageServices");
+
+    @ArchTest
+    static final ArchRule STORAGE_SERVICES_DEPEND_ON_SQLITE_TRACKING_STORE =
+            classes()
+                    .that()
+                    .haveSimpleName("LoreItemsStorageServices")
                     .should()
                     .dependOnClassesThat()
                     .haveSimpleName("SQLiteTrackingObservationStore");
