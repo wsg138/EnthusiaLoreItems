@@ -1,5 +1,7 @@
 package net.enthusia.loreitems.sqlite;
 
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.appendAudit;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -11,7 +13,7 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 final class SQLiteTrackingIdentityMismatchSupport {
     private SQLiteTrackingIdentityMismatchSupport() {}
 
-    static void upsertIdentityMismatchAnomaly(
+    static void recordIdentityMismatchEvidence(
             Connection connection,
             TrackingObservationUseCase.Request request,
             String durableDefinitionId,
@@ -44,6 +46,12 @@ final class SQLiteTrackingIdentityMismatchSupport {
                         observedAt);
             }
         }
+        appendAudit(
+                connection,
+                request,
+                "tracking_identity_mismatch_fenced",
+                observedAt,
+                request.location());
     }
 
     private static void refreshIdentityMismatchAnomaly(
