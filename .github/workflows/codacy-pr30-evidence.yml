@@ -38,3 +38,46 @@ jobs:
           path: codacy-evidence/
           if-no-files-found: error
           retention-days: 3
+      - name: Check out exact failing source
+        uses: actions/checkout@v4
+        with:
+          ref: 62b649057dd12712b34b1dd909f49f343ea08a89
+      - name: Collect annotated source files
+        run: |
+          set -euo pipefail
+          mkdir -p codacy-source
+          while IFS= read -r path; do
+            mkdir -p "codacy-source/$(dirname "$path")"
+            cp "$path" "codacy-source/$path"
+          done <<'EOF'
+          .codacy.yml
+          adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDisplayListenerRegistry.java
+          adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperDistributionCampaignCoordinator.java
+          adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperPhysicalInventoryScanner.java
+          adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackedItemCollector.java
+          adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingCoordinator.java
+          adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperCreativeCloneProtectionTest.java
+          adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperDistributionRecipientBindingWorkerTest.java
+          adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperPhysicalEntityScannerTest.java
+          adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperPhysicalTrackingBlockLifecycleTest.java
+          adapters-paper/src/test/java/net/enthusia/loreitems/paper/PaperTrackedItemConsumptiveBoundaryTest.java
+          adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteDestructiveAcceptanceStore.java
+          adapters-sqlite/src/main/java/net/enthusia/loreitems/sqlite/SQLiteStorageRuntime.java
+          adapters-sqlite/src/main/resources/db/migration/V10__item_display_observation_support.sql
+          adapters-sqlite/src/test/java/net/enthusia/loreitems/sqlite/SQLiteAuditRepositoryTest.java
+          adapters-sqlite/src/test/java/net/enthusia/loreitems/sqlite/SQLiteDestructiveAuditProvenanceTest.java
+          adapters-sqlite/src/test/java/net/enthusia/loreitems/sqlite/SQLiteExternalDeliveryRecoveryTest.java
+          adapters-sqlite/src/test/java/net/enthusia/loreitems/sqlite/SQLiteSchemaHealthVerifierTest.java
+          plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java
+          plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsShutdownSupport.java
+          tools/check_lizard.py
+          tools/prepare_rc_artifacts.py
+          tools/test_wp04_release_contract.py
+          EOF
+      - name: Upload annotated source
+        uses: actions/upload-artifact@v4
+        with:
+          name: codacy-pr30-source-62b649057dd12712b34b1dd909f49f343ea08a89
+          path: codacy-source/
+          if-no-files-found: error
+          retention-days: 3
