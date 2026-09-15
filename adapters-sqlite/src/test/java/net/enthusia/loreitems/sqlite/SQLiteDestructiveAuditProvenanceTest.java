@@ -61,10 +61,7 @@ class SQLiteDestructiveAuditProvenanceTest {
             String expectedActorType,
             String expectedActorId) throws Exception {
         try (PreparedStatement statement = connection.prepareStatement(
-                """
-                SELECT actor_type, actor_id FROM audit_events
-                WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?
-                """)) {
+                "SELECT actor_type, actor_id FROM audit_events WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?")) {
             statement.setString(1, operationId.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
                 resultSet.next();

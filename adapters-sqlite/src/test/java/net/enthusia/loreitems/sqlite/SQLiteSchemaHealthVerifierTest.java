@@ -104,11 +104,7 @@ class SQLiteSchemaHealthVerifierTest {
 
     private static void insertOrphanInstance(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                """
-                INSERT INTO lore_instances(instance_id, definition_id, applied_revision,
-                desired_revision, lifecycle_state, created_at, terminal_at)
-                VALUES (?, ?, 1, 1, 'ACTIVE', 1, NULL)
-                """)) {
+                "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, desired_revision, lifecycle_state, created_at, terminal_at) VALUES (?, ?, 1, 1, 'ACTIVE', 1, NULL)")) {
             statement.setString(1, ORPHAN_INSTANCE_ID);
             statement.setString(2, MISSING_DEFINITION_ID);
             statement.executeUpdate();
