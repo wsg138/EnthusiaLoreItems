@@ -6,6 +6,7 @@ import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.refres
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.samePhysicalEntity;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.setNullableString;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.upsertDuplicateAnomaly;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingIdentityMismatchSupport.upsertIdentityMismatchAnomaly;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -14,7 +15,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.TrackingObservationStore;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -138,7 +138,13 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     observationId,
                     observedAt);
         }
-        upsertIdentityMismatchAnomaly(connection, request, instance, current, observedAt);
+        upsertIdentityMismatchAnomaly(
+                connection,
+                request,
+                instance.definitionId(),
+                instance.appliedRevision(),
+                current.location(),
+                observedAt);
         appendAudit(
                 connection,
                 request,
@@ -149,75 +155,6 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
                 "The mismatched physical identity was preserved as conflicting evidence and "
                         + "fenced for staff review.");
-    }
-
-    private static void upsertIdentityMismatchAnomaly(
-            Connection connection,
-            TrackingObservationUseCase.Request request,
-            InstanceRow instance,
-            CurrentRow current,
-            long observedAt) throws SQLException {
-        String detail = identityMismatchDetail(request, instance, current);
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO instance_anomalies(anomaly_id, instance_id, definition_id, "
-                        + "anomaly_type, status, detail, first_seen_at, last_seen_at, "
-                        + "acknowledged_at, acknowledged_by, resolved_at, resolution_detail, "
-                        + "state_revision) VALUES (?, ?, ?, 'IDENTITY_MISMATCH', 'OPEN', ?, ?, ?, "
-                        + "NULL, NULL, NULL, NULL, 0) ON CONFLICT DO NOTHING")) {
-            statement.setString(1, UUID.randomUUID().toString());
-            statement.setString(2, request.identity().instanceId().value().toString());
-            statement.setString(3, instance.definitionId());
-            statement.setString(4, detail);
-            statement.setLong(5, observedAt);
-            statement.setLong(6, observedAt);
-            if (statement.executeUpdate() == 0) {
-                refreshIdentityMismatchAnomaly(
-                        connection, request, instance.definitionId(), detail, observedAt);
-            }
-        }
-    }
-
-    private static void refreshIdentityMismatchAnomaly(
-            Connection connection,
-            TrackingObservationUseCase.Request request,
-            String durableDefinitionId,
-            String detail,
-            long observedAt) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE instance_anomalies SET detail = ?, last_seen_at = ?, "
-                        + "state_revision = state_revision + 1 WHERE instance_id = ? "
-                        + "AND definition_id = ? AND anomaly_type = 'IDENTITY_MISMATCH' "
-                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') AND last_seen_at <= ?")) {
-            statement.setString(1, detail);
-            statement.setLong(2, observedAt);
-            statement.setString(3, request.identity().instanceId().value().toString());
-            statement.setString(4, durableDefinitionId);
-            statement.setLong(5, observedAt);
-            statement.executeUpdate();
-        }
-    }
-
-    private static String identityMismatchDetail(
-            TrackingObservationUseCase.Request request,
-            InstanceRow instance,
-            CurrentRow current) {
-        String previous = current.location() == null
-                ? "none"
-                : current.location().type().name() + ':' + current.location().locationKey()
-                        + (current.location().containerPath() == null
-                                ? ""
-                                : ':' + current.location().containerPath());
-        LocationDescriptor observed = request.location();
-        String observedLocation = observed.type().name() + ':' + observed.locationKey()
-                + (observed.containerPath() == null ? "" : ':' + observed.containerPath());
-        return "Identity mismatch observed at " + observedLocation
-                + "; previous durable location=" + previous
-                + "; durable definition=" + instance.definitionId()
-                + " revision=" + instance.appliedRevision()
-                + "; observed definition="
-                + request.identity().definitionId().value()
-                + " revision=" + request.identity().appliedRevision().value()
-                + ". Physical evidence was preserved and current state was fenced.";
     }
 
     private static TrackingObservationUseCase.Result recordPresent(
