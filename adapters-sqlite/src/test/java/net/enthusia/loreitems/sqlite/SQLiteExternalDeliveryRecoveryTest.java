@@ -163,7 +163,7 @@ class SQLiteExternalDeliveryRecoveryTest {
 
     private static int count(SQLiteStorageRuntime runtime, CountTable table) {
         return runtime.execute(connection -> {
-                    try (PreparedStatement statement = connection.prepareStatement(table.sql());
+                    try (PreparedStatement statement = connection.prepareStatement(table.query());
                             var resultSet = statement.executeQuery()) {
                         return resultSet.next() ? resultSet.getInt(1) : 0;
                     }
@@ -186,7 +186,7 @@ class SQLiteExternalDeliveryRecoveryTest {
             this.sql = sql;
         }
 
-        private String sql() {
+        private String query() {
             return sql;
         }
     }

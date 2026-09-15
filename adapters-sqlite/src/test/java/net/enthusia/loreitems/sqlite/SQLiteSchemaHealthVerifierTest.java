@@ -12,10 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteSchemaHealthVerifierTest {
-    private static final String ORPHAN_INSTANCE_INSERT =
-            "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, "
-                    + "desired_revision, lifecycle_state, created_at, terminal_at) "
-                    + "VALUES (?, ?, 1, 1, 'ACTIVE', 1, NULL)";
     private static final String ORPHAN_INSTANCE_ID =
             "10000000-0000-0000-0000-000000000001";
     private static final String MISSING_DEFINITION_ID =
@@ -107,7 +103,12 @@ class SQLiteSchemaHealthVerifierTest {
     }
 
     private static void insertOrphanInstance(Connection connection) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(ORPHAN_INSTANCE_INSERT)) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                """
+                INSERT INTO lore_instances(instance_id, definition_id, applied_revision,
+                desired_revision, lifecycle_state, created_at, terminal_at)
+                VALUES (?, ?, 1, 1, 'ACTIVE', 1, NULL)
+                """)) {
             statement.setString(1, ORPHAN_INSTANCE_ID);
             statement.setString(2, MISSING_DEFINITION_ID);
             statement.executeUpdate();
