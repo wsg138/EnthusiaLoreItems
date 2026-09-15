@@ -13,35 +13,36 @@ class LoreItemsPluginShutdownPolicyTest {
     void trackingDrainNeverUsesLessTimeThanConfiguredDatabaseDrain() {
         assertEquals(
                 Duration.ofSeconds(10),
-                LoreItemsPlugin.trackingShutdownTimeout(Duration.ofSeconds(10)));
+                LoreItemsShutdownSupport.trackingShutdownTimeout(Duration.ofSeconds(10)));
         assertEquals(
                 Duration.ofSeconds(60),
-                LoreItemsPlugin.trackingShutdownTimeout(Duration.ofSeconds(60)));
+                LoreItemsShutdownSupport.trackingShutdownTimeout(Duration.ofSeconds(60)));
     }
 
     @Test
     void trackingDrainRetainsFiveSecondMinimumForShortDatabaseDrain() {
         assertEquals(
                 Duration.ofSeconds(5),
-                LoreItemsPlugin.trackingShutdownTimeout(Duration.ofSeconds(1)));
+                LoreItemsShutdownSupport.trackingShutdownTimeout(Duration.ofSeconds(1)));
         assertEquals(
                 Duration.ofSeconds(5),
-                LoreItemsPlugin.trackingShutdownTimeout(Duration.ofSeconds(5)));
+                LoreItemsShutdownSupport.trackingShutdownTimeout(Duration.ofSeconds(5)));
     }
 
     @Test
     void sameInstanceReuseRequiresSuccessfulTrackingQuiescence() {
         CompletableFuture<Void> pending = new CompletableFuture<>();
-        assertFalse(LoreItemsPlugin.trackingQuiesced(pending));
+        assertFalse(LoreItemsShutdownSupport.trackingQuiesced(pending));
 
         CompletableFuture<Void> failed = new CompletableFuture<>();
         failed.completeExceptionally(new IllegalStateException("tracking failed"));
-        assertFalse(LoreItemsPlugin.trackingQuiesced(failed));
+        assertFalse(LoreItemsShutdownSupport.trackingQuiesced(failed));
 
         CompletableFuture<Void> cancelled = new CompletableFuture<>();
         cancelled.cancel(false);
-        assertFalse(LoreItemsPlugin.trackingQuiesced(cancelled));
+        assertFalse(LoreItemsShutdownSupport.trackingQuiesced(cancelled));
 
-        assertTrue(LoreItemsPlugin.trackingQuiesced(CompletableFuture.completedFuture(null)));
+        assertTrue(LoreItemsShutdownSupport.trackingQuiesced(
+                CompletableFuture.completedFuture(null)));
     }
 }
