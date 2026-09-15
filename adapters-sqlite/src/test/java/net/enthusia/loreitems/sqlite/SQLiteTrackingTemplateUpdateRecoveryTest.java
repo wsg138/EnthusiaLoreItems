@@ -118,6 +118,11 @@ class SQLiteTrackingTemplateUpdateRecoveryTest {
     private static void seedDesiredRevision(
             SQLiteStorageRuntime runtime,
             String mutationState) {
+        seedDefinitionAndInstance(runtime);
+        seedDesiredRevisionMutation(runtime, mutationState);
+    }
+
+    private static void seedDefinitionAndInstance(SQLiteStorageRuntime runtime) {
         new SQLiteDefinitionRepository(runtime).create(
                         new LoreDefinition(
                                 DEFINITION_ID,
@@ -150,50 +155,68 @@ class SQLiteTrackingTemplateUpdateRecoveryTest {
                         0L,
                         500L))
                 .toCompletableFuture().join();
+    }
 
+    private static void seedDesiredRevisionMutation(
+            SQLiteStorageRuntime runtime,
+            String mutationState) {
         runtime.execute(connection -> SQLiteTransactions.inTransaction(connection, transaction -> {
-                    try (PreparedStatement revision = transaction.prepareStatement(
-                            "INSERT INTO lore_definition_revisions"
-                                    + "(definition_id, revision, codec_version, template_blob, created_at) "
-                                    + "VALUES (?, 2, 1, ?, 600)")) {
-                        revision.setString(1, DEFINITION_ID.value().toString());
-                        revision.setBytes(2, new byte[] {4, 5, 6});
-                        revision.executeUpdate();
-                    }
-                    try (PreparedStatement definition = transaction.prepareStatement(
-                            "UPDATE lore_definitions SET current_revision = 2 "
-                                    + "WHERE definition_id = ?")) {
-                        definition.setString(1, DEFINITION_ID.value().toString());
-                        definition.executeUpdate();
-                    }
-                    try (PreparedStatement instance = transaction.prepareStatement(
-                            "UPDATE lore_instances SET desired_revision = 2 "
-                                    + "WHERE instance_id = ?")) {
-                        instance.setString(1, INSTANCE_ID.value().toString());
-                        instance.executeUpdate();
-                    }
-                    try (PreparedStatement mutation = transaction.prepareStatement(
-                            "INSERT INTO pending_mutations(mutation_id, mutation_type, definition_id, "
-                                    + "instance_id, desired_revision, state, claim_token, "
-                                    + "claim_expires_at, attempt_count, next_attempt_at, created_at, "
-                                    + "updated_at) VALUES (?, 'TEMPLATE_UPDATE', ?, ?, 2, ?, ?, ?, 1, "
-                                    + "600, 600, 600)")) {
-                        mutation.setString(1, UUID.randomUUID().toString());
-                        mutation.setString(2, DEFINITION_ID.value().toString());
-                        mutation.setString(3, INSTANCE_ID.value().toString());
-                        mutation.setString(4, mutationState);
-                        if ("CLAIMED".equals(mutationState)) {
-                            mutation.setString(5, "recovery-claim");
-                            mutation.setLong(6, 5_000L);
-                        } else {
-                            mutation.setNull(5, java.sql.Types.VARCHAR);
-                            mutation.setNull(6, java.sql.Types.BIGINT);
-                        }
-                        mutation.executeUpdate();
-                    }
+                    insertRevisionAndAdvanceDefinition(transaction);
+                    updateDesiredRevision(transaction);
+                    insertTemplateUpdateMutation(transaction, mutationState);
                     return null;
                 }))
                 .toCompletableFuture().join();
+    }
+
+    private static void insertRevisionAndAdvanceDefinition(java.sql.Connection transaction)
+            throws java.sql.SQLException {
+        try (PreparedStatement revision = transaction.prepareStatement(
+                "INSERT INTO lore_definition_revisions"
+                        + "(definition_id, revision, codec_version, template_blob, created_at) "
+                        + "VALUES (?, 2, 1, ?, 600)")) {
+            revision.setString(1, DEFINITION_ID.value().toString());
+            revision.setBytes(2, new byte[] {4, 5, 6});
+            revision.executeUpdate();
+        }
+        try (PreparedStatement definition = transaction.prepareStatement(
+                "UPDATE lore_definitions SET current_revision = 2 WHERE definition_id = ?")) {
+            definition.setString(1, DEFINITION_ID.value().toString());
+            definition.executeUpdate();
+        }
+    }
+
+    private static void updateDesiredRevision(java.sql.Connection transaction)
+            throws java.sql.SQLException {
+        try (PreparedStatement instance = transaction.prepareStatement(
+                "UPDATE lore_instances SET desired_revision = 2 WHERE instance_id = ?")) {
+            instance.setString(1, INSTANCE_ID.value().toString());
+            instance.executeUpdate();
+        }
+    }
+
+    private static void insertTemplateUpdateMutation(
+            java.sql.Connection transaction,
+            String mutationState) throws java.sql.SQLException {
+        try (PreparedStatement mutation = transaction.prepareStatement(
+                "INSERT INTO pending_mutations(mutation_id, mutation_type, definition_id, "
+                        + "instance_id, desired_revision, state, claim_token, "
+                        + "claim_expires_at, attempt_count, next_attempt_at, created_at, "
+                        + "updated_at) VALUES (?, 'TEMPLATE_UPDATE', ?, ?, 2, ?, ?, ?, 1, "
+                        + "600, 600, 600)")) {
+            mutation.setString(1, UUID.randomUUID().toString());
+            mutation.setString(2, DEFINITION_ID.value().toString());
+            mutation.setString(3, INSTANCE_ID.value().toString());
+            mutation.setString(4, mutationState);
+            if ("CLAIMED".equals(mutationState)) {
+                mutation.setString(5, "recovery-claim");
+                mutation.setLong(6, 5_000L);
+            } else {
+                mutation.setNull(5, java.sql.Types.VARCHAR);
+                mutation.setNull(6, java.sql.Types.BIGINT);
+            }
+            mutation.executeUpdate();
+        }
     }
 
     private static InstanceCurrentState currentState(SQLiteStorageRuntime runtime) {
