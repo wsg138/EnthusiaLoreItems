@@ -6,30 +6,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Wp04ReleaseContractTest(unittest.TestCase):
     def test_lifecycle_source_keeps_bounded_stop_and_atomic_reload_guards(self):
-        source = (ROOT / "plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java").read_text()
-        required = [
-            "new ArrayBlockingQueue<>(4)",
-            "new ThreadPoolExecutor.AbortPolicy()",
+        plugin_source = (
+            ROOT / "plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsPlugin.java"
+        ).read_text()
+        shutdown_source = (
+            ROOT / "plugin/src/main/java/net/enthusia/loreitems/plugin/LoreItemsShutdownSupport.java"
+        ).read_text()
+        plugin_required = [
             "stopping = true",
-            "new UnavailableService(\"The plugin is stopping.\")",
+            'LoreItemsServiceDelegates.unavailable("The plugin is stopping.")',
             "getServer().getServicesManager().unregisterAll(this)",
             "ThreadPoolExecutor executor = lifecycleExecutor;",
             "executor.shutdownNow();",
             "failPendingReloads(STOPPING_RELOAD_DETAIL)",
             "Duration.ofSeconds(timeoutSeconds)",
-            "runtime.close(timeout)",
+            "LoreItemsShutdownSupport.start(",
             "if (stopping || result.isDone())",
             "configuration.get().replace(candidate)",
         ]
-        for token in required:
-            self.assertIn(token, source, token)
+        shutdown_required = [
+            "new ArrayBlockingQueue<>(4)",
+            "new ThreadPoolExecutor.AbortPolicy()",
+            "trackingShutdownTimeout(timeout)",
+            "runtime.close(timeout)",
+            "awaitLifecycleTermination(logger, executor, timeout)",
+        ]
+        for token in plugin_required:
+            self.assertIn(token, plugin_source, token)
+        for token in shutdown_required:
+            self.assertIn(token, shutdown_source, token)
         self.assertLess(
-            source.index("ThreadPoolExecutor executor = lifecycleExecutor;"),
-            source.index("executor.shutdownNow();"),
+            plugin_source.index("ThreadPoolExecutor executor = lifecycleExecutor;"),
+            plugin_source.index("executor.shutdownNow();"),
         )
         self.assertLess(
-            source.index("executor.shutdownNow();"),
-            source.index("startAsynchronousShutdown("),
+            plugin_source.index("executor.shutdownNow();"),
+            plugin_source.index("LoreItemsShutdownSupport.start("),
         )
 
     def test_existing_behavioral_tests_cover_atomic_reload_storage_shutdown_and_campaign_restart(self):
