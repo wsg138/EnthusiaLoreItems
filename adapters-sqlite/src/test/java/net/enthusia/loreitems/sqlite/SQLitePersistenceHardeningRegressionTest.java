@@ -79,37 +79,39 @@ class SQLitePersistenceHardeningRegressionTest {
                             Instant.ofEpochMilli(1_100L))
                     .toCompletableFuture().join();
             assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED, conflict.status());
-
-            SQLiteAnomalyRepository anomalies = new SQLiteAnomalyRepository(runtime);
-            InstanceAnomaly anomaly = anomalies.listByInstance(INSTANCE_ID, PageRequest.first(10))
-                    .toCompletableFuture().join().items().getFirst();
-            InstanceObservation selected = observations(runtime).stream()
-                    .filter(observation -> DISPLAY_ONE.equals(observation.location()))
-                    .filter(observation -> observation.confidence()
-                            == InstanceObservation.Confidence.CONFLICTING)
-                    .findFirst().orElseThrow();
-
-            LoreItemsAdministrationUseCase.DuplicateResolutionResult resolution =
-                    anomalies.resolveDuplicate(
-                                    new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
-                                            anomaly.anomalyId(),
-                                            anomaly.stateRevision(),
-                                            selected.observationId(),
-                                            "test-admin"),
-                                    Instant.ofEpochMilli(2_000L))
-                            .toCompletableFuture().join();
-
-            assertEquals(
-                    LoreItemsAdministrationUseCase.DuplicateResolutionStatus.RESOLVED,
-                    resolution.status());
-            assertEquals(DISPLAY_ONE, current(runtime).location());
-            assertEquals(
-                    InstanceAnomaly.Status.RESOLVED,
-                    anomalies.findById(anomaly.anomalyId())
-                            .toCompletableFuture().join().orElseThrow().status());
+            resolveDuplicate(runtime);
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static void resolveDuplicate(SQLiteStorageRuntime runtime) {
+        SQLiteAnomalyRepository anomalies = new SQLiteAnomalyRepository(runtime);
+        InstanceAnomaly anomaly = anomalies.listByInstance(INSTANCE_ID, PageRequest.first(10))
+                .toCompletableFuture().join().items().getFirst();
+        InstanceObservation selected = observations(runtime).stream()
+                .filter(observation -> DISPLAY_ONE.equals(observation.location()))
+                .filter(observation -> observation.confidence()
+                        == InstanceObservation.Confidence.CONFLICTING)
+                .findFirst().orElseThrow();
+        LoreItemsAdministrationUseCase.DuplicateResolutionResult resolution =
+                anomalies.resolveDuplicate(
+                                new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
+                                        anomaly.anomalyId(),
+                                        anomaly.stateRevision(),
+                                        selected.observationId(),
+                                        "test-admin"),
+                                Instant.ofEpochMilli(2_000L))
+                        .toCompletableFuture().join();
+
+        assertEquals(
+                LoreItemsAdministrationUseCase.DuplicateResolutionStatus.RESOLVED,
+                resolution.status());
+        assertEquals(DISPLAY_ONE, current(runtime).location());
+        assertEquals(
+                InstanceAnomaly.Status.RESOLVED,
+                anomalies.findById(anomaly.anomalyId())
+                        .toCompletableFuture().join().orElseThrow().status());
     }
 
     @Test
