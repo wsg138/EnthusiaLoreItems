@@ -204,7 +204,7 @@ class PaperDistributionRecipientBindingWorkerTest {
 
     private static <T> T throwingProxy(Class<T> type) {
         return type.cast(Proxy.newProxyInstance(
-                type.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {type},
                 (proxy, method, arguments) -> {
                     throw new AssertionError(

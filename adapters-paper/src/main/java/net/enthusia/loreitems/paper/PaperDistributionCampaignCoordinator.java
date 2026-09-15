@@ -4,13 +4,13 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -214,7 +214,7 @@ public final class PaperDistributionCampaignCoordinator {
 
     private CompletionStage<Map<Integer, UUID>> resolveCachedIdentities(
             GroupFileDefinition groupFile) {
-        Map<Integer, UUID> resolved = new HashMap<>();
+        Map<Integer, UUID> resolved = new ConcurrentHashMap<>();
         return resolveCachedIdentityBatch(groupFile, 0, resolved)
                 .thenApply(ignored -> Map.copyOf(resolved));
     }

@@ -77,19 +77,30 @@ def normalized_manifest(jar: Path) -> str:
 
 
 def declared_plugin_version(plugin_yml: str) -> str:
-    matches: list[str] = []
-    for line in plugin_yml.splitlines():
-        if not line.startswith("version:"):
-            continue
-        value = line.removeprefix("version:").split("#", 1)[0].strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        if not value or any(character.isspace() for character in value):
-            raise SystemExit("plugin.yml contains an invalid top-level version field")
-        matches.append(value)
+    matches = [
+        parsed
+        for line in plugin_yml.splitlines()
+        if (parsed := parse_plugin_version_line(line)) is not None
+    ]
     if len(matches) != 1:
         raise SystemExit("plugin.yml must contain exactly one top-level version field")
     return matches[0]
+
+
+def parse_plugin_version_line(line: str) -> str | None:
+    if not line.startswith("version:"):
+        return None
+    value = line.removeprefix("version:").split("#", 1)[0].strip()
+    value = strip_matching_quotes(value)
+    if not value or any(character.isspace() for character in value):
+        raise SystemExit("plugin.yml contains an invalid top-level version field")
+    return value
+
+
+def strip_matching_quotes(value: str) -> str:
+    if len(value) < 2 or value[0] != value[-1] or value[0] not in {"'", '"'}:
+        return value
+    return value[1:-1]
 
 
 def verify_jar(jar: Path, version: str) -> None:

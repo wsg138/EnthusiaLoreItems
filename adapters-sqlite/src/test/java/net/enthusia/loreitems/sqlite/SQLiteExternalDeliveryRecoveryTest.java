@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteExternalDeliveryRecoveryTest {
+    private static final String RECOVERABLE_KEY = "recoverable";
     @TempDir
     Path temporaryDirectory;
 
@@ -27,7 +28,7 @@ class SQLiteExternalDeliveryRecoveryTest {
             SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
             UUID playerId = UUID.fromString("11111111-2222-3333-4444-555555555555");
             ExternalDeliveryCommand command = new ExternalDeliveryCommand(
-                    new DefinitionKey("recoverable"), playerId, "tags:recoverable:1");
+                    new DefinitionKey(RECOVERABLE_KEY), playerId, "tags:recoverable:1");
 
             ExternalDeliveryAcceptance first = repository
                     .acceptExternal(command, Instant.ofEpochMilli(1_000L))
@@ -43,7 +44,7 @@ class SQLiteExternalDeliveryRecoveryTest {
             assertEquals(0, count(runtime, CountTable.CURRENT_STATES));
             assertEquals(0, count(runtime, CountTable.AUDIT_EVENTS));
 
-            seedDefinition(runtime, "recoverable");
+            seedDefinition(runtime, RECOVERABLE_KEY);
 
             ExternalDeliveryAcceptance accepted = repository
                     .acceptExternal(command, Instant.ofEpochMilli(2_000L))
@@ -77,7 +78,7 @@ class SQLiteExternalDeliveryRecoveryTest {
             UUID originalPlayer = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
             String operationId = "tags:recoverable:2";
             ExternalDeliveryCommand original = new ExternalDeliveryCommand(
-                    new DefinitionKey("recoverable"), originalPlayer, operationId);
+                    new DefinitionKey(RECOVERABLE_KEY), originalPlayer, operationId);
 
             assertEquals(
                     ExternalDeliveryOutcome.UNKNOWN_DEFINITION,
@@ -86,11 +87,11 @@ class SQLiteExternalDeliveryRecoveryTest {
                             .join()
                             .outcome());
 
-            seedDefinition(runtime, "recoverable");
+            seedDefinition(runtime, RECOVERABLE_KEY);
             seedDefinition(runtime, "other");
 
             ExternalDeliveryCommand wrongPlayer = new ExternalDeliveryCommand(
-                    new DefinitionKey("recoverable"), UUID.randomUUID(), operationId);
+                    new DefinitionKey(RECOVERABLE_KEY), UUID.randomUUID(), operationId);
             ExternalDeliveryCommand wrongDefinition = new ExternalDeliveryCommand(
                     new DefinitionKey("other"), originalPlayer, operationId);
 
@@ -162,7 +163,7 @@ class SQLiteExternalDeliveryRecoveryTest {
 
     private static int count(SQLiteStorageRuntime runtime, CountTable table) {
         return runtime.execute(connection -> {
-                    try (PreparedStatement statement = connection.prepareStatement(table.statementText());
+                    try (PreparedStatement statement = connection.prepareStatement(table.sql());
                             var resultSet = statement.executeQuery()) {
                         return resultSet.next() ? resultSet.getInt(1) : 0;
                     }
@@ -179,14 +180,14 @@ class SQLiteExternalDeliveryRecoveryTest {
         CURRENT_STATES("SELECT COUNT(*) FROM instance_current_state"),
         AUDIT_EVENTS("SELECT COUNT(*) FROM audit_events");
 
-        private final String statementText;
+        private final String sql;
 
-        CountTable(String statementText) {
-            this.statementText = statementText;
+        CountTable(String sql) {
+            this.sql = sql;
         }
 
-        private String statementText() {
-            return statementText;
+        private String sql() {
+            return sql;
         }
     }
 }

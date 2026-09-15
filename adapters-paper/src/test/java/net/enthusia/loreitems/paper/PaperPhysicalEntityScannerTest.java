@@ -139,20 +139,7 @@ class PaperPhysicalEntityScannerTest {
         UUID entityId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         Inventory inventory = server.createInventory(null, 9);
         inventory.setItem(3, trackedItem());
-        Entity holder = (Entity) Proxy.newProxyInstance(
-                Thread.currentThread().getContextClassLoader(),
-                new Class<?>[] {Entity.class, InventoryHolder.class},
-                (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getUniqueId" -> entityId;
-                    case "getWorld" -> world;
-                    case "getInventory" -> inventory;
-                    case "toString" -> "entity-inventory-test";
-                    case "hashCode" -> 1;
-                    case "equals" -> arguments != null
-                            && arguments.length == 1
-                            && proxy == arguments[0];
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
+        Entity holder = inventoryHolderEntity(entityId, world, inventory);
 
         scanner.scan(
                 List.of(holder),
@@ -167,6 +154,27 @@ class PaperPhysicalEntityScannerTest {
         assertEquals(world.getKey() + ":entity:" + entityId, request.location().locationKey());
         assertEquals("slot:3", request.location().containerPath());
         assertEquals("chunk-load-entities-entity-inventory", request.source());
+    }
+
+    private static Entity inventoryHolderEntity(UUID entityId, World world, Inventory inventory) {
+        return (Entity) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[] {Entity.class, InventoryHolder.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "getUniqueId" -> entityId;
+                    case "getWorld" -> world;
+                    case "getInventory" -> inventory;
+                    case "toString" -> "entity-inventory-test";
+                    case "hashCode" -> 1;
+                    case "equals" -> sameProxyReference(proxy, arguments);
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+    }
+
+    private static boolean sameProxyReference(Object proxy, Object[] arguments) {
+        return arguments != null
+                && arguments.length == 1
+                && proxy == arguments[0]; // NOPMD - proxy identity
     }
 
     @Test

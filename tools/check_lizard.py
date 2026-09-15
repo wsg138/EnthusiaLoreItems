@@ -32,26 +32,46 @@ class Violation:
 def listed_files(manifest: Path) -> list[ChangedFile]:
     changed: list[ChangedFile] = []
     for raw_line in manifest.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        if "\t" not in line:
-            changed.append(ChangedFile(line, line))
-            continue
-
-        parts = line.split("\t")
-        status = parts[0]
-        kind = status[:1]
-        if kind == "R" and len(parts) == 3:
-            changed.append(ChangedFile(parts[2], parts[1]))
-        elif kind == "A" and len(parts) == 2:
-            changed.append(ChangedFile(parts[1], None))
-        elif kind == "M" and len(parts) == 2:
-            changed.append(ChangedFile(parts[1], parts[1]))
-        else:
-            raise ValueError(f"unsupported changed-file manifest entry: {raw_line}")
+        entry = parse_manifest_entry(raw_line)
+        if entry is not None:
+            changed.append(entry)
     return changed
+
+
+def parse_manifest_entry(raw_line: str) -> ChangedFile | None:
+    line = raw_line.strip()
+    if not line:
+        return None
+    if "\t" not in line:
+        return ChangedFile(line, line)
+
+    parts = line.split("\t")
+    parser = {
+        "R": parse_renamed_entry,
+        "A": parse_added_entry,
+        "M": parse_modified_entry,
+    }.get(parts[0][:1])
+    if parser is None:
+        raise ValueError(f"unsupported changed-file manifest entry: {raw_line}")
+    return parser(parts, raw_line)
+
+
+def parse_renamed_entry(parts: list[str], raw_line: str) -> ChangedFile:
+    if len(parts) != 3:
+        raise ValueError(f"unsupported changed-file manifest entry: {raw_line}")
+    return ChangedFile(parts[2], parts[1])
+
+
+def parse_added_entry(parts: list[str], raw_line: str) -> ChangedFile:
+    if len(parts) != 2:
+        raise ValueError(f"unsupported changed-file manifest entry: {raw_line}")
+    return ChangedFile(parts[1], None)
+
+
+def parse_modified_entry(parts: list[str], raw_line: str) -> ChangedFile:
+    if len(parts) != 2:
+        raise ValueError(f"unsupported changed-file manifest entry: {raw_line}")
+    return ChangedFile(parts[1], parts[1])
 
 
 def analyze_path(path: Path):

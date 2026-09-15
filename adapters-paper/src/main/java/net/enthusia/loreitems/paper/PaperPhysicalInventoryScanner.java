@@ -1,6 +1,5 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -143,7 +142,7 @@ final class PaperPhysicalInventoryScanner {
     }
 
     Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collector.collectItem(
                 item,
                 LocationDescriptor.Type.NESTED_CONTAINER,
@@ -362,7 +361,7 @@ final class PaperPhysicalInventoryScanner {
             LocationDescriptor.Type type,
             String key,
             LoreItemIdentity identity) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         collector.collectArray(
                 contentsOrEmpty(inventory.getContents()),

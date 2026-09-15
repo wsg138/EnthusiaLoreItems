@@ -30,6 +30,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private static final long NATURAL_ACCESS_DEBOUNCE_MILLIS = 250L;
     private static final String NATURAL_ACCESS_SUFFIX = "-unique";
     private static final Object REGISTRY_LOCK = new Object();
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Guarded by REGISTRY_LOCK; plugin keys require identity semantics.
     private static final Map<Plugin, Set<PaperTrackingCoordinator>> ACTIVE_COORDINATORS =
             new IdentityHashMap<>();
 

@@ -111,7 +111,12 @@ final class LoreItemsShutdownSupport {
                     "Timed out while draining lore-item tracking evidence; database shutdown "
                             + "will continue with its bounded executor drain.");
         } catch (ExecutionException exception) {
-            logger.log(Level.WARNING, "Lore-item tracking quiescence failed unexpectedly.", exception.getCause());
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.log(
+                        Level.WARNING,
+                        "Lore-item tracking quiescence failed unexpectedly.",
+                        exception.getCause());
+            }
         }
     }
 
