@@ -6,7 +6,7 @@ import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.refres
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.samePhysicalEntity;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.setNullableString;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.upsertDuplicateAnomaly;
-import static net.enthusia.loreitems.sqlite.SQLiteTrackingIdentityMismatchSupport.upsertIdentityMismatchAnomaly;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingIdentityMismatchSupport.recordIdentityMismatchEvidence;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -138,19 +138,13 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     observationId,
                     observedAt);
         }
-        upsertIdentityMismatchAnomaly(
+        recordIdentityMismatchEvidence(
                 connection,
                 request,
                 instance.definitionId(),
                 instance.appliedRevision(),
                 current.location(),
                 observedAt);
-        appendAudit(
-                connection,
-                request,
-                "tracking_identity_mismatch_fenced",
-                observedAt,
-                request.location());
         return result(
                 TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
                 "The mismatched physical identity was preserved as conflicting evidence and "
