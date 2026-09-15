@@ -49,22 +49,25 @@ final class LoreItemsStorageServices {
             SQLiteStorageRuntime runtime,
             FoundationConfiguration configuration) {
         Clock clock = Clock.systemUTC();
-        SQLiteDirectDeliveryRepository deliveries = new SQLiteDirectDeliveryRepository(runtime);
-        SQLitePendingMutationRepository mutations = new SQLitePendingMutationRepository(runtime);
+        Repositories repositories = new Repositories(
+                new SQLiteDirectDeliveryRepository(runtime),
+                new SQLitePendingMutationRepository(runtime));
+        TemplateRevisionRolloutUseCase rollout = rollout(runtime, clock);
         return new Services(
-                deliveries,
-                mutations,
-                deliveryService(deliveries, clock),
-                directDelivery(deliveries, configuration, clock),
-                new PersistingCreateDefinitionUseCase(new SQLiteUnitOfWork(runtime), clock),
-                adoptHeldItem(runtime, configuration, clock),
-                voidLoss(runtime, configuration, clock),
-                displayObservation(runtime, clock),
-                trackingObservation(runtime, clock),
-                administration(runtime, deliveries, mutations),
-                anomalyObservation(runtime, clock),
-                rollout(runtime, clock),
-                templateManagement(runtime, clock));
+                repositories,
+                new WritableServices(
+                        deliveryService(repositories.deliveries(), clock),
+                        directDelivery(repositories.deliveries(), configuration, clock),
+                        new PersistingCreateDefinitionUseCase(new SQLiteUnitOfWork(runtime), clock),
+                        adoptHeldItem(runtime, configuration, clock),
+                        voidLoss(runtime, configuration, clock),
+                        displayObservation(runtime, clock),
+                        trackingObservation(runtime, clock)),
+                new AdministrationServices(
+                        administration(runtime, repositories),
+                        anomalyObservation(runtime, clock),
+                        rollout,
+                        templateManagement(runtime, rollout)));
     }
 
     private static LoreItemsServiceV1 deliveryService(
@@ -120,15 +123,14 @@ final class LoreItemsStorageServices {
 
     private static LoreItemsAdministrationUseCase administration(
             SQLiteStorageRuntime runtime,
-            SQLiteDirectDeliveryRepository deliveries,
-            SQLitePendingMutationRepository mutations) {
+            Repositories repositories) {
         return new PersistingLoreItemsAdministrationUseCase(
                 new SQLiteAnomalyRepository(runtime),
                 new SQLiteAuditRepository(runtime),
                 new SQLiteCurrentStateRepository(runtime),
                 new SQLiteObservationRepository(runtime),
-                deliveries,
-                mutations);
+                repositories.deliveries(),
+                repositories.mutations());
     }
 
     private static ItemAnomalyObservationUseCase anomalyObservation(
@@ -147,23 +149,31 @@ final class LoreItemsStorageServices {
 
     private static TemplateManagementUseCase templateManagement(
             SQLiteStorageRuntime runtime,
-            Clock clock) {
-        TemplateRevisionRolloutUseCase rollout = rollout(runtime, clock);
+            TemplateRevisionRolloutUseCase rollout) {
         return new PersistingTemplateManagementUseCase(
                 new SQLiteTemplateManagementQueryStore(runtime), rollout);
     }
 
     record Services(
+            Repositories repositories,
+            WritableServices writable,
+            AdministrationServices administration) {}
+
+    record Repositories(
             SQLiteDirectDeliveryRepository deliveries,
-            SQLitePendingMutationRepository mutations,
+            SQLitePendingMutationRepository mutations) {}
+
+    record WritableServices(
             LoreItemsServiceV1 deliveryService,
             DirectDeliveryExecutionUseCase directDelivery,
             CreateDefinitionUseCase createDefinition,
             AdoptHeldItemUseCase adoptHeldItem,
             VoidLossUseCase voidLoss,
             DisplayItemObservationUseCase displayObservation,
-            TrackingObservationUseCase trackingObservation,
-            LoreItemsAdministrationUseCase administration,
+            TrackingObservationUseCase trackingObservation) {}
+
+    record AdministrationServices(
+            LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservation,
             TemplateRevisionRolloutUseCase rollout,
             TemplateManagementUseCase templateManagement) {}
