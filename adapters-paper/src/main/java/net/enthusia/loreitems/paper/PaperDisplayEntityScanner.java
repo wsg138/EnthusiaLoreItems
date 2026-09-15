@@ -85,13 +85,13 @@ final class PaperDisplayEntityScanner {
         if (item == null || item.getType().isAir() || !limit.hasRemaining()) {
             return;
         }
-        scanner.submitItem(
+        scanner.scanItemTree(
                 item,
                 location,
                 presence,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                source);
-        limit.consume();
+                source,
+                limit);
     }
 
     static LocationDescriptor location(

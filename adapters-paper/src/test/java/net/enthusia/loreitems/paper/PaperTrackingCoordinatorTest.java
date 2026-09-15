@@ -116,7 +116,7 @@ class PaperTrackingCoordinatorTest {
 
     @Test
     @Timeout(5)
-    void closeDrainsBacklogWithoutExceedingConfiguredInFlightBound() {
+    void closeReturnsWithoutBlockingWhileAcceptedBacklogDrainsToQuiescence() {
         BlockingUseCase useCase = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(
                 plugin, () -> useCase, () -> 1, MetricsPort.noOp());
@@ -126,21 +126,26 @@ class PaperTrackingCoordinatorTest {
         assertTrue(coordinator.submit(request(3)));
         assertEquals(1, useCase.requests.size());
 
-        CompletableFuture<Void> closing = CompletableFuture.runAsync(coordinator::close);
-        assertFalse(closing.isDone());
+        CompletionStage<Void> quiescence = PaperTrackingCoordinator.quiescenceFor(plugin);
+        coordinator.close();
+
+        assertFalse(quiescence.toCompletableFuture().isDone());
         assertEquals(1, useCase.requests.size());
 
         useCase.complete(0);
         awaitRequestCount(useCase, 2);
-        assertFalse(closing.isDone());
+        assertFalse(quiescence.toCompletableFuture().isDone());
 
         useCase.complete(1);
         awaitRequestCount(useCase, 3);
-        assertFalse(closing.isDone());
+        assertFalse(quiescence.toCompletableFuture().isDone());
 
         useCase.complete(2);
-        closing.join();
+        quiescence.toCompletableFuture().join();
         assertEquals(3, useCase.requests.size());
+        assertTrue(PaperTrackingCoordinator.quiescenceFor(plugin)
+                .toCompletableFuture()
+                .isDone());
     }
 
     private static void awaitRequestCount(BlockingUseCase useCase, int expected) {

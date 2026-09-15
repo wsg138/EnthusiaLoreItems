@@ -61,6 +61,11 @@ final class SQLiteDestructiveClaimStore {
         if (target == null || target.operationState() != DestructiveOperationState.ACTIVE) {
             return PrepareResult.noPendingWork();
         }
+        String anomaly = activeAnomalyDetail(connection, target);
+        if (anomaly != null) {
+            requireUnclaimedReview(connection, target, anomaly, now);
+            return PrepareResult.reviewRequired(anomaly);
+        }
         String mismatch = mismatchDetail(target, observation);
         if (mismatch != null) {
             requireUnclaimedReview(connection, target, mismatch, now);
@@ -303,6 +308,26 @@ final class SQLiteDestructiveClaimStore {
             statement.setLong(1, now);
             statement.setString(2, operationId.toString());
             statement.executeUpdate();
+        }
+    }
+
+    private static String activeAnomalyDetail(
+            Connection connection,
+            Candidate target) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT anomaly_type FROM instance_anomalies "
+                        + "WHERE instance_id = ? AND definition_id = ? "
+                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') "
+                        + "ORDER BY first_seen_at, anomaly_id LIMIT 1")) {
+            statement.setString(1, target.instanceId().value().toString());
+            statement.setString(2, target.definitionId().value().toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return null;
+                }
+                return "Active tracking anomaly " + resultSet.getString("anomaly_type")
+                        + " must be resolved before destructive removal.";
+            }
         }
     }
 

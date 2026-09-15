@@ -48,6 +48,7 @@ public interface PendingMutationReviewUseCase {
     enum Status {
         RETRIED,
         CANCELLED,
+        UNSUPPORTED_RESOLUTION,
         NOT_FOUND,
         TYPE_MISMATCH,
         NOT_REVIEW_REQUIRED

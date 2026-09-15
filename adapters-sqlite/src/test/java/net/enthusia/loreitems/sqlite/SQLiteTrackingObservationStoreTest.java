@@ -129,6 +129,58 @@ class SQLiteTrackingObservationStoreTest {
     }
 
     @Test
+    void identityForkFencesCurrentStateAndPersistsMismatchEvidence() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("identity-fork.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+
+            assertEquals(
+                    TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(SLOT_ONE, reconciliation()), 1_000L).status());
+
+            LoreItemIdentity forkedIdentity = new LoreItemIdentity(
+                    DEFINITION_ID, INSTANCE_ID, new TemplateRevision(2));
+            TrackingObservationUseCase.Request forkedCopy =
+                    new TrackingObservationUseCase.Request(
+                            forkedIdentity,
+                            SLOT_TWO,
+                            TrackingObservationUseCase.Presence.PRESENT,
+                            reconciliation(),
+                            "identity-fork-test");
+
+            assertEquals(
+                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                    record(store, forkedCopy, 1_100L).status());
+
+            InstanceCurrentState current = currentState(runtime);
+            assertEquals(InstanceCurrentState.State.CONFLICTING, current.state());
+            assertEquals(SLOT_TWO, current.location());
+
+            var observations = new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                    .toCompletableFuture().join().items();
+            assertTrue(observations.stream().anyMatch(observation ->
+                    SLOT_TWO.equals(observation.location())
+                            && observation.confidence()
+                                    == InstanceObservation.Confidence.CONFLICTING));
+
+            var anomalies = new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items();
+            assertEquals(1, anomalies.size());
+            InstanceAnomaly anomaly = anomalies.getFirst();
+            assertEquals(InstanceAnomaly.Type.IDENTITY_MISMATCH, anomaly.type());
+            assertEquals(InstanceAnomaly.Status.OPEN, anomaly.status());
+            assertEquals(DEFINITION_ID, anomaly.definitionId());
+            assertTrue(anomaly.detail().contains("observed definition=" + DEFINITION_ID.value()));
+            assertTrue(anomaly.detail().contains("revision=2"));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void outOfOrderObservationReturnsStaleWithoutPersistingEvidence() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("stale.db"));
         try {

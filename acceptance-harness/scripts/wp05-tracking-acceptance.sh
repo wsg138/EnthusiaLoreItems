@@ -81,13 +81,22 @@ start_server() {
 }
 
 stop_server() {
-  if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    echo stop >&3 || true
-    wait "$SERVER_PID" || true
+  local pid="$SERVER_PID"
+  local status=0
+  if [[ -n "$pid" ]]; then
+    if kill -0 "$pid" 2>/dev/null; then
+      echo stop >&3 || true
+    fi
+    if wait "$pid"; then
+      status=0
+    else
+      status=$?
+    fi
   fi
   exec 3>&- || true
   rm -f "$SERVER/server.stdin"
   SERVER_PID=""
+  return "$status"
 }
 
 cleanup() {
@@ -307,23 +316,20 @@ PY
 
 touch "$ROOT/go-track3-pickup"
 wait_marker track3-pickup-done 160
-# The bot still carries an obsolete spawn-relative helper command from the earlier harness design.
 # Move world spawn away immediately after pickup so the display chunk is held only by ordinary player
 # presence during placement and can unload naturally once the player leaves.
 echo 'setworldspawn 256 70 0' >&3
 sleep .5
 
-# Create empty fixtures only. The real client moves each tracked instance into the entity so normal
-# PlayerItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
+# The real client places each frame fixture against a support block, then moves the tracked instance
+# into it so PaperItemFrameChangeEvent / PlayerArmorStandManipulateEvent tracking is exercised.
 echo 'setblock 72 71 1 minecraft:stone' >&3
-echo 'summon minecraft:item_frame 72 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
 touch "$ROOT/go-track3-frame"
 wait_marker track3-frame-done 160
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_world' >&3
 wait_player_copy acc_track_world
 echo 'setblock 74 71 1 minecraft:stone' >&3
-echo 'summon minecraft:glow_item_frame 74 71 0 {Facing:2b,Tags:["wp05-acceptance"]}' >&3
 touch "$ROOT/go-track3-glowframe"
 wait_marker track3-glowframe-done 160
 
@@ -449,7 +455,7 @@ sleep 6
 python3 - "$DB" <<'PY' | tee -a "$EVIDENCE/case-results.txt"
 import sqlite3,sys
 with sqlite3.connect(sys.argv[1]) as c:
-    assert [row[0] for row in c.execute('select version from schema_history order by version')]==list(range(1,9))
+    assert [row[0] for row in c.execute('select version from schema_history order by version')]==list(range(1,11))
     assert c.execute('pragma integrity_check').fetchone()[0]=='ok'
     assert c.execute('pragma foreign_key_check').fetchall()==[]
     assert c.execute('select count(*) from instance_current_state').fetchone()[0]>0

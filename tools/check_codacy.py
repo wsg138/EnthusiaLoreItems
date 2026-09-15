@@ -12,6 +12,7 @@ import requests
 API_ORIGIN = "https://api.github.com"
 API_VERSION = "2022-11-28"
 CHECK_NAME = "Codacy Static Code Analysis"
+EXPECTED_APP_SLUG = "codacy-production"
 POLL_SECONDS = 10
 TIMEOUT_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 30
@@ -38,6 +39,13 @@ def request_json(path: str) -> object:
     return response.json()
 
 
+def is_codacy_check(check: object) -> bool:
+    if not isinstance(check, dict) or check.get("name") != CHECK_NAME:
+        return False
+    app = check.get("app")
+    return isinstance(app, dict) and app.get("slug") == EXPECTED_APP_SLUG
+
+
 def find_codacy_check(repository: str, head_sha: str) -> dict[str, object] | None:
     payload = request_json(
         f"/repos/{repository}/commits/{head_sha}/check-runs?per_page=100"
@@ -47,11 +55,7 @@ def find_codacy_check(repository: str, head_sha: str) -> dict[str, object] | Non
     check_runs = payload.get("check_runs", [])
     if not isinstance(check_runs, list):
         raise RuntimeError("Unexpected check-runs collection")
-    matching = [
-        check
-        for check in check_runs
-        if isinstance(check, dict) and check.get("name") == CHECK_NAME
-    ]
+    matching = [check for check in check_runs if is_codacy_check(check)]
     return max(matching, key=lambda check: str(check.get("started_at", ""))) \
         if matching else None
 
@@ -110,11 +114,11 @@ def evaluate_check(
     if not isinstance(check_id, int):
         print("Codacy check did not expose a valid check-run id.", file=sys.stderr)
         return 1
-    entries = fetch_annotations(repository, check_id)
     conclusion = check.get("conclusion")
-    if conclusion == "success" and not entries:
+    if conclusion == "success":
         print(f"{CHECK_NAME} passed on exact head {head_sha}.")
         return 0
+    entries = fetch_annotations(repository, check_id)
     print(
         f"{CHECK_NAME} concluded {conclusion!r} on exact head {head_sha}.",
         file=sys.stderr,

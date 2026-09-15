@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -153,7 +154,7 @@ final class DistributionRuntime implements AutoCloseable {
                 new SQLiteDefinitionRepository(storage),
                 new SQLiteDistributionCampaignStartRepository(storage),
                 new PaperCachedPlayerIdentityResolver(),
-                workerExecutor,
+                this::scheduleOnMainThread,
                 workerExecutor);
         DistributionCampaignCommandDependencies dependencies =
                 new DistributionCampaignCommandDependencies(
@@ -225,6 +226,19 @@ final class DistributionRuntime implements AutoCloseable {
         plugin.getServer().getScheduler().runTask(plugin, action);
     }
 
+    private void scheduleOnMainThread(Runnable action) {
+        Objects.requireNonNull(action, "action");
+        if (closed.get()) {
+            throw new RejectedExecutionException("Distribution runtime is closed");
+        }
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, action);
+        } catch (RuntimeException exception) {
+            throw new RejectedExecutionException(
+                    "Could not schedule distribution work on the server thread", exception);
+        }
+    }
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) {
@@ -241,6 +255,10 @@ final class DistributionRuntime implements AutoCloseable {
         closeQuietly(deliveryWorker, "distribution delivery worker");
         closeQuietly(commandExecutor, "distribution command executor");
         distributionExecutor.shutdownNow();
+    }
+
+    boolean isTerminated() {
+        return distributionExecutor.isTerminated();
     }
 
     private static ThreadPoolExecutor createDistributionExecutor() {

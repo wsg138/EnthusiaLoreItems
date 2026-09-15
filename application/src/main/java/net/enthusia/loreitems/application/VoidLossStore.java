@@ -5,6 +5,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 public interface VoidLossStore {
+    String MUTATION_TYPE = "VOID_TERMINAL_LOSS";
+
     CompletionStage<VoidLossUseCase.PrepareResult> prepare(
             VoidLossUseCase.Request request,
             UUID mutationId,

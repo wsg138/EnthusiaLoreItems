@@ -25,6 +25,13 @@ public final class PersistingPendingMutationReviewUseCase
     @Override
     public CompletionStage<Result> resolve(Request request) {
         Objects.requireNonNull(request, "request");
+        if (request.resolution() == Resolution.RETRY
+                && nonReplayableMutation(request.expectedMutationType())) {
+            return CompletableFuture.completedFuture(new Result(
+                    Status.UNSUPPORTED_RESOLUTION,
+                    "This mutation cannot be retried safely after an ambiguous physical outcome; "
+                            + "inspect the physical state and cancel the reviewed mutation instead."));
+        }
         try {
             Instant now = clock.instant();
             PendingMutationReviewStore.Resolution resolution = switch (request.resolution()) {
@@ -49,6 +56,11 @@ public final class PersistingPendingMutationReviewUseCase
         } catch (RuntimeException failure) {
             return CompletableFuture.failedFuture(failure);
         }
+    }
+
+    private static boolean nonReplayableMutation(String mutationType) {
+        return HeldItemAdoptionStore.MUTATION_TYPE.equals(mutationType)
+                || VoidLossStore.MUTATION_TYPE.equals(mutationType);
     }
 
     private static Result result(PendingMutationReviewStore.Status status) {

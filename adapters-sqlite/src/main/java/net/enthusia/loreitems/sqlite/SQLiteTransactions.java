@@ -20,7 +20,7 @@ final class SQLiteTransactions {
         try {
             T result = work.execute(connection);
             connection.commit();
-            restoreAutoCommit(connection);
+            restoreAutoCommitAfterCommit(connection);
             return result;
         } catch (Exception exception) {
             rollback(connection, exception);
@@ -33,8 +33,17 @@ final class SQLiteTransactions {
         }
     }
 
-    private static void restoreAutoCommit(Connection connection) throws SQLException {
-        connection.setAutoCommit(true);
+    /**
+     * A successful commit is the durability boundary. The helper is used only with the
+     * short-lived connections owned by SQLiteStorageRuntime, so a cleanup failure after commit
+     * must not be reported as a transaction failure and trigger an unsafe retry of durable work.
+     */
+    private static void restoreAutoCommitAfterCommit(Connection connection) {
+        try {
+            connection.setAutoCommit(true);
+        } catch (SQLException ignored) {
+            // The owning runtime closes this connection immediately after the operation returns.
+        }
     }
 
     private static void restoreAutoCommitAfterFailure(

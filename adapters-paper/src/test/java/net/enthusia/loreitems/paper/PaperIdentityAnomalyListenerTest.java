@@ -10,6 +10,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
@@ -33,6 +34,7 @@ class PaperIdentityAnomalyListenerTest {
             new TemplateRevision(1));
 
     private PlayerMock player;
+    private Plugin plugin;
     private RecordingUseCase useCase;
     private PaperIdentityAnomalyListener listener;
     private PaperItemIdentityCodec identityCodec;
@@ -41,7 +43,7 @@ class PaperIdentityAnomalyListenerTest {
     void setUp() {
         ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
-        Plugin plugin = MockBukkit.createMockPlugin();
+        plugin = MockBukkit.createMockPlugin();
         useCase = new RecordingUseCase();
         server.getServicesManager().register(
                 ItemAnomalyObservationUseCase.class,
@@ -73,6 +75,26 @@ class PaperIdentityAnomalyListenerTest {
         assertEquals(2, request.evidenceLocations().size());
         assertEquals(first, player.getInventory().getItem(0));
         assertEquals(second, player.getInventory().getItem(1));
+    }
+
+    @Test
+    void enderChestCopyAtSameSlotAsPlayerInventoryIsNotCollapsedIntoOneLocation() {
+        player.getInventory().setItem(0, trackedItem());
+        player.getEnderChest().setItem(0, trackedItem());
+
+        try (PaperIdentityObservationScanner scanner =
+                new PaperIdentityObservationScanner(plugin, 8)) {
+            scanner.scanStorageInventory(player.getEnderChest(), player, "ender-chest-test");
+        }
+
+        assertEquals(1, useCase.requests.size());
+        ItemAnomalyObservationUseCase.Request request = useCase.requests.getFirst();
+        assertEquals(ItemAnomalyObservationUseCase.Kind.DUPLICATE_INSTANCE, request.kind());
+        assertEquals(2, request.evidenceLocations().size());
+        assertTrue(request.evidenceLocations().stream().anyMatch(location ->
+                location.type() == LocationDescriptor.Type.PLAYER_INVENTORY));
+        assertTrue(request.evidenceLocations().stream().anyMatch(location ->
+                location.type() == LocationDescriptor.Type.PLAYER_ENDER_CHEST));
     }
 
     @Test

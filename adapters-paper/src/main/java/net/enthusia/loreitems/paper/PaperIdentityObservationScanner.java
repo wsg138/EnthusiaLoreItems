@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -15,6 +16,7 @@ import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -153,7 +155,10 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
     static LocationDescriptor inventoryLocation(Inventory inventory, String path) {
         InventoryHolder holder = inventory.getHolder();
         if (holder instanceof Player player) {
-            return playerLocation(player, path);
+            LocationDescriptor.Type type = inventory.getType() == InventoryType.ENDER_CHEST
+                    ? LocationDescriptor.Type.PLAYER_ENDER_CHEST
+                    : LocationDescriptor.Type.PLAYER_INVENTORY;
+            return new LocationDescriptor(type, "player:" + player.getUniqueId(), path);
         }
         Location location = inventory.getLocation();
         if (location != null && location.getWorld() != null) {
@@ -273,6 +278,10 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
 
     private static String truncate(String value, int maxLength) {
         return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
+    CompletionStage<Void> quiescence() {
+        return anomalyReporter.quiescence();
     }
 
     @Override
