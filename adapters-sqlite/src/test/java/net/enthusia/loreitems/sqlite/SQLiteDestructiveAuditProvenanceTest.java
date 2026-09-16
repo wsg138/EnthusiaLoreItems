@@ -4,17 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteDestructiveAuditProvenanceTest {
-    private static final String AUDIT_ACTOR_QUERY =
-            "SELECT actor_type, actor_id FROM audit_events "
-                    + "WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?";
-
     @TempDir
     Path temporaryDirectory;
 
@@ -64,14 +60,21 @@ class SQLiteDestructiveAuditProvenanceTest {
             UUID operationId,
             String expectedActorType,
             String expectedActorId) throws Exception {
-        // Fixed test-only SQL; all dynamic values are bound parameters.
-        try (PreparedStatement statement = connection.prepareStatement(AUDIT_ACTOR_QUERY)) { // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
-            statement.setString(1, operationId.toString());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                resultSet.next();
+        try (Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery("""
+                        SELECT aggregate_id, actor_type, actor_id
+                        FROM audit_events
+                        WHERE aggregate_type = 'destructive_operation'
+                        """)) {
+            while (resultSet.next()) {
+                if (!operationId.toString().equals(resultSet.getString("aggregate_id"))) {
+                    continue;
+                }
                 assertEquals(expectedActorType, resultSet.getString("actor_type"));
                 assertEquals(expectedActorId, resultSet.getString("actor_id"));
+                return;
             }
         }
+        throw new AssertionError("Missing expected destructive-operation audit event");
     }
 }

@@ -5,22 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteSchemaHealthVerifierTest {
-    private static final String ORPHAN_INSTANCE_INSERT =
-            "INSERT INTO lore_instances(instance_id, definition_id, applied_revision, "
-                    + "desired_revision, lifecycle_state, created_at, terminal_at) "
-                    + "VALUES (?, ?, 1, 1, 'ACTIVE', 1, NULL)";
-    private static final String ORPHAN_INSTANCE_ID =
-            "10000000-0000-0000-0000-000000000001";
-    private static final String MISSING_DEFINITION_ID =
-            "20000000-0000-0000-0000-000000000001";
-
     @TempDir
     Path temporaryDirectory;
 
@@ -107,11 +97,16 @@ class SQLiteSchemaHealthVerifierTest {
     }
 
     private static void insertOrphanInstance(Connection connection) throws SQLException {
-        // Fixed test-only SQL; all dynamic values are bound parameters.
-        try (PreparedStatement statement = connection.prepareStatement(ORPHAN_INSTANCE_INSERT)) { // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
-            statement.setString(1, ORPHAN_INSTANCE_ID);
-            statement.setString(2, MISSING_DEFINITION_ID);
-            statement.executeUpdate();
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO lore_instances(
+                        instance_id, definition_id, applied_revision, desired_revision,
+                        lifecycle_state, created_at, terminal_at)
+                    VALUES (
+                        '10000000-0000-0000-0000-000000000001',
+                        '20000000-0000-0000-0000-000000000001',
+                        1, 1, 'ACTIVE', 1, NULL)
+                    """);
         }
     }
 }
