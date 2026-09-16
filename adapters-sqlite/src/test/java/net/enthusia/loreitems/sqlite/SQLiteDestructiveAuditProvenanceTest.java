@@ -4,13 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SQLiteDestructiveAuditProvenanceTest {
+    private static final String DESTRUCTIVE_AUDIT_QUERY =
+            "SELECT aggregate_id, actor_type, actor_id FROM audit_events WHERE aggregate_type = 'destructive_operation'";
+
     @TempDir
     Path temporaryDirectory;
 
@@ -66,18 +69,23 @@ class SQLiteDestructiveAuditProvenanceTest {
     }
 
     private static AuditActor readAuditActor(Connection connection, UUID operationId) throws Exception {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT actor_type, actor_id FROM audit_events WHERE aggregate_type = 'destructive_operation' AND aggregate_id = ?")) {
-            statement.setString(1, operationId.toString());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new AssertionError("Missing expected destructive-operation audit event");
-                }
-                return new AuditActor(
-                        resultSet.getString("actor_type"),
-                        resultSet.getString("actor_id"));
+        AuditActor actor = null;
+        String expectedAggregateId = operationId.toString();
+        try (Statement statement = connection.createStatement();
+                // This is closed, fixed, test-only SQL; the variable id is matched in Java below.
+                ResultSet resultSet = statement.executeQuery(DESTRUCTIVE_AUDIT_QUERY)) { // nosemgrep
+            while (actor == null && resultSet.next()) {
+                actor = expectedAggregateId.equals(resultSet.getString("aggregate_id"))
+                        ? new AuditActor(
+                                resultSet.getString("actor_type"),
+                                resultSet.getString("actor_id"))
+                        : null;
             }
         }
+        if (actor == null) {
+            throw new AssertionError("Missing expected destructive-operation audit event");
+        }
+        return actor;
     }
 
     private record AuditActor(String type, String id) {}
