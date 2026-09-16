@@ -65,7 +65,7 @@ class SQLiteDestructiveAuditProvenanceTest {
             String expectedActorType,
             String expectedActorId) throws Exception {
         // Fixed test-only SQL; all dynamic values are bound parameters.
-        try (PreparedStatement statement = connection.prepareStatement(AUDIT_ACTOR_QUERY)) { // nosemgrep
+        try (PreparedStatement statement = connection.prepareStatement(AUDIT_ACTOR_QUERY)) { // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
             statement.setString(1, operationId.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
                 resultSet.next();

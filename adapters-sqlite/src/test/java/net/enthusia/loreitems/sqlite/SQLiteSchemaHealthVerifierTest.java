@@ -108,7 +108,7 @@ class SQLiteSchemaHealthVerifierTest {
 
     private static void insertOrphanInstance(Connection connection) throws SQLException {
         // Fixed test-only SQL; all dynamic values are bound parameters.
-        try (PreparedStatement statement = connection.prepareStatement(ORPHAN_INSTANCE_INSERT)) { // nosemgrep
+        try (PreparedStatement statement = connection.prepareStatement(ORPHAN_INSTANCE_INSERT)) { // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
             statement.setString(1, ORPHAN_INSTANCE_ID);
             statement.setString(2, MISSING_DEFINITION_ID);
             statement.executeUpdate();
