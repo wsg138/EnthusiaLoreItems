@@ -69,23 +69,26 @@ class SQLiteDestructiveAuditProvenanceTest {
     }
 
     private static AuditActor readAuditActor(Connection connection, UUID operationId) throws Exception {
-        AuditActor actor = null;
         String expectedAggregateId = operationId.toString();
+        String actorType = "";
+        String actorId = "";
+        boolean found = false;
         try (Statement statement = connection.createStatement();
                 // This is closed, fixed, test-only SQL; the variable id is matched in Java below.
                 ResultSet resultSet = statement.executeQuery(DESTRUCTIVE_AUDIT_QUERY)) { // nosemgrep
-            while (actor == null && resultSet.next()) {
-                actor = expectedAggregateId.equals(resultSet.getString("aggregate_id"))
-                        ? new AuditActor(
-                                resultSet.getString("actor_type"),
-                                resultSet.getString("actor_id"))
-                        : null;
+            while (resultSet.next()) {
+                if (expectedAggregateId.equals(resultSet.getString("aggregate_id"))) {
+                    actorType = resultSet.getString("actor_type");
+                    actorId = resultSet.getString("actor_id");
+                    found = true;
+                    break;
+                }
             }
         }
-        if (actor == null) {
+        if (!found) {
             throw new AssertionError("Missing expected destructive-operation audit event");
         }
-        return actor;
+        return new AuditActor(actorType, actorId);
     }
 
     private record AuditActor(String type, String id) {}
