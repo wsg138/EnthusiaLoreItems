@@ -182,31 +182,61 @@ async function waitDisplayEntity(bot, kind, x, y, z, label) {
   throw new Error(`${label} ${kind} fixture not visible near ${x},${y},${z}`)
 }
 
+async function waitFixtureItem(bot, itemName, label) {
+  for (let i = 0; i < 40; i++) {
+    const item = bot.inventory.items().find(candidate => candidate.name === itemName)
+    if (item) return item
+    await sleep(100)
+  }
+  throw new Error(`${label} did not receive ${itemName} fixture item`)
+}
+
 async function ensureFrameFixture(bot, kind, x, y, z, label) {
   const existing = findDisplayEntity(bot, kind, x, y, z)
   if (existing) return existing
 
   const itemName = kind === 'glow_item_frame' ? 'glow_item_frame' : 'item_frame'
-  bot.chat(`/give Wp05TrackBot minecraft:${itemName} 1`)
-  let fixtureItem = null
-  for (let i = 0; i < 100; i++) {
-    fixtureItem = bot.inventory.items().find(item => item.name === itemName) || null
-    if (fixtureItem) break
-    await sleep(100)
-  }
-  if (!fixtureItem) throw new Error(`${label} did not receive ${itemName} fixture item`)
-
   const support = await waitBlockAt(bot, x, y, z + 1, 'stone', `${label} support`)
-  await bot.equip(fixtureItem, 'hand')
-  await bot.lookAt(support.position.offset(0.5, 0.5, 0.5), true)
-  await bot.activateBlock(support, new Vec3(0, 0, -1))
-  await sleep(500)
+  const faceDirection = new Vec3(0, 0, -1)
+  const faceCursor = new Vec3(0.5, 0.5, 0)
+  const faceCenter = support.position.offset(0.5, 0.5, 0)
+
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const alreadyPlaced = findDisplayEntity(bot, kind, x, y, z)
+    if (alreadyPlaced) return alreadyPlaced
+
+    let fixtureItem = bot.inventory.items().find(item => item.name === itemName)
+    if (!fixtureItem) {
+      bot.chat(`/give Wp05TrackBot minecraft:${itemName} 1`)
+      fixtureItem = await waitFixtureItem(bot, itemName, label)
+    }
+
+    await bot.equip(fixtureItem, 'hand')
+    await bot.lookAt(faceCenter, true)
+    await bot.activateBlock(support, faceDirection, faceCursor)
+
+    for (let i = 0; i < 20; i++) {
+      const placed = findDisplayEntity(bot, kind, x, y, z)
+      if (placed) {
+        log(`${label} entity=${kind} placed attempt=${attempt} id=${placed.id} position=${placed.position.x.toFixed(2)},${placed.position.y.toFixed(2)},${placed.position.z.toFixed(2)}`)
+        return placed
+      }
+      await sleep(100)
+    }
+    log(`${label} fixture placement retry=${attempt} entity=${kind}`)
+  }
+
   return waitDisplayEntity(bot, kind, x, y, z, label)
 }
 
 async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
-  await teleport(bot, x - 1, y, z, `${label} approach`)
-  const entity = kind === 'item_frame' || kind === 'glow_item_frame'
+  const frameDisplay = kind === 'item_frame' || kind === 'glow_item_frame'
+  if (frameDisplay) {
+    await teleport(bot, x, y, z - 1, `${label} approach`)
+  } else {
+    await teleport(bot, x - 1, y, z, `${label} approach`)
+  }
+  const entity = frameDisplay
     ? await ensureFrameFixture(bot, kind, x, y, z, label)
     : await waitDisplayEntity(bot, kind, x, y, z, label)
   const item = tracked(bot)
