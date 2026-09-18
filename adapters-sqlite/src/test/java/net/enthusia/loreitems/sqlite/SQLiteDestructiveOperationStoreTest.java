@@ -278,7 +278,7 @@ class SQLiteDestructiveOperationStoreTest {
     }
 
     @Test
-    void expiredClaimBecomesAmbiguousAndCannotBlindlyRetry() {
+    void expiredClaimBecomesAmbiguousAndRequiresExplicitReview() {
         try (SQLiteDestructiveTestFixture fixture = fixture("expired.db")) {
             var seed = fixture.seed(true);
             var administration = fixture.administration();
@@ -297,16 +297,18 @@ class SQLiteDestructiveOperationStoreTest {
             var target = administration.listTargets(
                             started.operation().operationId(), PageRequest.first(10))
                     .toCompletableFuture().join().items().getFirst();
+            assertEquals(DestructiveTargetState.REVIEW_REQUIRED, target.state());
             assertEquals(DestructiveEffectState.AMBIGUOUS, target.effectState());
 
-            var retry = administration.resolveReview(new ReviewRequest(
-                            started.operation().operationId(),
-                            seed.instanceId(),
-                            ReviewResolution.REQUEUE_NO_SIDE_EFFECT,
-                            ADMIN_ACTOR,
-                            "No physical inspection was performed."))
+            var blocked = execution.prepare(fixture.observation(seed, LOCATION_KEY))
                     .toCompletableFuture().join();
-            assertEquals(ReviewStatus.EVIDENCE_MISMATCH, retry.status());
+            assertEquals(Status.NO_PENDING_WORK, blocked.status());
+
+            var stillUnderReview = administration.listTargets(
+                            started.operation().operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals(DestructiveTargetState.REVIEW_REQUIRED, stillUnderReview.state());
+            assertEquals(DestructiveEffectState.AMBIGUOUS, stillUnderReview.effectState());
         }
     }
 
