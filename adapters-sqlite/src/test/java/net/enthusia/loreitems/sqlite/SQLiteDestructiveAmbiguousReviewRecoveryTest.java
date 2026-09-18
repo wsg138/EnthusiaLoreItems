@@ -87,7 +87,7 @@ class SQLiteDestructiveAmbiguousReviewRecoveryTest {
                             DestructiveEffectState.UNKNOWN,
                             FINGERPRINT,
                             null,
-                            "The Paper mutation outcome could not be classified automatically."))
+                            "The Paper mutation outcome could not be classified automatically.")
                     .toCompletableFuture().join());
 
             var resolved = administration.resolveReview(new ReviewRequest(
