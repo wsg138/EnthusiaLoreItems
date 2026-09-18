@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   destructive-lifecycle:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -259,10 +258,6 @@ jobs:
           }
 
           START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          # One target is accessible and one is offline. The operation must persist an inaccessible
-          # target, pause durably, survive a full server restart, remain inert while paused when the
-          # target becomes naturally accessible, and converge only after the operator resumes it.
           LOG1="$ROOT/evidence/server-dest-initial.log"
           start_server "$LOG1"
           start_bot Wp05DestA
@@ -281,7 +276,6 @@ jobs:
 
           stop_bot Wp05DestB
           wait_sql "select count(*)=1 from instance_current_state where instance_id='$B_INSTANCE' and state='LAST_CONFIRMED' and location_type='PLAYER_INVENTORY' and location_key='player:$B_UUID'" 45
-
           preview_and_confirm_purge "$DEF1" "$LOG1" 1
           wait_sql "select count(*)=1 from destructive_operations where definition_id='$DEF1' and operation_type='PURGE_DEFINITION' and target_count=2" 45
           OP1="$(operation_id "$DEF1")"
@@ -290,7 +284,6 @@ jobs:
           wait_sql "select count(*)=1 from destructive_targets where operation_id='$OP1' and instance_id='$B_INSTANCE' and state in ('PENDING','CLAIMED','APPLIED','VERIFIED')" 45
           wait_sql "select count(*)=1 from lore_instances where instance_id='$B_INSTANCE' and lifecycle_state='ACTIVE'" 45
           dump_expect Wp05DestA 0 "$LOG1"
-
           echo "loreitems pause-operation $OP1" >&3
           wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='PAUSED'" 45
           python3 - "$DB" "$OP1" "$B_INSTANCE" > "$ROOT/evidence/paused-target-snapshot.txt" <<'PY'
@@ -303,7 +296,6 @@ jobs:
 
           stop_bot Wp05DestA
           stop_server
-
           LOG2="$ROOT/evidence/server-dest-restart.log"
           start_server "$LOG2"
           wait_sql "select count(*)=1 from destructive_operations where operation_id='$OP1' and state='PAUSED'" 30
@@ -336,7 +328,6 @@ jobs:
           dump_expect Wp05DestB 0 "$LOG2"
           stop_bot Wp05DestB
           stop_server
-
           END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           python3 - "$DB" "$START" "$END" "$OP1" "$A_INSTANCE" "$B_INSTANCE" <<'PY'
@@ -346,23 +337,16 @@ jobs:
           root=Path('/tmp/wp05-dest-lifecycle')
           c=sqlite3.connect(db); c.row_factory=sqlite3.Row
           versions=[r[0] for r in c.execute('select version from schema_history order by version')]
-          assert versions==list(range(1,9)), versions
+          assert versions==list(range(1,11)), versions
           integrity=[r[0] for r in c.execute('pragma integrity_check')]
           foreign=[list(r) for r in c.execute('pragma foreign_key_check')]
           assert integrity==['ok'], integrity
           assert not foreign, foreign
-
           operation=dict(c.execute("""
             select operation_type,state,target_count,terminal_at is not null as terminal
             from destructive_operations where operation_id=?
           """,(op,)).fetchone())
-          assert operation=={
-              'operation_type':'PURGE_DEFINITION',
-              'state':'COMPLETED',
-              'target_count':2,
-              'terminal':1,
-          }, operation
-
+          assert operation=={'operation_type':'PURGE_DEFINITION','state':'COMPLETED','target_count':2,'terminal':1}, operation
           targets=[]
           for instance in (a,b):
               target=dict(c.execute("""
@@ -375,20 +359,15 @@ jobs:
               assert target['attempt_count']>=1, target
               assert target['has_before']==1, target
               assert target['last_error'] is None, target
-              lifecycle=dict(c.execute("""
-                select lifecycle_state,terminal_at is not null as terminal
-                from lore_instances where instance_id=?
-              """,(instance,)).fetchone())
+              lifecycle=dict(c.execute("select lifecycle_state,terminal_at is not null as terminal from lore_instances where instance_id=?",(instance,)).fetchone())
               assert lifecycle=={'lifecycle_state':'REMOVED','terminal':1}, (instance,lifecycle)
               targets.append(target)
-
           review=c.execute("select count(*) from destructive_targets where operation_id=? and state='REVIEW_REQUIRED'",(op,)).fetchone()[0]
           assert review==0, review
           audits=[r[0] for r in c.execute("select event_type from audit_events where aggregate_id=? order by audit_id",(op,))]
           assert audits.count('destructive_target_removed')==2, audits
           assert 'destructive_operation_paused' in audits, audits
           assert 'destructive_operation_resumed' in audits, audits
-
           initial=(root/'evidence/server-dest-initial.log').read_text(errors='replace')
           restart=(root/'evidence/server-dest-restart.log').read_text(errors='replace')
           assert 'targets=2, inaccessible=1' in initial
@@ -396,7 +375,6 @@ jobs:
           assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=1' in restart
           assert 'WP05_ACCEPT DUMP ok player=Wp05DestB count=0' in restart
           c.close()
-
           result={
               'source_head':(root/'evidence/source-head.txt').read_text().strip(),
               'started_at':start,

@@ -20,6 +20,7 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 final class SQLiteDestructiveAcceptanceStore {
     private static final int SINGLE_ROW = 1;
     private static final long EMPTY_TARGET_COUNT = 0L;
+    private static final long NO_ANOMALIES = 0L;
     private static final String TARGET_INSERT =
             "INSERT INTO destructive_targets(operation_id, instance_id, definition_id, "
                     + "expected_applied_revision, expected_location_type, expected_location_key, "
@@ -106,6 +107,11 @@ final class SQLiteDestructiveAcceptanceStore {
                     StartStatus.STALE_CONFIRMATION,
                     "The definition, target set, queued work, or anomaly evidence changed; "
                             + "review a fresh confirmation summary.");
+        }
+        if (refreshed.anomalyCount() > NO_ANOMALIES) {
+            return StartResult.failure(
+                    StartStatus.TARGET_CONFLICT,
+                    "Resolve active tracking anomalies before starting destructive removal.");
         }
         if (hasTargetConflict(connection, refreshed)) {
             return StartResult.failure(

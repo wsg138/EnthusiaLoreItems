@@ -128,6 +128,64 @@ class SQLiteTrackingAdministrationStoreTest {
         }
     }
 
+    @Test
+    void unresolvedIdentityMismatchKeepsDuplicateResolutionFenced() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("blocking-anomaly.db"));
+        try {
+            seed(runtime);
+            createConflict(runtime);
+            SQLiteTrackingObservationStore tracking = new SQLiteTrackingObservationStore(runtime);
+            LoreItemIdentity forkedIdentity = new LoreItemIdentity(
+                    DEFINITION_ID, INSTANCE_ID, new TemplateRevision(2));
+            TrackingObservationUseCase.Result mismatchResult = tracking.record(
+                            new TrackingObservationUseCase.Request(
+                                    forkedIdentity,
+                                    SLOT_TWO,
+                                    TrackingObservationUseCase.Presence.PRESENT,
+                                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                                    "tracking-admin-blocking-anomaly-test"),
+                            Instant.ofEpochMilli(1_200L))
+                    .toCompletableFuture().join();
+            assertEquals(TrackingObservationUseCase.Status.IDENTITY_MISMATCH, mismatchResult.status());
+
+            SQLiteAnomalyRepository anomalies = new SQLiteAnomalyRepository(runtime);
+            var anomalyRows = anomalies.listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items();
+            InstanceAnomaly duplicate = anomalyRows.stream()
+                    .filter(anomaly -> anomaly.type() == InstanceAnomaly.Type.DUPLICATE_INSTANCE)
+                    .findFirst().orElseThrow();
+            InstanceAnomaly mismatch = anomalyRows.stream()
+                    .filter(anomaly -> anomaly.type() == InstanceAnomaly.Type.IDENTITY_MISMATCH)
+                    .findFirst().orElseThrow();
+            InstanceObservation selected = observations(runtime).stream()
+                    .filter(observation -> SLOT_ONE.equals(observation.location()))
+                    .filter(observation -> observation.confidence()
+                            == InstanceObservation.Confidence.CONFLICTING)
+                    .findFirst().orElseThrow();
+
+            LoreItemsAdministrationUseCase.DuplicateResolutionResult result =
+                    anomalies.resolveDuplicate(
+                                    new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
+                                            duplicate.anomalyId(),
+                                            duplicate.stateRevision(),
+                                            selected.observationId(),
+                                            "test-admin"),
+                                    Instant.ofEpochMilli(2_000L))
+                            .toCompletableFuture().join();
+
+            assertEquals(
+                    LoreItemsAdministrationUseCase.DuplicateResolutionStatus.STALE,
+                    result.status());
+            assertEquals(InstanceCurrentState.State.CONFLICTING, current(runtime).state());
+            assertEquals(InstanceAnomaly.Status.OPEN, anomalies.findById(duplicate.anomalyId())
+                    .toCompletableFuture().join().orElseThrow().status());
+            assertEquals(InstanceAnomaly.Status.OPEN, anomalies.findById(mismatch.anomalyId())
+                    .toCompletableFuture().join().orElseThrow().status());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
     private static void createConflict(SQLiteStorageRuntime runtime) {
         SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
         store.record(present(SLOT_ONE), Instant.ofEpochMilli(1_000L))

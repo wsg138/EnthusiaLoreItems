@@ -77,6 +77,38 @@ class SQLiteDisplayItemObservationStoreTest {
     }
 
     @Test
+    void olderDisplayEvidenceCannotRegressNewerCurrentState() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("stale-time.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteDisplayItemObservationStore store =
+                    new SQLiteDisplayItemObservationStore(runtime);
+            LocationDescriptor staleFrame = new LocationDescriptor(
+                    LocationDescriptor.Type.ITEM_FRAME,
+                    "minecraft:overworld:9:70:9:44444444-4444-4444-4444-444444444444",
+                    "item");
+
+            assertEquals(
+                    DisplayItemObservationUseCase.Status.RECORDED,
+                    record(store, present(FRAME_LOCATION), 2_000L).status());
+            assertEquals(
+                    DisplayItemObservationUseCase.Status.STALE,
+                    record(store, present(staleFrame), 1_500L).status());
+
+            InstanceCurrentState current = currentState(runtime);
+            assertEquals(InstanceCurrentState.State.CONFIRMED_NOW, current.state());
+            assertEquals(FRAME_LOCATION, current.location());
+            assertEquals(1L, current.stateRevision());
+            assertEquals(2_000L, current.updatedAtEpochMillis());
+            assertEquals(1, new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().size());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void unknownMismatchAnomalyAndStaleRemovalDoNotReplaceCurrentState() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("blocked.db"));
         try {

@@ -28,13 +28,22 @@ wait_ready() {
 }
 
 stop_server() {
-  if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    echo stop >&3 || true
-    wait "$SERVER_PID" || true
+  local pid="$SERVER_PID"
+  local status=0
+  if [[ -n "$pid" ]]; then
+    if kill -0 "$pid" 2>/dev/null; then
+      echo stop >&3 || true
+    fi
+    if wait "$pid"; then
+      status=0
+    else
+      status=$?
+    fi
   fi
   exec 3>&- || true
   rm -f "$SERVER/server.stdin"
   SERVER_PID=""
+  return "$status"
 }
 
 restore_config() {

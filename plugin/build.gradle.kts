@@ -10,6 +10,7 @@ dependencies {
     implementation(project(":adapters-paper"))
     implementation(project(":adapters-sqlite"))
     compileOnly(paperApiDependency)
+    testImplementation(paperApiDependency)
 }
 
 tasks {

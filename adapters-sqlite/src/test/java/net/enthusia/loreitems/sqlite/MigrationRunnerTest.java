@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerTest {
-    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 8;
+    private static final int EXPECTED_SCHEMA_VERSION_COUNT = 10;
     private static final String DEFINITION_ID = "10000000-0000-0000-0000-000000000001";
     private static final String INSTANCE_ID = "20000000-0000-0000-0000-000000000001";
     private static final String PENDING_MUTATION_ID =
@@ -43,6 +43,33 @@ class MigrationRunnerTest {
             assertEquals(1, countIndex(connection, "idx_mutations_type_claimable"));
             assertEquals(1, countIndex(connection, "idx_mutations_type_review"));
             assertEquals(1, countIndex(connection, "uq_destructive_target_active_instance"));
+        }
+    }
+
+    @Test
+    void rejectsDatabaseFromNewerSchemaVersion() throws SQLException {
+        SQLiteConnectionFactory factory = new SQLiteConnectionFactory(
+                temporaryDirectory.resolve("future-schema.db"), 5_000);
+        MigrationRunner runner = new MigrationRunner();
+        int futureVersion = EXPECTED_SCHEMA_VERSION_COUNT + 1;
+
+        try (Connection connection = factory.open()) {
+            runner.migrate(connection);
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO schema_history(version, description, applied_at) "
+                            + "VALUES (?, 'future schema', 1)")) {
+                insert.setInt(1, futureVersion);
+                insert.executeUpdate();
+            }
+
+            SQLException failure = assertThrows(SQLException.class, () -> runner.migrate(connection));
+
+            assertEquals(
+                    "Database schema version " + futureVersion
+                            + " is newer than supported version "
+                            + EXPECTED_SCHEMA_VERSION_COUNT,
+                    failure.getMessage());
+            assertEquals(futureVersion, countSchemaHistory(connection));
         }
     }
 

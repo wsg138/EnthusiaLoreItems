@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.UUID;
@@ -73,6 +75,37 @@ class PaperItemAnomalyReporterTest {
         assertEquals(1, useCase.callCount);
         useCase.firstResult.complete(recorded());
         assertEquals(2, useCase.callCount);
+    }
+
+    @Test
+    void closeDrainsAcceptedPendingEvidenceBeforeShutdownBarrierCompletes() {
+        RecordingUseCase useCase = new RecordingUseCase();
+        register(useCase);
+        reporter = new PaperItemAnomalyReporter(plugin, 1);
+
+        reporter.recordDuplicate(
+                FIRST_IDENTITY,
+                conflictLocation(FIRST_SUFFIX),
+                List.of(playerLocation(FIRST_A_SUFFIX), playerLocation(FIRST_B_SUFFIX)),
+                TEST_SOURCE,
+                FIRST_DUPLICATE_DETAIL);
+        reporter.recordDuplicate(
+                SECOND_IDENTITY,
+                conflictLocation("second"),
+                List.of(playerLocation("second-a"), playerLocation("second-b")),
+                TEST_SOURCE,
+                "second duplicate");
+
+        CompletionStage<Void> shutdownBarrier = PaperTrackingCoordinator.quiescenceFor(plugin);
+        reporter.close();
+
+        assertEquals(1, useCase.callCount);
+        assertFalse(shutdownBarrier.toCompletableFuture().isDone());
+
+        useCase.firstResult.complete(recorded());
+
+        assertEquals(2, useCase.callCount);
+        assertTrue(shutdownBarrier.toCompletableFuture().isDone());
     }
 
     @Test

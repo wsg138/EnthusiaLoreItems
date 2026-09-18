@@ -15,8 +15,11 @@ import net.enthusia.loreitems.application.TrackingMetricsSource;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.InstanceAnomaly;
 import org.bukkit.entity.Player;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
 import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.RegisteredListener;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class PaperAnomalyWarningWorker
@@ -112,6 +115,7 @@ public final class PaperAnomalyWarningWorker
                     "Physical lore-item tracking is unavailable; anomaly warnings remain active.");
             return StartedTracking.empty();
         }
+        closeExistingTrackingListeners();
         PaperUniqueAccessTrackingListener unique = new PaperUniqueAccessTrackingListener(
                 plugin,
                 this::trackingUseCase,
@@ -130,6 +134,17 @@ public final class PaperAnomalyWarningWorker
         } catch (RuntimeException exception) {
             started.close();
             throw exception;
+        }
+    }
+
+    private void closeExistingTrackingListeners() {
+        for (RegisteredListener registration : HandlerList.getRegisteredListeners(plugin)) {
+            Listener listener = registration.getListener();
+            if (listener instanceof PaperPhysicalTrackingListener physical) {
+                physical.close();
+            } else if (listener instanceof PaperUniqueAccessTrackingListener unique) {
+                unique.close();
+            }
         }
     }
 
