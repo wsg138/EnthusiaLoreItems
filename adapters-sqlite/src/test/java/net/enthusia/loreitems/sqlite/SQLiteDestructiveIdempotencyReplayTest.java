@@ -46,4 +46,31 @@ class SQLiteDestructiveIdempotencyReplayTest {
             assertEquals(1L, fixture.destructiveTargetCount());
         }
     }
+
+    @Test
+    void reusedKeyCannotAliasChangedTargetSnapshot() {
+        try (SQLiteDestructiveTestFixture fixture =
+                new SQLiteDestructiveTestFixture(temporaryDirectory, "snapshot-replay.db", CLOCK)) {
+            var seed = fixture.seed(true);
+            var administration = fixture.administration();
+            var original = fixture.preview(
+                    DestructiveOperationType.PURGE_DEFINITION, seed, null);
+            var started = administration.start(new StartRequest(
+                            original, "admin", IDEMPOTENCY_KEY))
+                    .toCompletableFuture().join();
+
+            fixture.moveCurrentState(seed.instanceId(), "player:moved-after-acceptance");
+            var changed = fixture.preview(
+                    DestructiveOperationType.PURGE_DEFINITION, seed, null);
+            var mismatched = administration.start(new StartRequest(
+                            changed, "admin", IDEMPOTENCY_KEY))
+                    .toCompletableFuture().join();
+
+            assertEquals(StartStatus.STARTED, started.status());
+            assertEquals(StartStatus.REJECTED, mismatched.status());
+            assertFalse(fixture.definitionDeleted(seed.definitionId()));
+            assertEquals(0L, fixture.deletedMarkerCount());
+            assertEquals(1L, fixture.destructiveTargetCount());
+        }
+    }
 }
