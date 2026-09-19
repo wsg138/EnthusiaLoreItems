@@ -598,16 +598,16 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     java.util.logging.Level.SEVERE,
                     "Could not initialize mass distribution directories; disabling LoreItems.",
                     exception);
-            try {
-                getServer().getScheduler().runTask(
-                        this,
-                        () -> getServer().getPluginManager().disablePlugin(this));
-            } catch (RuntimeException schedulingFailure) {
-                getLogger().log(
-                        java.util.logging.Level.SEVERE,
-                        "Could not schedule LoreItems disable after distribution startup failure.",
-                        schedulingFailure);
-            }
+            FatalStartupFailurePolicy.revokeWritesThenRequestDisable(
+                    () -> publishUnavailableServices(
+                            "Mass distribution startup failed; writes are unavailable."),
+                    () -> getServer().getScheduler().runTask(
+                            this,
+                            () -> getServer().getPluginManager().disablePlugin(this)),
+                    schedulingFailure -> getLogger().log(
+                            java.util.logging.Level.SEVERE,
+                            "Could not schedule LoreItems disable after distribution startup failure.",
+                            schedulingFailure));
         }
     }
 
