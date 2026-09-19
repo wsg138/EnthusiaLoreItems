@@ -65,7 +65,12 @@ final class SQLiteDestructiveAcceptanceStore {
         Optional<OperationView> existing = queries.findByIdempotencyKey(
                 connection, request.idempotencyKey());
         if (existing.isPresent()) {
-            return alreadyAccepted(existing.orElseThrow());
+            OperationView accepted = existing.orElseThrow();
+            return matchesAcceptedRequest(connection, request, accepted)
+                    ? alreadyAccepted(accepted)
+                    : StartResult.failure(
+                            StartStatus.REJECTED,
+                            "This destructive idempotency key belongs to a different confirmation.");
         }
         Optional<Preview> current = refreshedPreview(connection, request.preview());
         if (current.isEmpty()) {
@@ -81,6 +86,34 @@ final class SQLiteDestructiveAcceptanceStore {
                 StartStatus.STARTED,
                 queries.findOperation(connection, operationId).orElseThrow(),
                 "The destructive intent and immutable target snapshot were committed.");
+    }
+
+    private static boolean matchesAcceptedRequest(
+            Connection connection,
+            StartRequest request,
+            OperationView accepted) throws SQLException {
+        Preview preview = request.preview();
+        return accepted.operationType() == preview.operationType()
+                && accepted.definitionId().equals(preview.definitionId())
+                && Objects.equals(accepted.exactInstanceId(), preview.exactInstanceId())
+                && accepted.expectedRevision().equals(preview.expectedRevision())
+                && accepted.actorId().equals(request.actorId())
+                && confirmationTokenMatches(
+                        connection, accepted.operationId(), preview.confirmationToken());
+    }
+
+    private static boolean confirmationTokenMatches(
+            Connection connection,
+            UUID operationId,
+            String confirmationToken) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT confirmation_token FROM destructive_operations WHERE operation_id = ?")) {
+            statement.setString(1, operationId.toString());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next()
+                        && confirmationToken.equals(resultSet.getString("confirmation_token"));
+            }
+        }
     }
 
     private Optional<Preview> refreshedPreview(Connection connection, Preview submitted)
