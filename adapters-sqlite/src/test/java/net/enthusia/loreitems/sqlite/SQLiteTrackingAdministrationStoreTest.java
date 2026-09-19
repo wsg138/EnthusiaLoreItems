@@ -134,19 +134,7 @@ class SQLiteTrackingAdministrationStoreTest {
         try {
             seed(runtime);
             createConflict(runtime);
-            SQLiteTrackingObservationStore tracking = new SQLiteTrackingObservationStore(runtime);
-            LoreItemIdentity forkedIdentity = new LoreItemIdentity(
-                    DEFINITION_ID, INSTANCE_ID, new TemplateRevision(2));
-            TrackingObservationUseCase.Result mismatchResult = tracking.record(
-                            new TrackingObservationUseCase.Request(
-                                    forkedIdentity,
-                                    SLOT_TWO,
-                                    TrackingObservationUseCase.Presence.PRESENT,
-                                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                                    "tracking-admin-blocking-anomaly-test"),
-                            Instant.ofEpochMilli(1_200L))
-                    .toCompletableFuture().join();
-            assertEquals(TrackingObservationUseCase.Status.IDENTITY_MISMATCH, mismatchResult.status());
+            recordIdentityMismatch(runtime);
 
             SQLiteAnomalyRepository anomalies = new SQLiteAnomalyRepository(runtime);
             var anomalyRows = anomalies.listByInstance(INSTANCE_ID, PageRequest.first(10))
@@ -184,6 +172,22 @@ class SQLiteTrackingAdministrationStoreTest {
         } finally {
             runtime.close(Duration.ofSeconds(5));
         }
+    }
+
+    private static void recordIdentityMismatch(SQLiteStorageRuntime runtime) {
+        SQLiteTrackingObservationStore tracking = new SQLiteTrackingObservationStore(runtime);
+        LoreItemIdentity forkedIdentity = new LoreItemIdentity(
+                DEFINITION_ID, INSTANCE_ID, new TemplateRevision(2));
+        TrackingObservationUseCase.Result mismatchResult = tracking.record(
+                        new TrackingObservationUseCase.Request(
+                                forkedIdentity,
+                                SLOT_TWO,
+                                TrackingObservationUseCase.Presence.PRESENT,
+                                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                                "tracking-admin-blocking-anomaly-test"),
+                        Instant.ofEpochMilli(1_200L))
+                .toCompletableFuture().join();
+        assertEquals(TrackingObservationUseCase.Status.IDENTITY_MISMATCH, mismatchResult.status());
     }
 
     private static void createConflict(SQLiteStorageRuntime runtime) {
