@@ -305,8 +305,9 @@ class PaperTemplateEditorManagerTest {
         editPermission.setPermission(PaperTemplateEditorManager.EDIT_PERMISSION, false);
         pending.complete(Optional.of(snapshot));
 
-        assertFalse(player.getOpenInventory().getTopInventory().getHolder()
-                instanceof PaperTemplateEditorView);
+        var topInventory = player.getOpenInventory().getTopInventory();
+        assertFalse(topInventory != null
+                && topInventory.getHolder() instanceof PaperTemplateEditorView);
     }
 
     @Test
