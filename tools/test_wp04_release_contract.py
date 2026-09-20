@@ -14,7 +14,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         ).read_text()
         plugin_required = [
             "stopping = true",
-            'LoreItemsServiceDelegates.unavailable("The plugin is stopping.")',
+            'setUnavailableDelegates("The plugin is stopping.")',
             "getServer().getServicesManager().unregisterAll(this)",
             "ThreadPoolExecutor executor = lifecycleExecutor;",
             "executor.shutdownNow();",
