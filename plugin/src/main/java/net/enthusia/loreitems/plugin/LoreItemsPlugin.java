@@ -577,8 +577,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private boolean activateDistributionRuntime(
             SQLiteStorageRuntime runtime,
             FoundationConfiguration loaded) {
-        DistributionRuntime distribution =
-                new DistributionRuntime(this, runtime, loaded, lifecycleExecutor);
+        DistributionRuntime distribution = new DistributionRuntime(
+                this,
+                runtime,
+                loaded,
+                lifecycleExecutor,
+                () -> fenceFatalStartup(
+                        "Mass distribution startup failed; writes are unavailable."));
         synchronized (lifecycleLock) {
             if (stopping) {
                 closeQuietly(distribution, "mass distribution runtime");

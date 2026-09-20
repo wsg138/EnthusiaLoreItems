@@ -56,6 +56,7 @@ final class DistributionRuntime implements AutoCloseable {
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
     private final DistributionCampaignCommandExecutor commandExecutor;
     private final ThreadPoolExecutor distributionExecutor;
+    private final Runnable fatalStartupFence;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private volatile boolean serviceRegistered;
@@ -65,12 +66,14 @@ final class DistributionRuntime implements AutoCloseable {
             JavaPlugin plugin,
             SQLiteStorageRuntime storage,
             FoundationConfiguration configuration,
-            Executor blockingExecutor) {
+            Executor blockingExecutor,
+            Runnable fatalStartupFence) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         SQLiteStorageRuntime requiredStorage = Objects.requireNonNull(storage, "storage");
         FoundationConfiguration requiredConfiguration =
                 Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        this.fatalStartupFence = Objects.requireNonNull(fatalStartupFence, "fatalStartupFence");
         distributionExecutor = createDistributionExecutor();
         Executor workerExecutor = distributionExecutor;
         MetricsPort metrics = requiredStorage.metrics();
@@ -196,12 +199,18 @@ final class DistributionRuntime implements AutoCloseable {
             plugin.getLogger().info(
                     "Mass distribution delivery, identity binding, marker recovery, and commands are active.");
         } catch (RuntimeException exception) {
-            close();
+            FatalStartupFailurePolicy.revokeWritesThenCleanupAndRequestDisable(
+                    fatalStartupFence,
+                    this::close,
+                    () -> plugin.getServer().getPluginManager().disablePlugin(plugin),
+                    cleanupOrDisableFailure -> plugin.getLogger().log(
+                            Level.SEVERE,
+                            "Could not complete distribution cleanup/disable after fatal startup failure.",
+                            cleanupOrDisableFailure));
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not activate the mass distribution runtime; disabling LoreItems.",
                     exception);
-            plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
     }
 
