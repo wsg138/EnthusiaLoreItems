@@ -18,4 +18,24 @@ final class FatalStartupFailurePolicy {
             Objects.requireNonNull(disableFailureHandler, "disableFailureHandler").accept(exception);
         }
     }
+
+    static void revokeWritesThenCleanupAndRequestDisable(
+            Runnable revokeWrites,
+            Runnable cleanup,
+            Runnable requestDisable,
+            Consumer<RuntimeException> failureHandler) {
+        Objects.requireNonNull(cleanup, "cleanup");
+        Objects.requireNonNull(requestDisable, "requestDisable");
+        Objects.requireNonNull(failureHandler, "failureHandler");
+        revokeWritesThenRequestDisable(
+                revokeWrites,
+                () -> {
+                    try {
+                        cleanup.run();
+                    } finally {
+                        requestDisable.run();
+                    }
+                },
+                failureHandler);
+    }
 }

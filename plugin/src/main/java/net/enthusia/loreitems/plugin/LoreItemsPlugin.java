@@ -484,13 +484,16 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 getLogger().info(
                         "Physical lore-item tracking and natural-access reconciliation are active.");
             } catch (RuntimeException exception) {
-                closeQuietly(unique, "unique-access tracking listener");
-                closeQuietly(physical, "physical tracking listener");
-                getLogger().log(
-                        java.util.logging.Level.SEVERE,
+                PaperUniqueAccessTrackingListener failedUnique = unique;
+                PaperPhysicalTrackingListener failedPhysical = physical;
+                failMainThreadStartupActivation(
+                        "Lore-item physical tracking activation failed.",
                         "Could not start lore-item physical tracking; disabling LoreItems.",
-                        exception);
-                getServer().getPluginManager().disablePlugin(this);
+                        exception,
+                        () -> {
+                            closeQuietly(failedUnique, "unique-access tracking listener");
+                            closeQuietly(failedPhysical, "physical tracking listener");
+                        });
             }
         }
     }
@@ -515,12 +518,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         directDeliveryWorker = worker;
                         getLogger().info("Queued direct-delivery processing is active.");
                     } catch (RuntimeException exception) {
-                        closeQuietly(worker, "direct-delivery worker");
-                        getLogger().log(
-                                java.util.logging.Level.SEVERE,
+                        failMainThreadStartupActivation(
+                                "Direct-delivery activation failed.",
                                 "Could not start the direct-delivery worker; disabling LoreItems.",
-                                exception);
-                        getServer().getPluginManager().disablePlugin(this);
+                                exception,
+                                () -> closeQuietly(worker, "direct-delivery worker"));
                     }
                 }
             });
@@ -554,12 +556,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         mutationRecoveryWorker = worker;
                         getLogger().info("Expired item-mutation recovery is active.");
                     } catch (RuntimeException exception) {
-                        closeQuietly(worker, "mutation-recovery worker");
-                        getLogger().log(
-                                java.util.logging.Level.SEVERE,
+                        failMainThreadStartupActivation(
+                                "Expired mutation recovery activation failed.",
                                 "Could not start expired mutation recovery; disabling LoreItems.",
-                                exception);
-                        getServer().getPluginManager().disablePlugin(this);
+                                exception,
+                                () -> closeQuietly(worker, "mutation-recovery worker"));
                     }
                 }
             });
@@ -589,6 +590,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             distribution.activate();
             return true;
         } catch (Exception exception) {
+            fenceFatalStartup("Mass distribution startup failed; writes are unavailable.");
             closeQuietly(distribution, "mass distribution runtime");
             failStartupActivation(
                     "Mass distribution startup failed; writes are unavailable.",
@@ -673,20 +675,19 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     warningWorker);
             activateAdministrationWorkers(warningWorker, anomalyListener, planner);
         } catch (RuntimeException exception) {
-            rollbackAdministrationServices(
-                    services,
-                    administrationUseCase,
-                    anomalyObservationUseCase,
-                    templateManagementUseCase,
-                    warningWorker,
-                    anomalyListener,
-                    planner);
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
+            failMainThreadStartupActivation(
+                    "Lore-item anomaly and administration activation failed.",
                     "Could not activate lore-item anomaly and administration services; "
                             + "disabling LoreItems.",
-                    exception);
-            getServer().getPluginManager().disablePlugin(this);
+                    exception,
+                    () -> rollbackAdministrationServices(
+                            services,
+                            administrationUseCase,
+                            anomalyObservationUseCase,
+                            templateManagementUseCase,
+                            warningWorker,
+                            anomalyListener,
+                            planner));
         }
     }
 
@@ -818,7 +819,6 @@ public final class LoreItemsPlugin extends JavaPlugin {
             String unavailableDetail,
             String message,
             Exception exception) {
-        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
         FatalStartupFailurePolicy.revokeWritesThenRequestDisable(
                 () -> fenceFatalStartup(unavailableDetail),
                 () -> getServer().getScheduler().runTask(
@@ -828,6 +828,23 @@ public final class LoreItemsPlugin extends JavaPlugin {
                         java.util.logging.Level.SEVERE,
                         "Could not schedule LoreItems disable after fatal startup failure.",
                         schedulingFailure));
+        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
+    }
+
+    private void failMainThreadStartupActivation(
+            String unavailableDetail,
+            String message,
+            Exception exception,
+            Runnable cleanup) {
+        FatalStartupFailurePolicy.revokeWritesThenCleanupAndRequestDisable(
+                () -> fenceFatalStartup(unavailableDetail),
+                cleanup,
+                () -> getServer().getPluginManager().disablePlugin(this),
+                cleanupOrDisableFailure -> getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not complete cleanup/disable after fatal startup failure.",
+                        cleanupOrDisableFailure));
+        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
     }
 
     private void fenceFatalStartup(String detail) {

@@ -29,4 +29,29 @@ class FatalStartupFailurePolicyTest {
         assertTrue(disableAttempted.get());
         assertSame(expectedFailure, observedFailure.get());
     }
+
+    @Test
+    void cleanupFailureStillAttemptsDisableAfterWritesAreRevoked() {
+        AtomicBoolean writesAvailable = new AtomicBoolean(true);
+        AtomicBoolean disableAttempted = new AtomicBoolean();
+        AtomicReference<RuntimeException> observedFailure = new AtomicReference<>();
+        RuntimeException cleanupFailure = new IllegalStateException("cleanup failed");
+
+        FatalStartupFailurePolicy.revokeWritesThenCleanupAndRequestDisable(
+                () -> writesAvailable.set(false),
+                () -> {
+                    assertFalse(writesAvailable.get());
+                    throw cleanupFailure;
+                },
+                () -> {
+                    assertFalse(writesAvailable.get());
+                    disableAttempted.set(true);
+                },
+                observedFailure::set);
+
+        assertFalse(writesAvailable.get());
+        assertTrue(disableAttempted.get());
+        assertSame(cleanupFailure, observedFailure.get());
+    }
+
 }
