@@ -25,6 +25,7 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -82,7 +83,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (event.getClickedInventory() != event.getView().getTopInventory()) {
             return;
         }
-        Player player = authorizedClicker(event);
+        Player player = authorizedClicker(event, view);
         int slot = event.getRawSlot();
         if (player == null || slot < 0 || slot >= SIZE) {
             return;
@@ -90,13 +91,21 @@ public final class PaperTrackingAdministrationGui implements Listener {
         dispatchClick(player, view, slot);
     }
 
-    private Player authorizedClicker(InventoryClickEvent event) {
+    private Player authorizedClicker(
+            InventoryClickEvent event, PaperTrackingAdministrationView view) {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return null;
         }
-        return player.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)
-                ? player
-                : null;
+        return canUseScreen(player, view.screen) ? player : null;
+    }
+
+    static boolean canUseScreen(
+            CommandSender sender, PaperTrackingAdministrationView.Screen screen) {
+        Objects.requireNonNull(sender, "sender");
+        Objects.requireNonNull(screen, "screen");
+        return screen == PaperTrackingAdministrationView.Screen.DEFINITIONS
+                ? LoreItemsAdministrationCommandExecutor.canBrowse(sender)
+                : sender.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
     }
 
     private void dispatchClick(
@@ -325,7 +334,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
 
     private void showDefinitions(
             UUID playerId, int pageNumber, Page<LoreDefinition> page) {
-        Player player = authorizedPlayer(playerId);
+        Player player = authorizedDefinitionPlayer(playerId);
         if (player != null) {
             renderer.showDefinitions(player, pageNumber, page);
         }
@@ -451,6 +460,14 @@ public final class PaperTrackingAdministrationGui implements Listener {
                     "Could not schedule lore-item GUI work during shutdown.",
                     exception);
         }
+    }
+
+    private Player authorizedDefinitionPlayer(UUID playerId) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        return player != null
+                        && canUseScreen(player, PaperTrackingAdministrationView.Screen.DEFINITIONS)
+                ? player
+                : null;
     }
 
     private Player authorizedPlayer(UUID playerId) {
