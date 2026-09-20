@@ -253,11 +253,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
             }
             stopping = true;
             shutdownCleanupComplete = false;
-            serviceDelegate.set(LoreItemsServiceDelegates.unavailable("The plugin is stopping."));
-            createDefinitionDelegate.set(UnavailableLoreItemsUseCases.createDefinition());
-            adoptHeldItemDelegate.set(UnavailableLoreItemsUseCases.adoptHeldItem());
-            voidLossDelegate.set(UnavailableLoreItemsUseCases.voidLoss());
-            displayObservationDelegate.set(UnavailableLoreItemsUseCases.displayObservation());
+            setUnavailableDelegates("The plugin is stopping.");
         }
         CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
         shutdownTrackingQuiescence = trackingQuiescence;
@@ -421,18 +417,19 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 writable.displayObservation())) {
             return;
         }
-        if (!activateTrackingListeners(writable.trackingObservation(), runtime.metrics())) {
+        if (!StartupActivationSequence.run(
+                () -> activateTrackingListeners(writable.trackingObservation(), runtime.metrics()),
+                () -> activateDirectDeliveryWorker(writable.directDelivery(), loaded),
+                () -> activateMutationRecoveryWorker(repositories.mutations(), loaded),
+                () -> activateAdministrationServices(
+                        administration.administrationUseCase(),
+                        administration.anomalyObservation(),
+                        administration.templateManagement(),
+                        administration.rollout(),
+                        loaded),
+                () -> activateDistributionRuntime(runtime, loaded))) {
             return;
         }
-        activateDirectDeliveryWorker(writable.directDelivery(), loaded);
-        activateMutationRecoveryWorker(repositories.mutations(), loaded);
-        activateAdministrationServices(
-                administration.administrationUseCase(),
-                administration.anomalyObservation(),
-                administration.templateManagement(),
-                administration.rollout(),
-                loaded);
-        activateDistributionRuntime(runtime, loaded);
         getLogger().info(
                 "Durable storage is active; definition creation, adoption, protection, "
                         + "physical tracking, display observations, terminal void loss, and "
@@ -450,11 +447,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     () -> activateTrackingListenersOnMainThread(useCase, metrics));
             return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Lore-item physical tracking activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not schedule lore-item physical tracking; writes remain unavailable.",
+            failStartupActivation(
+                    "Lore-item physical tracking activation could not be scheduled.",
+                    "Could not schedule lore-item physical tracking; disabling LoreItems.",
                     exception);
             return false;
         }
@@ -500,7 +495,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
     }
 
-    private void activateDirectDeliveryWorker(
+    private boolean activateDirectDeliveryWorker(
             DirectDeliveryExecutionUseCase useCase,
             FoundationConfiguration loaded) {
         try {
@@ -529,17 +524,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     }
                 }
             });
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Direct-delivery activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not activate the direct-delivery worker; writes remain unavailable.",
+            failStartupActivation(
+                    "Direct-delivery activation could not be scheduled.",
+                    "Could not schedule the direct-delivery worker; disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
-    private void activateMutationRecoveryWorker(
+    private boolean activateMutationRecoveryWorker(
             SQLitePendingMutationRepository repository,
             FoundationConfiguration loaded) {
         try {
@@ -568,17 +563,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     }
                 }
             });
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Expired mutation recovery activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not activate expired mutation recovery; writes remain unavailable.",
+            failStartupActivation(
+                    "Expired mutation recovery activation could not be scheduled.",
+                    "Could not schedule expired mutation recovery; disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
-    private void activateDistributionRuntime(
+    private boolean activateDistributionRuntime(
             SQLiteStorageRuntime runtime,
             FoundationConfiguration loaded) {
         DistributionRuntime distribution =
@@ -586,32 +581,24 @@ public final class LoreItemsPlugin extends JavaPlugin {
         synchronized (lifecycleLock) {
             if (stopping) {
                 closeQuietly(distribution, "mass distribution runtime");
-                return;
+                return false;
             }
             distributionRuntime = distribution;
         }
         try {
             distribution.activate();
+            return true;
         } catch (Exception exception) {
             closeQuietly(distribution, "mass distribution runtime");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not initialize mass distribution directories; disabling LoreItems.",
+            failStartupActivation(
+                    "Mass distribution startup failed; writes are unavailable.",
+                    "Could not initialize mass distribution runtime; disabling LoreItems.",
                     exception);
-            FatalStartupFailurePolicy.revokeWritesThenRequestDisable(
-                    () -> publishUnavailableServices(
-                            "Mass distribution startup failed; writes are unavailable."),
-                    () -> getServer().getScheduler().runTask(
-                            this,
-                            () -> getServer().getPluginManager().disablePlugin(this)),
-                    schedulingFailure -> getLogger().log(
-                            java.util.logging.Level.SEVERE,
-                            "Could not schedule LoreItems disable after distribution startup failure.",
-                            schedulingFailure));
+            return false;
         }
     }
 
-    private void activateAdministrationServices(
+    private boolean activateAdministrationServices(
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
             TemplateManagementUseCase templateManagementUseCase,
@@ -626,14 +613,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                             templateManagementUseCase,
                             rolloutUseCase,
                             loaded));
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Lore-item anomaly and administration activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
+            failStartupActivation(
+                    "Lore-item anomaly and administration activation could not be scheduled.",
                     "Could not schedule lore-item anomaly and administration services; "
-                            + "writes remain unavailable.",
+                            + "disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
@@ -822,13 +809,44 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (stopping) {
                 return false;
             }
-            serviceDelegate.set(LoreItemsServiceDelegates.unavailable(detail));
-            createDefinitionDelegate.set(UnavailableLoreItemsUseCases.createDefinition());
-            adoptHeldItemDelegate.set(UnavailableLoreItemsUseCases.adoptHeldItem());
-            voidLossDelegate.set(UnavailableLoreItemsUseCases.voidLoss());
-            displayObservationDelegate.set(UnavailableLoreItemsUseCases.displayObservation());
+            setUnavailableDelegates(detail);
             return true;
         }
+    }
+
+    private void failStartupActivation(
+            String unavailableDetail,
+            String message,
+            Exception exception) {
+        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
+        FatalStartupFailurePolicy.revokeWritesThenRequestDisable(
+                () -> fenceFatalStartup(unavailableDetail),
+                () -> getServer().getScheduler().runTask(
+                        this,
+                        () -> getServer().getPluginManager().disablePlugin(this)),
+                schedulingFailure -> getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not schedule LoreItems disable after fatal startup failure.",
+                        schedulingFailure));
+    }
+
+    private void fenceFatalStartup(String detail) {
+        Objects.requireNonNull(detail, "detail");
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return;
+            }
+            setUnavailableDelegates(detail);
+            stopping = true;
+        }
+    }
+
+    private void setUnavailableDelegates(String detail) {
+        serviceDelegate.set(LoreItemsServiceDelegates.unavailable(detail));
+        createDefinitionDelegate.set(UnavailableLoreItemsUseCases.createDefinition());
+        adoptHeldItemDelegate.set(UnavailableLoreItemsUseCases.adoptHeldItem());
+        voidLossDelegate.set(UnavailableLoreItemsUseCases.voidLoss());
+        displayObservationDelegate.set(UnavailableLoreItemsUseCases.displayObservation());
     }
 
     private void recoverExpiredClaims(
