@@ -41,6 +41,16 @@ class Wp05BackupRollbackContractTests(unittest.TestCase):
         self.assertIn(f"'prior_jar_sha256':'{STABLE_JAR_SHA256}'", self.workflow)
         self.assertNotIn("'prior_release':'v1.0.0-rc.1'", self.workflow)
 
+    def test_v101_release_docs_cover_all_forward_schema_migrations(self):
+        release = (ROOT / "docs/releases/v1.0.1.md").read_text(encoding="utf-8")
+        rollback = (ROOT / "docs/releases/v1.0.1-rollback.md").read_text(encoding="utf-8")
+        for document in (release, rollback):
+            self.assertIn("V9", document)
+            self.assertIn("V10", document)
+        self.assertIn("forward-only migrations V9 and V10", rollback)
+        self.assertIn("`ITEM_DISPLAY`", rollback)
+        self.assertNotIn("Version 1.0.1 applies forward-only migration V9.", rollback)
+
 
 if __name__ == "__main__":
     unittest.main()
