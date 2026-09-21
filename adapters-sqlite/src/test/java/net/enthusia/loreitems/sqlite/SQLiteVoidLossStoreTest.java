@@ -207,6 +207,92 @@ class SQLiteVoidLossStoreTest {
         }
     }
 
+    @Test
+    void terminalVoidCompletesPendingDestructiveTargetAndParent() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("void-destructive-pending.db"));
+        try {
+            seedActiveInstance(runtime);
+            var administration = startPurge(runtime, "void-destructive-pending");
+            var operation = administration.listOperations(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            SQLiteVoidLossStore store = new SQLiteVoidLossStore(runtime);
+            PreparedVoidLoss loss = prepare(store, request()).prepared();
+
+            assertTrue(store.complete(loss, Instant.ofEpochMilli(2_000L))
+                    .toCompletableFuture().join());
+
+            var target = administration.listTargets(operation.operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            var completed = administration.listOperations(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals("VOID_DESTROYED", instance(runtime).lifecycle().name());
+            assertEquals("COMPLETED", target.state().name());
+            assertEquals("REMOVED_OBSERVED", target.effectState().name());
+            assertEquals("COMPLETED", completed.state().name());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void terminalVoidDoesNotOverwriteClaimedDestructiveTarget() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("void-destructive-claimed.db"));
+        try {
+            seedActiveInstance(runtime);
+            var administration = startPurge(runtime, "void-destructive-claimed");
+            var operation = administration.listOperations(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            var execution = new net.enthusia.loreitems.application.PersistingDestructiveRemovalExecutionUseCase(
+                    new SQLiteDestructiveOperationStore(runtime),
+                    java.time.Clock.fixed(Instant.ofEpochMilli(1_200L), java.time.ZoneOffset.UTC),
+                    Duration.ofSeconds(30));
+            var destructive = execution.prepare(new net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Observation(
+                            new LoreItemIdentity(DEFINITION_ID, INSTANCE_ID, REVISION),
+                            "PLAYER_INVENTORY", "player:one", null, "fingerprint"))
+                    .toCompletableFuture().join();
+            assertEquals("PREPARED", destructive.status().name());
+
+            SQLiteVoidLossStore store = new SQLiteVoidLossStore(runtime);
+            PreparedVoidLoss loss = prepareWithIds(store, request(),
+                    UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                    UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")).prepared();
+            assertTrue(store.complete(loss, Instant.ofEpochMilli(2_000L))
+                    .toCompletableFuture().join());
+
+            var claimed = administration.listTargets(operation.operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals("CLAIMED", claimed.state().name());
+            assertEquals(1, new SQLiteDestructiveOperationStore(runtime).moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(40_000L), 10)
+                    .toCompletableFuture().join());
+            var reviewed = administration.listTargets(operation.operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals("REVIEW_REQUIRED", reviewed.state().name());
+            assertEquals("AMBIGUOUS", reviewed.effectState().name());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    private static net.enthusia.loreitems.application.DestructiveAdministrationUseCase startPurge(
+            SQLiteStorageRuntime runtime,
+            String idempotencyKey) {
+        var administration = new net.enthusia.loreitems.application.PersistingDestructiveAdministrationUseCase(
+                new SQLiteDestructiveOperationStore(runtime),
+                java.time.Clock.fixed(Instant.ofEpochMilli(1_100L), java.time.ZoneOffset.UTC));
+        var preview = administration.preview(
+                        new net.enthusia.loreitems.application.DestructiveAdministrationUseCase.PreviewRequest(
+                                net.enthusia.loreitems.domain.DestructiveOperationType.PURGE_DEFINITION,
+                                DEFINITION_ID,
+                                null))
+                .toCompletableFuture().join().orElseThrow();
+        var started = administration.start(
+                        new net.enthusia.loreitems.application.DestructiveAdministrationUseCase.StartRequest(
+                                preview, "admin", idempotencyKey))
+                .toCompletableFuture().join();
+        assertEquals("STARTED", started.status().name());
+        return administration;
+    }
     private static VoidLossUseCase.PrepareResult prepare(
             SQLiteVoidLossStore store,
             VoidLossUseCase.Request request) {
