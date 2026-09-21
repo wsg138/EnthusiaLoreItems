@@ -12,6 +12,9 @@ import org.junit.jupiter.api.io.TempDir;
 
 class MigrationRunnerV11VoidDestructiveReconciliationTest {
     private static final String DEFINITION_ID = "10000000-0000-0000-0000-000000000011";
+    private static final String STATE_ACTIVE = "ACTIVE";
+    private static final String EFFECT_UNKNOWN = "UNKNOWN";
+    private static final String STATE_CLAIMED = "CLAIMED";
     private static final String VOID_PENDING = "20000000-0000-0000-0000-000000000011";
     private static final String ACTIVE_PENDING = "20000000-0000-0000-0000-000000000012";
     private static final String VOID_CLAIMED = "20000000-0000-0000-0000-000000000013";
@@ -33,16 +36,16 @@ class MigrationRunnerV11VoidDestructiveReconciliationTest {
             runner.migrateThrough(connection, 10);
             seedDefinition(connection);
             seedInstance(connection, VOID_PENDING, "VOID_DESTROYED", 2_000L);
-            seedInstance(connection, ACTIVE_PENDING, "ACTIVE", null);
+            seedInstance(connection, ACTIVE_PENDING, STATE_ACTIVE, null);
             seedInstance(connection, VOID_CLAIMED, "VOID_DESTROYED", 2_100L);
             seedInstance(connection, VOID_REVIEW, "VOID_DESTROYED", 2_200L);
             seedOperation(connection, OP_COMPLETE, "PAUSED");
-            seedOperation(connection, OP_ACTIVE, "ACTIVE");
-            seedOperation(connection, OP_CLAIMED, "ACTIVE");
+            seedOperation(connection, OP_ACTIVE, STATE_ACTIVE);
+            seedOperation(connection, OP_CLAIMED, STATE_ACTIVE);
             seedOperation(connection, OP_REVIEW, "PAUSED");
-            seedTarget(connection, OP_COMPLETE, VOID_PENDING, "PENDING", "UNKNOWN");
-            seedTarget(connection, OP_ACTIVE, ACTIVE_PENDING, "PENDING", "UNKNOWN");
-            seedTarget(connection, OP_CLAIMED, VOID_CLAIMED, "CLAIMED", "UNKNOWN");
+            seedTarget(connection, OP_COMPLETE, VOID_PENDING, "PENDING", EFFECT_UNKNOWN);
+            seedTarget(connection, OP_ACTIVE, ACTIVE_PENDING, "PENDING", EFFECT_UNKNOWN);
+            seedTarget(connection, OP_CLAIMED, VOID_CLAIMED, STATE_CLAIMED, EFFECT_UNKNOWN);
             seedTarget(connection, OP_REVIEW, VOID_REVIEW, "REVIEW_REQUIRED", "AMBIGUOUS");
 
             runner.migrate(connection);
@@ -51,10 +54,10 @@ class MigrationRunnerV11VoidDestructiveReconciliationTest {
             assertTarget(connection, OP_COMPLETE, "COMPLETED", "REMOVED_OBSERVED");
             assertEquals("COMPLETED", operationState(connection, OP_COMPLETE));
             assertEquals(1, migrationAuditCount(connection, OP_COMPLETE));
-            assertTarget(connection, OP_ACTIVE, "PENDING", "UNKNOWN");
-            assertEquals("ACTIVE", operationState(connection, OP_ACTIVE));
-            assertTarget(connection, OP_CLAIMED, "CLAIMED", "UNKNOWN");
-            assertEquals("ACTIVE", operationState(connection, OP_CLAIMED));
+            assertTarget(connection, OP_ACTIVE, "PENDING", EFFECT_UNKNOWN);
+            assertEquals(STATE_ACTIVE, operationState(connection, OP_ACTIVE));
+            assertTarget(connection, OP_CLAIMED, STATE_CLAIMED, EFFECT_UNKNOWN);
+            assertEquals(STATE_ACTIVE, operationState(connection, OP_CLAIMED));
             assertTarget(connection, OP_REVIEW, "REVIEW_REQUIRED", "AMBIGUOUS");
             assertEquals("PAUSED", operationState(connection, OP_REVIEW));
 
@@ -123,8 +126,8 @@ class MigrationRunnerV11VoidDestructiveReconciliationTest {
             String instanceId,
             String state,
             String effectState) throws SQLException {
-        String claimToken = "CLAIMED".equals(state) ? "claim-" + instanceId : null;
-        Long claimExpiresAt = "CLAIMED".equals(state) ? 30_000L : null;
+        String claimToken = STATE_CLAIMED.equals(state) ? "claim-" + instanceId : null;
+        Long claimExpiresAt = STATE_CLAIMED.equals(state) ? 30_000L : null;
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO destructive_targets(operation_id, instance_id, definition_id, "
                         + "expected_applied_revision, expected_location_type, expected_location_key, "

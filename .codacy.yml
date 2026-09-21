@@ -18,5 +18,6 @@ exclude_paths:
   - "adapters-sqlite/src/main/resources/db/migration/V8__canonicalize_adopted_player_locations.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V9__canonicalize_player_inventory_locations.sql"
   - "adapters-sqlite/src/main/resources/db/migration/V10__item_display_observation_support.sql"
+  - "adapters-sqlite/src/main/resources/db/migration/V11__reconcile_void_destroyed_destructive_targets.sql"
   - "acceptance-harness/scripts/wp05-tracking-bot.js"
   - "acceptance-harness/scripts/wp05-tracking-restricted-bot.js"
