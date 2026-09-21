@@ -54,4 +54,28 @@ class FatalStartupFailurePolicyTest {
         assertSame(cleanupFailure, observedFailure.get());
     }
 
+    @Test
+    void deferredActivationAfterFatalFenceIsCleanedAndSkipped() {
+        AtomicBoolean cleanupAttempted = new AtomicBoolean();
+
+        boolean allowed = FatalStartupFailurePolicy.allowDeferredActivation(
+                () -> false,
+                () -> cleanupAttempted.set(true));
+
+        assertFalse(allowed);
+        assertTrue(cleanupAttempted.get());
+    }
+
+    @Test
+    void deferredActivationStillRunsWhileStartupRemainsAllowed() {
+        AtomicBoolean cleanupAttempted = new AtomicBoolean();
+
+        boolean allowed = FatalStartupFailurePolicy.allowDeferredActivation(
+                () -> true,
+                () -> cleanupAttempted.set(true));
+
+        assertTrue(allowed);
+        assertFalse(cleanupAttempted.get());
+    }
+
 }

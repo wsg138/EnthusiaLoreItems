@@ -507,22 +507,24 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     if (stopping || directDeliveryWorker != null) {
                         return;
                     }
-                    PaperDirectDeliveryWorker worker = new PaperDirectDeliveryWorker(
-                            this,
-                            useCase,
-                            new PaperDirectDeliveryOperator(),
-                            loaded.deliveryClaimBatchSize(),
-                            loaded.mutationBudgetPerTick());
+                    PaperDirectDeliveryWorker worker = null;
                     try {
+                        worker = new PaperDirectDeliveryWorker(
+                                this,
+                                useCase,
+                                new PaperDirectDeliveryOperator(),
+                                loaded.deliveryClaimBatchSize(),
+                                loaded.mutationBudgetPerTick());
                         worker.start();
                         directDeliveryWorker = worker;
                         getLogger().info("Queued direct-delivery processing is active.");
                     } catch (RuntimeException exception) {
+                        PaperDirectDeliveryWorker failedWorker = worker;
                         failMainThreadStartupActivation(
                                 "Direct-delivery activation failed.",
                                 "Could not start the direct-delivery worker; disabling LoreItems.",
                                 exception,
-                                () -> closeQuietly(worker, "direct-delivery worker"));
+                                () -> closeQuietly(failedWorker, "direct-delivery worker"));
                     }
                 }
             });
@@ -545,22 +547,24 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     if (stopping || mutationRecoveryWorker != null) {
                         return;
                     }
-                    PaperMutationRecoveryWorker worker = new PaperMutationRecoveryWorker(
-                            this,
-                            repository,
-                            Math.min(
-                                    loaded.deliveryClaimBatchSize(),
-                                    loaded.mutationBudgetPerTick()));
+                    PaperMutationRecoveryWorker worker = null;
                     try {
+                        worker = new PaperMutationRecoveryWorker(
+                                this,
+                                repository,
+                                Math.min(
+                                        loaded.deliveryClaimBatchSize(),
+                                        loaded.mutationBudgetPerTick()));
                         worker.start();
                         mutationRecoveryWorker = worker;
                         getLogger().info("Expired item-mutation recovery is active.");
                     } catch (RuntimeException exception) {
+                        PaperMutationRecoveryWorker failedWorker = worker;
                         failMainThreadStartupActivation(
                                 "Expired mutation recovery activation failed.",
                                 "Could not start expired mutation recovery; disabling LoreItems.",
                                 exception,
-                                () -> closeQuietly(worker, "mutation-recovery worker"));
+                                () -> closeQuietly(failedWorker, "mutation-recovery worker"));
                     }
                 }
             });
@@ -577,17 +581,23 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private boolean activateDistributionRuntime(
             SQLiteStorageRuntime runtime,
             FoundationConfiguration loaded) {
-        DistributionRuntime distribution = new DistributionRuntime(
-                this, runtime, loaded, lifecycleExecutor,
-                () -> fenceFatalStartup("Mass distribution startup failed; writes are unavailable."));
-        synchronized (lifecycleLock) {
-            if (stopping) {
-                closeQuietly(distribution, "mass distribution runtime");
-                return false;
-            }
-            distributionRuntime = distribution;
-        }
+        DistributionRuntime distribution = null;
         try {
+            distribution = new DistributionRuntime(
+                    this,
+                    runtime,
+                    loaded,
+                    lifecycleExecutor,
+                    () -> !stopping,
+                    () -> fenceFatalStartup(
+                            "Mass distribution startup failed; writes are unavailable."));
+            synchronized (lifecycleLock) {
+                if (stopping) {
+                    closeQuietly(distribution, "mass distribution runtime");
+                    return false;
+                }
+                distributionRuntime = distribution;
+            }
             distribution.activate();
             return true;
         } catch (Exception exception) {
@@ -652,56 +662,38 @@ public final class LoreItemsPlugin extends JavaPlugin {
             TemplateManagementUseCase templateManagementUseCase,
             TemplateRevisionRolloutUseCase rolloutUseCase,
             FoundationConfiguration loaded) {
-        PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
-                this,
-                administrationUseCase,
-                loaded.duplicateWarningIntervalSeconds(),
-                loaded.defaultPageSize(),
-                loaded.mutationBudgetPerTick());
-        PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
-                this,
-                loaded.mutationBudgetPerTick());
-        PaperTemplateRevisionPlannerWorker planner = new PaperTemplateRevisionPlannerWorker(
-                this,
-                rolloutUseCase,
-                loaded.mutationBudgetPerTick(),
-                this::wakeAccessibleTemplateUpdates);
-        ServicesManager services = getServer().getServicesManager();
+        AdministrationStartupComponents components = null;
+        ServicesManager services = null;
         try {
+            components = AdministrationStartupComponents.create(
+                    this, administrationUseCase, rolloutUseCase, loaded,
+                    this::wakeAccessibleTemplateUpdates);
+            services = getServer().getServicesManager();
             registerAdministrationServices(
-                    services,
-                    administrationUseCase,
-                    anomalyObservationUseCase,
-                    templateManagementUseCase,
-                    warningWorker);
-            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
+                    services, administrationUseCase, anomalyObservationUseCase,
+                    templateManagementUseCase, components.warningWorker());
+            activateAdministrationWorkers(components);
         } catch (RuntimeException exception) {
+            ServicesManager failedServices = services;
+            AdministrationStartupComponents failedComponents = components;
             failMainThreadStartupActivation(
                     "Lore-item anomaly and administration activation failed.",
                     "Could not activate lore-item anomaly and administration services; "
                             + "disabling LoreItems.",
                     exception,
                     () -> rollbackAdministrationServices(
-                            services,
-                            administrationUseCase,
-                            anomalyObservationUseCase,
-                            templateManagementUseCase,
-                            warningWorker,
-                            anomalyListener,
-                            planner));
+                            failedServices, administrationUseCase, anomalyObservationUseCase,
+                            templateManagementUseCase, failedComponents));
         }
     }
 
-    private void activateAdministrationWorkers(
-            PaperAnomalyWarningWorker warningWorker,
-            PaperIdentityAnomalyListener anomalyListener,
-            PaperTemplateRevisionPlannerWorker planner) {
-        warningWorker.start();
-        anomalyListener.start();
-        planner.start();
-        anomalyWarningWorker = warningWorker;
-        identityAnomalyListener = anomalyListener;
-        templateRevisionPlannerWorker = planner;
+    private void activateAdministrationWorkers(AdministrationStartupComponents components) {
+        components.warningWorker().start();
+        components.anomalyListener().start();
+        components.planner().start();
+        anomalyWarningWorker = components.warningWorker();
+        identityAnomalyListener = components.anomalyListener();
+        templateRevisionPlannerWorker = components.planner();
         getLogger().info(
                 "Lore-item anomaly detection, warnings, and administration are active.");
     }
@@ -713,25 +705,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
             TemplateManagementUseCase templateManagementUseCase,
             PaperAnomalyWarningWorker warningWorker) {
         services.register(
-                LoreItemsAdministrationUseCase.class,
-                administrationUseCase,
-                this,
-                ServicePriority.Normal);
+                LoreItemsAdministrationUseCase.class, administrationUseCase, this, ServicePriority.Normal);
         services.register(
-                ItemAnomalyObservationUseCase.class,
-                anomalyObservationUseCase,
-                this,
-                ServicePriority.Normal);
+                ItemAnomalyObservationUseCase.class, anomalyObservationUseCase, this, ServicePriority.Normal);
         services.register(
-                TemplateManagementUseCase.class,
-                templateManagementUseCase,
-                this,
-                ServicePriority.Normal);
+                TemplateManagementUseCase.class, templateManagementUseCase, this, ServicePriority.Normal);
         services.register(
-                AnomalyWarningSink.class,
-                warningWorker,
-                this,
-                ServicePriority.Normal);
+                AnomalyWarningSink.class, warningWorker, this, ServicePriority.Normal);
     }
 
     private void rollbackAdministrationServices(
@@ -739,13 +719,16 @@ public final class LoreItemsPlugin extends JavaPlugin {
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
             TemplateManagementUseCase templateManagementUseCase,
-            PaperAnomalyWarningWorker warningWorker,
-            PaperIdentityAnomalyListener anomalyListener,
-            PaperTemplateRevisionPlannerWorker planner) {
-        closeQuietly(planner, "template-revision planner");
-        closeQuietly(anomalyListener, "identity-anomaly listener");
-        closeQuietly(warningWorker, "anomaly-warning worker");
-        services.unregister(AnomalyWarningSink.class, warningWorker);
+            AdministrationStartupComponents components) {
+        if (components != null) {
+            components.close();
+        }
+        if (services == null) {
+            return;
+        }
+        if (components != null) {
+            services.unregister(AnomalyWarningSink.class, components.warningWorker());
+        }
         services.unregister(TemplateManagementUseCase.class, templateManagementUseCase);
         services.unregister(ItemAnomalyObservationUseCase.class, anomalyObservationUseCase);
         services.unregister(LoreItemsAdministrationUseCase.class, administrationUseCase);

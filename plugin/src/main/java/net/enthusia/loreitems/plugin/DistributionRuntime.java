@@ -10,6 +10,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
 import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
@@ -56,6 +57,7 @@ final class DistributionRuntime implements AutoCloseable {
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
     private final DistributionCampaignCommandExecutor commandExecutor;
     private final ThreadPoolExecutor distributionExecutor;
+    private final BooleanSupplier startupAllowed;
     private final Runnable fatalStartupFence;
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -67,12 +69,14 @@ final class DistributionRuntime implements AutoCloseable {
             SQLiteStorageRuntime storage,
             FoundationConfiguration configuration,
             Executor blockingExecutor,
+            BooleanSupplier startupAllowed,
             Runnable fatalStartupFence) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         SQLiteStorageRuntime requiredStorage = Objects.requireNonNull(storage, "storage");
         FoundationConfiguration requiredConfiguration =
                 Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        this.startupAllowed = Objects.requireNonNull(startupAllowed, "startupAllowed");
         this.fatalStartupFence = Objects.requireNonNull(fatalStartupFence, "fatalStartupFence");
         distributionExecutor = createDistributionExecutor();
         Executor workerExecutor = distributionExecutor;
@@ -185,10 +189,13 @@ final class DistributionRuntime implements AutoCloseable {
         if (closed.get() || started) {
             return;
         }
-        PluginCommand command = Objects.requireNonNull(
-                plugin.getCommand("loredistribution"),
-                "plugin.yml must declare the loredistribution command");
+        if (!FatalStartupFailurePolicy.allowDeferredActivation(startupAllowed, this::close)) {
+            return;
+        }
         try {
+            PluginCommand command = Objects.requireNonNull(
+                    plugin.getCommand("loredistribution"),
+                    "plugin.yml must declare the loredistribution command");
             registerAdministrationService();
             command.setExecutor(commandExecutor);
             command.setTabCompleter(commandExecutor);
