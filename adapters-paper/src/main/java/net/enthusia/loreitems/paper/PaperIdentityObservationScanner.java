@@ -33,7 +33,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
     private static final int MAX_CONFLICT_PATH_LENGTH =
             LocationDescriptor.MAX_CONTAINER_PATH_LENGTH;
     private static final int MAX_NESTING_DEPTH = 8;
-    private static final int MAX_NESTED_CONTAINER_EXPANSIONS = 256;
+    private static final int MAX_NESTED_ITEMS_PER_SCAN = 256;
     private static final int NO_SKIPPED_SLOT = -1;
     private static final String SLOT_PREFIX = "slot:";
 
@@ -45,6 +45,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
 
     void scanPlayerInventory(Player player, String source) {
         Map<UUID, ObservedCopy> firstCopies = new HashMap<>();
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -54,13 +55,15 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             ObservedCopy copy = observe(
                     item,
                     playerLocation(player, SLOT_PREFIX + slot),
-                    source);
+                    source,
+                    nestedLimit);
             recordIfDuplicate(firstCopies, copy, source);
         }
     }
 
     void scanStorageInventory(Inventory inventory, Player player, String source) {
         Map<UUID, ObservedCopy> firstCopies = new HashMap<>();
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -71,20 +74,27 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             if (location == null) {
                 continue;
             }
-            ObservedCopy copy = observe(item, location, source);
+            ObservedCopy copy = observe(item, location, source, nestedLimit);
             recordIfDuplicate(firstCopies, copy, source);
             compareWithInventory(player, copy, source);
         }
     }
 
     ObservedCopy observe(ItemStack item, LocationDescriptor location, String source) {
-        ItemIdentityReadResult result = anomalyReporter.inspect(item, location, source);
-        inspectNestedAnomalies(
+        return observe(
                 item,
                 location,
                 source,
-                0,
-                new PaperScanLimit(MAX_NESTED_CONTAINER_EXPANSIONS));
+                new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN));
+    }
+
+    private ObservedCopy observe(
+            ItemStack item,
+            LocationDescriptor location,
+            String source,
+            PaperScanLimit nestedLimit) {
+        ItemIdentityReadResult result = anomalyReporter.inspect(item, location, source);
+        inspectNestedAnomalies(item, location, source, 0, nestedLimit);
         if (result instanceof ItemIdentityReadResult.Tracked tracked) {
             return new ObservedCopy(tracked.identity(), location);
         }
@@ -103,7 +113,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
         ItemMeta meta = item.getItemMeta();
         if (meta instanceof BlockStateMeta blockMeta) {
             BlockState state = blockMeta.getBlockState();
-            if (state instanceof ShulkerBox shulker && limit.tryConsume()) {
+            if (state instanceof ShulkerBox shulker) {
                 inspectNestedArray(
                         shulker.getInventory().getContents(),
                         parent,
@@ -113,7 +123,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
                         limit);
             }
         }
-        if (meta instanceof BundleMeta bundle && limit.tryConsume()) {
+        if (meta instanceof BundleMeta bundle) {
             inspectNestedList(
                     bundle.getItems(),
                     parent,
@@ -158,7 +168,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             String source,
             int depth,
             PaperScanLimit limit) {
-        if (nested == null || nested.getType().isAir()) {
+        if (nested == null || nested.getType().isAir() || !limit.tryConsume()) {
             return;
         }
         LocationDescriptor location = nestedLocation(parent, segment);
@@ -189,6 +199,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
         if (external == null) {
             return;
         }
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             if (slot == skippedSlot) {
@@ -201,7 +212,8 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             ObservedCopy inventoryCopy = observe(
                     item,
                     playerLocation(player, SLOT_PREFIX + slot),
-                    source);
+                    source,
+                    nestedLimit);
             if (sameIdentity(inventoryCopy, external)) {
                 recordDuplicate(external, inventoryCopy, source);
             }
@@ -212,6 +224,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
         if (external == null) {
             return;
         }
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -222,7 +235,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             if (location == null) {
                 continue;
             }
-            ObservedCopy inventoryCopy = observe(item, location, source);
+            ObservedCopy inventoryCopy = observe(item, location, source, nestedLimit);
             if (sameIdentity(inventoryCopy, external)) {
                 recordDuplicate(external, inventoryCopy, source);
             }
