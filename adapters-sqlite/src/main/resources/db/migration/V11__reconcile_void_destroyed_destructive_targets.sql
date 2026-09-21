@@ -1,15 +1,9 @@
 CREATE TEMP TABLE v11_void_destructive_operations (
-    operation_id TEXT PRIMARY KEY,
-    reconciled_at INTEGER NOT NULL
+    operation_id TEXT PRIMARY KEY
 );
 
-INSERT INTO v11_void_destructive_operations(operation_id, reconciled_at)
-SELECT
-    target.operation_id,
-    MAX(CASE
-        WHEN instance.terminal_at > target.updated_at THEN instance.terminal_at
-        ELSE target.updated_at
-    END)
+INSERT INTO v11_void_destructive_operations(operation_id)
+SELECT DISTINCT target.operation_id
 FROM destructive_targets target
 JOIN destructive_operations operation
     ON operation.operation_id = target.operation_id
@@ -18,8 +12,7 @@ JOIN lore_instances instance
     AND instance.definition_id = target.definition_id
 WHERE target.state = 'PENDING'
   AND operation.state IN ('ACTIVE', 'PAUSED')
-  AND instance.lifecycle_state = 'VOID_DESTROYED'
-GROUP BY target.operation_id;
+  AND instance.lifecycle_state = 'VOID_DESTROYED';
 
 INSERT INTO audit_events(
     aggregate_type,
@@ -90,15 +83,15 @@ SET state = CASE
     END,
     updated_at = MAX(
         operation.updated_at,
-        (SELECT reconciled_at
-         FROM v11_void_destructive_operations affected
-         WHERE affected.operation_id = operation.operation_id)
+        (SELECT MAX(target.updated_at)
+         FROM destructive_targets target
+         WHERE target.operation_id = operation.operation_id)
     ),
     terminal_at = MAX(
         operation.updated_at,
-        (SELECT reconciled_at
-         FROM v11_void_destructive_operations affected
-         WHERE affected.operation_id = operation.operation_id)
+        (SELECT MAX(target.updated_at)
+         FROM destructive_targets target
+         WHERE target.operation_id = operation.operation_id)
     )
 WHERE operation.operation_id IN (
     SELECT operation_id FROM v11_void_destructive_operations
