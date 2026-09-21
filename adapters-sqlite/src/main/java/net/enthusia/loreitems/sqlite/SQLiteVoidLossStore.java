@@ -213,6 +213,10 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
                 return false;
             }
         }
+        if ("REVIEW_REQUIRED".equals(targetState)) {
+            SQLiteVoidDestructiveReconciliation.reviewPendingTarget(
+                    connection, loss, reason, occurredAt);
+        }
         appendAudit(connection, loss, eventType, reasonDetail(loss, reason), occurredAt);
         return true;
     }

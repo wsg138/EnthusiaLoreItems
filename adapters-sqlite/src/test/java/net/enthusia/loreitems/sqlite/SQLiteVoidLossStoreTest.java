@@ -235,6 +235,87 @@ class SQLiteVoidLossStoreTest {
     }
 
     @Test
+    void terminalVoidReviewMovesPendingDestructiveTargetToAmbiguousReview() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("void-destructive-review.db"));
+        try {
+            seedActiveInstance(runtime);
+            var administration = startPurge(runtime, "void-destructive-review");
+            UUID operationId = firstOperationId(administration);
+            SQLiteVoidLossStore store = new SQLiteVoidLossStore(runtime);
+            PreparedVoidLoss loss = prepare(store, request()).prepared();
+
+            assertTrue(store.requireReview(
+                            loss,
+                            "The physical void-loss outcome could not be classified.",
+                            Instant.ofEpochMilli(2_000L))
+                    .toCompletableFuture().join());
+
+            var target = administration.listTargets(operationId, PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals("REVIEW_REQUIRED", target.state().name());
+            assertEquals("AMBIGUOUS", target.effectState().name());
+            assertEquals("ACTIVE", instance(runtime).lifecycle().name());
+
+            var resolved = administration.resolveReview(
+                            new net.enthusia.loreitems.application.DestructiveAdministrationUseCase.ReviewRequest(
+                                    operationId,
+                                    INSTANCE_ID,
+                                    net.enthusia.loreitems.application.DestructiveAdministrationUseCase.ReviewResolution.REQUEUE_NO_SIDE_EFFECT,
+                                    "admin",
+                                    "The physical target is still present and unchanged."))
+                    .toCompletableFuture().join();
+            assertEquals("RESOLVED", resolved.status().name());
+            assertEquals("PENDING", resolved.target().state().name());
+
+            var mutationReview = new net.enthusia.loreitems.application.PersistingPendingMutationReviewUseCase(
+                    new SQLitePendingMutationReviewStore(runtime),
+                    java.time.Clock.fixed(Instant.ofEpochMilli(2_100L), java.time.ZoneOffset.UTC));
+            var cancelled = mutationReview.resolve(
+                            new net.enthusia.loreitems.application.PendingMutationReviewUseCase.Request(
+                                    loss.mutationId(),
+                                    SQLiteVoidLossStore.MUTATION_TYPE,
+                                    net.enthusia.loreitems.application.PendingMutationReviewUseCase.Resolution.CANCEL,
+                                    "admin",
+                                    "No void-removal side effect occurred."))
+                    .toCompletableFuture().join();
+            assertEquals("CANCELLED", cancelled.status().name());
+
+            var next = prepareWithIds(
+                    store,
+                    request(),
+                    UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                    UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd"));
+            assertEquals(VoidLossUseCase.PrepareStatus.PREPARED, next.status());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+    @Test
+    void expiredVoidClaimMovesPendingDestructiveTargetToAmbiguousReview() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("void-destructive-expired.db"));
+        try {
+            seedActiveInstance(runtime);
+            var administration = startPurge(runtime, "void-destructive-expired");
+            var operation = administration.listOperations(PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            SQLiteVoidLossStore store = new SQLiteVoidLossStore(runtime);
+            var prepared = prepare(store, request());
+            assertEquals(VoidLossUseCase.PrepareStatus.PREPARED, prepared.status());
+
+            assertEquals(1, new SQLitePendingMutationRepository(runtime).moveExpiredClaimsToReview(
+                            Instant.ofEpochMilli(31_001L), 10)
+                    .toCompletableFuture().join());
+
+            var target = administration.listTargets(operation.operationId(), PageRequest.first(10))
+                    .toCompletableFuture().join().items().getFirst();
+            assertEquals("REVIEW_REQUIRED", target.state().name());
+            assertEquals("AMBIGUOUS", target.effectState().name());
+            assertEquals("ACTIVE", instance(runtime).lifecycle().name());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+    @Test
     void terminalVoidDoesNotOverwriteClaimedDestructiveTarget() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("void-destructive-claimed.db"));
         try {
@@ -274,6 +355,11 @@ class SQLiteVoidLossStoreTest {
         }
     }
 
+    private static UUID firstOperationId(
+            net.enthusia.loreitems.application.DestructiveAdministrationUseCase administration) {
+        return administration.listOperations(PageRequest.first(10))
+                .toCompletableFuture().join().items().getFirst().operationId();
+    }
     private static net.enthusia.loreitems.application.DestructiveAdministrationUseCase startPurge(
             SQLiteStorageRuntime runtime,
             String idempotencyKey) {

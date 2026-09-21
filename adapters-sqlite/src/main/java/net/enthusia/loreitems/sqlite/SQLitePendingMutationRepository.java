@@ -182,22 +182,33 @@ public final class SQLitePendingMutationRepository
         Objects.requireNonNull(now, NOW_ARGUMENT);
         requireBoundedLimit(limit);
         long nowMillis = now.toEpochMilli();
-        return storage.execute(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE pending_mutations SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
-                            + "claim_expires_at = NULL, updated_at = ? "
-                            + "WHERE rowid IN (SELECT rowid FROM pending_mutations "
-                            + "WHERE state IN ('CLAIMED', 'APPLIED', 'VERIFIED') "
-                            + "AND claim_expires_at <= ? "
-                            + "ORDER BY claim_expires_at, mutation_id LIMIT ?)")) {
-                statement.setLong(1, nowMillis);
-                statement.setLong(2, nowMillis);
-                statement.setInt(3, limit);
-                return statement.executeUpdate();
-            }
-        });
+        return storage.execute(connection -> SQLiteTransactions.inTransaction(
+                connection,
+                transaction -> {
+                    int moved = moveExpiredClaimsToReview(transaction, nowMillis, limit);
+                    SQLiteVoidDestructiveReconciliation.reviewPendingTargetsForVoidReviews(
+                            transaction, nowMillis, limit);
+                    return moved;
+                }));
     }
 
+    private static int moveExpiredClaimsToReview(
+            Connection connection,
+            long nowMillis,
+            int limit) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE pending_mutations SET state = 'REVIEW_REQUIRED', claim_token = NULL, "
+                        + "claim_expires_at = NULL, updated_at = ? "
+                        + "WHERE rowid IN (SELECT rowid FROM pending_mutations "
+                        + "WHERE state IN ('CLAIMED', 'APPLIED', 'VERIFIED') "
+                        + "AND claim_expires_at <= ? "
+                        + "ORDER BY claim_expires_at, mutation_id LIMIT ?)")) {
+            statement.setLong(1, nowMillis);
+            statement.setLong(2, nowMillis);
+            statement.setInt(3, limit);
+            return statement.executeUpdate();
+        }
+    }
     @Override
     public CompletionStage<Page<PendingMutationRecord>> listNonTerminal(PageRequest request) {
         Objects.requireNonNull(request, "request");
