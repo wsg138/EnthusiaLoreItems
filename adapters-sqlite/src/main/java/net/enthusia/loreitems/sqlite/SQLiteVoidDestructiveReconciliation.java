@@ -27,7 +27,8 @@ final class SQLiteVoidDestructiveReconciliation {
         }
         SQLiteDestructiveControlStore.appendAudit(
                 connection,
-                operationId,                "destructive_target_satisfied_by_void_loss",
+                operationId,
+                "destructive_target_satisfied_by_void_loss",
                 "SYSTEM",
                 detail(loss),
                 completedAt);
@@ -56,7 +57,8 @@ final class SQLiteVoidDestructiveReconciliation {
     }
 
     private static boolean markCompleted(
-            Connection connection,            UUID operationId,
+            Connection connection,
+            UUID operationId,
             PreparedVoidLoss loss,
             long completedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
