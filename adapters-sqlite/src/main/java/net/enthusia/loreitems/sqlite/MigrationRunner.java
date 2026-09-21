@@ -23,7 +23,8 @@ public final class MigrationRunner {
             new Migration(7, "mass distribution revision snapshot", "db/migration/V7__mass_distribution_revision_snapshot.sql"),
             new Migration(8, "canonicalize adopted player locations", "db/migration/V8__canonicalize_adopted_player_locations.sql"),
             new Migration(9, "canonicalize player inventory locations", "db/migration/V9__canonicalize_player_inventory_locations.sql"),
-            new Migration(10, "item display observation support", "db/migration/V10__item_display_observation_support.sql"));
+            new Migration(10, "item display observation support", "db/migration/V10__item_display_observation_support.sql"),
+            new Migration(11, "reconcile terminal void destructive targets", "db/migration/V11__reconcile_void_destroyed_destructive_targets.sql"));
     private static final int LATEST_SCHEMA_VERSION = MIGRATIONS.getLast().version();
 
     public void migrate(Connection connection) throws SQLException {

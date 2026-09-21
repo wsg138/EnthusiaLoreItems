@@ -47,7 +47,8 @@ class Wp05BackupRollbackContractTests(unittest.TestCase):
         for document in (release, rollback):
             self.assertIn("V9", document)
             self.assertIn("V10", document)
-        self.assertIn("forward-only migrations V9 and V10", rollback)
+            self.assertIn("V11", document)
+        self.assertIn("forward-only migrations V9, V10, and V11", rollback)
         self.assertIn("`ITEM_DISPLAY`", rollback)
         self.assertNotIn("Version 1.0.1 applies forward-only migration V9.", rollback)
 
