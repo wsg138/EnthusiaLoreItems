@@ -1,0 +1,48 @@
+name: Sentinel Sim Verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sentinel-sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build LoreItems target JAR
+        run: |
+          gradle --no-daemon :plugin:shadowJar
+          mapfile -t JARS < <(
+            find plugin/build/libs -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-plain.jar' ! -name '*-sources.jar' -print | sort
+          )
+          test "${#JARS[@]}" -eq 1
+          mkdir -p sentinel-target
+          cp "${JARS[0]}" sentinel-target/EnthusiaLoreItems.jar
+
+      - name: Run Sentinel Sim LoreItems profile
+        uses: wsg138/EnthusiaSentinel-Sim/.github/actions/plugin-test@1a69946e620ef1def9762cfea0254c01c9243a1d
+        with:
+          profile: .sentinel/enthusialoreitems-pr-load.json
+          plugin-jar: sentinel-target/EnthusiaLoreItems.jar
+          report-dir: sentinel-reports/loreitems
+          artifact-name: sentinel-sim-loreitems-report
+          sentinel-java-version: "25"
