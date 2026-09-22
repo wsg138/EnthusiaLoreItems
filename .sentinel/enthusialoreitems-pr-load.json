@@ -1,0 +1,24 @@
+{
+  "id": "github-app-enthusialoreitems-pr-load",
+  "description": "PR startup/load-teardown smoke for EnthusiaLoreItems, including bounded wait for its asynchronous foundation bootstrap.",
+  "targetJar": "",
+  "dependencyJars": [],
+  "players": [],
+  "opPlayers": false,
+  "setup": [
+    {"type":"WAIT_ASYNC", "min":1000, "max":1000, "required":true}
+  ],
+  "actions": [
+    {"type":"NOOP", "weight":1}
+  ],
+  "invariants": [
+    {"type":"NO_SEVERE_LOGS"}
+  ],
+  "exploration": {
+    "seed": 1320758587,
+    "cases": 5,
+    "maxSteps": 1,
+    "maxCorpus": 2,
+    "shrinkFailures": true
+  }
+}
