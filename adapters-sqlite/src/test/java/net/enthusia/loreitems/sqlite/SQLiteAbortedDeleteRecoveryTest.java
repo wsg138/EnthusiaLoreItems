@@ -33,6 +33,7 @@ class SQLiteAbortedDeleteRecoveryTest {
     private static final Instant NOW = Instant.ofEpochMilli(2_000L);
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
     private static final String ADMIN = "admin";
+    private static final String REMOVED_LIFECYCLE = "REMOVED";
 
     @TempDir
     Path temporaryDirectory;
@@ -53,7 +54,7 @@ class SQLiteAbortedDeleteRecoveryTest {
             assertEquals(DestructiveTargetState.COMPLETED,
                     target(context, context.seed().instanceId()).state());
             assertEquals(DestructiveOperationState.COMPLETED, operation(context).state());
-            assertEquals("REMOVED", fixture.instanceLifecycle(context.seed().instanceId()));
+            assertEquals(REMOVED_LIFECYCLE, fixture.instanceLifecycle(context.seed().instanceId()));
         }
     }
 
@@ -65,11 +66,11 @@ class SQLiteAbortedDeleteRecoveryTest {
             completeLateCopy(fixture, context, firstId, "player:late-one");
 
             assertEquals(DestructiveOperationState.ABORTED, operation(context).state());
-            assertEquals("REMOVED", fixture.instanceLifecycle(firstId));
+            assertEquals(REMOVED_LIFECYCLE, fixture.instanceLifecycle(firstId));
 
             LoreInstanceId secondId = new LoreInstanceId(UUID.randomUUID());
             completeLateCopy(fixture, context, secondId, "player:late-two");
-            assertEquals("REMOVED", fixture.instanceLifecycle(secondId));
+            assertEquals(REMOVED_LIFECYCLE, fixture.instanceLifecycle(secondId));
             assertEquals(3L, operation(context).targetCount());
             assertEquals(DestructiveOperationState.ABORTED, operation(context).state());
         }
