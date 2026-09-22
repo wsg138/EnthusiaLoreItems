@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Observation;
-import net.enthusia.loreitems.domain.LoreItemIdentity;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 
 /** Restores marker-backed full-delete work when later physical evidence follows an abort. */
 final class SQLiteAbortedDeleteRecovery {
@@ -119,7 +119,8 @@ final class SQLiteAbortedDeleteRecovery {
                 connection,
                 operationId,
                 observation,
-                "destructive_late_copy_reopened");
+                "destructive_late_copy_reopened",
+                now);
     }
 
     private static void createLateTarget(
@@ -136,7 +137,8 @@ final class SQLiteAbortedDeleteRecovery {
                 connection,
                 operationId,
                 observation,
-                "destructive_late_delete_target_created");
+                "destructive_late_delete_target_created",
+                now);
     }
 
     private static void ensureLateInstance(
@@ -219,13 +221,14 @@ final class SQLiteAbortedDeleteRecovery {
             Connection connection,
             UUID operationId,
             Observation observation,
-            String eventType) throws SQLException {
+            String eventType,
+            long now) throws SQLException {
         SQLiteDestructiveControlStore.appendAudit(
                 connection,
                 operationId,
                 eventType,
                 "SYSTEM",
                 "{\"instanceId\":\"" + observation.identity().instanceId().value() + "\"}",
-                System.currentTimeMillis());
+                now);
     }
 }
