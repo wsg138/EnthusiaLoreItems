@@ -112,7 +112,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             sender.sendMessage("You do not have permission to edit lore-item templates.");
             return true;
         }
-        if (arguments.length != 2 || !"cancel".equalsIgnoreCase(arguments[1])) {
+        if (!LoreItemsEditorCommandSupport.isCancel(arguments)) {
             sender.sendMessage("Usage: /loreitems editor cancel");
             return true;
         }
