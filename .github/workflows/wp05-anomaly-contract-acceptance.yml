@@ -89,13 +89,34 @@ jobs:
             console.log(message)
           }
           const componentText = value => {
-            if (value == null) return ''
-            if (typeof value === 'string') return value
-            if (Array.isArray(value)) return value.map(componentText).join('')
-            if (typeof value.text === 'string') return value.text + (Array.isArray(value.extra) ? value.extra.map(componentText).join('') : '')
-            if (typeof value.value === 'string') return value.value
-            if (Array.isArray(value.extra)) return value.extra.map(componentText).join('')
-            try { return JSON.stringify(value) } catch { return String(value) }
+            const seen = new Set()
+            const read = current => {
+              if (current == null) return ''
+              if (typeof current === 'string' || typeof current === 'number' || typeof current === 'boolean') return String(current)
+              if (Array.isArray(current)) return current.map(read).join('')
+              if (typeof current !== 'object' || seen.has(current)) return ''
+              seen.add(current)
+              try {
+                if (Object.prototype.hasOwnProperty.call(current, 'value') && (current.type || Object.keys(current).length <= 2)) {
+                  const unwrapped = read(current.value)
+                  if (unwrapped) return unwrapped
+                }
+                const parts = []
+                if (Object.prototype.hasOwnProperty.call(current, 'text')) parts.push(read(current.text))
+                for (const key of ['extra', 'with', 'children', 'siblings', 'content']) {
+                  if (Object.prototype.hasOwnProperty.call(current, key)) parts.push(read(current[key]))
+                }
+                if (parts.some(Boolean)) return parts.join('')
+                for (const [key, child] of Object.entries(current)) {
+                  if (['type', 'color', 'bold', 'italic', 'underlined', 'strikethrough', 'obfuscated', 'insertion', 'font'].includes(key)) continue
+                  parts.push(read(child))
+                }
+                return parts.join('')
+              } finally {
+                seen.delete(current)
+              }
+            }
+            return read(value)
           }
           const waitFile = async name => {
             for (let i = 0; i < 3600; i++) {
