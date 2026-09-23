@@ -82,11 +82,12 @@ final class PaperTrackingAdministrationRenderer {
     void showInstances(
             Player player,
             LoreDefinitionId definitionId,
+            int definitionPageNumber,
             int pageNumber,
             Page<LoreInstance> page) {
         List<LoreInstanceId> ids = page.items().stream().map(LoreInstance::id).toList();
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.instances(
-                definitionId, pageNumber, page.hasMore(), ids);
+                definitionId, definitionPageNumber, pageNumber, page.hasMore(), ids);
         Inventory inventory = createInventory(view, "Lore instances");
         boolean canRemove =
                 player.hasPermission(LoreItemsDestructiveCommandExecutor.REMOVE_PERMISSION);
@@ -122,6 +123,7 @@ final class PaperTrackingAdministrationRenderer {
     void showEvidence(
             Player player,
             LoreDefinitionId definitionId,
+            int definitionPageNumber,
             int instancePageNumber,
             LoreInstanceId instanceId,
             int pageNumber,
@@ -130,6 +132,7 @@ final class PaperTrackingAdministrationRenderer {
         List<ObservationChoice> choices = observationChoices(data.observations());
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.evidence(
                 definitionId,
+                definitionPageNumber,
                 instancePageNumber,
                 instanceId,
                 pageNumber,
@@ -159,6 +162,7 @@ final class PaperTrackingAdministrationRenderer {
 
     Inventory confirmationInventory(
             LoreDefinitionId definitionId,
+            int definitionPageNumber,
             int instancePageNumber,
             LoreInstanceId instanceId,
             DuplicateChoice duplicate,
@@ -166,6 +170,7 @@ final class PaperTrackingAdministrationRenderer {
             int returnPage) {
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.confirmation(
                 definitionId,
+                definitionPageNumber,
                 instancePageNumber,
                 instanceId,
                 duplicate,
