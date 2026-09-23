@@ -18,7 +18,6 @@ import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -51,10 +50,12 @@ final class PaperTrackingAdministrationRenderer {
                     item(
                             Material.BOOK,
                             definition.displayName(),
+                            PaperGuiStyle.Tone.INFO,
                             List.of(
                                     "Key: " + definition.key().value(),
                                     "Revision: " + definition.currentRevision().value(),
-                                    "Click to browse instances.")));
+                                    "",
+                                    "Click to open template management.")));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore(plugin));
         player.openInventory(inventory);
@@ -78,6 +79,7 @@ final class PaperTrackingAdministrationRenderer {
                     item(
                             Material.NETHER_STAR,
                             shortId(instance.id().value()),
+                            PaperGuiStyle.Tone.INFO,
                             instanceLore(instance, canRemove)));
         }
         decorate(inventory, pageNumber, page.hasMore(), trackingMetricsLore(plugin));
@@ -120,8 +122,10 @@ final class PaperTrackingAdministrationRenderer {
                 item(
                         Material.LIME_CONCRETE,
                         "Confirm selected location",
+                        PaperGuiStyle.Tone.POSITIVE,
                         List.of(
                                 describe(observation.location()),
+                                "",
                                 "No physical copy will be deleted.",
                                 "A later scan can reopen the conflict.")));
         inventory.setItem(
@@ -129,6 +133,7 @@ final class PaperTrackingAdministrationRenderer {
                 item(
                         Material.BARRIER,
                         "Cancel",
+                        PaperGuiStyle.Tone.NAVIGATION,
                         List.of("Return without changing durable state.")));
         return inventory;
     }
@@ -138,9 +143,10 @@ final class PaperTrackingAdministrationRenderer {
                 "Lifecycle: " + instance.lifecycle().name(),
                 "Applied revision: " + instance.appliedRevision().value(),
                 "Desired revision: " + instance.desiredRevision().value(),
-                "Left-click to inspect evidence."));
+                "",
+                "Left-click to inspect location evidence."));
         if (canRemove) {
-            lore.add("Right-click to preview exact physical removal.");
+            lore.add("Right-click to preview physical removal.");
         }
         return lore;
     }
@@ -190,13 +196,14 @@ final class PaperTrackingAdministrationRenderer {
         status.add(duplicate == null
                 ? "No active duplicate resolution is available."
                 : "Only evidence from this active conflict is selectable.");
+        status.add("");
         status.addAll(trackingMetricsLore(plugin));
         return status;
     }
 
     private static Inventory createInventory(
             PaperTrackingAdministrationView view, String title) {
-        Inventory inventory = Bukkit.createInventory(view, SIZE, Component.text(title));
+        Inventory inventory = Bukkit.createInventory(view, SIZE, PaperGuiStyle.inventoryTitle(title));
         view.attach(inventory);
         return inventory;
     }
