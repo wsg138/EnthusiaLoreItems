@@ -1,4 +1,4 @@
-name: Apply exact hardening repairs
+name: Handoff exact hardening repairs
 
 on:
   push:
@@ -10,14 +10,17 @@ permissions:
 
 jobs:
   repair:
+    if: github.event.head_commit.message == 'ci handoff Codacy repairs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: fix/full-plugin-deep-review
 
-      - name: Apply verified repairs and remove diagnostic workflow
+      - name: Apply verified repairs
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -51,27 +54,49 @@ jobs:
           replacement = "            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')\n            if (!confirm) throw new Error('confirmation action was not rendered')\n            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)\n            await click(confirm.slot)\n"
           if anomaly.count(stale_confirm) != 1:
               raise SystemExit('stale anomaly confirmation slot changed unexpectedly')
-          anomaly = anomaly.replace(stale_confirm, replacement, 1)
-          anomaly_path.write_text(anomaly)
-
-          Path('.github/workflows/codacy-pr-diagnostics.yml').unlink()
+          anomaly_path.write_text(anomaly.replace(stale_confirm, replacement, 1))
           PY
 
           git diff --check
-          git diff -- docs/manual-live-testing-checklist.md \
-            adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java \
-            .github/workflows/wp05-anomaly-contract-acceptance.yml \
-            .github/workflows/codacy-pr-diagnostics.yml
 
-      - name: Commit repairs to existing PR branch
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          content = base64.b64encode(Path('.github/workflows/wp05-anomaly-contract-acceptance.yml').read_bytes()).decode()
+          body = json.dumps({'content': content, 'encoding': 'base64'}).encode()
+          request = urllib.request.Request(
+              f'https://api.github.com/repos/{repository}/git/blobs',
+              data=body,
+              method='POST',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'enthusia-loreitems-hardening',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          print(f"ANOMALY_BLOB_SHA={payload['sha']}")
+          PY
+
+          git restore .github/workflows/wp05-anomaly-contract-acceptance.yml
+          git diff --check
+          git diff -- docs/manual-live-testing-checklist.md adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java
+
+      - name: Commit non-workflow repairs
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/manual-live-testing-checklist.md \
-            adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java \
-            .github/workflows/wp05-anomaly-contract-acceptance.yml \
-            .github/workflows/codacy-pr-diagnostics.yml
-          git commit -m 'test: repair anomaly and Codacy findings'
+          git add docs/manual-live-testing-checklist.md adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java
+          git commit -m 'test repair Codacy findings'
           git push origin HEAD:fix/full-plugin-deep-review
