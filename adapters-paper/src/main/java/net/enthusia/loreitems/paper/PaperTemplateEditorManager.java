@@ -111,7 +111,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             resetTimeout(session);
             return;
         }
-        session = sessions.remove(playerId);
+        session =
+                sessions.remove(playerId);
         if (session != null) {
             pendingChatSessions.remove(session.playerId);
             session.close();
@@ -502,8 +503,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     PaperTemplateEditorSession.State sessionState(UUID playerId) {
-        PaperTemplateEditorSession session = sessions.get(
-                Objects.requireNonNull(playerId, "playerId"));
+        PaperTemplateEditorSession session =
+                sessions.get(Objects.requireNonNull(playerId, "playerId"));
         return session == null ? null : session.state;
     }
 

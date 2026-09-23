@@ -10,7 +10,7 @@ class GiveLoreItemCommandExecutorMessageTest {
     @Test
     void acceptedMessageCoversImmediateAndDeferredDeliveryTruthfully() {
         assertEquals(
-                "Lore item queued. It will deliver when the player is online with inventory space. If that is already true, delivery may happen immediately.",
+                "Lore item delivery accepted. It will deliver immediately when possible, otherwise remain queued until the player is online with inventory space.",
                 GiveLoreItemCommandExecutor.commandMessage(new LoreDeliveryResult(
                         LoreDeliveryStatus.ACCEPTED_QUEUED,
                         "message-test",

@@ -153,7 +153,7 @@ public final class GiveLoreItemCommandExecutor implements CommandExecutor {
     static String commandMessage(LoreDeliveryResult result) {
         return switch (result.status()) {
             case ACCEPTED_QUEUED ->
-                    "Lore item queued. It will deliver when the player is online with inventory space. If that is already true, delivery may happen immediately.";
+                "Lore item delivery accepted. It will deliver immediately when possible, otherwise remain queued until the player is online with inventory space.";
             case ALREADY_ACCEPTED -> "That durable delivery operation was already accepted.";
             case UNKNOWN_DEFINITION -> "No active lore definition has that lookup key.";
             case SERVICE_UNAVAILABLE -> "Lore-item storage is unavailable; nothing was queued.";
