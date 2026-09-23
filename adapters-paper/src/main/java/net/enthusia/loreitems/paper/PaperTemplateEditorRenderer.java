@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import net.enthusia.loreitems.application.TemplateManagementSnapshot;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -51,12 +50,14 @@ final class PaperTemplateEditorRenderer {
         inventory.setItem(22, item(
                 Material.CLOCK,
                 snapshot.definition().displayName(),
+                PaperGuiStyle.Tone.METADATA,
                 List.of(
                         "Key: " + snapshot.definition().key().value(),
                         "Current revision: " + snapshot.definition().currentRevision().value(),
                         "Active instances: " + snapshot.activeInstanceCount(),
                         "Open anomalies: " + snapshot.anomalyCount(),
                         "Pending updates: " + snapshot.pendingUpdateCount(),
+                        "",
                         snapshot.rolloutActive() ? "Rollout: active" : "Rollout: idle")));
     }
 
@@ -70,18 +71,21 @@ final class PaperTemplateEditorRenderer {
         inventory.setItem(MANAGEMENT_EDIT, item(
                 Material.WRITABLE_BOOK,
                 "Edit template",
-                List.of("Create a private draft; no revision is saved until confirmation.")));
+                PaperGuiStyle.Tone.PRIMARY,
+                List.of("Create a private draft; nothing is saved until confirmation.")));
         inventory.setItem(MANAGEMENT_REPLACE, item(
                 Material.STRUCTURE_VOID,
                 "Replace from held item",
+                PaperGuiStyle.Tone.PRIMARY,
                 List.of(
-                        "Exact-copy all Paper-supported components.",
+                        "Copy all supported item components from your held item.",
                         "LoreItems identity and stackability are stripped.",
                         "A preview and confirmation are required.")));
         inventory.setItem(MANAGEMENT_INSTANCES, item(
                 Material.PLAYER_HEAD,
                 "Browse instances",
-                List.of("Open paginated holders and location evidence.")));
+                PaperGuiStyle.Tone.PRIMARY,
+                List.of("Open tracked instances, holders, and location evidence.")));
     }
 
     private static void populateDestructiveManagementActions(
@@ -90,6 +94,7 @@ final class PaperTemplateEditorRenderer {
             inventory.setItem(MANAGEMENT_PURGE, item(
                     Material.LAVA_BUCKET,
                     "Purge every instance",
+                    PaperGuiStyle.Tone.DESTRUCTIVE,
                     List.of(
                             "Preview physical removal of every tracked copy.",
                             "The definition and template remain active.",
@@ -99,6 +104,7 @@ final class PaperTemplateEditorRenderer {
             inventory.setItem(MANAGEMENT_DELETE, item(
                     Material.TNT,
                     "Delete definition and items",
+                    PaperGuiStyle.Tone.DESTRUCTIVE,
                     List.of(
                             "Preview deletion of this definition and all tracked copies.",
                             "Returning copies remain scheduled for removal.",
@@ -110,11 +116,13 @@ final class PaperTemplateEditorRenderer {
         inventory.setItem(MANAGEMENT_BACK, item(
                 Material.ARROW,
                 "Back to definitions",
-                List.of("Return to the same paginated definition page.")));
+                PaperGuiStyle.Tone.NAVIGATION,
+                List.of("Return to the same definition page.")));
         inventory.setItem(MANAGEMENT_REFRESH, item(
                 Material.COMPASS,
                 "Refresh status",
-                List.of("Reload current revision and rollout counts.")));
+                PaperGuiStyle.Tone.INFO,
+                List.of("Reload revision, instance, anomaly, and rollout counts.")));
     }
 
     void showEditor(Player player, PaperTemplateEditorSession session) {
@@ -124,15 +132,21 @@ final class PaperTemplateEditorRenderer {
         inventory.setItem(4, session.draft.clone());
         EDITOR_ACTIONS.forEach((slot, action) -> inventory.setItem(
                 slot,
-                item(action.icon(), action.title(), action.help())));
+                item(
+                        action.icon(),
+                        action.title(),
+                        PaperGuiStyle.Tone.PRIMARY,
+                        action.help())));
         inventory.setItem(EDITOR_CANCEL, item(
                 Material.BARRIER,
                 "Cancel draft",
+                PaperGuiStyle.Tone.NAVIGATION,
                 List.of("Discard every unconfirmed edit.")));
         inventory.setItem(EDITOR_PREVIEW, item(
                 Material.LIME_CONCRETE,
                 "Preview and confirm",
-                List.of("Review the complete draft before creating one revision.")));
+                PaperGuiStyle.Tone.POSITIVE,
+                List.of("Review the complete draft before creating a revision.")));
         player.openInventory(inventory);
     }
 
@@ -146,20 +160,27 @@ final class PaperTemplateEditorRenderer {
                 Material.BOOK,
                 "Revision " + session.snapshot.definition().currentRevision().value()
                         + " → " + session.snapshot.definition().currentRevision().next().value(),
+                PaperGuiStyle.Tone.METADATA,
                 List.of(
                         "Left: current template",
                         "Right: complete draft",
+                        "",
                         "Confirmation creates one immutable revision",
                         "and one durable rollout for every active instance.")));
         inventory.setItem(PREVIEW_BACK, item(
-                Material.ARROW, "Back to editor", List.of("Continue editing the draft.")));
+                Material.ARROW,
+                "Back to editor",
+                PaperGuiStyle.Tone.NAVIGATION,
+                List.of("Continue editing the draft.")));
         inventory.setItem(PREVIEW_CONFIRM, item(
                 Material.LIME_CONCRETE,
                 "Confirm revision",
+                PaperGuiStyle.Tone.POSITIVE,
                 List.of("Persist the revision and rollout atomically.")));
         inventory.setItem(PREVIEW_CANCEL, item(
                 Material.BARRIER,
                 "Cancel draft",
+                PaperGuiStyle.Tone.NAVIGATION,
                 List.of("Discard the draft without changing the template.")));
         player.openInventory(inventory);
     }
@@ -169,7 +190,7 @@ final class PaperTemplateEditorRenderer {
     }
 
     private static Inventory create(PaperTemplateEditorView view, String title) {
-        Inventory inventory = Bukkit.createInventory(view, SIZE, Component.text(title));
+        Inventory inventory = Bukkit.createInventory(view, SIZE, PaperGuiStyle.inventoryTitle(title));
         view.attach(inventory);
         return inventory;
     }
