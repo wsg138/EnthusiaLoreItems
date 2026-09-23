@@ -63,13 +63,13 @@ class SQLiteAbortedDeleteRecoveryTest {
         try (SQLiteDestructiveTestFixture fixture = fixture("aborted-novel-delete.db")) {
             AbortedDelete context = abortFullDelete(fixture);
             LoreInstanceId firstId = new LoreInstanceId(UUID.randomUUID());
-            completeLateCopy(fixture, context, firstId, "player:late-one");
+            completeLateCopy(context, firstId, "player:late-one");
 
             assertEquals(DestructiveOperationState.ABORTED, operation(context).state());
             assertEquals(REMOVED_LIFECYCLE, fixture.instanceLifecycle(firstId));
 
             LoreInstanceId secondId = new LoreInstanceId(UUID.randomUUID());
-            completeLateCopy(fixture, context, secondId, "player:late-two");
+            completeLateCopy(context, secondId, "player:late-two");
             assertEquals(REMOVED_LIFECYCLE, fixture.instanceLifecycle(secondId));
             assertEquals(3L, operation(context).targetCount());
             assertEquals(DestructiveOperationState.ABORTED, operation(context).state());
@@ -110,7 +110,6 @@ class SQLiteAbortedDeleteRecoveryTest {
     }
 
     private static void completeLateCopy(
-            SQLiteDestructiveTestFixture fixture,
             AbortedDelete context,
             LoreInstanceId instanceId,
             String locationKey) {
