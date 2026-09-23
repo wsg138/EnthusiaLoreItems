@@ -1,4 +1,4 @@
-name: Handoff exact hardening repairs
+name: Stage anomaly workflow hardening blob
 
 on:
   push:
@@ -9,15 +9,15 @@ permissions:
   contents: write
 
 jobs:
-  repair:
-    if: github.event.head_commit.message == 'ci handoff Codacy repairs'
+  stage:
+    if: github.event.head_commit.message == 'ci stage anomaly workflow blob'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: fix/full-plugin-deep-review
 
-      - name: Apply verified repairs
+      - name: Build validated anomaly workflow blob
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -26,38 +26,24 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          docs_path = Path('docs/manual-live-testing-checklist.md')
-          docs = docs_path.read_text()
-          anchor = '## ACC-ID-001 — Java identity and administrative surfaces'
-          start = docs.index(anchor)
-          end = docs.index('\n---', start)
-          section = docs[start:end]
-          if section.count('### Steps') != 1 or section.count('### PASS') != 1:
-              raise SystemExit('ACC-ID-001 heading contract changed unexpectedly')
-          section = section.replace('### Steps', '### ACC-ID-001 steps', 1)
-          section = section.replace('### PASS', '### ACC-ID-001 pass criteria', 1)
-          docs_path.write_text(docs[:start] + section + docs[end:])
+          path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
+          text = path.read_text()
 
-          renderer_path = Path('adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java')
-          renderer = renderer_path.read_text()
-          import_line = 'import java.time.ZoneOffset;\n'
-          format_call = 'DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm \'UTC\'").withZone(ZoneOffset.UTC)'
-          if renderer.count(import_line) != 1 or renderer.count(format_call) != 1:
-              raise SystemExit('tracking timestamp formatter contract changed unexpectedly')
-          renderer = renderer.replace(import_line, '', 1)
-          renderer = renderer.replace(format_call, 'DateTimeFormatter.ISO_INSTANT', 1)
-          renderer_path.write_text(renderer)
+          stale_instances = '            await click(33)\n'
+          semantic_instances = "            const browseInstances = bot.currentWindow.slots.map((item, slot) => ({ slot, text: item ? [item.customName, item.displayName, item.components, item.nbt].map(componentText).join(' ') : '' })).find(entry => entry.text.toLowerCase().replace(/§./g, '').trim().startsWith('browse instances'))\n            if (!browseInstances) throw new Error('Browse instances action was not rendered')\n            log(`BROWSE_INSTANCES_ACTION slot=${browseInstances.slot}`)\n            await click(browseInstances.slot)\n"
+          if text.count(stale_instances) != 1:
+              raise SystemExit('stale Browse instances coordinate changed unexpectedly')
+          text = text.replace(stale_instances, semantic_instances, 1)
 
-          anomaly_path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
-          anomaly = anomaly_path.read_text()
           stale_confirm = '            await click(22)\n'
-          replacement = "            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')\n            if (!confirm) throw new Error('confirmation action was not rendered')\n            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)\n            await click(confirm.slot)\n"
-          if anomaly.count(stale_confirm) != 1:
-              raise SystemExit('stale anomaly confirmation slot changed unexpectedly')
-          anomaly_path.write_text(anomaly.replace(stale_confirm, replacement, 1))
+          semantic_confirm = "            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')\n            if (!confirm) throw new Error('confirmation action was not rendered')\n            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)\n            await click(confirm.slot)\n"
+          if text.count(stale_confirm) != 1:
+              raise SystemExit('stale anomaly confirmation coordinate changed unexpectedly')
+          path.write_text(text.replace(stale_confirm, semantic_confirm, 1))
           PY
 
           git diff --check
+          git diff -- .github/workflows/wp05-anomaly-contract-acceptance.yml
 
           python - <<'PY'
           import base64
@@ -86,17 +72,3 @@ jobs:
               payload = json.load(response)
           print(f"ANOMALY_BLOB_SHA={payload['sha']}")
           PY
-
-          git restore .github/workflows/wp05-anomaly-contract-acceptance.yml
-          git diff --check
-          git diff -- docs/manual-live-testing-checklist.md adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java
-
-      - name: Commit non-workflow repairs
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/manual-live-testing-checklist.md adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java
-          git commit -m 'test repair Codacy findings'
-          git push origin HEAD:fix/full-plugin-deep-review
