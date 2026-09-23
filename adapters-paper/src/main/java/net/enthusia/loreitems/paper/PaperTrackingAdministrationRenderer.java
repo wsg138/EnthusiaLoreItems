@@ -9,7 +9,6 @@ import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.shor
 import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.trackingMetricsLore;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,7 +36,7 @@ final class PaperTrackingAdministrationRenderer {
     private static final int CONTEXT = 13;
     private static final int CONFIRM = 15;
     private static final DateTimeFormatter TIME_FORMAT =
-            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);
+            DateTimeFormatter.ISO_INSTANT;
 
     private final Plugin plugin;
 

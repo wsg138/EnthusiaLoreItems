@@ -166,7 +166,7 @@ If startup/migration/integrity is unsafe, stop immediately and restore the pre-t
 
 ## ACC-ID-001 — Java identity and administrative surfaces
 
-### Steps
+### ACC-ID-001 steps
 
 1. Join with the Java admin account.
 2. Record the UUID and exact visible name.
@@ -178,7 +178,7 @@ If startup/migration/integrity is unsafe, stop immediately and restore the pre-t
 8. Run one browse/audit/status query that must be read-only.
 9. Re-check definition/instance/pending counts to prove the browse-only action did not mutate state.
 
-### PASS
+### ACC-ID-001 pass criteria
 
 - [ ] Correct Java UUID/name appears in operator/audit evidence.
 - [ ] Permission-gated actions respect permissions.
