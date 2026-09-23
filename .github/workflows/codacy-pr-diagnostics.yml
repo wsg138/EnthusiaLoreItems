@@ -1,4 +1,4 @@
-name: Codacy PR diagnostics
+name: Apply exact hardening repairs
 
 on:
   push:
@@ -6,49 +6,108 @@ on:
       - fix/full-plugin-deep-review
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  report:
+  repair:
+    if: github.event.head_commit.message == 'ci: apply exact hardening repairs'
     runs-on: ubuntu-latest
     steps:
-      - name: Report new Codacy findings
-        env:
-          CODACY_ISSUES_URL: https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/EnthusiaLoreItems/pull-requests/30/issues?status=new&limit=100
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: fix/full-plugin-deep-review
+
+      - name: Apply verified repairs and remove diagnostic workflow
+        shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
-          import json
-          import os
-          import time
-          import urllib.request
+          from pathlib import Path
 
-          url = os.environ["CODACY_ISSUES_URL"]
-          for attempt in range(12):
-              with urllib.request.urlopen(url, timeout=30) as response:
-                  payload = json.load(response)
-              issues = payload.get("data", [])
-              if issues:
-                  break
-              if attempt == 11:
-                  raise SystemExit("Codacy returned no new PR issues")
-              time.sleep(10)
+          docs_path = Path('docs/manual-live-testing-checklist.md')
+          docs = docs_path.read_text()
+          anchor = '## ACC-ID-001 — Java identity and administrative surfaces'
+          start = docs.index(anchor)
+          end = docs.index('\n---', start)
+          section = docs[start:end]
+          if section.count('### Steps') != 1 or section.count('### PASS') != 1:
+              raise SystemExit('ACC-ID-001 heading contract changed unexpectedly')
+          section = section.replace('### Steps', '### ACC-ID-001 steps', 1)
+          section = section.replace('### PASS', '### ACC-ID-001 pass criteria', 1)
+          docs_path.write_text(docs[:start] + section + docs[end:])
 
-          print(f"CODACY_NEW_ISSUES={len(issues)}")
-          for issue in issues:
-              detail = issue.get("commitIssue", {})
-              pattern = detail.get("patternInfo", {})
-              tool = detail.get("toolInfo", {})
-              safe = {
-                  "issueId": issue.get("issueId"),
-                  "tool": tool.get("name"),
-                  "pattern": pattern.get("id"),
-                  "title": pattern.get("title"),
-                  "category": pattern.get("category"),
-                  "level": pattern.get("level"),
-                  "severity": pattern.get("severityLevel"),
-                  "filePath": detail.get("filePath"),
-                  "lineNumber": detail.get("lineNumber"),
-                  "message": detail.get("message"),
-              }
-              print(json.dumps(safe, sort_keys=True))
+          renderer_path = Path('adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java')
+          renderer = renderer_path.read_text()
+          import_line = 'import java.time.ZoneOffset;\n'
+          formatter = '''    private static final DateTimeFormatter TIME_FORMAT =
+                  DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);'''
+          if renderer.count(import_line) != 1 or renderer.count(formatter) != 1:
+              raise SystemExit('tracking timestamp formatter contract changed unexpectedly')
+          renderer = renderer.replace(import_line, '', 1)
+          renderer = renderer.replace(
+              formatter,
+              '    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ISO_INSTANT;',
+              1,
+          )
+          renderer_path.write_text(renderer)
+
+          anomaly_path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
+          anomaly = anomaly_path.read_text()
+          click_anchor = '''          const click = async slot => { await bot.clickWindow(slot, 0, 0); await sleep(400) }
+          const resolveDuplicate = async () => {'''
+          semantic_click = '''          const click = async slot => { await bot.clickWindow(slot, 0, 0); await sleep(400) }
+          const normalize = value => componentText(value).replace(/§./g, '').replace(/\\s+/g, ' ').trim().toLowerCase()
+          const itemText = item => item ? [item.customName, item.displayName, item.components, item.nbt].map(componentText).join(' ') : ''
+          const findSlot = label => {
+            if (!bot.currentWindow) throw new Error(`cannot find '${label}' without an open window`)
+            const wanted = normalize(label)
+            const limit = Number.isInteger(bot.currentWindow.inventoryStart) ? bot.currentWindow.inventoryStart : bot.currentWindow.slots.length
+            const matches = []
+            for (let slot = 0; slot < limit; slot++) {
+              const item = bot.currentWindow.slots[slot]
+              if (item && normalize(itemText(item)).startsWith(wanted)) matches.push({ slot, text: itemText(item) })
+            }
+            if (matches.length !== 1) {
+              const visible = bot.currentWindow.slots.slice(0, limit)
+                .map((item, slot) => item ? { slot, text: itemText(item) } : null)
+                .filter(Boolean)
+              throw new Error(`GUI item '${label}' matched ${matches.length} slots; visible=${JSON.stringify(visible)}`)
+            }
+            return matches[0].slot
+          }
+          const clickLabel = async label => {
+            const slot = findSlot(label)
+            log(`GUI_CLICK label=${label} slot=${slot}`)
+            await click(slot)
+          }
+          const resolveDuplicate = async () => {'''
+          if anomaly.count(click_anchor) != 1:
+              raise SystemExit('anomaly click helper anchor changed unexpectedly')
+          anomaly = anomaly.replace(click_anchor, semantic_click, 1)
+          stale_confirm = '            await click(22)\n'
+          if anomaly.count(stale_confirm) != 1:
+              raise SystemExit('stale anomaly confirmation slot changed unexpectedly')
+          anomaly = anomaly.replace(stale_confirm, "            await clickLabel('Confirm this location')\n", 1)
+          anomaly_path.write_text(anomaly)
+
+          Path('.github/workflows/codacy-pr-diagnostics.yml').unlink()
           PY
+
+          git diff --check
+          git diff -- docs/manual-live-testing-checklist.md \
+            adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java \
+            .github/workflows/wp05-anomaly-contract-acceptance.yml \
+            .github/workflows/codacy-pr-diagnostics.yml
+
+      - name: Commit repairs to existing PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/manual-live-testing-checklist.md \
+            adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java \
+            .github/workflows/wp05-anomaly-contract-acceptance.yml \
+            .github/workflows/codacy-pr-diagnostics.yml
+          git commit -m 'test: repair anomaly and Codacy findings'
+          git push origin HEAD:fix/full-plugin-deep-review
