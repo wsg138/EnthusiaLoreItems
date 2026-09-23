@@ -57,7 +57,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
         this.templateEditor = Objects.requireNonNull(templateEditor, "templateEditor");
         this.renderer = new PaperTrackingAdministrationRenderer(plugin);
-        currentPageSize();
+        pageRequest(FIRST_PAGE);
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
@@ -336,7 +336,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         LoreItemsAdministrationUseCase.DuplicateResolutionRequest request =
-                duplicateResolutionRequest(playerId, view);
+                PaperTrackingAdministrationRequests.duplicateResolution(playerId, view);
         if (request == null) {
             player.sendMessage("The selected duplicate evidence is no longer valid.");
             return;
@@ -356,20 +356,6 @@ public final class PaperTrackingAdministrationGui implements Listener {
                             view.instanceId,
                             view.pageNumber);
                 });
-    }
-
-    private LoreItemsAdministrationUseCase.DuplicateResolutionRequest
-            duplicateResolutionRequest(
-                    UUID playerId, PaperTrackingAdministrationView view) {
-        try {
-            return new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
-                    view.duplicate.anomalyId(),
-                    view.duplicate.stateRevision(),
-                    view.selectedObservation.observationId(),
-                    "player:" + playerId);
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
     }
 
     private void showDefinitions(
@@ -532,20 +518,8 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     private PageRequest pageRequest(int pageNumber) {
-        if (pageNumber < FIRST_PAGE) {
-            throw new IllegalArgumentException("pageNumber must be positive");
-        }
-        int pageSize = currentPageSize();
-        return new PageRequest(
-                Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
-    }
-
-    private int currentPageSize() {
-        int pageSize = Math.min(CONTENT, pageSizeSupplier.getAsInt());
-        if (pageSize < FIRST_PAGE) {
-            throw new IllegalStateException("Configured GUI page size must be positive");
-        }
-        return pageSize;
+        return PaperTrackingAdministrationRequests.page(
+                pageNumber, pageSizeSupplier.getAsInt(), CONTENT);
     }
 
     private static Throwable unwrap(Throwable throwable) {
