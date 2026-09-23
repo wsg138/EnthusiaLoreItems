@@ -38,16 +38,11 @@ jobs:
           renderer_path = Path('adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperTrackingAdministrationRenderer.java')
           renderer = renderer_path.read_text()
           import_line = 'import java.time.ZoneOffset;\n'
-          formatter = '''    private static final DateTimeFormatter TIME_FORMAT =
-                  DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC);'''
-          if renderer.count(import_line) != 1 or renderer.count(formatter) != 1:
+          format_call = 'DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm \'UTC\'").withZone(ZoneOffset.UTC)'
+          if renderer.count(import_line) != 1 or renderer.count(format_call) != 1:
               raise SystemExit('tracking timestamp formatter contract changed unexpectedly')
           renderer = renderer.replace(import_line, '', 1)
-          renderer = renderer.replace(
-              formatter,
-              '    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ISO_INSTANT;',
-              1,
-          )
+          renderer = renderer.replace(format_call, 'DateTimeFormatter.ISO_INSTANT', 1)
           renderer_path.write_text(renderer)
 
           anomaly_path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
