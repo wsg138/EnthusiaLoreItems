@@ -105,11 +105,36 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     void handleQuit(UUID playerId) {
-        PaperTemplateEditorSession session = sessions.remove(playerId);
+        PaperTemplateEditorSession session = sessions.get(playerId);
+        if (session != null && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT) {
+            pendingChatSessions.remove(playerId);
+            resetTimeout(session);
+            return;
+        }
+        session = sessions.remove(playerId);
         if (session != null) {
             pendingChatSessions.remove(session.playerId);
             session.close();
         }
+    }
+
+    void cancelOwnDraft(Player player) {
+        Objects.requireNonNull(player, "player");
+        if (!player.hasPermission(EDIT_PERMISSION)) {
+            player.sendMessage("You do not have permission to edit lore-item templates.");
+            return;
+        }
+        PaperTemplateEditorSession session = sessions.get(player.getUniqueId());
+        if (session == null) {
+            player.sendMessage("You do not have an active template draft.");
+            return;
+        }
+        if (session.state == PaperTemplateEditorSession.State.CONFIRMING) {
+            player.sendMessage(
+                    "Template confirmation is already processing and cannot be cancelled; reopen management to check durable status.");
+            return;
+        }
+        cancelSession(player, session, "Template draft cancelled; no revision was created.", false);
     }
 
     void closeSessions(String reason) {
@@ -175,7 +200,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             return;
         }
         if (sessions.containsKey(player.getUniqueId())) {
-            player.sendMessage("You already have an active template draft; cancel it first.");
+            player.sendMessage(
+                    "You already have an active template draft. Use /loreitems editor cancel to discard it safely before starting another.");
             return;
         }
         if (sessions.size() >= MAX_SESSIONS) {

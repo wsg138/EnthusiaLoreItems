@@ -246,7 +246,7 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
     if (kind === 'armor_stand') {
       await bot.activateEntityAt(entity, entity.position.offset(0, 1, 0))
     } else {
-      await bot.activateEntity(entity)
+      await bot.activateEntityAt(entity, entity.position)
     }
     for (let i = 0; i < 25; i++) {
       if (trackedInventoryItems(bot).length === 0) break

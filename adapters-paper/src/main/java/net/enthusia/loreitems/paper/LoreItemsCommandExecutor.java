@@ -19,8 +19,9 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
     private static final String BROWSE_SUBCOMMAND = "browse";
+    private static final String EDITOR_SUBCOMMAND = "editor";
     private static final String USAGE =
-            "Usage: /loreitems create|adopt|give|reload|browse|anomalies|audit|recovery|"
+            "Usage: /loreitems create|adopt|give|reload|browse|editor cancel|anomalies|audit|recovery|"
                     + "remove|purge|delete|operations|targets|destructive-metrics|"
                     + "pause-operation|resume-operation|resolve-removal ...";
 
@@ -121,6 +122,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             case ADOPT_SUBCOMMAND -> adoptExecutor.onCommand(sender, command, label, arguments);
             case GIVE_SUBCOMMAND -> giveExecutor.onCommand(sender, command, label, arguments);
             case RELOAD_SUBCOMMAND -> executeReload(sender, arguments);
+            case EDITOR_SUBCOMMAND -> executeEditor(sender, arguments);
             case BROWSE_SUBCOMMAND, ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND,
                     RECOVERY_SUBCOMMAND ->
                     executeAdministration(sender, command, label, arguments);
@@ -233,6 +235,14 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             return true;
         }
         return reloadExecutor.execute(sender);
+    }
+
+    private boolean executeEditor(CommandSender sender, String[] arguments) {
+        if (administrationExecutor == null) {
+            sender.sendMessage(USAGE);
+            return true;
+        }
+        return administrationExecutor.executeEditorCommand(sender, arguments);
     }
 
     private boolean executeAdministration(

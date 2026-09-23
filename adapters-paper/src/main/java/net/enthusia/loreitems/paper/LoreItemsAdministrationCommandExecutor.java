@@ -105,6 +105,25 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         return destructiveExecutor;
     }
 
+    boolean executeEditorCommand(CommandSender sender, String[] arguments) {
+        Objects.requireNonNull(sender, "sender");
+        Objects.requireNonNull(arguments, "arguments");
+        if (!sender.hasPermission(PaperTemplateEditorManager.EDIT_PERMISSION)) {
+            sender.sendMessage("You do not have permission to edit lore-item templates.");
+            return true;
+        }
+        if (arguments.length != 2 || !"cancel".equalsIgnoreCase(arguments[1])) {
+            sender.sendMessage("Usage: /loreitems editor cancel");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("The template editor requires an in-game player.");
+            return true;
+        }
+        templateEditor.cancelOwnDraft(player);
+        return true;
+    }
+
     @Override
     public boolean onCommand(
             CommandSender sender,
