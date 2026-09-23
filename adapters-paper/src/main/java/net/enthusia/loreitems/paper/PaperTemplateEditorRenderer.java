@@ -17,17 +17,24 @@ final class PaperTemplateEditorRenderer {
     static final int MANAGEMENT_EDIT = 29;
     static final int MANAGEMENT_REPLACE = 31;
     static final int MANAGEMENT_INSTANCES = 33;
-    static final int MANAGEMENT_PURGE = 37;
-    static final int MANAGEMENT_DELETE = 41;
+    static final int MANAGEMENT_PURGE = 38;
+    static final int MANAGEMENT_DELETE = 42;
     static final int MANAGEMENT_BACK = 45;
-    static final int MANAGEMENT_REFRESH = 49;
+    static final int MANAGEMENT_REFRESH = 53;
     static final int EDITOR_CANCEL = 45;
-    static final int EDITOR_PREVIEW = 49;
-    static final int PREVIEW_BACK = 29;
-    static final int PREVIEW_CONFIRM = 31;
-    static final int PREVIEW_CANCEL = 33;
+    static final int EDITOR_PREVIEW = 53;
+    static final int PREVIEW_BACK = 45;
+    static final int PREVIEW_CONFIRM = 49;
+    static final int PREVIEW_CANCEL = 53;
 
     private static final int SIZE = 54;
+    private static final int MANAGEMENT_PREVIEW = 13;
+    private static final int MANAGEMENT_STATUS = 22;
+    private static final int EDITOR_DRAFT = 4;
+    private static final int EDITOR_HELP = 49;
+    private static final int PREVIEW_CURRENT = 11;
+    private static final int PREVIEW_STATUS = 13;
+    private static final int PREVIEW_DRAFT = 15;
     private static final Map<Integer, ActionSpec> EDITOR_ACTIONS = actions();
 
     void showManagement(
@@ -46,8 +53,8 @@ final class PaperTemplateEditorRenderer {
             Inventory inventory,
             TemplateManagementSnapshot snapshot,
             ItemStack preview) {
-        inventory.setItem(13, preview.clone());
-        inventory.setItem(22, item(
+        inventory.setItem(MANAGEMENT_PREVIEW, preview.clone());
+        inventory.setItem(MANAGEMENT_STATUS, item(
                 Material.CLOCK,
                 snapshot.definition().displayName(),
                 PaperGuiStyle.Tone.METADATA,
@@ -57,8 +64,10 @@ final class PaperTemplateEditorRenderer {
                         "Active instances: " + snapshot.activeInstanceCount(),
                         "Open anomalies: " + snapshot.anomalyCount(),
                         "Pending updates: " + snapshot.pendingUpdateCount(),
+                        "Rollout: " + (snapshot.rolloutActive() ? "Active" : "Idle"),
                         "",
-                        snapshot.rolloutActive() ? "Rollout: active" : "Rollout: idle")));
+                        "Template codec: v" + snapshot.currentTemplate().codecVersion(),
+                        "Template data: " + snapshot.currentTemplate().payload().length + " bytes")));
     }
 
     private static void populateManagementActions(Player player, Inventory inventory) {
@@ -72,20 +81,24 @@ final class PaperTemplateEditorRenderer {
                 Material.WRITABLE_BOOK,
                 "Edit template",
                 PaperGuiStyle.Tone.PRIMARY,
-                List.of("Create a private draft; nothing is saved until confirmation.")));
+                List.of(
+                        "Open a private draft of the current template.",
+                        "Nothing is saved until preview and confirmation.")));
         inventory.setItem(MANAGEMENT_REPLACE, item(
                 Material.STRUCTURE_VOID,
                 "Replace from held item",
                 PaperGuiStyle.Tone.PRIMARY,
                 List.of(
-                        "Copy all supported item components from your held item.",
+                        "Copy all supported components from your held item.",
                         "LoreItems identity and stackability are stripped.",
-                        "A preview and confirmation are required.")));
+                        "You will review the complete result before saving.")));
         inventory.setItem(MANAGEMENT_INSTANCES, item(
                 Material.PLAYER_HEAD,
                 "Browse instances",
                 PaperGuiStyle.Tone.PRIMARY,
-                List.of("Open tracked instances, holders, and location evidence.")));
+                List.of(
+                        "Inspect tracked copies and their lifecycle state.",
+                        "Open location evidence and recovery controls.")));
     }
 
     private static void populateDestructiveManagementActions(
@@ -117,7 +130,7 @@ final class PaperTemplateEditorRenderer {
                 Material.ARROW,
                 "Back to definitions",
                 PaperGuiStyle.Tone.NAVIGATION,
-                List.of("Return to the same definition page.")));
+                List.of("Return to the definition page you came from.")));
         inventory.setItem(MANAGEMENT_REFRESH, item(
                 Material.COMPASS,
                 "Refresh status",
@@ -129,7 +142,7 @@ final class PaperTemplateEditorRenderer {
         PaperTemplateEditorView view = PaperTemplateEditorView.editor(
                 session.snapshot, session.sessionId, session.returnPage);
         Inventory inventory = create(view, "Template editor");
-        inventory.setItem(4, session.draft.clone());
+        inventory.setItem(EDITOR_DRAFT, session.draft.clone());
         EDITOR_ACTIONS.forEach((slot, action) -> inventory.setItem(
                 slot,
                 item(
@@ -141,12 +154,21 @@ final class PaperTemplateEditorRenderer {
                 Material.BARRIER,
                 "Cancel draft",
                 PaperGuiStyle.Tone.NAVIGATION,
-                List.of("Discard every unconfirmed edit.")));
+                List.of("Discard every unconfirmed edit and return to management.")));
+        inventory.setItem(EDITOR_HELP, item(
+                Material.BOOK,
+                "Draft workspace",
+                PaperGuiStyle.Tone.METADATA,
+                List.of(
+                        "The item above is your complete current draft.",
+                        "Choose a component to edit it through chat.",
+                        "",
+                        "Nothing is durable until preview and confirmation.")));
         inventory.setItem(EDITOR_PREVIEW, item(
                 Material.LIME_CONCRETE,
                 "Preview and confirm",
                 PaperGuiStyle.Tone.POSITIVE,
-                List.of("Review the complete draft before creating a revision.")));
+                List.of("Compare the complete draft with the current template.")));
         player.openInventory(inventory);
     }
 
@@ -154,9 +176,9 @@ final class PaperTemplateEditorRenderer {
         PaperTemplateEditorView view = PaperTemplateEditorView.preview(
                 session.snapshot, session.sessionId, session.returnPage);
         Inventory inventory = create(view, "Confirm template revision");
-        inventory.setItem(13, session.before.clone());
-        inventory.setItem(15, session.draft.clone());
-        inventory.setItem(22, item(
+        inventory.setItem(PREVIEW_CURRENT, session.before.clone());
+        inventory.setItem(PREVIEW_DRAFT, session.draft.clone());
+        inventory.setItem(PREVIEW_STATUS, item(
                 Material.BOOK,
                 "Revision " + session.snapshot.definition().currentRevision().value()
                         + " → " + session.snapshot.definition().currentRevision().next().value(),
@@ -166,17 +188,17 @@ final class PaperTemplateEditorRenderer {
                         "Right: complete draft",
                         "",
                         "Confirmation creates one immutable revision",
-                        "and one durable rollout for every active instance.")));
+                        "and queues rollout for every active instance.")));
         inventory.setItem(PREVIEW_BACK, item(
                 Material.ARROW,
                 "Back to editor",
                 PaperGuiStyle.Tone.NAVIGATION,
-                List.of("Continue editing the draft.")));
+                List.of("Return to the draft without discarding it.")));
         inventory.setItem(PREVIEW_CONFIRM, item(
                 Material.LIME_CONCRETE,
                 "Confirm revision",
                 PaperGuiStyle.Tone.POSITIVE,
-                List.of("Persist the revision and rollout atomically.")));
+                List.of("Persist this revision and its rollout atomically.")));
         inventory.setItem(PREVIEW_CANCEL, item(
                 Material.BARRIER,
                 "Cancel draft",
@@ -198,43 +220,49 @@ final class PaperTemplateEditorRenderer {
     @SuppressWarnings("PMD.UseConcurrentHashMap")
     private static Map<Integer, ActionSpec> actions() {
         Map<Integer, ActionSpec> actions = new LinkedHashMap<>();
-        add(actions, 9, "material", Material.STONE, "Base material",
+
+        // Core item identity and presentation: centered seven-wide row.
+        add(actions, 10, "material", Material.STONE, "Base material",
                 "submit minecraft:diamond_sword");
-        add(actions, 10, "custom-name", Material.NAME_TAG, "Custom name",
+        add(actions, 11, "custom-name", Material.NAME_TAG, "Custom name",
                 "submit clear | literal <text> | solid <hex> <text> | gradient <colors> <text>");
-        add(actions, 11, "item-name", Material.PAPER, "Item name",
+        add(actions, 12, "item-name", Material.PAPER, "Item name",
                 "submit clear | literal/solid/gradient ...");
-        add(actions, 12, "lore", Material.WRITABLE_BOOK, "Lore lines",
+        add(actions, 13, "lore", Material.WRITABLE_BOOK, "Lore lines",
                 "submit add/edit/remove/move/clear ...");
-        add(actions, 13, "enchant", Material.ENCHANTED_BOOK, "Enchantments",
+        add(actions, 14, "enchant", Material.ENCHANTED_BOOK, "Enchantments",
                 "submit set/remove/clear/tooltip ...");
-        add(actions, 14, "glint", Material.GLOWSTONE_DUST, "Glint override",
+        add(actions, 15, "glint", Material.GLOWSTONE_DUST, "Glint override",
                 "submit true | false | unset");
-        add(actions, 15, "durability", Material.ANVIL, "Damage and unbreakable",
+        add(actions, 16, "durability", Material.ANVIL, "Damage and unbreakable",
                 "submit damage <value> | unbreakable true|false");
-        add(actions, 16, "attribute", Material.IRON_CHESTPLATE, "Attributes",
+
+        // Model, combat and appearance components: second centered row.
+        add(actions, 19, "attribute", Material.IRON_CHESTPLATE, "Attributes",
                 "submit set/remove/clear ... stable modifier key required");
-        add(actions, 17, "item-model", Material.ITEM_FRAME, "Item model",
+        add(actions, 20, "item-model", Material.ITEM_FRAME, "Item model",
                 "submit <namespaced-key> | clear");
-        add(actions, 18, "max-stack", Material.BUNDLE, "Maximum stack size",
+        add(actions, 21, "max-stack", Material.BUNDLE, "Maximum stack size",
                 "submit 1 (tracked items are always normalized to one)");
-        add(actions, 19, "custom-model-data", Material.COMMAND_BLOCK, "Custom model data",
+        add(actions, 22, "custom-model-data", Material.COMMAND_BLOCK, "Custom model data",
                 "submit floats/flags/strings/colors ... | clear");
-        add(actions, 20, "dye", Material.LEATHER_CHESTPLATE, "Dyed color",
+        add(actions, 23, "dye", Material.LEATHER_CHESTPLATE, "Dyed color",
                 "submit #RRGGBB | clear");
-        add(actions, 21, "potion", Material.POTION, "Potion components",
+        add(actions, 24, "potion", Material.POTION, "Potion components",
                 "submit base/set-effect/remove-effect/clear-effects/color/clear-color ...");
-        add(actions, 23, "trim", Material.NETHERITE_CHESTPLATE, "Armor trim",
+        add(actions, 25, "trim", Material.NETHERITE_CHESTPLATE, "Armor trim",
                 "submit <material-key> <pattern-key> | clear");
-        add(actions, 24, "banner", Material.WHITE_BANNER, "Banner patterns",
+
+        // Specialized components: compact centered five-wide row.
+        add(actions, 29, "banner", Material.WHITE_BANNER, "Banner patterns",
                 "submit add/set/remove/clear ...");
-        add(actions, 25, "profile", Material.PLAYER_HEAD, "Player profile",
+        add(actions, 30, "profile", Material.PLAYER_HEAD, "Player profile",
                 "submit <uuid> [name] | clear");
-        add(actions, 26, "firework", Material.FIREWORK_ROCKET, "Firework effects",
+        add(actions, 31, "firework", Material.FIREWORK_ROCKET, "Firework effects",
                 "submit power/add/remove/clear (rocket) or set/clear (star)");
-        add(actions, 27, "flags", Material.REDSTONE_TORCH, "Item flags",
+        add(actions, 32, "flags", Material.REDSTONE_TORCH, "Item flags",
                 "submit add <flag> | remove <flag> | clear");
-        add(actions, 28, "tooltip", Material.KNOWLEDGE_BOOK, "Tooltip controls",
+        add(actions, 33, "tooltip", Material.KNOWLEDGE_BOOK, "Tooltip controls",
                 "submit hide true|false | style <key|clear>");
         return Map.copyOf(actions);
     }
