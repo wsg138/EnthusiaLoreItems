@@ -84,7 +84,7 @@ jobs:
           const waitNoWindow=async()=>{for(let i=0;i<160;i++){if(!bot.currentWindow)return;await sleep(100)}throw new Error('window did not close')}
           const click=async s=>{await bot.clickWindow(s,0,0)}
           const itemText=item=>item?[item.customName,item.displayName,item.components,item.nbt].map(text).join(' '):''
-          const findSlot=label=>{if(!bot.currentWindow)throw new Error(`no window for ${label}`);const wanted=norm(label),limit=Number.isInteger(bot.currentWindow.inventoryStart)?bot.currentWindow.inventoryStart:bot.currentWindow.slots.length,matches=[];for(let s=0;s<limit;s++){const item=bot.currentWindow.slots[s];if(item&&norm(itemText(item)).includes(wanted))matches.push(s)}if(matches.length!==1)throw new Error(`GUI item '${label}' matched ${matches.length}`);return matches[0]}
+          const findSlot=label=>{if(!bot.currentWindow)throw new Error(`no window for ${label}`);const wanted=norm(label),limit=Number.isInteger(bot.currentWindow.inventoryStart)?bot.currentWindow.inventoryStart:bot.currentWindow.slots.length,matches=[];for(let s=0;s<limit;s++){const item=bot.currentWindow.slots[s];if(item&&norm(itemText(item)).startsWith(wanted))matches.push(s)}if(matches.length!==1)throw new Error(`GUI item '${label}' matched ${matches.length}`);return matches[0]}
           const clickLabel=async label=>{const s=findSlot(label);log(`GUI_CLICK label=${label} slot=${s}`);await click(s)}
           async function makeRevision(){
             bot.chat('/loreitems browse');await waitWindow('Lore definitions');await click(0);await waitWindow('Template management');await clickLabel('Edit template');await waitWindow('Template editor')
