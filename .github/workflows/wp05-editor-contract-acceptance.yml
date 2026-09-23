@@ -118,7 +118,7 @@ jobs:
             const matches=[]
             for(let slot=0;slot<limit;slot++){
               const item=bot.currentWindow.slots[slot]
-              if(item&&normalize(itemText(item)).includes(wanted))matches.push({slot,text:itemText(item)})
+              if(item&&normalize(itemText(item)).startsWith(wanted))matches.push({slot,text:itemText(item)})
             }
             if(matches.length!==1){
               const visible=bot.currentWindow.slots.slice(0,limit).map((item,slot)=>item?{slot,text:itemText(item)}:null).filter(Boolean)
