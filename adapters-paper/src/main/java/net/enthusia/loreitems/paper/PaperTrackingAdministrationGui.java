@@ -6,7 +6,6 @@ import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.PREV
 import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.selectable;
 
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -18,9 +17,6 @@ import java.util.logging.Level;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
-import net.enthusia.loreitems.domain.InstanceAnomaly;
-import net.enthusia.loreitems.domain.InstanceCurrentState;
-import net.enthusia.loreitems.domain.InstanceObservation;
 import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstance;
@@ -206,77 +202,18 @@ public final class PaperTrackingAdministrationGui implements Listener {
             messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
             return;
         }
-        if (!queryCapacity.tryAcquire()) {
-            messagePlayer(playerId, "Too many lore-item administration queries are active.");
-            return;
-        }
         PageRequest request = pageRequest(pageNumber);
-        try {
-            combineEvidenceQueries(
-                    playerId,
-                    definitionId,
-                    instancePageNumber,
-                    instanceId,
-                    pageNumber,
-                    useCase,
-                    request);
-        } catch (RuntimeException exception) {
-            queryCapacity.release();
-            handleFailure(playerId, "instance evidence", exception);
-        }
-    }
-
-    private void combineEvidenceQueries(
-            UUID playerId,
-            LoreDefinitionId definitionId,
-            int instancePageNumber,
-            LoreInstanceId instanceId,
-            int pageNumber,
-            LoreItemsAdministrationUseCase useCase,
-            PageRequest request) {
-        CompletionStage<Optional<InstanceCurrentState>> current = Objects.requireNonNull(
-                useCase.findCurrentState(instanceId), "current-state query stage");
-        CompletionStage<Page<InstanceObservation>> observations = Objects.requireNonNull(
-                useCase.listInstanceObservations(instanceId, request),
-                "observation query stage");
-        CompletionStage<Page<InstanceAnomaly>> anomalies = Objects.requireNonNull(
-                useCase.listInstanceAnomalies(instanceId, PageRequest.first(CONTENT)),
-                "anomaly query stage");
-        current.thenCombine(observations, StateEvidence::new)
-                .thenCombine(
-                        anomalies,
-                        (state, anomalyPage) -> new EvidenceData(
-                                state.current(), state.observations(), anomalyPage))
-                .whenComplete((data, failure) -> finishEvidenceQuery(
+        submit(
+                playerId,
+                "instance evidence",
+                () -> PaperTrackingEvidenceQuery.load(useCase, instanceId, request, CONTENT),
+                data -> showEvidence(
                         playerId,
                         definitionId,
                         instancePageNumber,
                         instanceId,
                         pageNumber,
-                        data,
-                        failure));
-    }
-
-    private void finishEvidenceQuery(
-            UUID playerId,
-            LoreDefinitionId definitionId,
-            int instancePageNumber,
-            LoreInstanceId instanceId,
-            int pageNumber,
-            EvidenceData data,
-            Throwable failure) {
-        queryCapacity.release();
-        if (failure != null) {
-            handleFailure(playerId, "instance evidence", failure);
-        } else {
-            scheduleNextTick(() -> showEvidence(
-                    playerId,
-                    definitionId,
-                    instancePageNumber,
-                    instanceId,
-                    pageNumber,
-                    data));
-        }
+                        data));
     }
 
     private void clickEvidence(
