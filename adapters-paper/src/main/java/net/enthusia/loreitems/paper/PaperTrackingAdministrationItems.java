@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.TrackingMetrics;
 import net.enthusia.loreitems.application.TrackingMetricsSource;
@@ -15,9 +16,10 @@ import org.bukkit.plugin.Plugin;
 
 /** Shared rendering primitives for the tracking administration inventories. */
 final class PaperTrackingAdministrationItems {
-    static final int PREVIOUS = 45;
+    static final int BACK = 45;
+    static final int PREVIOUS = 48;
     static final int STATUS = 49;
-    static final int NEXT = 53;
+    static final int NEXT = 50;
     private static final int FIRST_PAGE = 1;
 
     private PaperTrackingAdministrationItems() {}
@@ -34,7 +36,7 @@ final class PaperTrackingAdministrationItems {
                             Material.ARROW,
                             "Previous page",
                             PaperGuiStyle.Tone.NAVIGATION,
-                            List.of("Page " + (pageNumber - FIRST_PAGE))));
+                            List.of("Go to page " + (pageNumber - FIRST_PAGE) + '.')));
         }
         if (hasMore) {
             inventory.setItem(
@@ -43,7 +45,7 @@ final class PaperTrackingAdministrationItems {
                             Material.ARROW,
                             "Next page",
                             PaperGuiStyle.Tone.NAVIGATION,
-                            List.of("Page " + (pageNumber + FIRST_PAGE))));
+                            List.of("Go to page " + (pageNumber + FIRST_PAGE) + '.')));
         }
         inventory.setItem(
                 STATUS,
@@ -54,14 +56,32 @@ final class PaperTrackingAdministrationItems {
                         statusLore));
     }
 
+    static void decorateNested(
+            Inventory inventory,
+            int pageNumber,
+            boolean hasMore,
+            String backLabel,
+            List<String> backLore,
+            List<String> statusLore) {
+        inventory.setItem(
+                BACK,
+                item(
+                        Material.ARROW,
+                        backLabel,
+                        PaperGuiStyle.Tone.NAVIGATION,
+                        backLore));
+        decorate(inventory, pageNumber, hasMore, statusLore);
+    }
+
     static ItemStack evidenceItem(ObservationChoice choice, DuplicateChoice duplicate) {
         List<String> lore = new ArrayList<>();
         lore.add(describe(choice.location()));
-        lore.add("Confidence: " + choice.confidence().name());
+        lore.add("Confidence: " + humanize(choice.confidence().name()));
         lore.add("Source: " + choice.source());
         if (selectable(choice, duplicate)) {
             lore.add("");
-            lore.add("Click to choose, then confirm.");
+            lore.add("Click to select this location.");
+            lore.add("You will review it before anything changes.");
         }
         boolean conflicting =
                 choice.confidence() == InstanceObservation.Confidence.CONFLICTING;
@@ -124,11 +144,21 @@ final class PaperTrackingAdministrationItems {
     }
 
     static String describe(LocationDescriptor location) {
-        return location.type().name() + ':' + location.locationKey()
-                + (location.containerPath() == null ? "" : ':' + location.containerPath());
+        StringBuilder description = new StringBuilder(humanize(location.type().name()))
+                .append(": ")
+                .append(location.locationKey());
+        if (location.containerPath() != null) {
+            description.append(" • ").append(location.containerPath());
+        }
+        return description.toString();
     }
 
     static String shortId(java.util.UUID id) {
         return id.toString().substring(0, 8);
+    }
+
+    private static String humanize(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT).replace('_', ' ');
+        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
     }
 }
