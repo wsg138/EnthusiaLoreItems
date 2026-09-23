@@ -1,4 +1,4 @@
-name: Stage anomaly workflow hardening blob
+name: Apply checklist Markdown rule
 
 on:
   push:
@@ -9,66 +9,43 @@ permissions:
   contents: write
 
 jobs:
-  stage:
-    if: github.event.head_commit.message == 'ci stage anomaly workflow blob'
+  repair:
+    if: github.event.head_commit.message == 'ci apply checklist markdown rule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: fix/full-plugin-deep-review
 
-      - name: Build validated anomaly workflow blob
+      - name: Configure duplicate headings by sibling scope
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
+          path = Path('docs/manual-live-testing-checklist.md')
           text = path.read_text()
-
-          stale_instances = '            await click(33)\n'
-          semantic_instances = "            const browseInstances = bot.currentWindow.slots.map((item, slot) => ({ slot, text: item ? [item.customName, item.displayName, item.components, item.nbt].map(componentText).join(' ') : '' })).find(entry => entry.text.toLowerCase().replace(/§./g, '').trim().startsWith('browse instances'))\n            if (!browseInstances) throw new Error('Browse instances action was not rendered')\n            log(`BROWSE_INSTANCES_ACTION slot=${browseInstances.slot}`)\n            await click(browseInstances.slot)\n"
-          if text.count(stale_instances) != 1:
-              raise SystemExit('stale Browse instances coordinate changed unexpectedly')
-          text = text.replace(stale_instances, semantic_instances, 1)
-
-          stale_confirm = '            await click(22)\n'
-          semantic_confirm = "            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')\n            if (!confirm) throw new Error('confirmation action was not rendered')\n            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)\n            await click(confirm.slot)\n"
-          if text.count(stale_confirm) != 1:
-              raise SystemExit('stale anomaly confirmation coordinate changed unexpectedly')
-          path.write_text(text.replace(stale_confirm, semantic_confirm, 1))
+          title = '# EnthusiaLoreItems manual staging/live testing checklist\n'
+          directive = '<!-- markdownlint-configure-file { "MD024": { "siblings_only": true } } -->\n'
+          if not text.startswith(title):
+              raise SystemExit('manual checklist title changed unexpectedly')
+          if directive not in text:
+              text = text.replace(title, title + '\n' + directive, 1)
+          text = text.replace('### ACC-ID-001 steps', '### Steps', 1)
+          text = text.replace('### ACC-ID-001 pass criteria', '### PASS', 1)
+          path.write_text(text)
           PY
 
           git diff --check
-          git diff -- .github/workflows/wp05-anomaly-contract-acceptance.yml
+          git diff -- docs/manual-live-testing-checklist.md
 
-          python - <<'PY'
-          import base64
-          import json
-          import os
-          import urllib.request
-          from pathlib import Path
-
-          repository = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          content = base64.b64encode(Path('.github/workflows/wp05-anomaly-contract-acceptance.yml').read_bytes()).decode()
-          body = json.dumps({'content': content, 'encoding': 'base64'}).encode()
-          request = urllib.request.Request(
-              f'https://api.github.com/repos/{repository}/git/blobs',
-              data=body,
-              method='POST',
-              headers={
-                  'Accept': 'application/vnd.github+json',
-                  'Authorization': f'Bearer {token}',
-                  'X-GitHub-Api-Version': '2022-11-28',
-                  'Content-Type': 'application/json',
-                  'User-Agent': 'enthusia-loreitems-hardening',
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              payload = json.load(response)
-          print(f"ANOMALY_BLOB_SHA={payload['sha']}")
-          PY
+      - name: Commit checklist rule
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/manual-live-testing-checklist.md
+          git commit -m 'docs: scope repeated checklist headings by section'
+          git push origin HEAD:fix/full-plugin-deep-review
