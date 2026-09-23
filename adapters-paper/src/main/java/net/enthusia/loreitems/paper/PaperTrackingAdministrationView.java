@@ -11,6 +11,7 @@ import org.bukkit.inventory.InventoryHolder;
 final class PaperTrackingAdministrationView implements InventoryHolder {
     final Screen screen;
     final int pageNumber;
+    final int parentPageNumber;
     final boolean hasMore;
     final LoreDefinitionId definitionId;
     final LoreInstanceId instanceId;
@@ -25,6 +26,7 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     private PaperTrackingAdministrationView(ViewState state) {
         screen = Objects.requireNonNull(state.screen(), "screen");
         pageNumber = state.pageNumber();
+        parentPageNumber = state.parentPageNumber();
         hasMore = state.hasMore();
         definitionId = state.definitionId();
         instanceId = state.instanceId();
@@ -41,6 +43,7 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
             List<LoreDefinitionId> definitionIds) {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.DEFINITIONS,
+                pageNumber,
                 pageNumber,
                 hasMore,
                 null,
@@ -60,6 +63,7 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.INSTANCES,
                 pageNumber,
+                pageNumber,
                 hasMore,
                 Objects.requireNonNull(definitionId, "definitionId"),
                 null,
@@ -71,6 +75,8 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     }
 
     static PaperTrackingAdministrationView evidence(
+            LoreDefinitionId definitionId,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             int pageNumber,
             boolean hasMore,
@@ -79,8 +85,9 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.EVIDENCE,
                 pageNumber,
+                instancePageNumber,
                 hasMore,
-                null,
+                Objects.requireNonNull(definitionId, "definitionId"),
                 Objects.requireNonNull(instanceId, "instanceId"),
                 List.of(),
                 List.of(),
@@ -90,6 +97,8 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     }
 
     static PaperTrackingAdministrationView confirmation(
+            LoreDefinitionId definitionId,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             DuplicateChoice duplicate,
             ObservationChoice selectedObservation,
@@ -97,8 +106,9 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.CONFIRMATION,
                 returnPage,
+                instancePageNumber,
                 false,
-                null,
+                Objects.requireNonNull(definitionId, "definitionId"),
                 Objects.requireNonNull(instanceId, "instanceId"),
                 List.of(),
                 List.of(),
@@ -129,6 +139,7 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     private record ViewState(
             Screen screen,
             int pageNumber,
+            int parentPageNumber,
             boolean hasMore,
             LoreDefinitionId definitionId,
             LoreInstanceId instanceId,
