@@ -4,11 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import java.util.function.IntSupplier;
+import net.enthusia.loreitems.application.EncodedItemTemplate;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
 import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -113,6 +118,37 @@ final class PaperTemplateEditorSupport {
         meta.setMaxStackSize(1);
         applyMeta(normalized, meta);
         return normalized;
+    }
+
+    static ItemStack normalizedHeld(PaperItemTemplateCodec templateCodec, Player player) {
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (held.getType().isAir()) {
+            throw new IllegalArgumentException("Hold a non-air item to replace the template.");
+        }
+        EncodedItemTemplate encoded = templateCodec.encode(held.clone());
+        return templateCodec.decode(encoded);
+    }
+
+    static boolean isCurrentChatSession(
+            PaperTemplateEditorSession session, Player player, UUID sessionId) {
+        return session != null
+                && player != null
+                && session.sessionId.equals(sessionId)
+                && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT;
+    }
+
+    static int requireBatchLimit(IntSupplier batchLimitSupplier) {
+        int value = batchLimitSupplier.getAsInt();
+        if (value < 1 || value > 100) {
+            throw new IllegalArgumentException("Template rollout batch limit must be 1-100");
+        }
+        return value;
+    }
+
+    static Throwable unwrap(Throwable throwable) {
+        return throwable instanceof CompletionException exception && exception.getCause() != null
+                ? exception.getCause()
+                : throwable;
     }
 
     static ItemMeta requireMeta(ItemStack item) {
