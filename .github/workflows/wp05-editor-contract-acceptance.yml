@@ -74,33 +74,68 @@ jobs:
           const bot=mineflayer.createBot({host:'127.0.0.1',port:25565,username:'Wp05EditorBot',version:'1.21.11',auth:'offline'})
           const log=x=>{fs.appendFileSync(`${root}/evidence/bot.log`,`${new Date().toISOString()} ${x}\n`);console.log(x)}
           const sleep=ms=>new Promise(r=>setTimeout(r,ms))
-          function componentText(v){
-            if(v==null)return ''
-            if(typeof v==='string')return v
-            if(typeof v.text==='string')return v.text+(Array.isArray(v.extra)?v.extra.map(componentText).join(''):'')
-            if(typeof v.value==='string')return v.value
-            if(Array.isArray(v.extra))return v.extra.map(componentText).join('')
-            try{return JSON.stringify(v)}catch{return String(v)}
+          function componentText(value){
+            const seen=new Set()
+            const read=current=>{
+              if(current==null)return ''
+              if(typeof current==='string'||typeof current==='number'||typeof current==='boolean')return String(current)
+              if(Array.isArray(current))return current.map(read).join('')
+              if(typeof current!=='object'||seen.has(current))return ''
+              seen.add(current)
+              try{
+                if(Object.prototype.hasOwnProperty.call(current,'value')&&(current.type||Object.keys(current).length<=2)){
+                  const unwrapped=read(current.value);if(unwrapped)return unwrapped
+                }
+                const parts=[]
+                if(Object.prototype.hasOwnProperty.call(current,'text'))parts.push(read(current.text))
+                for(const key of ['extra','with','children','siblings','content'])if(Object.prototype.hasOwnProperty.call(current,key))parts.push(read(current[key]))
+                if(parts.some(Boolean))return parts.join('')
+                for(const [key,child] of Object.entries(current)){
+                  if(['type','color','bold','italic','underlined','strikethrough','obfuscated','insertion','font'].includes(key))continue
+                  parts.push(read(child))
+                }
+                return parts.join('')
+              }finally{seen.delete(current)}
+            }
+            return read(value)
           }
+          const normalize=value=>componentText(value).replace(/§./g,'').replace(/\s+/g,' ').trim().toLowerCase()
           const title=()=>bot.currentWindow ? componentText(bot.currentWindow.title) : ''
           const waitWindow=async fragment=>{
             for(let i=0;i<160;i++){
-              if(bot.currentWindow && title().toLowerCase().includes(fragment.toLowerCase())) return
+              if(bot.currentWindow && normalize(title()).includes(normalize(fragment))) return
               await sleep(100)
             }
             throw new Error(`window '${fragment}' not open; current=${title()}`)
           }
           const waitNoWindow=async()=>{for(let i=0;i<160;i++){if(!bot.currentWindow)return;await sleep(100)};throw new Error('window did not close')}
-          const click=async slot=>{await bot.clickWindow(slot,0,0);await sleep(250)}
-          async function openManagement(){bot.chat('/loreitems browse');await waitWindow('Lore definitions');await click(0);await waitWindow('Template management')}
-          async function openEditor(){await openManagement();await click(29);await waitWindow('Template editor')}
-          async function edit(slot,input){await click(slot);await waitNoWindow();bot.chat(`submit ${input}`);await waitWindow('Template editor');log(`EDIT_OK slot=${slot} input=${input}`)}
-          async function cancelPreview(){await openEditor();await edit(10,'literal Cancel Candidate');await click(49);await waitWindow('Confirm template revision');log(`CANCEL_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await click(33);await sleep(600)}
-          async function invalidInput(){await openEditor();await click(9);await waitNoWindow();bot.chat('submit definitely:not_a_material');await sleep(600);bot.chat('cancel');await waitWindow('Template editor');await click(45);await sleep(500);log('INVALID_REJECTED_AND_CANCELLED')}
-          async function confirmMatrix(){
-            await openEditor();await edit(9,'minecraft:netherite_sword');await edit(10,'solid #112233 Matrix Name');await edit(11,'gradient #ff0000,#0000ff Matrix Item');await edit(12,'add literal First line');await edit(12,'add gradient #ff0000,#0000ff Gradient line');await edit(12,'edit 1 solid #00ff00 Edited first');await edit(12,'move 2 1');await edit(12,'remove 1');await edit(13,'set minecraft:sharpness 7');await edit(13,'tooltip hidden');await edit(13,'tooltip visible');await edit(14,'true');await edit(15,'damage 15');await edit(15,'unbreakable true');await edit(16,'set minecraft:attack_damage enthusia:wp05_matrix add_number 4.5 mainhand');await edit(17,'enthusia:wp05_blade');await edit(18,'1');await edit(19,'floats 1.5,2.25');await edit(19,'flags true,false,true');await edit(19,'strings first|second_value');await edit(19,'colors #010203,#abcdef');await edit(27,'add hide_attributes');await edit(28,'hide true');await edit(28,'hide false');await edit(28,'style enthusia:wp05_style');await click(49);await waitWindow('Confirm template revision');log(`MATRIX_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await click(31);await sleep(1800);log('MATRIX_CONFIRMED')
+          const click=async slot=>{await bot.clickWindow(slot,0,0)}
+          const itemText=item=>item?[item.customName,item.displayName,item.components,item.nbt].map(componentText).join(' '):''
+          const findSlot=label=>{
+            if(!bot.currentWindow)throw new Error(`cannot find '${label}' without an open window`)
+            const wanted=normalize(label)
+            const limit=Number.isInteger(bot.currentWindow.inventoryStart)?bot.currentWindow.inventoryStart:bot.currentWindow.slots.length
+            const matches=[]
+            for(let slot=0;slot<limit;slot++){
+              const item=bot.currentWindow.slots[slot]
+              if(item&&normalize(itemText(item)).includes(wanted))matches.push({slot,text:itemText(item)})
+            }
+            if(matches.length!==1){
+              const visible=bot.currentWindow.slots.slice(0,limit).map((item,slot)=>item?{slot,text:itemText(item)}:null).filter(Boolean)
+              throw new Error(`GUI item '${label}' matched ${matches.length} slots; visible=${JSON.stringify(visible)}`)
+            }
+            return matches[0].slot
           }
-          async function replaceHeld(cancel){await openManagement();await click(31);await waitWindow('Confirm template revision');log(`${cancel?'REPLACE_CANCEL':'REPLACE_CONFIRM'}_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await click(cancel?33:31);await sleep(cancel?600:1800)}
+          const clickLabel=async label=>{const slot=findSlot(label);log(`GUI_CLICK label=${label} slot=${slot}`);await click(slot)}
+          async function openManagement(){bot.chat('/loreitems browse');await waitWindow('Lore definitions');await click(0);await waitWindow('Template management')}
+          async function openEditor(){await openManagement();await clickLabel('Edit template');await waitWindow('Template editor')}
+          async function edit(label,input){await clickLabel(label);await waitNoWindow();bot.chat(`submit ${input}`);await waitWindow('Template editor');log(`EDIT_OK action=${label} input=${input}`)}
+          async function cancelPreview(){await openEditor();await edit('Custom name','literal Cancel Candidate');await clickLabel('Preview and confirm');await waitWindow('Confirm template revision');log(`CANCEL_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await clickLabel('Cancel draft');await waitWindow('Template management')}
+          async function invalidInput(){await openEditor();await clickLabel('Base material');await waitNoWindow();bot.chat('submit definitely:not_a_material');await sleep(600);bot.chat('cancel');await waitWindow('Template editor');await clickLabel('Cancel draft');await waitWindow('Template management');log('INVALID_REJECTED_AND_CANCELLED')}
+          async function confirmMatrix(){
+            await openEditor();await edit('Base material','minecraft:netherite_sword');await edit('Custom name','solid #112233 Matrix Name');await edit('Item name','gradient #ff0000,#0000ff Matrix Item');await edit('Lore lines','add literal First line');await edit('Lore lines','add gradient #ff0000,#0000ff Gradient line');await edit('Lore lines','edit 1 solid #00ff00 Edited first');await edit('Lore lines','move 2 1');await edit('Lore lines','remove 1');await edit('Enchantments','set minecraft:sharpness 7');await edit('Enchantments','tooltip hidden');await edit('Enchantments','tooltip visible');await edit('Glint override','true');await edit('Damage and unbreakable','damage 15');await edit('Damage and unbreakable','unbreakable true');await edit('Attributes','set minecraft:attack_damage enthusia:wp05_matrix add_number 4.5 mainhand');await edit('Item model','enthusia:wp05_blade');await edit('Maximum stack size','1');await edit('Custom model data','floats 1.5,2.25');await edit('Custom model data','flags true,false,true');await edit('Custom model data','strings first|second_value');await edit('Custom model data','colors #010203,#abcdef');await edit('Item flags','add hide_attributes');await edit('Tooltip controls','hide true');await edit('Tooltip controls','hide false');await edit('Tooltip controls','style enthusia:wp05_style');await clickLabel('Preview and confirm');await waitWindow('Confirm template revision');log(`MATRIX_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await clickLabel('Confirm revision');await waitWindow('Template management');log('MATRIX_CONFIRMED')
+          }
+          async function replaceHeld(cancel){await openManagement();await clickLabel('Replace from held item');await waitWindow('Confirm template revision');log(`${cancel?'REPLACE_CANCEL':'REPLACE_CONFIRM'}_PREVIEW ${JSON.stringify(bot.currentWindow.slots[15]||null)}`);await clickLabel(cancel?'Cancel draft':'Confirm revision');await waitWindow('Template management')}
           bot.on('message',m=>log(`CHAT ${m.toString()}`));bot.on('error',e=>log(`ERROR ${e.stack||e}`));bot.on('kicked',r=>log(`KICKED ${String(r)}`))
           bot.once('spawn',async()=>{try{log(`SPAWN uuid=${bot.player.uuid} username=${bot.username}`);fs.writeFileSync(`${root}/bot.uuid`,`${bot.player.uuid}\n`);while(!fs.existsSync(`${root}/go-cancel`))await sleep(100);await cancelPreview();fs.writeFileSync(`${root}/done-cancel`,'ok\n');while(!fs.existsSync(`${root}/go-invalid`))await sleep(100);await invalidInput();fs.writeFileSync(`${root}/done-invalid`,'ok\n');while(!fs.existsSync(`${root}/go-matrix`))await sleep(100);await confirmMatrix();fs.writeFileSync(`${root}/done-matrix`,'ok\n');while(!fs.existsSync(`${root}/go-replace-cancel`))await sleep(100);await replaceHeld(true);fs.writeFileSync(`${root}/done-replace-cancel`,'ok\n');while(!fs.existsSync(`${root}/go-replace-confirm`))await sleep(100);await replaceHeld(false);fs.writeFileSync(`${root}/done-replace-confirm`,'ok\n');while(!fs.existsSync(`${root}/bot.stop`))await sleep(100);bot.quit('acceptance complete')}catch(e){log(`FATAL ${e.stack||e}`);fs.writeFileSync(`${root}/bot.failed`,String(e.stack||e));bot.quit('acceptance failed')}})
           EOF
@@ -158,7 +193,7 @@ jobs:
           else: raise SystemExit('matrix revision did not roll out to online instance')
           print('PASS ACC-EDIT-001: supported GUI/chat field matrix, invalid input, preview cancel, confirmation, bounded rollout')
           PY
-          grep -q 'EDIT_OK slot=9 input=minecraft:netherite_sword' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=10 input=solid #112233 Matrix Name' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=11 input=gradient #ff0000,#0000ff Matrix Item' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=12 input=edit 1 solid #00ff00 Edited first' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=13 input=set minecraft:sharpness 7' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=13 input=tooltip hidden' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=13 input=tooltip visible' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=14 input=true' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=15 input=damage 15' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=15 input=unbreakable true' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=16 input=set minecraft:attack_damage enthusia:wp05_matrix add_number 4.5 mainhand' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=17 input=enthusia:wp05_blade' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=18 input=1' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=19 input=colors #010203,#abcdef' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=27 input=add hide_attributes' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK slot=28 input=style enthusia:wp05_style' "$ROOT/evidence/bot.log";grep -q 'INVALID_REJECTED_AND_CANCELLED' "$ROOT/evidence/bot.log"
+          grep -q 'EDIT_OK action=Base material input=minecraft:netherite_sword' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Custom name input=solid #112233 Matrix Name' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Item name input=gradient #ff0000,#0000ff Matrix Item' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Lore lines input=edit 1 solid #00ff00 Edited first' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Enchantments input=set minecraft:sharpness 7' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Enchantments input=tooltip hidden' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Enchantments input=tooltip visible' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Glint override input=true' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Damage and unbreakable input=damage 15' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Damage and unbreakable input=unbreakable true' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Attributes input=set minecraft:attack_damage enthusia:wp05_matrix add_number 4.5 mainhand' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Item model input=enthusia:wp05_blade' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Maximum stack size input=1' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Custom model data input=colors #010203,#abcdef' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Item flags input=add hide_attributes' "$ROOT/evidence/bot.log";grep -q 'EDIT_OK action=Tooltip controls input=style enthusia:wp05_style' "$ROOT/evidence/bot.log";grep -q 'INVALID_REJECTED_AND_CANCELLED' "$ROOT/evidence/bot.log"
           echo 'wp05accept source Wp05EditorBot uncommon' >&3;sleep .75;echo 'data get entity Wp05EditorBot Inventory' >&3;sleep .5;touch "$ROOT/go-replace-cancel";for _ in $(seq 1 160);do test -f "$ROOT/done-replace-cancel"&&break;test ! -f "$ROOT/bot.failed"||{ cat "$ROOT/bot.failed";exit 1;};sleep .25;done;test -f "$ROOT/done-replace-cancel"
           python3 - "$DB" <<'PY'
           import sqlite3,sys
