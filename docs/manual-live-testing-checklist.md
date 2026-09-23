@@ -1,5 +1,7 @@
 # EnthusiaLoreItems manual staging/live testing checklist
 
+<!-- markdownlint-configure-file { "MD024": { "siblings_only": true } } -->
+
 This is the operator-execution version of `docs/wp-05-manual-acceptance-matrix.md`. It converts each acceptance case into a repeatable, step-by-step checklist for a real Paper/Leaf acceptance server.
 
 It does **not** replace the authoritative WP-05 matrix or `docs/operator-guide.md`. If this guide and the matrix disagree, stop and follow the matrix.
@@ -166,7 +168,7 @@ If startup/migration/integrity is unsafe, stop immediately and restore the pre-t
 
 ## ACC-ID-001 — Java identity and administrative surfaces
 
-### ACC-ID-001 steps
+### Steps
 
 1. Join with the Java admin account.
 2. Record the UUID and exact visible name.
@@ -178,7 +180,7 @@ If startup/migration/integrity is unsafe, stop immediately and restore the pre-t
 8. Run one browse/audit/status query that must be read-only.
 9. Re-check definition/instance/pending counts to prove the browse-only action did not mutate state.
 
-### ACC-ID-001 pass criteria
+### PASS
 
 - [ ] Correct Java UUID/name appears in operator/audit evidence.
 - [ ] Permission-gated actions respect permissions.
