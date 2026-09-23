@@ -47,41 +47,11 @@ jobs:
 
           anomaly_path = Path('.github/workflows/wp05-anomaly-contract-acceptance.yml')
           anomaly = anomaly_path.read_text()
-          click_anchor = '''          const click = async slot => { await bot.clickWindow(slot, 0, 0); await sleep(400) }
-          const resolveDuplicate = async () => {'''
-          semantic_click = '''          const click = async slot => { await bot.clickWindow(slot, 0, 0); await sleep(400) }
-          const normalize = value => componentText(value).replace(/§./g, '').replace(/\\s+/g, ' ').trim().toLowerCase()
-          const itemText = item => item ? [item.customName, item.displayName, item.components, item.nbt].map(componentText).join(' ') : ''
-          const findSlot = label => {
-            if (!bot.currentWindow) throw new Error(`cannot find '${label}' without an open window`)
-            const wanted = normalize(label)
-            const limit = Number.isInteger(bot.currentWindow.inventoryStart) ? bot.currentWindow.inventoryStart : bot.currentWindow.slots.length
-            const matches = []
-            for (let slot = 0; slot < limit; slot++) {
-              const item = bot.currentWindow.slots[slot]
-              if (item && normalize(itemText(item)).startsWith(wanted)) matches.push({ slot, text: itemText(item) })
-            }
-            if (matches.length !== 1) {
-              const visible = bot.currentWindow.slots.slice(0, limit)
-                .map((item, slot) => item ? { slot, text: itemText(item) } : null)
-                .filter(Boolean)
-              throw new Error(`GUI item '${label}' matched ${matches.length} slots; visible=${JSON.stringify(visible)}`)
-            }
-            return matches[0].slot
-          }
-          const clickLabel = async label => {
-            const slot = findSlot(label)
-            log(`GUI_CLICK label=${label} slot=${slot}`)
-            await click(slot)
-          }
-          const resolveDuplicate = async () => {'''
-          if anomaly.count(click_anchor) != 1:
-              raise SystemExit('anomaly click helper anchor changed unexpectedly')
-          anomaly = anomaly.replace(click_anchor, semantic_click, 1)
           stale_confirm = '            await click(22)\n'
+          replacement = "            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')\n            if (!confirm) throw new Error('confirmation action was not rendered')\n            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)\n            await click(confirm.slot)\n"
           if anomaly.count(stale_confirm) != 1:
               raise SystemExit('stale anomaly confirmation slot changed unexpectedly')
-          anomaly = anomaly.replace(stale_confirm, "            await clickLabel('Confirm this location')\n", 1)
+          anomaly = anomaly.replace(stale_confirm, replacement, 1)
           anomaly_path.write_text(anomaly)
 
           Path('.github/workflows/codacy-pr-diagnostics.yml').unlink()
