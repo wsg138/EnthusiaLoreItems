@@ -19,12 +19,13 @@ class PaperGuiLayoutTest {
     }
 
     @Test
-    void evidenceViewKeepsItsExactParentInstancePage() {
+    void evidenceViewKeepsItsEntireNavigationPath() {
         LoreDefinitionId definitionId = LoreDefinitionId.random();
         LoreInstanceId instanceId = LoreInstanceId.random();
 
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.evidence(
                 definitionId,
+                3,
                 4,
                 instanceId,
                 2,
@@ -34,6 +35,7 @@ class PaperGuiLayoutTest {
 
         assertEquals(definitionId, view.definitionId);
         assertEquals(instanceId, view.instanceId);
+        assertEquals(3, view.definitionPageNumber);
         assertEquals(4, view.parentPageNumber);
         assertEquals(2, view.pageNumber);
     }
