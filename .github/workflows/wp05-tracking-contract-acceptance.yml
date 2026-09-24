@@ -149,6 +149,42 @@ jobs:
           )
           track3 = track3.replace(checkpoint, checkpoint + diagnostics)
           script.write_text(prefix + separator + track3)
+
+          bot = Path('acceptance-harness/scripts/wp05-tracking-bot.js')
+          bot_text = bot.read_text()
+          discovery_anchor = """function findDisplayEntity(bot, kind, x, y, z) {
+            const target = new Vec3(x, y, z)
+            const maxDistance = kind === 'armor_stand' ? 3 : 1.5
+            return Object.values(bot.entities)
+              .filter(candidate => displayMatches(candidate, kind))
+              .map(candidate => ({ candidate, distance: candidate.position.distanceTo(target) }))
+              .filter(entry => entry.distance < maxDistance)
+              .sort((left, right) => left.distance - right.distance)[0]?.candidate || null
+          }
+          """
+          discovery_replacement = """function findDisplayEntity(bot, kind, x, y, z) {
+            const target = new Vec3(x, y, z)
+            const maxDistance = kind === 'armor_stand' ? 3 : 1.5
+            const nearby = Object.values(bot.entities)
+              .filter(candidate => candidate && candidate !== bot.entity && candidate.position)
+              .map(candidate => ({ candidate, distance: candidate.position.distanceTo(target) }))
+              .filter(entry => entry.distance < maxDistance)
+              .sort((left, right) => left.distance - right.distance)
+            const named = nearby.find(entry => displayMatches(entry.candidate, kind))
+            if (named) return named.candidate
+            if (kind !== 'item_frame' && kind !== 'glow_item_frame') return null
+            const generic = nearby.find(entry => {
+              const name = String(entry.candidate.name || '').toLowerCase()
+              const type = String(entry.candidate.type || '').toLowerCase()
+              return name !== 'player' && name !== 'item' && name !== 'experience_orb'
+                && type !== 'player' && type !== 'mob'
+            })
+            return generic?.candidate || null
+          }
+          """
+          if bot_text.count(discovery_anchor) != 1:
+              raise SystemExit(f'expected one display discovery anchor, found {bot_text.count(discovery_anchor)}')
+          bot.write_text(bot_text.replace(discovery_anchor, discovery_replacement))
           PY
 
       - name: Execute ACC-TRACK-001 through ACC-TRACK-003
