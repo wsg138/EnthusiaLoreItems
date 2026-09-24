@@ -117,7 +117,6 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             String[] arguments) {
         Objects.requireNonNull(sender, "sender");
         Objects.requireNonNull(command, "command");
-        Objects.requireNonNull(label, "label");
         Objects.requireNonNull(arguments, "arguments");
         String subcommand = parseSubcommand(sender, arguments);
         if (subcommand == null) {
