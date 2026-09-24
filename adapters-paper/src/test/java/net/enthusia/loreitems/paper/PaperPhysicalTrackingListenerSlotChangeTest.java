@@ -82,6 +82,8 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         PlayerMock player = server.addPlayer();
         ItemStack tracked = trackedItem();
         player.getInventory().setHelmet(tracked);
+        Inventory chest = server.createInventory(null, 9);
+        player.openInventory(chest);
         PlayerInventorySlotChangeEvent event = new PlayerInventorySlotChangeEvent(
                 player,
                 0,
