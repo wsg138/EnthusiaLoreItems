@@ -41,7 +41,7 @@ class PaperTemplateEditorStaleDraftTest {
     private PermissionAttachment editPermission;
     private RecordingUseCase useCase;
     private PaperTemplateEditorManager manager;
-    private TemplateManagementSnapshot snapshot;
+    private TemplateManagementSnapshot managementSnapshot;
 
     @BeforeEach
     void setUp() {
@@ -51,8 +51,8 @@ class PaperTemplateEditorStaleDraftTest {
         owner.addAttachment(plugin, LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, true);
         editPermission = owner.addAttachment(plugin);
         editPermission.setPermission(PaperTemplateEditorManager.EDIT_PERMISSION, true);
-        snapshot = snapshot();
-        useCase = new RecordingUseCase(snapshot);
+        managementSnapshot = snapshot();
+        useCase = new RecordingUseCase(managementSnapshot);
         server.getServicesManager().register(
                 TemplateManagementUseCase.class, useCase, plugin, ServicePriority.Normal);
         manager = new PaperTemplateEditorManager(plugin, () -> 8, () -> {}, 100L);
@@ -118,7 +118,7 @@ class PaperTemplateEditorStaleDraftTest {
     }
 
     private void openEditor(PlayerMock player) {
-        manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
+        manager.openManagement(player.getUniqueId(), managementSnapshot.definition().id(), 1);
         click(player, PaperTemplateEditorRenderer.MANAGEMENT_EDIT);
         assertEquals(
                 PaperTemplateEditorSession.State.EDITING,
