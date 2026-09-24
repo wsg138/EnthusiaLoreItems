@@ -104,9 +104,11 @@ jobs:
           jq -e --arg version "${RELEASE_VERSION}" '.metadata.component.version == $version' "${BUNDLE}/bom.cyclonedx.json" >/dev/null
           jq -e --arg target "${TARGET_SHA}" '.passed == true and .environment.commit == $target' "${BUNDLE}/wp04-profile.json" >/dev/null
           RELEASE_READY="$(sed -n 's/^release_ready: //p' "${BUNDLE}/acceptance-index.md")"
+          ACCEPTED_VERSION="$(sed -n 's/^release_version: //p' "${BUNDLE}/acceptance-index.md")"
           ACCEPTED_SOURCE_HEAD="$(sed -n 's/^release_source_head: //p' "${BUNDLE}/acceptance-index.md")"
           ACCEPTED_JAR_SHA="$(sed -n 's/^release_jar_sha256: //p' "${BUNDLE}/acceptance-index.md")"
           test "${RELEASE_READY}" = "APPROVED"
+          test "${ACCEPTED_VERSION}" = "${RELEASE_VERSION}"
           test "${ACCEPTED_SOURCE_HEAD}" = "${TARGET_SHA}"
           test "${ACCEPTED_JAR_SHA}" = "${JAR_SHA}"
 

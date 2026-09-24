@@ -1,0 +1,9 @@
+# EnthusiaLoreItems 1.0.1 release-artifact approval
+
+This machine-readable approval is intentionally bound to one patch version and one exact production JAR. CI must downgrade the effective release gate to `NOT_APPROVED` if either identity differs.
+
+This file does not authorize merging PR #30 or deploying to the live server. The separate deep-audit protocol still requires a frozen candidate, two consecutive clean independent verification rounds, final green gates, and separate owner authorization for live deployment.
+
+release_ready: APPROVED
+release_version: 1.0.1
+release_jar_sha256: b32a138d69f9c1edc882fa761466b7ad8220f783b232a47d97660b68fa83a455
