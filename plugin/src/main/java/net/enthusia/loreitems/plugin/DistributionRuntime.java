@@ -6,9 +6,11 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.BindDistributionRecipientsUseCase;
 import net.enthusia.loreitems.application.DistributionCampaignAdministrationUseCase;
@@ -55,6 +57,8 @@ final class DistributionRuntime implements AutoCloseable {
     private final PaperDistributionMarkerRecoveryWorker markerWorker;
     private final DistributionCampaignCommandExecutor commandExecutor;
     private final ThreadPoolExecutor distributionExecutor;
+    private final BooleanSupplier startupAllowed;
+    private final Runnable fatalStartupFence;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private volatile boolean serviceRegistered;
@@ -64,12 +68,16 @@ final class DistributionRuntime implements AutoCloseable {
             JavaPlugin plugin,
             SQLiteStorageRuntime storage,
             FoundationConfiguration configuration,
-            Executor blockingExecutor) {
+            Executor blockingExecutor,
+            BooleanSupplier startupAllowed,
+            Runnable fatalStartupFence) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         SQLiteStorageRuntime requiredStorage = Objects.requireNonNull(storage, "storage");
         FoundationConfiguration requiredConfiguration =
                 Objects.requireNonNull(configuration, "configuration");
         Objects.requireNonNull(blockingExecutor, "blockingExecutor");
+        this.startupAllowed = Objects.requireNonNull(startupAllowed, "startupAllowed");
+        this.fatalStartupFence = Objects.requireNonNull(fatalStartupFence, "fatalStartupFence");
         distributionExecutor = createDistributionExecutor();
         Executor workerExecutor = distributionExecutor;
         MetricsPort metrics = requiredStorage.metrics();
@@ -153,7 +161,7 @@ final class DistributionRuntime implements AutoCloseable {
                 new SQLiteDefinitionRepository(storage),
                 new SQLiteDistributionCampaignStartRepository(storage),
                 new PaperCachedPlayerIdentityResolver(),
-                workerExecutor,
+                this::scheduleOnMainThread,
                 workerExecutor);
         DistributionCampaignCommandDependencies dependencies =
                 new DistributionCampaignCommandDependencies(
@@ -181,10 +189,13 @@ final class DistributionRuntime implements AutoCloseable {
         if (closed.get() || started) {
             return;
         }
-        PluginCommand command = Objects.requireNonNull(
-                plugin.getCommand("loredistribution"),
-                "plugin.yml must declare the loredistribution command");
+        if (!FatalStartupFailurePolicy.allowDeferredActivation(startupAllowed, this::close)) {
+            return;
+        }
         try {
+            PluginCommand command = Objects.requireNonNull(
+                    plugin.getCommand("loredistribution"),
+                    "plugin.yml must declare the loredistribution command");
             registerAdministrationService();
             command.setExecutor(commandExecutor);
             command.setTabCompleter(commandExecutor);
@@ -195,12 +206,18 @@ final class DistributionRuntime implements AutoCloseable {
             plugin.getLogger().info(
                     "Mass distribution delivery, identity binding, marker recovery, and commands are active.");
         } catch (RuntimeException exception) {
-            close();
+            FatalStartupFailurePolicy.revokeWritesThenCleanupAndRequestDisable(
+                    fatalStartupFence,
+                    this::close,
+                    () -> plugin.getServer().getPluginManager().disablePlugin(plugin),
+                    cleanupOrDisableFailure -> plugin.getLogger().log(
+                            Level.SEVERE,
+                            "Could not complete distribution cleanup/disable after fatal startup failure.",
+                            cleanupOrDisableFailure));
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not activate the mass distribution runtime; disabling LoreItems.",
                     exception);
-            plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
     }
 
@@ -225,6 +242,19 @@ final class DistributionRuntime implements AutoCloseable {
         plugin.getServer().getScheduler().runTask(plugin, action);
     }
 
+    private void scheduleOnMainThread(Runnable action) {
+        Objects.requireNonNull(action, "action");
+        if (closed.get()) {
+            throw new RejectedExecutionException("Distribution runtime is closed");
+        }
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, action);
+        } catch (RuntimeException exception) {
+            throw new RejectedExecutionException(
+                    "Could not schedule distribution work on the server thread", exception);
+        }
+    }
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) {
@@ -241,6 +271,10 @@ final class DistributionRuntime implements AutoCloseable {
         closeQuietly(deliveryWorker, "distribution delivery worker");
         closeQuietly(commandExecutor, "distribution command executor");
         distributionExecutor.shutdownNow();
+    }
+
+    boolean isTerminated() {
+        return distributionExecutor.isTerminated();
     }
 
     private static ThreadPoolExecutor createDistributionExecutor() {

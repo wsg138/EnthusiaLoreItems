@@ -88,6 +88,22 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
         if (validation != null) {
             return validation;
         }
+        return completeResolution(connection, request, resolvedAt, anomaly, selected, current);
+    }
+
+    private static LoreItemsAdministrationUseCase.DuplicateResolutionResult completeResolution(
+            Connection connection,
+            LoreItemsAdministrationUseCase.DuplicateResolutionRequest request,
+            long resolvedAt,
+            AnomalyRow anomaly,
+            ObservationRow selected,
+            CurrentRow current) throws SQLException, StaleResolutionException {
+        if (hasActiveIdentityMismatch(
+                connection, anomaly.instanceId(), request.anomalyId().toString())) {
+            return result(
+                    LoreItemsAdministrationUseCase.DuplicateResolutionStatus.STALE,
+                    "Another unresolved identity anomaly still blocks location selection.");
+        }
         long observationId = insertResolutionObservation(
                 connection, anomaly, selected, resolvedAt);
         if (!updateCurrent(connection, anomaly, selected, current, observationId, resolvedAt)
@@ -142,6 +158,22 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                     "The instance is no longer in conflicting current state.");
         }
         return null;
+    }
+
+    private static boolean hasActiveIdentityMismatch(
+            Connection connection,
+            String instanceId,
+            String selectedAnomalyId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM instance_anomalies WHERE instance_id = ? AND anomaly_id <> ? "
+                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') "
+                        + "AND anomaly_type = 'IDENTITY_MISMATCH' LIMIT 1")) {
+            statement.setString(1, instanceId);
+            statement.setString(2, selectedAnomalyId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
     }
 
     private static AnomalyRow findAnomaly(Connection connection, String anomalyId)
@@ -346,6 +378,7 @@ final class SQLiteTrackingAdministrationStore implements TrackingAdministrationS
                         BLOCK_CONTAINER,
                         DROPPED_ITEM,
                         ITEM_FRAME,
+                        ITEM_DISPLAY,
                         ARMOR_STAND,
                         NESTED_CONTAINER -> true;
                 default -> false;

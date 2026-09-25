@@ -6,7 +6,10 @@ import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
 import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import io.papermc.paper.event.entity.EntityCompostItemEvent;
 import io.papermc.paper.event.entity.EntityDamageItemEvent;
+import io.papermc.paper.event.player.PlayerChangeBeaconEffectEvent;
 import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
+import io.papermc.paper.event.player.PlayerPickBlockEvent;
+import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -19,6 +22,7 @@ import org.bukkit.block.Crafter;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.ItemFrame;
+import org.bukkit.entity.Piglin;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
@@ -30,6 +34,7 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.CrafterCraftEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ItemDespawnEvent;
@@ -39,6 +44,7 @@ import org.bukkit.event.inventory.BrewEvent;
 import org.bukkit.event.inventory.BrewingStandFuelEvent;
 import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -88,6 +94,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
+    private final PaperTrackedItemCollector itemCollector = new PaperTrackedItemCollector();
+    private final PaperCreativeIdentityProtection creativeIdentityProtection;
     private final PaperVoidLossCoordinator voidLossCoordinator;
     private final BooleanSupplier sharedContainersAllowedSupplier;
 
@@ -124,6 +132,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         this.identityCodec = new PaperItemIdentityCodec();
         this.sharedContainersAllowedSupplier = Objects.requireNonNull(
                 sharedContainersAllowedSupplier, "sharedContainersAllowedSupplier");
+        this.creativeIdentityProtection = new PaperCreativeIdentityProtection(itemCollector);
         this.voidLossCoordinator = new PaperVoidLossCoordinator(
                 plugin,
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
@@ -140,7 +149,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemDespawn(ItemDespawnEvent event) {
-        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())) {
+        if (hasLoreIdentityEvidenceInTree(event.getEntity().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -148,15 +157,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemCombust(EntityCombustEvent event) {
         if (event.getEntity() instanceof Item item
-                && hasLoreIdentityEvidence(item.getItemStack())) {
+                && hasLoreIdentityEvidenceInTree(item.getItemStack())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemMerge(ItemMergeEvent event) {
-        if (hasLoreIdentityEvidence(event.getEntity().getItemStack())
-                || hasLoreIdentityEvidence(event.getTarget().getItemStack())) {
+        if (hasLoreIdentityEvidenceInTree(event.getEntity().getItemStack())
+                || hasLoreIdentityEvidenceInTree(event.getTarget().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -166,13 +175,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         if (!(event.getEntity() instanceof Item item)) {
             return;
         }
-        ItemIdentityReadResult identity = identityCodec.readIdentity(item.getItemStack());
-        if (identity instanceof ItemIdentityReadResult.Untracked) {
+        ItemStack stack = item.getItemStack();
+        if (!hasLoreIdentityEvidenceInTree(stack)) {
             return;
         }
+        ItemIdentityReadResult identity = identityCodec.readIdentity(stack);
         event.setCancelled(true);
         if (event.getCause() == EntityDamageEvent.DamageCause.VOID
-                && identity instanceof ItemIdentityReadResult.Tracked tracked) {
+                && identity instanceof ItemIdentityReadResult.Tracked tracked
+                && !itemCollector.hasNestedIdentityEvidence(stack)) {
             voidLossCoordinator.begin(item, tracked.identity());
         }
     }
@@ -199,9 +210,54 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBeaconEffectChange(PlayerChangeBeaconEffectEvent event) {
+        if (event.willConsumeItem()
+                && hasLoreIdentityEvidence(
+                        event.getPlayer().getOpenInventory().getTopInventory().getItem(0))) {
+            event.setConsumeItem(false);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityPickup(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player)
+                && hasLoreIdentityEvidenceInTree(event.getItem().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryResultClick(InventoryClickEvent event) {
         if (event.getSlotType() == InventoryType.SlotType.RESULT
                 && containsLoreIdentityEvidence(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativeClone(InventoryClickEvent event) {
+        if (creativeIdentityProtection.shouldCancelClone(event)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativeInventoryMutation(InventoryCreativeEvent event) {
+        if (creativeIdentityProtection.shouldCancelInventoryMutation(event)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativePickBlock(PlayerPickBlockEvent event) {
+        if (creativeIdentityProtection.shouldCancelPickBlock(event)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCreativePickEntity(PlayerPickEntityEvent event) {
+        if (creativeIdentityProtection.shouldCancelPickEntity(event)) {
             event.setCancelled(true);
         }
     }
@@ -219,8 +275,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         }
         ItemStack current = event.getCurrentItem();
         ItemStack cursor = event.getCursor();
-        if ((isBundle(current) && hasLoreIdentityEvidence(cursor))
-                || (isBundle(cursor) && hasLoreIdentityEvidence(current))) {
+        if ((isBundle(current) && hasLoreIdentityEvidenceInTree(cursor))
+                || (isBundle(cursor) && hasLoreIdentityEvidenceInTree(current))) {
             event.setCancelled(true);
         }
     }
@@ -229,7 +285,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onSharedContainerDrag(InventoryDragEvent event) {
         if (sharedContainersAllowed()
                 || event.getView().getTopInventory().getType() != InventoryType.SHULKER_BOX
-                || !hasLoreIdentityEvidence(event.getOldCursor())) {
+                || !hasLoreIdentityEvidenceInTree(event.getOldCursor())) {
             return;
         }
         int topSize = event.getView().getTopInventory().getSize();
@@ -241,15 +297,15 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private boolean wouldInsertIntoTopInventory(InventoryClickEvent event, int topSize) {
         int rawSlot = event.getRawSlot();
         if (rawSlot >= 0 && rawSlot < topSize) {
-            if (hasLoreIdentityEvidence(event.getCursor())) {
+            if (hasLoreIdentityEvidenceInTree(event.getCursor())) {
                 return true;
             }
             int hotbarButton = event.getHotbarButton();
             return hotbarButton >= 0
-                    && hasLoreIdentityEvidence(
+                    && hasLoreIdentityEvidenceInTree(
                             event.getWhoClicked().getInventory().getItem(hotbarButton));
         }
-        return event.isShiftClick() && hasLoreIdentityEvidence(event.getCurrentItem());
+        return event.isShiftClick() && hasLoreIdentityEvidenceInTree(event.getCurrentItem());
     }
 
     private boolean sharedContainersAllowed() {
@@ -384,7 +440,10 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             return;
         }
         ItemStack item = itemInHand(event.getPlayer(), event.getHand());
-        if (losesIdentityOnEntityInteraction(item.getType())
+        boolean piglinBarter = event.getRightClicked() instanceof Piglin piglin
+                && (item.getType() == Material.GOLD_INGOT
+                        || piglin.getBarterList().contains(item.getType()));
+        if ((piglinBarter || losesIdentityOnEntityInteraction(item.getType()))
                 && hasLoreIdentityEvidence(item)) {
             event.setCancelled(true);
         }
@@ -453,9 +512,14 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
         return identityCodec.hasIdentityEvidence(item);
     }
 
+    private boolean hasLoreIdentityEvidenceInTree(ItemStack item) {
+        return itemCollector.hasIdentityEvidence(item);
+    }
+
     private static boolean losesIdentityOnInteraction(Material material) {
         String name = material.name();
-        return CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
+        return material.isEdible()
+                || CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
                 || name.endsWith("_DYE")
                 || name.endsWith("_SPAWN_EGG");
     }

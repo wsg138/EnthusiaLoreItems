@@ -11,6 +11,8 @@ import org.bukkit.inventory.InventoryHolder;
 final class PaperTrackingAdministrationView implements InventoryHolder {
     final Screen screen;
     final int pageNumber;
+    final int parentPageNumber;
+    final int definitionPageNumber;
     final boolean hasMore;
     final LoreDefinitionId definitionId;
     final LoreInstanceId instanceId;
@@ -25,6 +27,8 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     private PaperTrackingAdministrationView(ViewState state) {
         screen = Objects.requireNonNull(state.screen(), "screen");
         pageNumber = state.pageNumber();
+        parentPageNumber = state.parentPageNumber();
+        definitionPageNumber = state.definitionPageNumber();
         hasMore = state.hasMore();
         definitionId = state.definitionId();
         instanceId = state.instanceId();
@@ -42,6 +46,8 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.DEFINITIONS,
                 pageNumber,
+                pageNumber,
+                pageNumber,
                 hasMore,
                 null,
                 null,
@@ -54,12 +60,15 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
 
     static PaperTrackingAdministrationView instances(
             LoreDefinitionId definitionId,
+            int definitionPageNumber,
             int pageNumber,
             boolean hasMore,
             List<LoreInstanceId> instanceIds) {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.INSTANCES,
                 pageNumber,
+                definitionPageNumber,
+                definitionPageNumber,
                 hasMore,
                 Objects.requireNonNull(definitionId, "definitionId"),
                 null,
@@ -71,6 +80,9 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     }
 
     static PaperTrackingAdministrationView evidence(
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             int pageNumber,
             boolean hasMore,
@@ -79,8 +91,10 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.EVIDENCE,
                 pageNumber,
+                instancePageNumber,
+                definitionPageNumber,
                 hasMore,
-                null,
+                Objects.requireNonNull(definitionId, "definitionId"),
                 Objects.requireNonNull(instanceId, "instanceId"),
                 List.of(),
                 List.of(),
@@ -90,6 +104,9 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     }
 
     static PaperTrackingAdministrationView confirmation(
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             DuplicateChoice duplicate,
             ObservationChoice selectedObservation,
@@ -97,8 +114,10 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
         return new PaperTrackingAdministrationView(new ViewState(
                 Screen.CONFIRMATION,
                 returnPage,
+                instancePageNumber,
+                definitionPageNumber,
                 false,
-                null,
+                Objects.requireNonNull(definitionId, "definitionId"),
                 Objects.requireNonNull(instanceId, "instanceId"),
                 List.of(),
                 List.of(),
@@ -129,6 +148,8 @@ final class PaperTrackingAdministrationView implements InventoryHolder {
     private record ViewState(
             Screen screen,
             int pageNumber,
+            int parentPageNumber,
+            int definitionPageNumber,
             boolean hasMore,
             LoreDefinitionId definitionId,
             LoreInstanceId instanceId,

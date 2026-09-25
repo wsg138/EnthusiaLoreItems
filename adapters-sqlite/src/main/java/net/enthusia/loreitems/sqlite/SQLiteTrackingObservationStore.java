@@ -3,9 +3,10 @@ package net.enthusia.loreitems.sqlite;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.appendAudit;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.conflictLocation;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.refreshDuplicateAnomaly;
-import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.sameDroppedEntity;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.samePhysicalEntity;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.setNullableString;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.upsertDuplicateAnomaly;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingIdentityMismatchSupport.recordIdentityMismatchEvidence;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -62,9 +63,23 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             TrackingObservationUseCase.Request request,
             long observedAt) throws SQLException, StaleTrackingObservationException {
         InstanceRow instance = findInstance(connection, request);
-        TrackingObservationUseCase.Result validation = validateInstance(instance, request);
-        if (validation != null) {
-            return validation;
+        if (instance == null) {
+            return result(
+                    TrackingObservationUseCase.Status.UNKNOWN_INSTANCE,
+                    "The observed identity has no durable instance record.");
+        }
+        if (!ACTIVE.equals(instance.lifecycleState())) {
+            return result(
+                    TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
+                    "The durable instance is not active.");
+        }
+        if (!SQLiteTrackingRevisionCompatibility.matches(
+                connection,
+                instance.definitionId(),
+                instance.appliedRevision(),
+                instance.desiredRevision(),
+                request)) {
+            return recordIdentityMismatch(connection, request, instance, observedAt);
         }
         CurrentRow current = findCurrent(connection, request);
         if (current == null) {
@@ -85,6 +100,55 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         return request.presence() == TrackingObservationUseCase.Presence.PRESENT
                 ? recordPresent(connection, request, current, observedAt)
                 : recordLastConfirmed(connection, request, current, observedAt);
+    }
+
+    private static TrackingObservationUseCase.Result recordIdentityMismatch(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            InstanceRow instance,
+            long observedAt) throws SQLException, StaleTrackingObservationException {
+        CurrentRow current = findCurrent(connection, request);
+        if (current == null) {
+            return result(
+                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                    "The observed identity does not match the durable instance record, and the "
+                            + "current-state projection is unavailable for fencing.");
+        }
+        if (TERMINAL_VOID.equals(current.state())) {
+            return result(
+                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                    "The observed identity does not match the durable instance record; terminal "
+                            + "void state was preserved.");
+        }
+
+        long observationId = insertObservation(
+                connection,
+                request,
+                instance.definitionId(),
+                request.location(),
+                InstanceObservation.Confidence.CONFLICTING,
+                observedAt);
+        if (!CONFLICTING.equals(current.state())) {
+            requireCurrentUpdate(
+                    connection,
+                    request,
+                    current,
+                    request.location(),
+                    InstanceCurrentState.State.CONFLICTING,
+                    observationId,
+                    observedAt);
+        }
+        recordIdentityMismatchEvidence(
+                connection,
+                request,
+                instance.definitionId(),
+                instance.appliedRevision(),
+                current.location(),
+                observedAt);
+        return result(
+                TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                "The mismatched physical identity was preserved as conflicting evidence and "
+                        + "fenced for staff review.");
     }
 
     private static TrackingObservationUseCase.Result recordPresent(
@@ -134,7 +198,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     "Conflicting state was preserved while the location became inaccessible.");
         }
         if (!request.location().equals(current.location())
-                && !sameDroppedEntity(request.location(), current.location())) {
+                && !samePhysicalEntity(request.location(), current.location())) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
@@ -168,7 +232,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 || LAST_CONFIRMED.equals(current.state())
                 || MISSING_UNRESOLVED.equals(current.state())
                 || current.location() == null
-                || sameDroppedEntity(request.location(), current.location())) {
+                || samePhysicalEntity(request.location(), current.location())) {
             return true;
         }
         LocationDescriptor previous = current.location();
@@ -274,7 +338,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             Connection connection,
             TrackingObservationUseCase.Request request) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT definition_id, applied_revision, lifecycle_state "
+                "SELECT definition_id, applied_revision, desired_revision, lifecycle_state "
                         + "FROM lore_instances WHERE instance_id = ?")) {
             statement.setString(1, request.identity().instanceId().value().toString());
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -282,34 +346,11 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                         ? new InstanceRow(
                                 resultSet.getString("definition_id"),
                                 resultSet.getLong("applied_revision"),
+                                resultSet.getLong("desired_revision"),
                                 resultSet.getString("lifecycle_state"))
                         : null;
             }
         }
-    }
-
-    private static TrackingObservationUseCase.Result validateInstance(
-            InstanceRow instance,
-            TrackingObservationUseCase.Request request) {
-        if (instance == null) {
-            return result(
-                    TrackingObservationUseCase.Status.UNKNOWN_INSTANCE,
-                    "The observed identity has no durable instance record.");
-        }
-        if (!instance.definitionId().equals(
-                        request.identity().definitionId().value().toString())
-                || instance.appliedRevision()
-                        != request.identity().appliedRevision().value()) {
-            return result(
-                    TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
-                    "The observed identity does not match the durable instance record.");
-        }
-        if (!ACTIVE.equals(instance.lifecycleState())) {
-            return result(
-                    TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
-                    "The durable instance is not active.");
-        }
-        return null;
     }
 
     private static CurrentRow findCurrent(
@@ -386,13 +427,29 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
             LocationDescriptor location,
             InstanceObservation.Confidence confidence,
             long observedAt) throws SQLException {
+        return insertObservation(
+                connection,
+                request,
+                request.identity().definitionId().value().toString(),
+                location,
+                confidence,
+                observedAt);
+    }
+
+    private static long insertObservation(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            String definitionId,
+            LocationDescriptor location,
+            InstanceObservation.Confidence confidence,
+            long observedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO instance_observations(instance_id, definition_id, location_type, "
                         + "location_key, container_path, confidence, source, observed_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, request.identity().instanceId().value().toString());
-            statement.setString(2, request.identity().definitionId().value().toString());
+            statement.setString(2, definitionId);
             statement.setString(3, location.type().name());
             statement.setString(4, location.locationKey());
             setNullableString(statement, 5, location.containerPath());
@@ -452,6 +509,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     private record InstanceRow(
             String definitionId,
             long appliedRevision,
+            long desiredRevision,
             String lifecycleState) {}
 
     private record CurrentRow(

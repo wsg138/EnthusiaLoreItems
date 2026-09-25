@@ -331,15 +331,16 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         private final Plugin plugin;
         private Method getInstanceMethod;
         private Method floodgatePlayerMethod;
+        private boolean initialized;
         private boolean available;
         private boolean failureLogged;
 
         private FloodgateDetector(Plugin plugin) {
             this.plugin = Objects.requireNonNull(plugin, "plugin");
-            initialize();
         }
 
         private void initialize() {
+            initialized = true;
             if (plugin.getServer().getPluginManager().getPlugin("floodgate") == null) {
                 return;
             }
@@ -354,6 +355,10 @@ public final class PaperDistributionRecipientBindingWorker implements Listener, 
         }
 
         private boolean isFloodgatePlayer(UUID playerId) {
+            requirePrimaryThread();
+            if (!initialized) {
+                initialize();
+            }
             if (!available) {
                 return false;
             }

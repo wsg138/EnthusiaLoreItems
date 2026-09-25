@@ -63,6 +63,10 @@ public final class BoundedDatabaseExecutor {
         return executor.getQueue().size();
     }
 
+    public boolean isTerminated() {
+        return executor.isTerminated();
+    }
+
     public boolean shutdown(Duration timeout) {
         Objects.requireNonNull(timeout, "timeout");
         if (timeout.isNegative()) {

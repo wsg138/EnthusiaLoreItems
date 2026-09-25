@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayDeque;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -66,6 +67,50 @@ class PaperDistributionCampaignCoordinatorTest {
         assertEquals(CampaignRecipientState.QUEUED_OFFLINE, preview.startRequest().recipients().get(2).state());
         assertEquals("*BedrockPlayer", preview.startRequest().recipients().get(1).originalValue());
         assertEquals(EXPLICIT_PLAYER, preview.startRequest().recipients().get(2).playerId());
+    }
+
+    @Test
+    void cachedIdentityResolutionUsesBoundedServerExecutorPasses() throws Exception {
+        int recipientCount = 300;
+        writeSource(namedRecipientsSource(recipientCount));
+        LoreDefinition definition = definition();
+        AtomicInteger lookups = new AtomicInteger();
+        ArrayDeque<Runnable> serverTasks = new ArrayDeque<>();
+        PaperDistributionCampaignCoordinator coordinator = new PaperDistributionCampaignCoordinator(
+                new PaperGroupFileCatalog(temporaryDirectory),
+                key -> CompletableFuture.completedFuture(
+                        key.equals(definition.key()) ? Optional.of(definition) : Optional.empty()),
+                request -> CompletableFuture.completedFuture(new DistributionCampaignStartResult(
+                        DistributionCampaignStartResult.Status.STARTED,
+                        request.campaign().campaignId())),
+                name -> {
+                    lookups.incrementAndGet();
+                    return Optional.empty();
+                },
+                serverTasks::addLast,
+                Runnable::run,
+                Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC),
+                () -> CAMPAIGN_ID);
+
+        CompletableFuture<Optional<DistributionCampaignPreview>> preview = coordinator.preview(
+                        "launch.yml",
+                        definition.key(),
+                        "PLAYER",
+                        "operator")
+                .toCompletableFuture();
+
+        assertFalse(preview.isDone());
+        assertEquals(1, serverTasks.size());
+        serverTasks.removeFirst().run();
+        assertTrue(lookups.get() > 0);
+        assertTrue(lookups.get() < recipientCount);
+        assertFalse(preview.isDone());
+        while (!serverTasks.isEmpty()) {
+            serverTasks.removeFirst().run();
+        }
+        assertEquals(recipientCount, lookups.get());
+        assertTrue(preview.isDone());
+        assertEquals(recipientCount, preview.join().orElseThrow().startRequest().recipients().size());
     }
 
     @Test
@@ -219,6 +264,14 @@ class PaperDistributionCampaignCoordinatorTest {
                   - '*BedrockPlayer'
                   - %s
                 """.formatted(EXPLICIT_PLAYER);
+    }
+
+    private static String namedRecipientsSource(int recipientCount) {
+        StringBuilder source = new StringBuilder("display-name: Launch group\nplayers:\n");
+        for (int index = 0; index < recipientCount; index++) {
+            source.append("  - Player").append(index).append('\n');
+        }
+        return source.toString();
     }
 
     private void writeSource(String content) throws IOException {

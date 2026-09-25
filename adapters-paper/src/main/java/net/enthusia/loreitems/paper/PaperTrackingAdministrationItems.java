@@ -2,12 +2,12 @@ package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.TrackingMetrics;
 import net.enthusia.loreitems.application.TrackingMetricsSource;
 import net.enthusia.loreitems.domain.InstanceObservation;
 import net.enthusia.loreitems.domain.LocationDescriptor;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -16,9 +16,10 @@ import org.bukkit.plugin.Plugin;
 
 /** Shared rendering primitives for the tracking administration inventories. */
 final class PaperTrackingAdministrationItems {
-    static final int PREVIOUS = 45;
+    static final int BACK = 45;
+    static final int PREVIOUS = 48;
     static final int STATUS = 49;
-    static final int NEXT = 53;
+    static final int NEXT = 50;
     private static final int FIRST_PAGE = 1;
 
     private PaperTrackingAdministrationItems() {}
@@ -34,7 +35,8 @@ final class PaperTrackingAdministrationItems {
                     item(
                             Material.ARROW,
                             "Previous page",
-                            List.of("Page " + (pageNumber - FIRST_PAGE))));
+                            PaperGuiStyle.Tone.NAVIGATION,
+                            List.of("Go to page " + (pageNumber - FIRST_PAGE) + '.')));
         }
         if (hasMore) {
             inventory.setItem(
@@ -42,23 +44,51 @@ final class PaperTrackingAdministrationItems {
                     item(
                             Material.ARROW,
                             "Next page",
-                            List.of("Page " + (pageNumber + FIRST_PAGE))));
+                            PaperGuiStyle.Tone.NAVIGATION,
+                            List.of("Go to page " + (pageNumber + FIRST_PAGE) + '.')));
         }
-        inventory.setItem(STATUS, item(Material.CLOCK, "Tracking status", statusLore));
+        inventory.setItem(
+                STATUS,
+                item(
+                        Material.CLOCK,
+                        "Tracking status",
+                        PaperGuiStyle.Tone.METADATA,
+                        statusLore));
+    }
+
+    static void decorateNested(
+            Inventory inventory,
+            int pageNumber,
+            boolean hasMore,
+            String backLabel,
+            List<String> backLore,
+            List<String> statusLore) {
+        inventory.setItem(
+                BACK,
+                item(
+                        Material.ARROW,
+                        backLabel,
+                        PaperGuiStyle.Tone.NAVIGATION,
+                        backLore));
+        decorate(inventory, pageNumber, hasMore, statusLore);
     }
 
     static ItemStack evidenceItem(ObservationChoice choice, DuplicateChoice duplicate) {
         List<String> lore = new ArrayList<>();
         lore.add(describe(choice.location()));
-        lore.add("Confidence: " + choice.confidence().name());
+        lore.add("Confidence: " + humanize(choice.confidence().name()));
         lore.add("Source: " + choice.source());
         if (selectable(choice, duplicate)) {
-            lore.add("Click to choose, then confirm.");
+            lore.add("");
+            lore.add("Click to select this location.");
+            lore.add("You will review it before anything changes.");
         }
-        Material material = choice.confidence() == InstanceObservation.Confidence.CONFLICTING
-                ? Material.REDSTONE
-                : Material.COMPASS;
-        return item(material, "Observation " + choice.observationId(), lore);
+        boolean conflicting =
+                choice.confidence() == InstanceObservation.Confidence.CONFLICTING;
+        Material material = conflicting ? Material.REDSTONE : Material.COMPASS;
+        PaperGuiStyle.Tone tone =
+                conflicting ? PaperGuiStyle.Tone.WARNING : PaperGuiStyle.Tone.INFO;
+        return item(material, "Observation " + choice.observationId(), tone, lore);
     }
 
     static List<String> trackingMetricsLore(Plugin plugin) {
@@ -79,10 +109,18 @@ final class PaperTrackingAdministrationItems {
     }
 
     static ItemStack item(Material material, String name, List<String> lore) {
+        return item(material, name, PaperGuiStyle.Tone.INFO, lore);
+    }
+
+    static ItemStack item(
+            Material material,
+            String name,
+            PaperGuiStyle.Tone tone,
+            List<String> lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(name));
-        meta.lore(lore.stream().map(Component::text).toList());
+        meta.displayName(PaperGuiStyle.name(name, tone));
+        meta.lore(lore.stream().map(PaperGuiStyle::lore).toList());
         if (!item.setItemMeta(meta)) {
             throw new IllegalStateException("Could not apply lore-item administration metadata");
         }
@@ -106,11 +144,21 @@ final class PaperTrackingAdministrationItems {
     }
 
     static String describe(LocationDescriptor location) {
-        return location.type().name() + ':' + location.locationKey()
-                + (location.containerPath() == null ? "" : ':' + location.containerPath());
+        StringBuilder description = new StringBuilder(humanize(location.type().name()))
+                .append(": ")
+                .append(location.locationKey());
+        if (location.containerPath() != null) {
+            description.append(" • ").append(location.containerPath());
+        }
+        return description.toString();
     }
 
     static String shortId(java.util.UUID id) {
         return id.toString().substring(0, 8);
+    }
+
+    private static String humanize(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT).replace('_', ' ');
+        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
     }
 }

@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   java-identity-core:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -94,8 +93,8 @@ jobs:
               await browse();await selectSword();write(`SOURCE_BEFORE_CREATE ${JSON.stringify(bot.heldItem)}`)
               await command('/loreitems create acc_core_live Core Acceptance',"Created lore definition 'acc_core_live' from the held item.");await waitSwords(1);write(`SOURCE_AFTER_CREATE ${JSON.stringify(bot.heldItem)}`)
               await browse();await command('/loreitems adopt acc_core_live',"Adopted the held item into lore definition 'acc_core_live'.");write(`SOURCE_AFTER_ADOPT ${JSON.stringify(bot.heldItem)}`)
-              await command('/loreitems give acc_core_live','Lore item queued. It will deliver when the player is online with inventory space.');await waitSwords(2)
-              await command('/loreitems give acc_core_live Wp05JavaTarget','Lore item queued. It will deliver when the player is online with inventory space.');fs.writeFileSync(`${root}/target-expect-online`,'ok\n');await waitFile(`${root}/target-online-ok`)
+              await command('/loreitems give acc_core_live','Lore item delivery accepted. It will deliver immediately when possible, otherwise remain queued until the player is online with inventory space.');await waitSwords(2)
+              await command('/loreitems give acc_core_live Wp05JavaTarget','Lore item delivery accepted. It will deliver immediately when possible, otherwise remain queued until the player is online with inventory space.');fs.writeFileSync(`${root}/target-expect-online`,'ok\n');await waitFile(`${root}/target-online-ok`)
               write('ADMIN_SWORDS_AFTER_SELF_GIVE 2');fs.writeFileSync(`${root}/admin-initial-ok`,'ok\n');await waitFile(`${root}/admin-exit`)
             }else if(role==='admin'&&mode==='recovery'){await browse();await waitSwords(2);write('ADMIN_RESTART_SWORDS 2')}
             fs.writeFileSync(done,'ok\n');bot.quit('acceptance complete')

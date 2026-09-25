@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   offline-backup-restore:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -35,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar
           R=/tmp/wp05-backup;mkdir -p "$R/server/plugins" "$R/evidence" "$R/bot"
           P="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";H="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)"
           cp "$P" "$R/server/plugins/EnthusiaLoreItems.jar";cp "$H" "$R/server/plugins/WP05AcceptanceHarness.jar";sha256sum "$P">"$R/evidence/plugin-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
@@ -108,14 +107,13 @@ jobs:
           retention-days: 30
 
   release-rollback:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
-      PRIOR_JAR_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0-rc.1/EnthusiaLoreItems.jar
-      PRIOR_JAR_SHA256: 3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8
+      PRIOR_JAR_URL: https://github.com/wsg138/EnthusiaLoreItems/releases/download/v1.0.0/EnthusiaLoreItems.jar
+      PRIOR_JAR_SHA256: 7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -132,8 +130,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :plugin:shadowJar -PreleaseVersion=1.0.0-rc.1
+          gradle --no-daemon :plugin:shadowJar
           R=/tmp/wp05-rollback;mkdir -p "$R/server/plugins" "$R/evidence";CURRENT="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*'|head -n1)";cp "$CURRENT" "$R/current.jar";sha256sum "$R/current.jar">"$R/evidence/current-jar-sha256.txt";printf '%s\n' "${{ github.event.pull_request.head.sha || github.sha }}">"$R/evidence/source-head.txt"
+          CURRENT_RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)";test -n "$CURRENT_RELEASE_VERSION";CURRENT_PLUGIN_VERSION="$(unzip -p "$R/current.jar" plugin.yml|sed -n 's/^version: //p')";test "$CURRENT_PLUGIN_VERSION" = "$CURRENT_RELEASE_VERSION";printf '%s\n' "$CURRENT_RELEASE_VERSION">"$R/evidence/current-release-version.txt"
           curl -fsSL "$PRIOR_JAR_URL" -o "$R/prior.jar";echo "$PRIOR_JAR_SHA256  $R/prior.jar"|sha256sum -c -;cd "$R/server";curl -fsSL "$PAPER_URL" -o paper.jar;echo "$PAPER_SHA256  paper.jar"|sha256sum -c -;printf 'eula=true\n'>eula.txt
           cat >server.properties <<'EOF'
           online-mode=false
@@ -159,7 +158,7 @@ jobs:
           db,start,end,baseline=sys.argv[1:]
           with sqlite3.connect(db) as c:
               i=c.execute('pragma integrity_check').fetchone()[0];f=[list(r) for r in c.execute('pragma foreign_key_check')];tables={r[0] for r in c.execute("select name from sqlite_master where type='table'")};name='schema_history' if 'schema_history' in tables else 'schema_version';versions=[list(r) for r in c.execute(f'select * from {name} order by 1')];assert i=='ok' and not f
-          print(json.dumps({'case':'ACC-OPS-003','result':'PASS','source_head':open('/tmp/wp05-rollback/evidence/source-head.txt').read().strip(),'prior_release':'v1.0.0-rc.1','prior_jar_sha256':'3c7b6aa74ee63a4e049c5e09f2bebffe78bf50ea88caaaa3d03b55e941f427c8','prior_stopped_db_sha256':baseline,'rollback_restored_compatible_full_directory_and_jar':True,'current_deployment_preserved_separately':True,'started_at':start,'finished_at':end,'schema_table':name,'schema_versions':versions,'integrity':i,'foreign_key_violations':f},indent=2))
+          print(json.dumps({'case':'ACC-OPS-003','result':'PASS','source_head':open('/tmp/wp05-rollback/evidence/source-head.txt').read().strip(),'prior_release':'v1.0.0','prior_jar_sha256':'7c862b0ae545d710a33267ad6e19a4ae26d97323e97f40707c1475c9f9ba7063','prior_stopped_db_sha256':baseline,'rollback_restored_compatible_full_directory_and_jar':True,'current_deployment_preserved_separately':True,'started_at':start,'finished_at':end,'schema_table':name,'schema_versions':versions,'integrity':i,'foreign_key_violations':f},indent=2))
           PY
       - name: Upload release rollback evidence
         if: always()

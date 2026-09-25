@@ -1,11 +1,11 @@
 package net.enthusia.loreitems.paper;
 
+import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.BACK;
 import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.NEXT;
 import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.PREVIOUS;
 import static net.enthusia.loreitems.paper.PaperTrackingAdministrationItems.selectable;
 
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -17,14 +17,12 @@ import java.util.logging.Level;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
-import net.enthusia.loreitems.domain.InstanceAnomaly;
-import net.enthusia.loreitems.domain.InstanceCurrentState;
-import net.enthusia.loreitems.domain.InstanceObservation;
 import net.enthusia.loreitems.domain.LoreDefinition;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstance;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -40,10 +38,9 @@ public final class PaperTrackingAdministrationGui implements Listener {
     private static final String ADMINISTRATION_UNAVAILABLE =
             "Lore-item administration is unavailable.";
     private static final int FIRST_PAGE = 1;
-    private static final int SIZE = 54;
     private static final int CONTENT = 45;
-    private static final int CONFIRM = 22;
-    private static final int CANCEL = 31;
+    private static final int CONFIRM = 15;
+    private static final int CANCEL = 11;
     private static final int MAX_QUERIES = 32;
 
     private final Plugin plugin;
@@ -60,7 +57,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
         this.pageSizeSupplier = Objects.requireNonNull(pageSizeSupplier, "pageSizeSupplier");
         this.templateEditor = Objects.requireNonNull(templateEditor, "templateEditor");
         this.renderer = new PaperTrackingAdministrationRenderer(plugin);
-        currentPageSize();
+        pageRequest(FIRST_PAGE);
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
@@ -82,21 +79,35 @@ public final class PaperTrackingAdministrationGui implements Listener {
         if (event.getClickedInventory() != event.getView().getTopInventory()) {
             return;
         }
-        Player player = authorizedClicker(event);
+        Player player = authorizedClicker(event, view);
         int slot = event.getRawSlot();
-        if (player == null || slot < 0 || slot >= SIZE) {
+        int topSize = event.getView().getTopInventory().getSize();
+        if (player == null || slot < 0 || slot >= topSize) {
+            return;
+        }
+        if (view.screen == PaperTrackingAdministrationView.Screen.INSTANCES
+                && slot < view.instanceIds.size()
+                && !event.isLeftClick()) {
             return;
         }
         dispatchClick(player, view, slot);
     }
 
-    private Player authorizedClicker(InventoryClickEvent event) {
+    private Player authorizedClicker(
+            InventoryClickEvent event, PaperTrackingAdministrationView view) {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return null;
         }
-        return player.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION)
-                ? player
-                : null;
+        return canUseScreen(player, view.screen) ? player : null;
+    }
+
+    static boolean canUseScreen(
+            CommandSender sender, PaperTrackingAdministrationView.Screen screen) {
+        Objects.requireNonNull(sender, "sender");
+        Objects.requireNonNull(screen, "screen");
+        return screen == PaperTrackingAdministrationView.Screen.DEFINITIONS
+                ? LoreItemsAdministrationCommandExecutor.canBrowse(sender)
+                : sender.hasPermission(LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION);
     }
 
     private void dispatchClick(
@@ -149,6 +160,23 @@ public final class PaperTrackingAdministrationGui implements Listener {
 
     void openInstances(
             UUID playerId, LoreDefinitionId definitionId, int pageNumber) {
+        int definitionPageNumber = FIRST_PAGE;
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player != null
+                && player.getOpenInventory().getTopInventory().getHolder()
+                        instanceof PaperTemplateEditorView view
+                && view.screen == PaperTemplateEditorView.Screen.MANAGEMENT
+                && view.definitionId().equals(definitionId)) {
+            definitionPageNumber = view.returnPage;
+        }
+        openInstances(playerId, definitionId, definitionPageNumber, pageNumber);
+    }
+
+    private void openInstances(
+            UUID playerId,
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
             messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
@@ -158,93 +186,95 @@ public final class PaperTrackingAdministrationGui implements Listener {
                 playerId,
                 "instance browser",
                 () -> useCase.listInstances(definitionId, pageRequest(pageNumber)),
-                page -> showInstances(playerId, definitionId, pageNumber, page));
+                page -> showInstances(
+                        playerId, definitionId, definitionPageNumber, pageNumber, page));
     }
 
     private void clickInstances(
             Player player, PaperTrackingAdministrationView view, int slot) {
-        if (slot == PREVIOUS) {
-            navigateBackFromInstances(player, view);
+        UUID playerId = player.getUniqueId();
+        if (slot == BACK) {
+            templateEditor.openManagement(
+                    playerId, view.definitionId, view.definitionPageNumber);
+        } else if (slot == PREVIOUS && view.pageNumber > FIRST_PAGE) {
+            openInstances(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.pageNumber - FIRST_PAGE);
         } else if (slot == NEXT && view.hasMore) {
-            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber + FIRST_PAGE);
+            openInstances(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.pageNumber + FIRST_PAGE);
         } else if (slot < view.instanceIds.size()) {
-            openEvidence(player.getUniqueId(), view.instanceIds.get(slot), FIRST_PAGE);
+            openEvidence(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.pageNumber,
+                    view.instanceIds.get(slot),
+                    FIRST_PAGE);
         }
     }
 
-    private void navigateBackFromInstances(
-            Player player, PaperTrackingAdministrationView view) {
-        if (view.pageNumber > FIRST_PAGE) {
-            openInstances(player.getUniqueId(), view.definitionId, view.pageNumber - FIRST_PAGE);
-        } else {
-            openDefinitionsMain(player.getUniqueId(), FIRST_PAGE);
-        }
-    }
-
-    private void openEvidence(UUID playerId, LoreInstanceId instanceId, int pageNumber) {
+    private void openEvidence(
+            UUID playerId,
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int instancePageNumber,
+            LoreInstanceId instanceId,
+            int pageNumber) {
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
             messagePlayer(playerId, ADMINISTRATION_UNAVAILABLE);
             return;
         }
-        if (!queryCapacity.tryAcquire()) {
-            messagePlayer(playerId, "Too many lore-item administration queries are active.");
-            return;
-        }
         PageRequest request = pageRequest(pageNumber);
-        try {
-            combineEvidenceQueries(playerId, instanceId, pageNumber, useCase, request);
-        } catch (RuntimeException exception) {
-            queryCapacity.release();
-            handleFailure(playerId, "instance evidence", exception);
-        }
-    }
-
-    private void combineEvidenceQueries(
-            UUID playerId,
-            LoreInstanceId instanceId,
-            int pageNumber,
-            LoreItemsAdministrationUseCase useCase,
-            PageRequest request) {
-        CompletionStage<Optional<InstanceCurrentState>> current = Objects.requireNonNull(
-                useCase.findCurrentState(instanceId), "current-state query stage");
-        CompletionStage<Page<InstanceObservation>> observations = Objects.requireNonNull(
-                useCase.listInstanceObservations(instanceId, request),
-                "observation query stage");
-        CompletionStage<Page<InstanceAnomaly>> anomalies = Objects.requireNonNull(
-                useCase.listInstanceAnomalies(instanceId, PageRequest.first(CONTENT)),
-                "anomaly query stage");
-        current.thenCombine(observations, StateEvidence::new)
-                .thenCombine(
-                        anomalies,
-                        (state, anomalyPage) -> new EvidenceData(
-                                state.current(), state.observations(), anomalyPage))
-                .whenComplete((data, failure) -> finishEvidenceQuery(
-                        playerId, instanceId, pageNumber, data, failure));
-    }
-
-    private void finishEvidenceQuery(
-            UUID playerId,
-            LoreInstanceId instanceId,
-            int pageNumber,
-            EvidenceData data,
-            Throwable failure) {
-        queryCapacity.release();
-        if (failure != null) {
-            handleFailure(playerId, "instance evidence", failure);
-        } else {
-            scheduleNextTick(() -> showEvidence(playerId, instanceId, pageNumber, data));
-        }
+        submit(
+                playerId,
+                "instance evidence",
+                () -> PaperTrackingEvidenceQuery.load(useCase, instanceId, request, CONTENT),
+                data -> showEvidence(
+                        playerId,
+                        definitionId,
+                        definitionPageNumber,
+                        instancePageNumber,
+                        instanceId,
+                        pageNumber,
+                        data));
     }
 
     private void clickEvidence(
             Player player, PaperTrackingAdministrationView view, int slot) {
-        if (slot == PREVIOUS) {
-            navigateBackFromEvidence(player, view);
+        UUID playerId = player.getUniqueId();
+        if (slot == BACK) {
+            openInstances(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.parentPageNumber);
+            return;
+        }
+        if (slot == PREVIOUS && view.pageNumber > FIRST_PAGE) {
+            openEvidence(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.parentPageNumber,
+                    view.instanceId,
+                    view.pageNumber - FIRST_PAGE);
             return;
         }
         if (slot == NEXT && view.hasMore) {
-            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber + FIRST_PAGE);
+            openEvidence(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.parentPageNumber,
+                    view.instanceId,
+                    view.pageNumber + FIRST_PAGE);
             return;
         }
         if (slot >= view.observations.size() || view.duplicate == null) {
@@ -253,27 +283,34 @@ public final class PaperTrackingAdministrationGui implements Listener {
         ObservationChoice selected = view.observations.get(slot);
         if (selectable(selected, view.duplicate)) {
             showConfirmation(
-                    player, view.instanceId, view.duplicate, selected, view.pageNumber);
-        }
-    }
-
-    private void navigateBackFromEvidence(
-            Player player, PaperTrackingAdministrationView view) {
-        if (view.pageNumber > FIRST_PAGE) {
-            openEvidence(player.getUniqueId(), view.instanceId, view.pageNumber - FIRST_PAGE);
-        } else {
-            openDefinitionsMain(player.getUniqueId(), FIRST_PAGE);
+                    player,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.parentPageNumber,
+                    view.instanceId,
+                    view.duplicate,
+                    selected,
+                    view.pageNumber);
         }
     }
 
     private void showConfirmation(
             Player player,
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             DuplicateChoice duplicate,
             ObservationChoice observation,
             int returnPage) {
         Inventory inventory = renderer.confirmationInventory(
-                instanceId, duplicate, observation, returnPage);
+                definitionId,
+                definitionPageNumber,
+                instancePageNumber,
+                instanceId,
+                duplicate,
+                observation,
+                returnPage);
         openLater(player.getUniqueId(), inventory);
     }
 
@@ -281,7 +318,13 @@ public final class PaperTrackingAdministrationGui implements Listener {
             Player player, PaperTrackingAdministrationView view, int slot) {
         UUID playerId = player.getUniqueId();
         if (slot == CANCEL) {
-            openEvidence(playerId, view.instanceId, view.pageNumber);
+            openEvidence(
+                    playerId,
+                    view.definitionId,
+                    view.definitionPageNumber,
+                    view.parentPageNumber,
+                    view.instanceId,
+                    view.pageNumber);
             return;
         }
         if (slot != CONFIRM) {
@@ -293,7 +336,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         LoreItemsAdministrationUseCase.DuplicateResolutionRequest request =
-                duplicateResolutionRequest(playerId, view);
+                PaperTrackingAdministrationRequests.duplicateResolution(playerId, view);
         if (request == null) {
             player.sendMessage("The selected duplicate evidence is no longer valid.");
             return;
@@ -305,27 +348,19 @@ public final class PaperTrackingAdministrationGui implements Listener {
                 () -> useCase.resolveDuplicate(request),
                 result -> {
                     messagePlayer(playerId, result.detail());
-                    openEvidence(playerId, view.instanceId, view.pageNumber);
+                    openEvidence(
+                            playerId,
+                            view.definitionId,
+                            view.definitionPageNumber,
+                            view.parentPageNumber,
+                            view.instanceId,
+                            view.pageNumber);
                 });
-    }
-
-    private LoreItemsAdministrationUseCase.DuplicateResolutionRequest
-            duplicateResolutionRequest(
-                    UUID playerId, PaperTrackingAdministrationView view) {
-        try {
-            return new LoreItemsAdministrationUseCase.DuplicateResolutionRequest(
-                    view.duplicate.anomalyId(),
-                    view.duplicate.stateRevision(),
-                    view.selectedObservation.observationId(),
-                    "player:" + playerId);
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
     }
 
     private void showDefinitions(
             UUID playerId, int pageNumber, Page<LoreDefinition> page) {
-        Player player = authorizedPlayer(playerId);
+        Player player = authorizedDefinitionPlayer(playerId);
         if (player != null) {
             renderer.showDefinitions(player, pageNumber, page);
         }
@@ -334,22 +369,34 @@ public final class PaperTrackingAdministrationGui implements Listener {
     private void showInstances(
             UUID playerId,
             LoreDefinitionId definitionId,
+            int definitionPageNumber,
             int pageNumber,
             Page<LoreInstance> page) {
         Player player = authorizedPlayer(playerId);
         if (player != null) {
-            renderer.showInstances(player, definitionId, pageNumber, page);
+            renderer.showInstances(
+                    player, definitionId, definitionPageNumber, pageNumber, page);
         }
     }
 
     private void showEvidence(
             UUID playerId,
+            LoreDefinitionId definitionId,
+            int definitionPageNumber,
+            int instancePageNumber,
             LoreInstanceId instanceId,
             int pageNumber,
             EvidenceData data) {
         Player player = authorizedPlayer(playerId);
         if (player != null && data != null) {
-            renderer.showEvidence(player, instanceId, pageNumber, data);
+            renderer.showEvidence(
+                    player,
+                    definitionId,
+                    definitionPageNumber,
+                    instancePageNumber,
+                    instanceId,
+                    pageNumber,
+                    data);
         }
     }
 
@@ -453,6 +500,14 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
     }
 
+    private Player authorizedDefinitionPlayer(UUID playerId) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        return player != null
+                        && canUseScreen(player, PaperTrackingAdministrationView.Screen.DEFINITIONS)
+                ? player
+                : null;
+    }
+
     private Player authorizedPlayer(UUID playerId) {
         Player player = plugin.getServer().getPlayer(playerId);
         return player != null
@@ -463,20 +518,8 @@ public final class PaperTrackingAdministrationGui implements Listener {
     }
 
     private PageRequest pageRequest(int pageNumber) {
-        if (pageNumber < FIRST_PAGE) {
-            throw new IllegalArgumentException("pageNumber must be positive");
-        }
-        int pageSize = currentPageSize();
-        return new PageRequest(
-                Math.multiplyExact(pageNumber - FIRST_PAGE, pageSize), pageSize);
-    }
-
-    private int currentPageSize() {
-        int pageSize = Math.min(CONTENT, pageSizeSupplier.getAsInt());
-        if (pageSize < FIRST_PAGE) {
-            throw new IllegalStateException("Configured GUI page size must be positive");
-        }
-        return pageSize;
+        return PaperTrackingAdministrationRequests.page(
+                pageNumber, pageSizeSupplier.getAsInt(), CONTENT);
     }
 
     private static Throwable unwrap(Throwable throwable) {

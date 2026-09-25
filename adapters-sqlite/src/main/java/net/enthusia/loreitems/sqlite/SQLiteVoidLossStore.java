@@ -172,6 +172,8 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
         markInstanceVoidDestroyed(connection, loss, completedAt);
         long observationId = insertObservation(connection, loss, completedAt);
         updateCurrentState(connection, loss, observationId, completedAt);
+        SQLiteVoidDestructiveReconciliation.completePendingTarget(
+                connection, loss, completedAt);
         requireTransition(connection, loss, "APPLIED", "VERIFIED", completedAt, false);
         requireTransition(connection, loss, "VERIFIED", "COMPLETED", completedAt, true);
         appendAudit(connection, loss, COMPLETED_EVENT, completedDetail(loss), completedAt);
@@ -210,6 +212,10 @@ public final class SQLiteVoidLossStore implements VoidLossStore {
             if (statement.executeUpdate() != SINGLE_ROW) {
                 return false;
             }
+        }
+        if ("REVIEW_REQUIRED".equals(targetState)) {
+            SQLiteVoidDestructiveReconciliation.reviewPendingTarget(
+                    connection, loss, reason, occurredAt);
         }
         appendAudit(connection, loss, eventType, reasonDetail(loss, reason), occurredAt);
         return true;

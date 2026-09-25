@@ -276,6 +276,41 @@ class PaperTemplateEditorManagerTest {
     }
 
     @Test
+    void revokedBrowsePermissionWhileManagementQueryIsPendingPreventsRendering() {
+        server.getServicesManager().unregister(TemplateManagementUseCase.class, useCase);
+        CompletableFuture<Optional<TemplateManagementSnapshot>> pending = new CompletableFuture<>();
+        TemplateManagementUseCase delayedUseCase = new TemplateManagementUseCase() {
+            @Override
+            public CompletionStage<Optional<TemplateManagementSnapshot>> findSnapshot(
+                    LoreDefinitionId definitionId) {
+                return pending;
+            }
+
+            @Override
+            public CompletionStage<TemplateRevisionStartResult> confirm(
+                    TemplateRevisionRolloutRequest request) {
+                return CompletableFuture.failedFuture(
+                        new AssertionError("confirmation must not run"));
+            }
+        };
+        server.getServicesManager().register(
+                TemplateManagementUseCase.class,
+                delayedUseCase,
+                plugin,
+                ServicePriority.Normal);
+
+        manager.openManagement(player.getUniqueId(), snapshot.definition().id(), 1);
+        auditPermission.setPermission(
+                LoreItemsAdministrationCommandExecutor.AUDIT_PERMISSION, false);
+        editPermission.setPermission(PaperTemplateEditorManager.EDIT_PERMISSION, false);
+        pending.complete(Optional.of(snapshot));
+
+        var topInventory = player.getOpenInventory().getTopInventory();
+        assertFalse(topInventory != null
+                && topInventory.getHolder() instanceof PaperTemplateEditorView);
+    }
+
+    @Test
     void timedOutManagementQueryReleasesItsPermit() throws InterruptedException {
         server.getServicesManager().unregister(TemplateManagementUseCase.class, useCase);
         AtomicInteger calls = new AtomicInteger();

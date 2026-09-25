@@ -39,6 +39,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
     private static final String ANOMALIES_SUBCOMMAND = "anomalies";
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
+    private static final String CONFIGURATION_RELOAD_REASON = "configuration reload";
     private static final String USAGE = "Usage: /loreitems browse | "
             + "/loreitems anomalies [page] | "
             + "/loreitems audit <instance-uuid> [page] | /loreitems recovery [page]";
@@ -104,6 +105,10 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
         return destructiveExecutor;
     }
 
+    boolean executeEditorCommand(CommandSender sender, String[] arguments) {
+        return LoreItemsEditorCommandSupport.execute(sender, arguments, templateEditor);
+    }
+
     @Override
     public boolean onCommand(
             CommandSender sender,
@@ -111,8 +116,7 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             String label,
             String[] arguments) {
         Objects.requireNonNull(sender, "sender");
-        Objects.requireNonNull(command, "command");
-        Objects.requireNonNull(label, "label");
+        Objects.requireNonNull(command, "command for /" + label);
         Objects.requireNonNull(arguments, "arguments");
         String subcommand = parseSubcommand(sender, arguments);
         if (subcommand == null) {
@@ -517,6 +521,12 @@ public final class LoreItemsAdministrationCommandExecutor implements CommandExec
             boolean distributionAvailable) {}
 
     public void closeEditorSessions(String reason) {
+        Objects.requireNonNull(reason, "reason");
+        if (CONFIGURATION_RELOAD_REASON.equals(reason)) {
+            // The only supported hot reload is a live-read policy toggle. Reload attempts must not
+            // discard unrelated operator drafts or confirmations, especially when validation fails.
+            return;
+        }
         destructiveExecutor.clearConfirmations();
         templateEditor.closeSessions(reason);
     }

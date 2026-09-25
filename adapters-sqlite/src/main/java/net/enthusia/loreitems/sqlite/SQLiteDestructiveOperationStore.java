@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.ControlRequest;
 import net.enthusia.loreitems.application.DestructiveAdministrationUseCase.ControlResult;
@@ -21,6 +22,7 @@ import net.enthusia.loreitems.application.DestructiveOperationStore;
 import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Observation;
 import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.PrepareResult;
 import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.PreparedRemoval;
+import net.enthusia.loreitems.application.DestructiveRemovalExecutionUseCase.Status;
 import net.enthusia.loreitems.application.Page;
 import net.enthusia.loreitems.application.PageRequest;
 import net.enthusia.loreitems.domain.DestructiveEffectState;
@@ -28,11 +30,13 @@ import net.enthusia.loreitems.domain.DestructiveEffectState;
 public final class SQLiteDestructiveOperationStore implements DestructiveOperationStore {
     private final SQLiteDestructiveAdministrationStore administration;
     private final SQLiteDestructiveExecutionStore execution;
+    private final SQLiteAbortedDeleteRecovery abortedDeleteRecovery;
 
     public SQLiteDestructiveOperationStore(SQLiteStorageRuntime storage) {
         Objects.requireNonNull(storage, "storage");
         this.administration = new SQLiteDestructiveAdministrationStore(storage);
         this.execution = new SQLiteDestructiveExecutionStore(storage);
+        this.abortedDeleteRecovery = new SQLiteAbortedDeleteRecovery(storage);
     }
 
     @Override
@@ -88,7 +92,23 @@ public final class SQLiteDestructiveOperationStore implements DestructiveOperati
             String claimToken,
             Instant now,
             Duration lease) {
-        return execution.prepareRemoval(observation, claimToken, now, lease);
+        return execution.prepareRemoval(observation, claimToken, now, lease)
+                .thenCompose(result -> recoverAbortedDeleteIfNeeded(
+                        result, observation, claimToken, now, lease));
+    }
+
+    private CompletionStage<PrepareResult> recoverAbortedDeleteIfNeeded(
+            PrepareResult result,
+            Observation observation,
+            String claimToken,
+            Instant now,
+            Duration lease) {
+        if (result.status() != Status.NO_PENDING_WORK) {
+            return CompletableFuture.completedFuture(result);
+        }
+        return abortedDeleteRecovery.reactivate(observation, now)
+                .thenCompose(ignored -> execution.prepareRemoval(
+                        observation, claimToken, now, lease));
     }
 
     @Override

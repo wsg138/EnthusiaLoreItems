@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   anomaly-contract:
-    if: github.event.pull_request.number == 18
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -90,13 +89,34 @@ jobs:
             console.log(message)
           }
           const componentText = value => {
-            if (value == null) return ''
-            if (typeof value === 'string') return value
-            if (Array.isArray(value)) return value.map(componentText).join('')
-            if (typeof value.text === 'string') return value.text + (Array.isArray(value.extra) ? value.extra.map(componentText).join('') : '')
-            if (typeof value.value === 'string') return value.value
-            if (Array.isArray(value.extra)) return value.extra.map(componentText).join('')
-            try { return JSON.stringify(value) } catch { return String(value) }
+            const seen = new Set()
+            const read = current => {
+              if (current == null) return ''
+              if (typeof current === 'string' || typeof current === 'number' || typeof current === 'boolean') return String(current)
+              if (Array.isArray(current)) return current.map(read).join('')
+              if (typeof current !== 'object' || seen.has(current)) return ''
+              seen.add(current)
+              try {
+                if (Object.prototype.hasOwnProperty.call(current, 'value') && (current.type || Object.keys(current).length <= 2)) {
+                  const unwrapped = read(current.value)
+                  if (unwrapped) return unwrapped
+                }
+                const parts = []
+                if (Object.prototype.hasOwnProperty.call(current, 'text')) parts.push(read(current.text))
+                for (const key of ['extra', 'with', 'children', 'siblings', 'content']) {
+                  if (Object.prototype.hasOwnProperty.call(current, key)) parts.push(read(current[key]))
+                }
+                if (parts.some(Boolean)) return parts.join('')
+                for (const [key, child] of Object.entries(current)) {
+                  if (['type', 'color', 'bold', 'italic', 'underlined', 'strikethrough', 'obfuscated', 'insertion', 'font'].includes(key)) continue
+                  parts.push(read(child))
+                }
+                return parts.join('')
+              } finally {
+                seen.delete(current)
+              }
+            }
+            return read(value)
           }
           const waitFile = async name => {
             for (let i = 0; i < 3600; i++) {
@@ -123,7 +143,10 @@ jobs:
             await waitWindow('Lore definitions')
             await click(0)
             await waitWindow('Template management')
-            await click(33)
+            const browseInstances = bot.currentWindow.slots.map((item, slot) => ({ slot, text: item ? [item.customName, item.displayName, item.components, item.nbt].map(componentText).join(' ') : '' })).find(entry => entry.text.toLowerCase().replace(/§./g, '').trim().startsWith('browse instances'))
+            if (!browseInstances) throw new Error('Browse instances action was not rendered')
+            log(`BROWSE_INSTANCES_ACTION slot=${browseInstances.slot}`)
+            await click(browseInstances.slot)
             await waitWindow('Lore instances')
             await click(0)
             await waitWindow('Lore location evidence')
@@ -134,7 +157,10 @@ jobs:
             await click(conflict.slot)
             await waitWindow('Confirm lore location')
             log(`DUPLICATE_CONFIRM slot=${conflict.slot}`)
-            await click(22)
+            const confirm = bot.currentWindow.slots.map((item, slot) => ({ slot, name: item && item.name })).find(entry => entry.name === 'lime_concrete')
+            if (!confirm) throw new Error('confirmation action was not rendered')
+            log(`DUPLICATE_CONFIRM_ACTION slot=${confirm.slot}`)
+            await click(confirm.slot)
             await waitWindow('Lore location evidence')
             log('DUPLICATE_RESOLUTION_GUI_COMPLETED')
           }

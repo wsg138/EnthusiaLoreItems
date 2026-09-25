@@ -117,6 +117,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             PrepareHeldItemAdoptionRequest request,
             PrepareHeldItemAdoptionResult result,
             Throwable throwable) {
+        if (releaseIfLifecycleChanged(useCase, request.playerId())) {
+            return;
+        }
         if (throwable != null) {
             release(request.playerId());
             logFailure("Held-item adoption preparation failed.", throwable);
@@ -176,6 +179,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
     private void applyPreparedAdoption(
             AdoptHeldItemUseCase useCase,
             PreparedHeldItemAdoption adoption) {
+        if (releaseIfLifecycleChanged(useCase, adoption.playerId())) {
+            return;
+        }
         Player player = plugin.getServer().getPlayer(adoption.playerId());
         if (player == null) {
             requireReview(
@@ -201,6 +207,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             AdoptHeldItemUseCase useCase,
             PreparedHeldItemAdoption adoption,
             String afterFingerprint) {
+        if (releaseIfLifecycleChanged(useCase, adoption.playerId())) {
+            return;
+        }
         CompletionStage<Boolean> completion;
         try {
             completion = Objects.requireNonNull(
@@ -215,6 +224,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             return;
         }
         completion.whenComplete((completed, throwable) -> {
+            if (releaseIfLifecycleChanged(useCase, adoption.playerId())) {
+                return;
+            }
             if (throwable != null) {
                 requireReview(
                         useCase,
@@ -243,6 +255,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
             PreparedHeldItemAdoption adoption,
             String reason,
             Throwable precedingFailure) {
+        if (releaseIfLifecycleChanged(useCase, adoption.playerId())) {
+            return;
+        }
         if (precedingFailure != null) {
             logFailure("Held-item adoption entered review after an operational failure.",
                     precedingFailure);
@@ -253,6 +268,9 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
                     "adoption review stage");
             review.whenComplete((reviewed, throwable) -> {
                 release(adoption.playerId());
+                if (releaseIfLifecycleChanged(useCase, adoption.playerId())) {
+                    return;
+                }
                 if (throwable != null) {
                     logFailure("Could not persist held-item adoption review state.", throwable);
                     notifyPlayer(adoption.playerId(),
@@ -277,6 +295,31 @@ public final class AdoptHeldItemCommandExecutor implements CommandExecutor {
                     "Could not submit held-item adoption review persistence.",
                     exception);
         }
+    }
+
+    private boolean releaseIfLifecycleChanged(
+            AdoptHeldItemUseCase expectedUseCase,
+            UUID playerId) {
+        AdoptHeldItemUseCase currentUseCase;
+        try {
+            currentUseCase = useCaseSupplier.get();
+        } catch (RuntimeException exception) {
+            release(playerId);
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Could not verify the active held-item adoption lifecycle; "
+                            + "the stale callback was discarded.",
+                    exception);
+            return true;
+        }
+        if (currentUseCase == expectedUseCase) {
+            return false;
+        }
+        release(playerId);
+        plugin.getLogger().fine(
+                "Discarded a held-item adoption callback from a replaced runtime; "
+                        + "durable recovery owns any prepared mutation.");
+        return true;
     }
 
     private void notifyPlayer(UUID playerId, String message) {

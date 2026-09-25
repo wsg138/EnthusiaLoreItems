@@ -3,12 +3,10 @@ package net.enthusia.loreitems.paper;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 import java.util.logging.Level;
-import net.enthusia.loreitems.application.EncodedItemTemplate;
 import net.enthusia.loreitems.application.TemplateEditorDraft;
 import net.enthusia.loreitems.application.TemplateManagementSnapshot;
 import net.enthusia.loreitems.application.TemplateManagementUseCase;
@@ -70,7 +68,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         this.managementLoader = new PaperTemplateManagementLoader(
                 plugin, renderer, templateCodec, this::handleFailure, this::runMain);
         this.events = new PaperTemplateEditorEvents(this);
-        requireBatchLimit();
+        PaperTemplateEditorSupport.requireBatchLimit(batchLimitSupplier);
         plugin.getServer().getPluginManager().registerEvents(events, plugin);
     }
 
@@ -105,11 +103,36 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     void handleQuit(UUID playerId) {
-        PaperTemplateEditorSession session = sessions.remove(playerId);
+        PaperTemplateEditorSession session = sessions.get(playerId);
+        if (session != null && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT) {
+            pendingChatSessions.remove(playerId);
+            resetTimeout(session);
+            return;
+        }
+        session = sessions.remove(playerId);
         if (session != null) {
             pendingChatSessions.remove(session.playerId);
             session.close();
         }
+    }
+
+    void cancelOwnDraft(Player player) {
+        Objects.requireNonNull(player, "player");
+        if (!player.hasPermission(EDIT_PERMISSION)) {
+            player.sendMessage("You do not have permission to edit lore-item templates.");
+            return;
+        }
+        PaperTemplateEditorSession session = sessions.get(player.getUniqueId());
+        if (session == null) {
+            player.sendMessage("You do not have an active template draft.");
+            return;
+        }
+        if (session.state == PaperTemplateEditorSession.State.CONFIRMING) {
+            player.sendMessage(
+                    "Template confirmation is already processing and cannot be cancelled; reopen management to check durable status.");
+            return;
+        }
+        cancelSession(player, session, "Template draft cancelled; no revision was created.", false);
     }
 
     void closeSessions(String reason) {
@@ -175,7 +198,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             return;
         }
         if (sessions.containsKey(player.getUniqueId())) {
-            player.sendMessage("You already have an active template draft; cancel it first.");
+            player.sendMessage(
+                    "You already have an active template draft. Use /loreitems editor cancel to discard it safely before starting another.");
             return;
         }
         if (sessions.size() >= MAX_SESSIONS) {
@@ -184,7 +208,9 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         }
         try {
             ItemStack before = templateCodec.decode(view.snapshot.currentTemplate());
-            ItemStack draft = replaceHeld ? normalizedHeld(player) : before.clone();
+            ItemStack draft = replaceHeld
+                    ? PaperTemplateEditorSupport.normalizedHeld(templateCodec, player)
+                    : before.clone();
             PaperTemplateEditorSession session = new PaperTemplateEditorSession(
                     player.getUniqueId(), view.snapshot, before, draft, view.returnPage);
             sessions.put(player.getUniqueId(), session);
@@ -200,15 +226,6 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         } catch (RuntimeException exception) {
             handleFailure(player.getUniqueId(), "begin template draft", exception);
         }
-    }
-
-    private ItemStack normalizedHeld(Player player) {
-        ItemStack held = player.getInventory().getItemInMainHand();
-        if (held.getType().isAir()) {
-            throw new IllegalArgumentException("Hold a non-air item to replace the template.");
-        }
-        EncodedItemTemplate encoded = templateCodec.encode(held.clone());
-        return templateCodec.decode(encoded);
     }
 
     private void clickEditor(Player player, PaperTemplateEditorView view, int slot) {
@@ -255,7 +272,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     void receiveChat(UUID playerId, UUID sessionId, String message) {
         PaperTemplateEditorSession session = sessions.get(playerId);
         Player player = Bukkit.getPlayer(playerId);
-        if (!isCurrentChatSession(session, player, sessionId)) {
+        if (!PaperTemplateEditorSupport.isCurrentChatSession(session, player, sessionId)) {
             pendingChatSessions.remove(playerId, sessionId);
             return;
         }
@@ -264,14 +281,6 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             return;
         }
         processChatMessage(player, session, message.strip());
-    }
-
-    private static boolean isCurrentChatSession(
-            PaperTemplateEditorSession session, Player player, UUID sessionId) {
-        return session != null
-                && player != null
-                && session.sessionId.equals(sessionId)
-                && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT;
     }
 
     private void processChatMessage(
@@ -349,7 +358,7 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
                     session.snapshot.definition().currentRevision(),
                     templateCodec.encode(session.before),
                     player.getUniqueId()).withTemplate(templateCodec.encode(session.draft));
-            request = draft.confirm(requireBatchLimit());
+            request = draft.confirm(PaperTemplateEditorSupport.requireBatchLimit(batchLimitSupplier));
         } catch (IllegalArgumentException exception) {
             player.sendMessage("Confirmation rejected: " + exception.getMessage());
             return;
@@ -476,8 +485,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
     }
 
     PaperTemplateEditorSession.State sessionState(UUID playerId) {
-        PaperTemplateEditorSession session = sessions.get(
-                Objects.requireNonNull(playerId, "playerId"));
+        PaperTemplateEditorSession session =
+                sessions.get(Objects.requireNonNull(playerId, "playerId"));
         return session == null ? null : session.state;
     }
 
@@ -485,16 +494,8 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         return plugin.getServer().getServicesManager().load(TemplateManagementUseCase.class);
     }
 
-    private int requireBatchLimit() {
-        int value = batchLimitSupplier.getAsInt();
-        if (value < 1 || value > 100) {
-            throw new IllegalArgumentException("Template rollout batch limit must be 1-100");
-        }
-        return value;
-    }
-
     private void handleFailure(UUID playerId, String operation, Throwable throwable) {
-        Throwable failure = unwrap(throwable);
+        Throwable failure = PaperTemplateEditorSupport.unwrap(throwable);
         plugin.getLogger().log(Level.SEVERE, "Could not " + operation + '.', failure);
         message(playerId, "Could not " + operation + "; no unconfirmed edit was persisted.");
     }
@@ -519,12 +520,6 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
             plugin.getLogger().log(
                     Level.FINE, "Could not schedule template-editor work during shutdown.", exception);
         }
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        return throwable instanceof CompletionException exception && exception.getCause() != null
-                ? exception.getCause()
-                : throwable;
     }
 
     @Override

@@ -4,20 +4,27 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.hanging.HangingPlaceEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.BundleMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
 // Scan maps are method-local and confined to the Paper thread; concurrent maps add no safety.
@@ -25,6 +32,8 @@ import org.bukkit.plugin.Plugin;
 final class PaperIdentityObservationScanner implements AutoCloseable {
     private static final int MAX_CONFLICT_PATH_LENGTH =
             LocationDescriptor.MAX_CONTAINER_PATH_LENGTH;
+    private static final int MAX_NESTING_DEPTH = 8;
+    private static final int MAX_NESTED_ITEMS_PER_SCAN = 256;
     private static final int NO_SKIPPED_SLOT = -1;
     private static final String SLOT_PREFIX = "slot:";
 
@@ -36,6 +45,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
 
     void scanPlayerInventory(Player player, String source) {
         Map<UUID, ObservedCopy> firstCopies = new HashMap<>();
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -45,13 +55,15 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             ObservedCopy copy = observe(
                     item,
                     playerLocation(player, SLOT_PREFIX + slot),
-                    source);
+                    source,
+                    nestedLimit);
             recordIfDuplicate(firstCopies, copy, source);
         }
     }
 
     void scanStorageInventory(Inventory inventory, Player player, String source) {
         Map<UUID, ObservedCopy> firstCopies = new HashMap<>();
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -62,18 +74,117 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             if (location == null) {
                 continue;
             }
-            ObservedCopy copy = observe(item, location, source);
+            ObservedCopy copy = observe(item, location, source, nestedLimit);
             recordIfDuplicate(firstCopies, copy, source);
             compareWithInventory(player, copy, source);
         }
     }
 
     ObservedCopy observe(ItemStack item, LocationDescriptor location, String source) {
+        return observe(
+                item,
+                location,
+                source,
+                new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN));
+    }
+
+    private ObservedCopy observe(
+            ItemStack item,
+            LocationDescriptor location,
+            String source,
+            PaperScanLimit nestedLimit) {
         ItemIdentityReadResult result = anomalyReporter.inspect(item, location, source);
+        inspectNestedAnomalies(item, location, source, 0, nestedLimit);
         if (result instanceof ItemIdentityReadResult.Tracked tracked) {
             return new ObservedCopy(tracked.identity(), location);
         }
         return null;
+    }
+
+    private void inspectNestedAnomalies(
+            ItemStack item,
+            LocationDescriptor parent,
+            String source,
+            int depth,
+            PaperScanLimit limit) {
+        if (depth >= MAX_NESTING_DEPTH || item == null || item.getType().isAir()) {
+            return;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockMeta) {
+            BlockState state = blockMeta.getBlockState();
+            if (state instanceof ShulkerBox shulker) {
+                inspectNestedArray(
+                        shulker.getInventory().getContents(),
+                        parent,
+                        "shulker:",
+                        source,
+                        depth,
+                        limit);
+            }
+        }
+        if (meta instanceof BundleMeta bundle) {
+            inspectNestedList(
+                    bundle.getItems(),
+                    parent,
+                    "bundle:",
+                    source,
+                    depth,
+                    limit);
+        }
+    }
+
+    private void inspectNestedArray(
+            ItemStack[] contents,
+            LocationDescriptor parent,
+            String segment,
+            String source,
+            int depth,
+            PaperScanLimit limit) {
+        if (contents == null) {
+            return;
+        }
+        for (int index = 0; index < contents.length; index++) {
+            inspectNestedItem(contents[index], parent, segment + index, source, depth, limit);
+        }
+    }
+
+    private void inspectNestedList(
+            List<ItemStack> contents,
+            LocationDescriptor parent,
+            String segment,
+            String source,
+            int depth,
+            PaperScanLimit limit) {
+        for (int index = 0; index < contents.size(); index++) {
+            inspectNestedItem(contents.get(index), parent, segment + index, source, depth, limit);
+        }
+    }
+
+    private void inspectNestedItem(
+            ItemStack nested,
+            LocationDescriptor parent,
+            String segment,
+            String source,
+            int depth,
+            PaperScanLimit limit) {
+        if (nested == null || nested.getType().isAir() || !limit.tryConsume()) {
+            return;
+        }
+        LocationDescriptor location = nestedLocation(parent, segment);
+        anomalyReporter.inspect(nested, location, source);
+        inspectNestedAnomalies(nested, location, source, depth + 1, limit);
+    }
+
+    private static LocationDescriptor nestedLocation(
+            LocationDescriptor parent,
+            String segment) {
+        String parentPath = parent.containerPath() == null ? "root" : parent.containerPath();
+        return new LocationDescriptor(
+                LocationDescriptor.Type.NESTED_CONTAINER,
+                PaperTrackedItemCollector.nestedLocationKey(
+                        parent.type(), parent.locationKey()),
+                parentPath + '/' + segment);
     }
 
     void compareWithInventory(Player player, ObservedCopy external, String source) {
@@ -88,6 +199,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
         if (external == null) {
             return;
         }
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             if (slot == skippedSlot) {
@@ -100,7 +212,8 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             ObservedCopy inventoryCopy = observe(
                     item,
                     playerLocation(player, SLOT_PREFIX + slot),
-                    source);
+                    source,
+                    nestedLimit);
             if (sameIdentity(inventoryCopy, external)) {
                 recordDuplicate(external, inventoryCopy, source);
             }
@@ -111,6 +224,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
         if (external == null) {
             return;
         }
+        PaperScanLimit nestedLimit = new PaperScanLimit(MAX_NESTED_ITEMS_PER_SCAN);
         ItemStack[] contents = inventory.getContents();
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack item = contents[slot];
@@ -121,7 +235,7 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
             if (location == null) {
                 continue;
             }
-            ObservedCopy inventoryCopy = observe(item, location, source);
+            ObservedCopy inventoryCopy = observe(item, location, source, nestedLimit);
             if (sameIdentity(inventoryCopy, external)) {
                 recordDuplicate(external, inventoryCopy, source);
             }
@@ -153,7 +267,10 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
     static LocationDescriptor inventoryLocation(Inventory inventory, String path) {
         InventoryHolder holder = inventory.getHolder();
         if (holder instanceof Player player) {
-            return playerLocation(player, path);
+            LocationDescriptor.Type type = inventory.getType() == InventoryType.ENDER_CHEST
+                    ? LocationDescriptor.Type.PLAYER_ENDER_CHEST
+                    : LocationDescriptor.Type.PLAYER_INVENTORY;
+            return new LocationDescriptor(type, "player:" + player.getUniqueId(), path);
         }
         Location location = inventory.getLocation();
         if (location != null && location.getWorld() != null) {
@@ -273,6 +390,10 @@ final class PaperIdentityObservationScanner implements AutoCloseable {
 
     private static String truncate(String value, int maxLength) {
         return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
+    CompletionStage<Void> quiescence() {
+        return anomalyReporter.quiescence();
     }
 
     @Override

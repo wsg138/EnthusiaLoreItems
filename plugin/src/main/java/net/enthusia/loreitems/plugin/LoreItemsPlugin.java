@@ -1,27 +1,21 @@
 package net.enthusia.loreitems.plugin;
 
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import net.enthusia.loreitems.api.v1.LoreDeliveryResult;
-import net.enthusia.loreitems.api.v1.LoreDeliveryStatus;
 import net.enthusia.loreitems.api.v1.LoreItemsServiceV1;
 import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.AtomicConfiguration;
-import net.enthusia.loreitems.application.CreateDefinitionResult;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
 import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
@@ -29,23 +23,10 @@ import net.enthusia.loreitems.application.FoundationConfiguration;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemsAdministrationUseCase;
 import net.enthusia.loreitems.application.MetricsPort;
-import net.enthusia.loreitems.application.PersistingAdoptHeldItemUseCase;
-import net.enthusia.loreitems.application.PersistingCreateDefinitionUseCase;
-import net.enthusia.loreitems.application.PersistingDirectDeliveryExecutionUseCase;
-import net.enthusia.loreitems.application.PersistingDisplayItemObservationUseCase;
-import net.enthusia.loreitems.application.PersistingExternalDeliveryUseCase;
-import net.enthusia.loreitems.application.PersistingItemAnomalyObservationUseCase;
-import net.enthusia.loreitems.application.PersistingLoreItemsAdministrationUseCase;
-import net.enthusia.loreitems.application.PersistingTemplateManagementUseCase;
-import net.enthusia.loreitems.application.PersistingTemplateRevisionRolloutUseCase;
-import net.enthusia.loreitems.application.PersistingVoidLossUseCase;
-import net.enthusia.loreitems.application.PrepareHeldItemAdoptionRequest;
-import net.enthusia.loreitems.application.PrepareHeldItemAdoptionResult;
-import net.enthusia.loreitems.application.PreparedHeldItemAdoption;
-import net.enthusia.loreitems.application.PreparedVoidLoss;
 import net.enthusia.loreitems.application.StorageState;
 import net.enthusia.loreitems.application.TemplateManagementUseCase;
 import net.enthusia.loreitems.application.TemplateRevisionRolloutUseCase;
+import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.application.VoidLossUseCase;
 import net.enthusia.loreitems.paper.AdoptHeldItemCommandExecutor;
 import net.enthusia.loreitems.paper.CreateDefinitionCommandExecutor;
@@ -61,81 +42,77 @@ import net.enthusia.loreitems.paper.PaperHeldItemAdoptionOperator;
 import net.enthusia.loreitems.paper.PaperHeldItemDefinitionSnapshotter;
 import net.enthusia.loreitems.paper.PaperIdentityAnomalyListener;
 import net.enthusia.loreitems.paper.PaperMutationRecoveryWorker;
+import net.enthusia.loreitems.paper.PaperPhysicalTrackingListener;
+import net.enthusia.loreitems.paper.PaperTrackingCoordinator;
 import net.enthusia.loreitems.paper.PaperTrackedItemProtectionListener;
 import net.enthusia.loreitems.paper.PaperTemplateRevisionPlannerWorker;
+import net.enthusia.loreitems.paper.PaperUniqueAccessTrackingListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
-import net.enthusia.loreitems.sqlite.SQLiteAnomalyRepository;
-import net.enthusia.loreitems.sqlite.SQLiteAuditRepository;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
-import net.enthusia.loreitems.sqlite.SQLiteCurrentStateRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
-import net.enthusia.loreitems.sqlite.SQLiteDisplayItemObservationStore;
-import net.enthusia.loreitems.sqlite.SQLiteHeldItemAdoptionStore;
-import net.enthusia.loreitems.sqlite.SQLiteItemAnomalyObservationStore;
-import net.enthusia.loreitems.sqlite.SQLiteObservationRepository;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
-import net.enthusia.loreitems.sqlite.SQLiteTemplateManagementQueryStore;
-import net.enthusia.loreitems.sqlite.SQLiteTemplateRevisionRolloutStore;
-import net.enthusia.loreitems.sqlite.SQLiteUnitOfWork;
-import net.enthusia.loreitems.sqlite.SQLiteVoidLossStore;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.ServicesManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 // Paper plugins may own bounded lifecycle executors; this is not a J2EE web application.
-@SuppressWarnings("PMD.DoNotUseThreads")
+@SuppressWarnings({"PMD.DoNotUseThreads", "PMD.NullAssignment"})
 public final class LoreItemsPlugin extends JavaPlugin {
     private static final String STOPPING_RELOAD_DETAIL =
             "The plugin is stopping; configuration reload was not applied.";
 
     private final AtomicReference<LoreItemsServiceV1> serviceDelegate =
-            new AtomicReference<>(new UnavailableService("Foundation storage has not started."));
+            new AtomicReference<>(LoreItemsServiceDelegates.unavailable(
+                    "Foundation storage has not started."));
     private final AtomicReference<AtomicConfiguration> configuration =
             new AtomicReference<>(new AtomicConfiguration(FoundationConfiguration.defaults()));
+    private final StartupConfigurationGate startupConfigurationGate = new StartupConfigurationGate();
     private final AtomicReference<CreateDefinitionUseCase> createDefinitionDelegate =
-            new AtomicReference<>(unavailableCreateDefinitionUseCase());
+            new AtomicReference<>(UnavailableLoreItemsUseCases.createDefinition());
     private final AtomicReference<AdoptHeldItemUseCase> adoptHeldItemDelegate =
-            new AtomicReference<>(unavailableAdoptHeldItemUseCase());
+            new AtomicReference<>(UnavailableLoreItemsUseCases.adoptHeldItem());
     private final AtomicReference<VoidLossUseCase> voidLossDelegate =
-            new AtomicReference<>(unavailableVoidLossUseCase());
+            new AtomicReference<>(UnavailableLoreItemsUseCases.voidLoss());
     private final AtomicReference<DisplayItemObservationUseCase> displayObservationDelegate =
-            new AtomicReference<>(unavailableDisplayItemObservationUseCase());
-    private final LoreItemsServiceV1 registeredService = new DelegatingService(serviceDelegate);
+            new AtomicReference<>(UnavailableLoreItemsUseCases.displayObservation());
+    private final LoreItemsServiceV1 registeredService =
+            LoreItemsServiceDelegates.delegating(serviceDelegate);
     private final CreateDefinitionUseCase registeredCreateDefinitionUseCase =
             request -> createDefinitionDelegate.get().create(request);
     private final Object lifecycleLock = new Object();
     private final Set<CompletableFuture<AtomicConfiguration.ReloadResult>> pendingReloads =
             ConcurrentHashMap.newKeySet();
-    private final ThreadPoolExecutor lifecycleExecutor = new ThreadPoolExecutor(
-            1,
-            1,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(4),
-            runnable -> {
-                Thread thread = new Thread(runnable, "loreitems-lifecycle");
-                thread.setDaemon(true);
-                return thread;
-            },
-            new ThreadPoolExecutor.AbortPolicy());
+    private volatile ThreadPoolExecutor lifecycleExecutor =
+            LoreItemsShutdownSupport.createLifecycleExecutor();
+    private volatile CompletionStage<Void> shutdownTrackingQuiescence =
+            CompletableFuture.completedFuture(null);
 
     private volatile SQLiteStorageRuntime storageRuntime;
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
     private volatile PaperMutationRecoveryWorker mutationRecoveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
     private volatile PaperDisplayItemListener displayItemListener;
+    private volatile PaperPhysicalTrackingListener physicalTrackingListener;
+    private volatile PaperUniqueAccessTrackingListener uniqueAccessTrackingListener;
     private volatile PaperIdentityAnomalyListener identityAnomalyListener;
     private volatile PaperAnomalyWarningWorker anomalyWarningWorker;
     private volatile PaperTemplateRevisionPlannerWorker templateRevisionPlannerWorker;
     private volatile LoreItemsAdministrationCommandExecutor administrationCommandExecutor;
     private volatile DistributionRuntime distributionRuntime;
+    private volatile boolean shutdownCleanupComplete = true;
     private volatile boolean stopping;
 
     @Override
     public void onEnable() {
+        if (!prepareForEnable()) {
+            getLogger().severe(
+                    "LoreItems cannot re-enable because previous asynchronous workers have not terminated.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         registerCommands();
         if (!activateProtectionListeners()) {
             return;
@@ -153,6 +130,53 @@ public final class LoreItemsPlugin extends JavaPlugin {
             getLogger().severe("LoreItems startup was rejected: " + exception.getMessage());
         }
         getLogger().info("Foundation bootstrap enabled; durable storage is initializing off-thread.");
+    }
+
+    private boolean prepareForEnable() {
+        synchronized (lifecycleLock) {
+            if (!stopping) {
+                return true;
+            }
+            if (!shutdownReadyForEnable()) {
+                return false;
+            }
+            resetAfterShutdown();
+            return true;
+        }
+    }
+
+    private boolean shutdownReadyForEnable() {
+        if (!shutdownCleanupComplete
+                || !lifecycleExecutor.isTerminated()
+                || !LoreItemsShutdownSupport.trackingQuiesced(shutdownTrackingQuiescence)) {
+            return false;
+        }
+        SQLiteStorageRuntime previousStorage = storageRuntime;
+        if (previousStorage != null && !previousStorage.isTerminated()) {
+            return false;
+        }
+        DistributionRuntime previousDistribution = distributionRuntime;
+        return previousDistribution == null || previousDistribution.isTerminated();
+    }
+
+    private void resetAfterShutdown() {
+        startupConfigurationGate.reset();
+        storageRuntime = null;
+        directDeliveryWorker = null;
+        mutationRecoveryWorker = null;
+        protectionListener = null;
+        displayItemListener = null;
+        physicalTrackingListener = null;
+        uniqueAccessTrackingListener = null;
+        identityAnomalyListener = null;
+        anomalyWarningWorker = null;
+        templateRevisionPlannerWorker = null;
+        administrationCommandExecutor = null;
+        distributionRuntime = null;
+        pendingReloads.clear();
+        shutdownTrackingQuiescence = CompletableFuture.completedFuture(null);
+        lifecycleExecutor = LoreItemsShutdownSupport.createLifecycleExecutor();
+        stopping = false;
     }
 
     private void registerCommands() {
@@ -198,7 +222,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     this,
                     voidLossDelegate::get,
                     () -> configuration.get().current().mutationBudgetPerTick(),
-                    () -> configuration.get().current().sharedContainersAllowed());
+                    () -> startupConfigurationGate.sharedContainersAllowed(
+                            configuration.get().current()));
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
@@ -223,13 +248,17 @@ public final class LoreItemsPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         synchronized (lifecycleLock) {
+            if (stopping && !shutdownCleanupComplete) {
+                return;
+            }
             stopping = true;
-            serviceDelegate.set(new UnavailableService("The plugin is stopping."));
-            createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
-            adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
-            voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+            shutdownCleanupComplete = false;
+            setUnavailableDelegates("The plugin is stopping.");
         }
+        CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
+        shutdownTrackingQuiescence = trackingQuiescence;
+        closeQuietly(uniqueAccessTrackingListener, "unique-access tracking listener");
+        closeQuietly(physicalTrackingListener, "physical tracking listener");
         closeQuietly(distributionRuntime, "mass distribution runtime");
         closeQuietly(identityAnomalyListener, "identity-anomaly listener");
         closeQuietly(anomalyWarningWorker, "anomaly-warning worker");
@@ -240,17 +269,22 @@ public final class LoreItemsPlugin extends JavaPlugin {
         closeQuietly(directDeliveryWorker, "direct-delivery worker");
         closeQuietly(mutationRecoveryWorker, "mutation-recovery worker");
         getServer().getServicesManager().unregisterAll(this);
-        lifecycleExecutor.shutdownNow();
+        ThreadPoolExecutor executor = lifecycleExecutor;
+        executor.shutdownNow();
         failPendingReloads(STOPPING_RELOAD_DETAIL);
 
-        SQLiteStorageRuntime runtime = storageRuntime;
-        if (runtime != null) {
-            int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
-            boolean drained = runtime.close(Duration.ofSeconds(timeoutSeconds));
-            if (!drained) {
-                getLogger().warning("Database shutdown exceeded the configured bounded drain timeout.");
-            }
-        }
+        int timeoutSeconds = configuration.get().current().databaseShutdownTimeoutSeconds();
+        LoreItemsShutdownSupport.start(
+                getLogger(),
+                trackingQuiescence,
+                storageRuntime,
+                executor,
+                Duration.ofSeconds(timeoutSeconds),
+                () -> {
+                    synchronized (lifecycleLock) {
+                        shutdownCleanupComplete = true;
+                    }
+                });
     }
 
     public CompletionStage<AtomicConfiguration.ReloadResult> reloadFoundationConfiguration() {
@@ -330,6 +364,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 return false;
             }
             configuration.set(new AtomicConfiguration(loaded));
+            startupConfigurationGate.publish();
             return true;
         }
     }
@@ -358,7 +393,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void initializeStorage(
-            SQLiteStorageRuntime runtime, FoundationConfiguration loaded) {
+            SQLiteStorageRuntime runtime,
+            FoundationConfiguration loaded) {
         SQLiteStorageRuntime.StartupResult startup = runtime.start().toCompletableFuture().join();
         if (stopping) {
             return;
@@ -367,79 +403,102 @@ public final class LoreItemsPlugin extends JavaPlugin {
             publishDegradedService(startup);
             return;
         }
-        SQLiteDirectDeliveryRepository repository = new SQLiteDirectDeliveryRepository(runtime);
-        SQLitePendingMutationRepository mutationRepository =
-                new SQLitePendingMutationRepository(runtime);
-        recoverExpiredClaims(repository, loaded.deliveryClaimBatchSize());
-        recoverExpiredMutationClaims(
-                mutationRepository, loaded.deliveryClaimBatchSize());
-        Clock clock = Clock.systemUTC();
-        LoreItemsServiceV1 deliveryService = new FoundationLoreItemsService(
-                new PersistingExternalDeliveryUseCase(repository, clock));
-        DirectDeliveryExecutionUseCase directDeliveryUseCase =
-                new PersistingDirectDeliveryExecutionUseCase(
-                        repository,
-                        clock,
-                        Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
-        CreateDefinitionUseCase createDefinitionUseCase = new PersistingCreateDefinitionUseCase(
-                new SQLiteUnitOfWork(runtime), clock);
-        AdoptHeldItemUseCase adoptHeldItemUseCase = new PersistingAdoptHeldItemUseCase(
-                new SQLiteHeldItemAdoptionStore(runtime),
-                clock,
-                Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
-        VoidLossUseCase voidLossUseCase = new PersistingVoidLossUseCase(
-                new SQLiteVoidLossStore(runtime),
-                clock,
-                Duration.ofSeconds(loaded.deliveryClaimLeaseSeconds()));
-        DisplayItemObservationUseCase displayObservationUseCase =
-                new PersistingDisplayItemObservationUseCase(
-                        new SQLiteDisplayItemObservationStore(runtime),
-                        clock);
-        SQLiteAnomalyRepository anomalyRepository = new SQLiteAnomalyRepository(runtime);
-        LoreItemsAdministrationUseCase administrationUseCase =
-                new PersistingLoreItemsAdministrationUseCase(
-                        anomalyRepository,
-                        new SQLiteAuditRepository(runtime),
-                        new SQLiteCurrentStateRepository(runtime),
-                        new SQLiteObservationRepository(runtime),
-                        repository,
-                        mutationRepository);
-        ItemAnomalyObservationUseCase anomalyObservationUseCase =
-                new PersistingItemAnomalyObservationUseCase(
-                        new SQLiteItemAnomalyObservationStore(runtime),
-                        clock);
-        SQLiteTemplateRevisionRolloutStore rolloutStore =
-                new SQLiteTemplateRevisionRolloutStore(runtime);
-        TemplateRevisionRolloutUseCase rolloutUseCase =
-                new PersistingTemplateRevisionRolloutUseCase(rolloutStore, clock);
-        TemplateManagementUseCase templateManagementUseCase =
-                new PersistingTemplateManagementUseCase(
-                        new SQLiteTemplateManagementQueryStore(runtime),
-                        rolloutUseCase);
-        if (publishWritableServices(
-                deliveryService,
-                createDefinitionUseCase,
-                adoptHeldItemUseCase,
-                voidLossUseCase,
-                displayObservationUseCase)) {
-            activateDirectDeliveryWorker(directDeliveryUseCase, loaded);
-            activateMutationRecoveryWorker(mutationRepository, loaded);
-            activateAdministrationServices(
-                    administrationUseCase,
-                    anomalyObservationUseCase,
-                    templateManagementUseCase,
-                    rolloutUseCase,
-                    loaded);
-            activateDistributionRuntime(runtime, loaded);
-            getLogger().info(
-                    "Durable storage is active; definition creation, adoption, protection, "
-                            + "display observations, terminal void loss, and mass distributions "
-                            + "are available. Delivery, recovery, anomaly, and administration "
-                            + "components are activating on the server thread.");
+        LoreItemsStorageServices.Services services = LoreItemsStorageServices.create(runtime, loaded);
+        LoreItemsStorageServices.Repositories repositories = services.repositories();
+        LoreItemsStorageServices.WritableServices writable = services.writable();
+        LoreItemsStorageServices.AdministrationServices administration = services.administration();
+        recoverExpiredClaims(repositories.deliveries(), loaded.deliveryClaimBatchSize());
+        recoverExpiredMutationClaims(repositories.mutations(), loaded.deliveryClaimBatchSize());
+        if (!publishWritableServices(
+                writable.deliveryService(),
+                writable.createDefinition(),
+                writable.adoptHeldItem(),
+                writable.voidLoss(),
+                writable.displayObservation())) {
+            return;
+        }
+        if (!StartupActivationSequence.run(
+                () -> activateTrackingListeners(writable.trackingObservation(), runtime.metrics()),
+                () -> activateDirectDeliveryWorker(writable.directDelivery(), loaded),
+                () -> activateMutationRecoveryWorker(repositories.mutations(), loaded),
+                () -> activateAdministrationServices(
+                        administration.administrationUseCase(),
+                        administration.anomalyObservation(),
+                        administration.templateManagement(),
+                        administration.rollout(),
+                        loaded),
+                () -> activateDistributionRuntime(runtime, loaded))) {
+            return;
+        }
+        getLogger().info(
+                "Durable storage is active; definition creation, adoption, protection, "
+                        + "physical tracking, display observations, terminal void loss, and "
+                        + "mass distributions are available. Delivery, recovery, anomaly, "
+                        + "tracking, and administration components are activating on the "
+                        + "server thread.");
+    }
+
+    private boolean activateTrackingListeners(
+            TrackingObservationUseCase useCase,
+            MetricsPort metrics) {
+        try {
+            getServer().getScheduler().runTask(
+                    this,
+                    () -> activateTrackingListenersOnMainThread(useCase, metrics));
+            return true;
+        } catch (RuntimeException exception) {
+            failStartupActivation(
+                    "Lore-item physical tracking activation could not be scheduled.",
+                    "Could not schedule lore-item physical tracking; disabling LoreItems.",
+                    exception);
+            return false;
         }
     }
 
-    private void activateDirectDeliveryWorker(
+    private void activateTrackingListenersOnMainThread(
+            TrackingObservationUseCase useCase,
+            MetricsPort metrics) {
+        synchronized (lifecycleLock) {
+            if (stopping
+                    || physicalTrackingListener != null
+                    || uniqueAccessTrackingListener != null) {
+                return;
+            }
+            PaperPhysicalTrackingListener physical = null;
+            PaperUniqueAccessTrackingListener unique = null;
+            try {
+                physical = new PaperPhysicalTrackingListener(
+                        this,
+                        () -> useCase,
+                        () -> configuration.get().current().mutationBudgetPerTick(),
+                        metrics);
+                unique = new PaperUniqueAccessTrackingListener(
+                        this,
+                        () -> useCase,
+                        () -> configuration.get().current().mutationBudgetPerTick(),
+                        metrics);
+                physical.start();
+                unique.start();
+                physicalTrackingListener = physical;
+                uniqueAccessTrackingListener = unique;
+                getLogger().info(
+                        "Physical lore-item tracking and natural-access reconciliation are active.");
+            } catch (RuntimeException exception) {
+                PaperUniqueAccessTrackingListener failedUnique = unique;
+                PaperPhysicalTrackingListener failedPhysical = physical;
+                failMainThreadStartupActivation(
+                        "Lore-item physical tracking activation failed.",
+                        "Could not start lore-item physical tracking; disabling LoreItems.",
+                        exception,
+                        () -> {
+                            closeQuietly(failedUnique, "unique-access tracking listener");
+                            closeQuietly(failedPhysical, "physical tracking listener");
+                        });
+            }
+        }
+    }
+
+    private boolean activateDirectDeliveryWorker(
             DirectDeliveryExecutionUseCase useCase,
             FoundationConfiguration loaded) {
         try {
@@ -448,37 +507,38 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     if (stopping || directDeliveryWorker != null) {
                         return;
                     }
-                    PaperDirectDeliveryWorker worker = new PaperDirectDeliveryWorker(
-                            this,
-                            useCase,
-                            new PaperDirectDeliveryOperator(),
-                            loaded.deliveryClaimBatchSize(),
-                            loaded.mutationBudgetPerTick());
+                    PaperDirectDeliveryWorker worker = null;
                     try {
+                        worker = new PaperDirectDeliveryWorker(
+                                this,
+                                useCase,
+                                new PaperDirectDeliveryOperator(),
+                                loaded.deliveryClaimBatchSize(),
+                                loaded.mutationBudgetPerTick());
                         worker.start();
                         directDeliveryWorker = worker;
                         getLogger().info("Queued direct-delivery processing is active.");
                     } catch (RuntimeException exception) {
-                        closeQuietly(worker, "direct-delivery worker");
-                        getLogger().log(
-                                java.util.logging.Level.SEVERE,
+                        PaperDirectDeliveryWorker failedWorker = worker;
+                        failMainThreadStartupActivation(
+                                "Direct-delivery activation failed.",
                                 "Could not start the direct-delivery worker; disabling LoreItems.",
-                                exception);
-                        getServer().getPluginManager().disablePlugin(this);
+                                exception,
+                                () -> closeQuietly(failedWorker, "direct-delivery worker"));
                     }
                 }
             });
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Direct-delivery activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not activate the direct-delivery worker; writes remain unavailable.",
+            failStartupActivation(
+                    "Direct-delivery activation could not be scheduled.",
+                    "Could not schedule the direct-delivery worker; disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
-    private void activateMutationRecoveryWorker(
+    private boolean activateMutationRecoveryWorker(
             SQLitePendingMutationRepository repository,
             FoundationConfiguration loaded) {
         try {
@@ -487,69 +547,71 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     if (stopping || mutationRecoveryWorker != null) {
                         return;
                     }
-                    PaperMutationRecoveryWorker worker =
-                            new PaperMutationRecoveryWorker(
-                                    this,
-                                    repository,
-                                    Math.min(
-                                            loaded.deliveryClaimBatchSize(),
-                                            loaded.mutationBudgetPerTick()));
+                    PaperMutationRecoveryWorker worker = null;
                     try {
+                        worker = new PaperMutationRecoveryWorker(
+                                this,
+                                repository,
+                                Math.min(
+                                        loaded.deliveryClaimBatchSize(),
+                                        loaded.mutationBudgetPerTick()));
                         worker.start();
                         mutationRecoveryWorker = worker;
                         getLogger().info("Expired item-mutation recovery is active.");
                     } catch (RuntimeException exception) {
-                        closeQuietly(worker, "mutation-recovery worker");
-                        getLogger().log(
-                                java.util.logging.Level.SEVERE,
+                        PaperMutationRecoveryWorker failedWorker = worker;
+                        failMainThreadStartupActivation(
+                                "Expired mutation recovery activation failed.",
                                 "Could not start expired mutation recovery; disabling LoreItems.",
-                                exception);
-                        getServer().getPluginManager().disablePlugin(this);
+                                exception,
+                                () -> closeQuietly(failedWorker, "mutation-recovery worker"));
                     }
                 }
             });
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Expired mutation recovery activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not activate expired mutation recovery; writes remain unavailable.",
+            failStartupActivation(
+                    "Expired mutation recovery activation could not be scheduled.",
+                    "Could not schedule expired mutation recovery; disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
-    private void activateDistributionRuntime(
-            SQLiteStorageRuntime runtime, FoundationConfiguration loaded) {
-        DistributionRuntime distribution =
-                new DistributionRuntime(this, runtime, loaded, lifecycleExecutor);
-        synchronized (lifecycleLock) {
-            if (stopping) {
-                closeQuietly(distribution, "mass distribution runtime");
-                return;
-            }
-            distributionRuntime = distribution;
-        }
+    private boolean activateDistributionRuntime(
+            SQLiteStorageRuntime runtime,
+            FoundationConfiguration loaded) {
+        DistributionRuntime distribution = null;
         try {
-            distribution.activate();
-        } catch (Exception exception) {
-            closeQuietly(distribution, "mass distribution runtime");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
-                    "Could not initialize mass distribution directories; disabling LoreItems.",
-                    exception);
-            try {
-                getServer().getScheduler().runTask(
-                        this, () -> getServer().getPluginManager().disablePlugin(this));
-            } catch (RuntimeException schedulingFailure) {
-                getLogger().log(
-                        java.util.logging.Level.SEVERE,
-                        "Could not schedule LoreItems disable after distribution startup failure.",
-                        schedulingFailure);
+            distribution = new DistributionRuntime(
+                    this,
+                    runtime,
+                    loaded,
+                    lifecycleExecutor,
+                    () -> !stopping,
+                    () -> fenceFatalStartup(
+                            "Mass distribution startup failed; writes are unavailable."));
+            synchronized (lifecycleLock) {
+                if (stopping) {
+                    closeQuietly(distribution, "mass distribution runtime");
+                    return false;
+                }
+                distributionRuntime = distribution;
             }
+            distribution.activate();
+            return true;
+        } catch (Exception exception) {
+            fenceFatalStartup("Mass distribution startup failed; writes are unavailable.");
+            closeQuietly(distribution, "mass distribution runtime");
+            failStartupActivation(
+                    "Mass distribution startup failed; writes are unavailable.",
+                    "Could not initialize mass distribution runtime; disabling LoreItems.",
+                    exception);
+            return false;
         }
     }
 
-    private void activateAdministrationServices(
+    private boolean activateAdministrationServices(
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
             TemplateManagementUseCase templateManagementUseCase,
@@ -564,14 +626,14 @@ public final class LoreItemsPlugin extends JavaPlugin {
                             templateManagementUseCase,
                             rolloutUseCase,
                             loaded));
+            return true;
         } catch (RuntimeException exception) {
-            publishUnavailableServices(
-                    "Lore-item anomaly and administration activation could not be scheduled.");
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
+            failStartupActivation(
+                    "Lore-item anomaly and administration activation could not be scheduled.",
                     "Could not schedule lore-item anomaly and administration services; "
-                            + "writes remain unavailable.",
+                            + "disabling LoreItems.",
                     exception);
+            return false;
         }
     }
 
@@ -600,57 +662,38 @@ public final class LoreItemsPlugin extends JavaPlugin {
             TemplateManagementUseCase templateManagementUseCase,
             TemplateRevisionRolloutUseCase rolloutUseCase,
             FoundationConfiguration loaded) {
-        PaperAnomalyWarningWorker warningWorker = new PaperAnomalyWarningWorker(
-                this,
-                administrationUseCase,
-                loaded.duplicateWarningIntervalSeconds(),
-                loaded.defaultPageSize(),
-                loaded.mutationBudgetPerTick());
-        PaperIdentityAnomalyListener anomalyListener = new PaperIdentityAnomalyListener(
-                this,
-                loaded.mutationBudgetPerTick());
-        PaperTemplateRevisionPlannerWorker planner = new PaperTemplateRevisionPlannerWorker(
-                this,
-                rolloutUseCase,
-                loaded.mutationBudgetPerTick(),
-                this::wakeAccessibleTemplateUpdates);
-        ServicesManager services = getServer().getServicesManager();
+        AdministrationStartupComponents components = null;
+        ServicesManager services = null;
         try {
+            components = AdministrationStartupComponents.create(
+                    this, administrationUseCase, rolloutUseCase, loaded,
+                    this::wakeAccessibleTemplateUpdates);
+            services = getServer().getServicesManager();
             registerAdministrationServices(
-                    services,
-                    administrationUseCase,
-                    anomalyObservationUseCase,
-                    templateManagementUseCase,
-                    warningWorker);
-            activateAdministrationWorkers(warningWorker, anomalyListener, planner);
+                    services, administrationUseCase, anomalyObservationUseCase,
+                    templateManagementUseCase, components.warningWorker());
+            activateAdministrationWorkers(components);
         } catch (RuntimeException exception) {
-            rollbackAdministrationServices(
-                    services,
-                    administrationUseCase,
-                    anomalyObservationUseCase,
-                    templateManagementUseCase,
-                    warningWorker,
-                    anomalyListener,
-                    planner);
-            getLogger().log(
-                    java.util.logging.Level.SEVERE,
+            ServicesManager failedServices = services;
+            AdministrationStartupComponents failedComponents = components;
+            failMainThreadStartupActivation(
+                    "Lore-item anomaly and administration activation failed.",
                     "Could not activate lore-item anomaly and administration services; "
                             + "disabling LoreItems.",
-                    exception);
-            getServer().getPluginManager().disablePlugin(this);
+                    exception,
+                    () -> rollbackAdministrationServices(
+                            failedServices, administrationUseCase, anomalyObservationUseCase,
+                            templateManagementUseCase, failedComponents));
         }
     }
 
-    private void activateAdministrationWorkers(
-            PaperAnomalyWarningWorker warningWorker,
-            PaperIdentityAnomalyListener anomalyListener,
-            PaperTemplateRevisionPlannerWorker planner) {
-        warningWorker.start();
-        anomalyListener.start();
-        planner.start();
-        anomalyWarningWorker = warningWorker;
-        identityAnomalyListener = anomalyListener;
-        templateRevisionPlannerWorker = planner;
+    private void activateAdministrationWorkers(AdministrationStartupComponents components) {
+        components.warningWorker().start();
+        components.anomalyListener().start();
+        components.planner().start();
+        anomalyWarningWorker = components.warningWorker();
+        identityAnomalyListener = components.anomalyListener();
+        templateRevisionPlannerWorker = components.planner();
         getLogger().info(
                 "Lore-item anomaly detection, warnings, and administration are active.");
     }
@@ -662,25 +705,13 @@ public final class LoreItemsPlugin extends JavaPlugin {
             TemplateManagementUseCase templateManagementUseCase,
             PaperAnomalyWarningWorker warningWorker) {
         services.register(
-                LoreItemsAdministrationUseCase.class,
-                administrationUseCase,
-                this,
-                ServicePriority.Normal);
+                LoreItemsAdministrationUseCase.class, administrationUseCase, this, ServicePriority.Normal);
         services.register(
-                ItemAnomalyObservationUseCase.class,
-                anomalyObservationUseCase,
-                this,
-                ServicePriority.Normal);
+                ItemAnomalyObservationUseCase.class, anomalyObservationUseCase, this, ServicePriority.Normal);
         services.register(
-                TemplateManagementUseCase.class,
-                templateManagementUseCase,
-                this,
-                ServicePriority.Normal);
+                TemplateManagementUseCase.class, templateManagementUseCase, this, ServicePriority.Normal);
         services.register(
-                AnomalyWarningSink.class,
-                warningWorker,
-                this,
-                ServicePriority.Normal);
+                AnomalyWarningSink.class, warningWorker, this, ServicePriority.Normal);
     }
 
     private void rollbackAdministrationServices(
@@ -688,13 +719,16 @@ public final class LoreItemsPlugin extends JavaPlugin {
             LoreItemsAdministrationUseCase administrationUseCase,
             ItemAnomalyObservationUseCase anomalyObservationUseCase,
             TemplateManagementUseCase templateManagementUseCase,
-            PaperAnomalyWarningWorker warningWorker,
-            PaperIdentityAnomalyListener anomalyListener,
-            PaperTemplateRevisionPlannerWorker planner) {
-        closeQuietly(planner, "template-revision planner");
-        closeQuietly(anomalyListener, "identity-anomaly listener");
-        closeQuietly(warningWorker, "anomaly-warning worker");
-        services.unregister(AnomalyWarningSink.class, warningWorker);
+            AdministrationStartupComponents components) {
+        if (components != null) {
+            components.close();
+        }
+        if (services == null) {
+            return;
+        }
+        if (components != null) {
+            services.unregister(AnomalyWarningSink.class, components.warningWorker());
+        }
         services.unregister(TemplateManagementUseCase.class, templateManagementUseCase);
         services.unregister(ItemAnomalyObservationUseCase.class, anomalyObservationUseCase);
         services.unregister(LoreItemsAdministrationUseCase.class, administrationUseCase);
@@ -760,17 +794,65 @@ public final class LoreItemsPlugin extends JavaPlugin {
             if (stopping) {
                 return false;
             }
-            serviceDelegate.set(new UnavailableService(detail));
-            createDefinitionDelegate.set(unavailableCreateDefinitionUseCase());
-            adoptHeldItemDelegate.set(unavailableAdoptHeldItemUseCase());
-            voidLossDelegate.set(unavailableVoidLossUseCase());
-            displayObservationDelegate.set(unavailableDisplayItemObservationUseCase());
+            setUnavailableDelegates(detail);
             return true;
         }
     }
 
+    private void failStartupActivation(
+            String unavailableDetail,
+            String message,
+            Exception exception) {
+        FatalStartupFailurePolicy.revokeWritesThenRequestDisable(
+                () -> fenceFatalStartup(unavailableDetail),
+                () -> getServer().getScheduler().runTask(
+                        this,
+                        () -> getServer().getPluginManager().disablePlugin(this)),
+                schedulingFailure -> getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not schedule LoreItems disable after fatal startup failure.",
+                        schedulingFailure));
+        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
+    }
+
+    private void failMainThreadStartupActivation(
+            String unavailableDetail,
+            String message,
+            Exception exception,
+            Runnable cleanup) {
+        FatalStartupFailurePolicy.revokeWritesThenCleanupAndRequestDisable(
+                () -> fenceFatalStartup(unavailableDetail),
+                cleanup,
+                () -> getServer().getPluginManager().disablePlugin(this),
+                cleanupOrDisableFailure -> getLogger().log(
+                        java.util.logging.Level.SEVERE,
+                        "Could not complete cleanup/disable after fatal startup failure.",
+                        cleanupOrDisableFailure));
+        getLogger().log(java.util.logging.Level.SEVERE, message, exception);
+    }
+
+    private void fenceFatalStartup(String detail) {
+        Objects.requireNonNull(detail, "detail");
+        synchronized (lifecycleLock) {
+            if (stopping) {
+                return;
+            }
+            setUnavailableDelegates(detail);
+            stopping = true;
+        }
+    }
+
+    private void setUnavailableDelegates(String detail) {
+        serviceDelegate.set(LoreItemsServiceDelegates.unavailable(detail));
+        createDefinitionDelegate.set(UnavailableLoreItemsUseCases.createDefinition());
+        adoptHeldItemDelegate.set(UnavailableLoreItemsUseCases.adoptHeldItem());
+        voidLossDelegate.set(UnavailableLoreItemsUseCases.voidLoss());
+        displayObservationDelegate.set(UnavailableLoreItemsUseCases.displayObservation());
+    }
+
     private void recoverExpiredClaims(
-            SQLiteDirectDeliveryRepository repository, int recoveryLimit) {
+            SQLiteDirectDeliveryRepository repository,
+            int recoveryLimit) {
         int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
                 .toCompletableFuture()
                 .join();
@@ -786,7 +868,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
     }
 
     private void recoverExpiredMutationClaims(
-            SQLitePendingMutationRepository repository, int recoveryLimit) {
+            SQLitePendingMutationRepository repository,
+            int recoveryLimit) {
         int recovered = repository.moveExpiredClaimsToReview(Instant.now(), recoveryLimit)
                 .toCompletableFuture()
                 .join();
@@ -824,114 +907,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
         }
     }
 
-    private static CreateDefinitionUseCase unavailableCreateDefinitionUseCase() {
-        return request -> CompletableFuture.completedFuture(
-                CreateDefinitionResult.serviceUnavailable());
-    }
-
-    private static AdoptHeldItemUseCase unavailableAdoptHeldItemUseCase() {
-        return new AdoptHeldItemUseCase() {
-            @Override
-            public CompletionStage<PrepareHeldItemAdoptionResult> prepare(
-                    PrepareHeldItemAdoptionRequest request) {
-                return CompletableFuture.completedFuture(
-                        PrepareHeldItemAdoptionResult.serviceUnavailable());
-            }
-
-            @Override
-            public CompletionStage<Boolean> complete(
-                    PreparedHeldItemAdoption adoption,
-                    String afterFingerprint) {
-                return CompletableFuture.completedFuture(false);
-            }
-
-            @Override
-            public CompletionStage<Boolean> requireReview(
-                    PreparedHeldItemAdoption adoption,
-                    String reason) {
-                return CompletableFuture.completedFuture(false);
-            }
-        };
-    }
-
-    private static VoidLossUseCase unavailableVoidLossUseCase() {
-        return new VoidLossUseCase() {
-            @Override
-            public CompletionStage<PrepareResult> prepare(Request request) {
-                return CompletableFuture.completedFuture(PrepareResult.of(
-                        PrepareStatus.SERVICE_UNAVAILABLE,
-                        "Durable storage is unavailable; the item remains protected."));
-            }
-
-            @Override
-            public CompletionStage<Boolean> complete(PreparedVoidLoss loss) {
-                return CompletableFuture.completedFuture(false);
-            }
-
-            @Override
-            public CompletionStage<Boolean> abort(PreparedVoidLoss loss, String reason) {
-                return CompletableFuture.completedFuture(false);
-            }
-
-            @Override
-            public CompletionStage<Boolean> requireReview(
-                    PreparedVoidLoss loss,
-                    String reason) {
-                return CompletableFuture.completedFuture(false);
-            }
-        };
-    }
-
-    private static DisplayItemObservationUseCase unavailableDisplayItemObservationUseCase() {
-        return request -> CompletableFuture.completedFuture(
-                DisplayItemObservationUseCase.Result.of(
-                        DisplayItemObservationUseCase.Status.SERVICE_UNAVAILABLE,
-                        "Durable storage is unavailable; display evidence was not changed."));
-    }
-
     private static String safeMessage(Exception exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? "no detail" : message;
-    }
-
-    private static final class DelegatingService implements LoreItemsServiceV1 {
-        private final AtomicReference<LoreItemsServiceV1> delegate;
-
-        private DelegatingService(AtomicReference<LoreItemsServiceV1> delegate) {
-            this.delegate = Objects.requireNonNull(delegate, "delegate");
-        }
-
-        @Override
-        public CompletionStage<LoreDeliveryResult> queueDelivery(
-                String definitionKey, UUID playerId, String externalOperationId) {
-            return delegate.get().queueDelivery(definitionKey, playerId, externalOperationId);
-        }
-    }
-
-    private static final class UnavailableService implements LoreItemsServiceV1 {
-        private final String detail;
-
-        private UnavailableService(String detail) {
-            this.detail = Objects.requireNonNull(detail, "detail");
-        }
-
-        @Override
-        public CompletionStage<LoreDeliveryResult> queueDelivery(
-                String definitionKey, UUID playerId, String externalOperationId) {
-            String safeOperationId = externalOperationId == null ? "" : externalOperationId.strip();
-            if (definitionKey == null
-                    || definitionKey.isBlank()
-                    || playerId == null
-                    || safeOperationId.isEmpty()) {
-                return CompletableFuture.completedFuture(new LoreDeliveryResult(
-                        LoreDeliveryStatus.VALIDATION_FAILURE,
-                        safeOperationId,
-                        "Definition key, player UUID, and external operation ID are required."));
-            }
-            return CompletableFuture.completedFuture(new LoreDeliveryResult(
-                    LoreDeliveryStatus.SERVICE_UNAVAILABLE,
-                    safeOperationId,
-                    detail));
-        }
     }
 }

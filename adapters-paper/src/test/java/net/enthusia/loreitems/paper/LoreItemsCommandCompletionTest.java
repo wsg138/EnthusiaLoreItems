@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -78,6 +80,14 @@ class LoreItemsCommandCompletionTest {
         assertEquals(
                 List.of("browse"),
                 LoreItemsCommandExecutor.topLevelCompletions(player, ""));
+        assertTrue(PaperTrackingAdministrationGui.canUseScreen(
+                player, PaperTrackingAdministrationView.Screen.DEFINITIONS));
+        assertFalse(PaperTrackingAdministrationGui.canUseScreen(
+                player, PaperTrackingAdministrationView.Screen.INSTANCES));
+        assertFalse(PaperTrackingAdministrationGui.canUseScreen(
+                player, PaperTrackingAdministrationView.Screen.EVIDENCE));
+        assertFalse(PaperTrackingAdministrationGui.canUseScreen(
+                player, PaperTrackingAdministrationView.Screen.CONFIRMATION));
     }
 
     @Test

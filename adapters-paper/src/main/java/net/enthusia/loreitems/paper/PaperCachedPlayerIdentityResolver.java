@@ -8,6 +8,7 @@ import org.bukkit.OfflinePlayer;
 
 public final class PaperCachedPlayerIdentityResolver {
     public Optional<UUID> resolve(String currentName) {
+        requirePrimaryThread();
         Objects.requireNonNull(currentName, "currentName");
         String normalized = currentName.strip();
         if (normalized.isEmpty()) {
@@ -22,5 +23,12 @@ public final class PaperCachedPlayerIdentityResolver {
             return Optional.empty();
         }
         return Optional.of(cached.getUniqueId());
+    }
+
+    private static void requirePrimaryThread() {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException(
+                    "Cached player identity resolution must run on the server thread");
+        }
     }
 }

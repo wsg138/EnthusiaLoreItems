@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -10,11 +11,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import net.enthusia.loreitems.application.ItemAnomalyObservationUseCase;
 import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 import org.junit.jupiter.api.AfterEach;
@@ -33,6 +37,7 @@ class PaperIdentityAnomalyListenerTest {
             new TemplateRevision(1));
 
     private PlayerMock player;
+    private Plugin plugin;
     private RecordingUseCase useCase;
     private PaperIdentityAnomalyListener listener;
     private PaperItemIdentityCodec identityCodec;
@@ -41,7 +46,7 @@ class PaperIdentityAnomalyListenerTest {
     void setUp() {
         ServerMock server = MockBukkit.mock();
         player = server.addPlayer();
-        Plugin plugin = MockBukkit.createMockPlugin();
+        plugin = MockBukkit.createMockPlugin();
         useCase = new RecordingUseCase();
         server.getServicesManager().register(
                 ItemAnomalyObservationUseCase.class,
@@ -76,6 +81,26 @@ class PaperIdentityAnomalyListenerTest {
     }
 
     @Test
+    void enderChestCopyAtSameSlotAsPlayerInventoryIsNotCollapsedIntoOneLocation() {
+        player.getInventory().setItem(0, trackedItem());
+        player.getEnderChest().setItem(0, trackedItem());
+
+        try (PaperIdentityObservationScanner scanner =
+                new PaperIdentityObservationScanner(plugin, 8)) {
+            scanner.scanStorageInventory(player.getEnderChest(), player, "ender-chest-test");
+        }
+
+        assertEquals(1, useCase.requests.size());
+        ItemAnomalyObservationUseCase.Request request = useCase.requests.getFirst();
+        assertEquals(ItemAnomalyObservationUseCase.Kind.DUPLICATE_INSTANCE, request.kind());
+        assertEquals(2, request.evidenceLocations().size());
+        assertTrue(request.evidenceLocations().stream().anyMatch(location ->
+                location.type() == LocationDescriptor.Type.PLAYER_INVENTORY));
+        assertTrue(request.evidenceLocations().stream().anyMatch(location ->
+                location.type() == LocationDescriptor.Type.PLAYER_ENDER_CHEST));
+    }
+
+    @Test
     void startupScanRecordsRecoverableMalformedStackEvidence() {
         ItemStack malformed = trackedItem();
         malformed.setAmount(2);
@@ -90,8 +115,42 @@ class PaperIdentityAnomalyListenerTest {
         assertEquals(2, player.getInventory().getItem(0).getAmount());
     }
 
+    @Test
+    void startupScanRecordsMalformedNestedShulkerEvidenceWithoutMutatingIt() {
+        ItemStack malformed = trackedItem();
+        malformed.setAmount(2);
+        ItemStack outer = shulkerContaining(malformed);
+        player.getInventory().setItem(0, outer);
+
+        listener.start();
+
+        assertEquals(1, useCase.requests.size());
+        ItemAnomalyObservationUseCase.Request request = useCase.requests.getFirst();
+        assertEquals(ItemAnomalyObservationUseCase.Kind.MALFORMED_STACK, request.kind());
+        assertEquals(LocationDescriptor.Type.NESTED_CONTAINER, request.location().type());
+        assertTrue(request.location().containerPath().contains("shulker:0"));
+        assertTrue(request.detail().contains("STACKING_VIOLATION"));
+
+        ItemStack storedOuter = player.getInventory().getItem(0);
+        BlockStateMeta storedMeta = assertInstanceOf(
+                BlockStateMeta.class, storedOuter.getItemMeta());
+        ShulkerBox storedShulker = assertInstanceOf(
+                ShulkerBox.class, storedMeta.getBlockState());
+        assertEquals(2, storedShulker.getInventory().getItem(0).getAmount());
+    }
+
     private ItemStack trackedItem() {
         return identityCodec.writeIdentity(ItemStack.of(Material.DIAMOND), IDENTITY);
+    }
+
+    private static ItemStack shulkerContaining(ItemStack nested) {
+        ItemStack outer = ItemStack.of(Material.SHULKER_BOX);
+        BlockStateMeta meta = assertInstanceOf(BlockStateMeta.class, outer.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
+        shulker.getInventory().setItem(0, nested);
+        meta.setBlockState(shulker);
+        assertTrue(outer.setItemMeta(meta));
+        return outer;
     }
 
     private static final class RecordingUseCase implements ItemAnomalyObservationUseCase {

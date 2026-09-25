@@ -32,6 +32,9 @@ final class SQLiteDestructiveControlStore {
     private static final char JSON_REVERSE_SOLIDUS = '\\';
     private static final String JSON_UNICODE_PREFIX = "\\u";
     private static final String JSON_ZERO_PADDING = "0000";
+    private static final String SYSTEM_ACTOR_ID = "SYSTEM";
+    private static final String STAFF_ACTOR_TYPE = "STAFF";
+    private static final String SYSTEM_ACTOR_TYPE = "system";
     private static final String[] JSON_CONTROL_ESCAPES = createJsonControlEscapes();
 
     private final SQLiteStorageRuntime storage;
@@ -219,6 +222,11 @@ final class SQLiteDestructiveControlStore {
     private static boolean evidenceAllows(
             ReviewResolution resolution,
             DestructiveEffectState effectState) {
+        if (effectState == DestructiveEffectState.AMBIGUOUS) {
+            // REVIEW_REQUIRED is the fail-closed boundary. A privileged review resolution plus
+            // required evidence detail is the explicit post-inspection effect classification.
+            return true;
+        }
         return switch (resolution) {
             case REQUEUE_NO_SIDE_EFFECT, ABORT_NO_SIDE_EFFECT ->
                     effectState == DestructiveEffectState.NONE_OBSERVED;
@@ -358,15 +366,17 @@ final class SQLiteDestructiveControlStore {
             String actorId,
             String detailJson,
             long now) throws SQLException {
+        String actorType = SYSTEM_ACTOR_ID.equals(actorId) ? SYSTEM_ACTOR_TYPE : STAFF_ACTOR_TYPE;
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO audit_events(aggregate_type, aggregate_id, event_type, actor_type, "
                         + "actor_id, detail_json, occurred_at) "
-                        + "VALUES ('destructive_operation', ?, ?, 'STAFF', ?, ?, ?)")) {
+                        + "VALUES ('destructive_operation', ?, ?, ?, ?, ?, ?)")) {
             statement.setString(1, operationId.toString());
             statement.setString(2, eventType);
-            statement.setString(3, actorId);
-            statement.setString(4, detailJson);
-            statement.setLong(5, now);
+            statement.setString(3, actorType);
+            statement.setString(4, actorId);
+            statement.setString(5, detailJson);
+            statement.setLong(6, now);
             statement.executeUpdate();
         }
     }

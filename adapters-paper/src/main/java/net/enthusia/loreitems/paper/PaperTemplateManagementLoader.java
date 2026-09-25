@@ -122,7 +122,7 @@ final class PaperTemplateManagementLoader {
             Optional<TemplateManagementSnapshot> snapshot,
             int returnPage) {
         Player player = Bukkit.getPlayer(playerId);
-        if (player == null) {
+        if (player == null || !LoreItemsAdministrationCommandExecutor.canBrowse(player)) {
             return;
         }
         if (snapshot == null || snapshot.isEmpty()) {
