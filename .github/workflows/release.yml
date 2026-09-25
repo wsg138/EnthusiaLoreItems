@@ -129,9 +129,8 @@ jobs:
         if: steps.state.outputs.released != 'true' && steps.state.outputs.release_exists == 'true' && steps.state.outputs.release_draft == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+          DRAFT_RELEASE_ID: ${{ steps.state.outputs.release_id }}
         run: |
-          DRAFT_RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
           test -n "${DRAFT_RELEASE_ID}"
           test "${DRAFT_RELEASE_ID}" != "null"
           gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}" >/dev/null
@@ -162,10 +161,12 @@ jobs:
             "${BUNDLE}/rollback-instructions.md"
 
       - name: Verify exact release candidate assets
+        id: candidate
         if: steps.state.outputs.released != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
           ORIGINAL_RELEASE_EXISTS: ${{ steps.state.outputs.release_exists }}
           ORIGINAL_RELEASE_DRAFT: ${{ steps.state.outputs.release_draft }}
@@ -183,13 +184,13 @@ jobs:
             rollback-instructions.md
           )
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
-          test "${TAG_SHA}" = "${TARGET_SHA}"
           RELEASE_METADATA="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" \
             --json isDraft,isPrerelease --jq '[.isDraft, .isPrerelease] | @tsv')"
           IFS=$'\t' read -r RELEASE_DRAFT RELEASE_PRERELEASE <<<"${RELEASE_METADATA}"
           test "${RELEASE_PRERELEASE}" = "false"
           if [[ "${ORIGINAL_RELEASE_EXISTS}" != "true" || "${ORIGINAL_RELEASE_DRAFT}" == "true" ]]; then
             test "${RELEASE_DRAFT}" = "true"
+            test "${TAG_SHA}" = "${TARGET_SHA}"
           else
             test "${RELEASE_DRAFT}" = "false"
           fi
@@ -203,12 +204,48 @@ jobs:
           rm -rf "${RELEASED_ASSETS}"
           mkdir -p "${RELEASED_ASSETS}"
           gh release download "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${RELEASED_ASSETS}"
-          for asset in "${REQUIRED_ASSETS[@]}"; do
-            cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
-          done
           EXPECTED_NOTES="$(cat "${BUNDLE}/release-notes.md")"
           RELEASE_NOTES="$(gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')"
           test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"
+
+          if [[ "${TAG_SHA}" = "${TARGET_SHA}" ]]; then
+            for asset in "${REQUIRED_ASSETS[@]}"; do
+              cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
+            done
+            echo "published_equivalent=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # A later main commit may keep the same releaseVersion only when the
+          # already-published deployable payload is byte-for-byte unchanged.
+          # Commit-bound evidence (profile, test reports, acceptance source SHA)
+          # is revalidated independently for both the old tag and current CI head.
+          test "${RELEASE_DRAFT}" = "false"
+          MERGE_BASE="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TAG_SHA}...${TARGET_SHA}" --jq '.merge_base_commit.sha')"
+          test "${MERGE_BASE}" = "${TAG_SHA}"
+          STABLE_ASSETS=(
+            EnthusiaLoreItems.jar
+            EnthusiaLoreItems.jar.sha256
+            bom.cyclonedx.json
+            gradle-dependencies.txt
+            normalized-entry-manifest.txt
+            rollback-instructions.md
+          )
+          for asset in "${STABLE_ASSETS[@]}"; do
+            cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"
+          done
+          CURRENT_JAR_SHA="$(awk 'NR == 1 {print $1}' "${BUNDLE}/EnthusiaLoreItems.jar.sha256")"
+          PUBLISHED_READY="$(sed -n 's/^release_ready: //p' "${RELEASED_ASSETS}/acceptance-index.md")"
+          PUBLISHED_VERSION="$(sed -n 's/^release_version: //p' "${RELEASED_ASSETS}/acceptance-index.md")"
+          PUBLISHED_SOURCE="$(sed -n 's/^release_source_head: //p' "${RELEASED_ASSETS}/acceptance-index.md")"
+          PUBLISHED_JAR_SHA="$(sed -n 's/^release_jar_sha256: //p' "${RELEASED_ASSETS}/acceptance-index.md")"
+          test "${PUBLISHED_READY}" = "APPROVED"
+          test "${PUBLISHED_VERSION}" = "${RELEASE_VERSION}"
+          test "${PUBLISHED_SOURCE}" = "${TAG_SHA}"
+          test "${PUBLISHED_JAR_SHA}" = "${CURRENT_JAR_SHA}"
+          jq -e --arg tag "${TAG_SHA}" '.passed == true and .environment.commit == $tag' \
+            "${RELEASED_ASSETS}/wp04-profile.json" >/dev/null
+          echo "published_equivalent=true" >> "${GITHUB_OUTPUT}"
 
       - name: Publish verified draft release
         if: steps.state.outputs.released != 'true' && (steps.state.outputs.release_exists != 'true' || steps.state.outputs.release_draft == 'true')
@@ -216,9 +253,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
         run: |
-          RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${FINAL_TAG}" --jq '.id')"
+          RELEASES_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+          MATCH_COUNT="$(jq --arg tag "${FINAL_TAG}" '[.[] | select(.tag_name == $tag)] | length' <<<"${RELEASES_JSON}")"
+          test "${MATCH_COUNT}" -eq 1
+          RELEASE_ID="$(jq -r --arg tag "${FINAL_TAG}" '.[] | select(.tag_name == $tag) | .id' <<<"${RELEASES_JSON}")"
+          RELEASE_DRAFT="$(jq -r --arg tag "${FINAL_TAG}" '.[] | select(.tag_name == $tag) | .draft' <<<"${RELEASES_JSON}")"
           test -n "${RELEASE_ID}"
           test "${RELEASE_ID}" != "null"
+          test "${RELEASE_DRAFT}" = "true"
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false \
             -F prerelease=false >/dev/null
@@ -229,8 +271,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.state.outputs.target_sha }}
           FINAL_TAG: ${{ steps.version.outputs.final_tag }}
+          PUBLISHED_EQUIVALENT: ${{ steps.candidate.outputs.published_equivalent }}
         run: |
           TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${FINAL_TAG}" --jq '.object.sha')"
-          test "${TAG_SHA}" = "${TARGET_SHA}"
+          if [[ "${PUBLISHED_EQUIVALENT}" = "true" ]]; then
+            MERGE_BASE="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TAG_SHA}...${TARGET_SHA}" --jq '.merge_base_commit.sha')"
+            test "${MERGE_BASE}" = "${TAG_SHA}"
+          else
+            test "${TAG_SHA}" = "${TARGET_SHA}"
+          fi
           gh release view "${FINAL_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease \
             --jq 'select(.isDraft == false and .isPrerelease == false)' >/dev/null
