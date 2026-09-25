@@ -126,13 +126,16 @@ class Wp04ReleaseContractTest(unittest.TestCase):
             "grep -Eq '(^|[^0-9])HTTP 404([^0-9]|$)' \"${RELEASE_LOOKUP_ERROR}\"",
             resolver,
         )
-        self.assertIn("--jq '[.tag_name, .draft, .prerelease] | @tsv'", resolver)
-        self.assertIn(
-            '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
-            resolver,
-        )
-        self.assertIn('echo "release_draft=${RELEASE_DRAFT}"', resolver)
+        self.assertIn("--jq '[.id, .tag_name, .draft, .prerelease] | @tsv'", resolver)
+        self.assertIn('test "${RELEASE_DRAFT}" = "false"', resolver)
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', resolver)
+        self.assertIn('releases?per_page=100', resolver)
+        self.assertIn('test "${DRAFT_MATCH_COUNT}" -le 1', resolver)
+        self.assertIn('test "${RELEASE_DRAFT}" = "true"', resolver)
+        self.assertIn('test "${RELEASE_TARGET}" = "${EVENT_TARGET_SHA}"', resolver)
+        self.assertIn(
+            'emit_state true true true "${RELEASE_ID}" "${TAG_SHA}"', resolver
+        )
         self.assertIn("RELEASE_READY=", release)
         self.assertIn("ACCEPTED_SOURCE_HEAD=", release)
         self.assertIn("ACCEPTED_JAR_SHA=", release)
@@ -147,6 +150,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn('sha="${TARGET_SHA}"', release)
         self.assertIn('--target "${TARGET_SHA}"', release)
         self.assertIn("Reset interrupted draft release", release)
+        self.assertIn("DRAFT_RELEASE_ID: ${{ steps.state.outputs.release_id }}", release)
         self.assertIn(
             'gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}"',
             release,
@@ -155,7 +159,14 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         self.assertIn("--draft", release)
         self.assertIn("Verify exact release candidate assets", release)
         self.assertIn('cmp "${BUNDLE}/${asset}" "${RELEASED_ASSETS}/${asset}"', release)
+        self.assertIn('compare/${TAG_SHA}...${TARGET_SHA}', release)
+        self.assertIn('test "${MERGE_BASE}" = "${TAG_SHA}"', release)
+        self.assertIn('test "${PUBLISHED_SOURCE}" = "${TAG_SHA}"', release)
+        self.assertIn('test "${PUBLISHED_JAR_SHA}" = "${CURRENT_JAR_SHA}"', release)
+        self.assertIn('echo "published_equivalent=true"', release)
         self.assertIn("Publish verified draft release", release)
+        self.assertIn('releases?per_page=100', release)
+        self.assertIn('test "${MATCH_COUNT}" -eq 1', release)
         self.assertIn(
             'gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"',
             release,
