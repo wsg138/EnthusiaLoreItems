@@ -34,6 +34,11 @@ assert_empty_output() {
     fail "${LAST_SCENARIO}: expected no outputs, got $(tr '\n' ';' < "${LAST_DIR}/output")"
 }
 
+assert_state_line_count() {
+  test "$(wc -l < "${LAST_DIR}/output")" -eq 8 || \
+    fail "${LAST_SCENARIO}: unexpected state output count"
+}
+
 run_case() {
   local scenario="$1"
   local dir="${TMP_ROOT}/${scenario}"
@@ -63,20 +68,19 @@ run_case() {
             printf 'gh: upstream failure (HTTP 500)\n' >&2
             return 50
             ;;
-          release|release-draft|release-prerelease|release-extra-asset)
+          release|release-prerelease|release-extra-asset|release-prior-tag)
             case " $* " in
-              *" [.tag_name, .draft, .prerelease] | @tsv "*)
+              *" [.id, .tag_name, .draft, .prerelease] | @tsv "*)
                 case "${scenario}" in
-                  release|release-extra-asset) printf '%s\tfalse\tfalse\n' "${FINAL_TAG}" ;;
-                  release-draft) printf '%s\ttrue\tfalse\n' "${FINAL_TAG}" ;;
-                  release-prerelease) printf '%s\tfalse\ttrue\n' "${FINAL_TAG}" ;;
+                  release|release-extra-asset|release-prior-tag)
+                    printf '77\t%s\tfalse\tfalse\n' "${FINAL_TAG}"
+                    ;;
+                  release-prerelease)
+                    printf '77\t%s\tfalse\ttrue\n' "${FINAL_TAG}"
+                    ;;
                 esac
                 ;;
               *" .assets[].name "*)
-                if [[ "${scenario}" == "release-draft" ]]; then
-                  printf 'draft asset inventory must not be trusted before rebuild\n' >&2
-                  return 95
-                fi
                 printf '%s\n' "${REQUIRED_ASSETS[@]}"
                 if [[ "${scenario}" == "release-extra-asset" ]]; then
                   printf 'unexpected.bin\n'
@@ -96,6 +100,16 @@ run_case() {
         esac
       fi
 
+      if [[ "$1" == "api" && "$2" == */releases\?per_page=100 ]]; then
+        if [[ "${scenario}" == "release-draft" ]]; then
+          printf '[{"id":88,"tag_name":"%s","target_commitish":"%s","draft":true,"prerelease":false,"assets":[]}]\n' \
+            "${FINAL_TAG}" "${EVENT_TARGET_SHA}"
+        else
+          printf '[]\n'
+        fi
+        return 0
+      fi
+
       if [[ "$1" == "api" && "$2" == */git/ref/tags/* ]]; then
         case "${scenario}" in
           missing)
@@ -109,6 +123,10 @@ run_case() {
             ;;
           exact|release|release-draft|release-prerelease|release-extra-asset)
             printf '%s\n' "${EVENT_TARGET_SHA}"
+            return 0
+            ;;
+          release-prior-tag)
+            printf 'older-release-sha\n'
             return 0
             ;;
           forbidden)
@@ -158,8 +176,10 @@ assert_output "ci_run_id=12345"
 assert_output "tag_exists=false"
 assert_output "release_exists=false"
 assert_output "release_draft=false"
+assert_output "release_id="
+assert_output "release_tag_sha="
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || fail "missing: unexpected extra outputs"
+assert_state_line_count
 
 run_case null
 test "${LAST_RC}" -ne 0 || fail "null: successful null tag lookup must fail closed"
@@ -167,13 +187,13 @@ assert_empty_output
 
 run_case exact
 test "${LAST_RC}" -eq 0 || fail "exact: expected success, got ${LAST_RC}"
-assert_output "target_sha=target-sha"
-assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
 assert_output "release_exists=false"
 assert_output "release_draft=false"
+assert_output "release_id="
+assert_output "release_tag_sha=target-sha"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || fail "exact: unexpected extra outputs"
+assert_state_line_count
 
 for case_name in forbidden ratelimit server; do
   run_case "${case_name}"
@@ -205,25 +225,36 @@ done
 
 run_case release
 test "${LAST_RC}" -eq 0 || fail "release: expected success, got ${LAST_RC}"
-assert_output "target_sha=target-sha"
-assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
 assert_output "release_exists=true"
 assert_output "release_draft=false"
+assert_output "release_id=77"
+assert_output "release_tag_sha=target-sha"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || \
-  fail "release: existing production release must route through exact evidence revalidation"
+assert_state_line_count
 
+# Regression for the real GitHub behavior that caused v1.0.1 publication to fail:
+# releases/tags/{tag} returns 404 for a draft, while the authenticated releases list sees it.
 run_case release-draft
 test "${LAST_RC}" -eq 0 || fail "release-draft: expected recoverable success, got ${LAST_RC}"
-assert_output "target_sha=target-sha"
-assert_output "ci_run_id=12345"
 assert_output "tag_exists=true"
 assert_output "release_exists=true"
 assert_output "release_draft=true"
+assert_output "release_id=88"
+assert_output "release_tag_sha=target-sha"
 assert_output "released=false"
-test "$(wc -l < "${LAST_DIR}/output")" -eq 6 || \
-  fail "release-draft: interrupted draft must route through rebuild"
+assert_state_line_count
+
+# A published release may point at an earlier ancestor. The resolver records that
+# fact instead of lying that the immutable tag moved; release.yml performs the
+# artifact-equivalence and ancestry checks before accepting the later main commit.
+run_case release-prior-tag
+test "${LAST_RC}" -eq 0 || fail "release-prior-tag: expected resolver success, got ${LAST_RC}"
+assert_output "release_exists=true"
+assert_output "release_draft=false"
+assert_output "release_id=77"
+assert_output "release_tag_sha=older-release-sha"
+assert_state_line_count
 
 run_case release-prerelease
 test "${LAST_RC}" -ne 0 || fail "release-prerelease: prerelease state must fail closed"
