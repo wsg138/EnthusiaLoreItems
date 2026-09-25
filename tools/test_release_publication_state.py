@@ -84,6 +84,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
             "      - name: Verify immutable tag and release state", 1
         )[1]
 
+        self.assertIn("DRAFT_RELEASE_ID: ${{ steps.state.outputs.release_id }}", reset)
         self.assertIn(
             'gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${DRAFT_RELEASE_ID}"',
             reset,
@@ -97,6 +98,9 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn('test "${RELEASE_NOTES}" = "${EXPECTED_NOTES}"', verify)
         self.assertIn('test "${RELEASE_DRAFT}" = "true"', verify)
         self.assertIn('test "${RELEASE_DRAFT}" = "false"', verify)
+        self.assertIn('releases?per_page=100', publish)
+        self.assertIn('test "${MATCH_COUNT}" -eq 1', publish)
+        self.assertIn('test "${RELEASE_DRAFT}" = "true"', publish)
         self.assertIn(
             'gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"',
             publish,
@@ -104,6 +108,35 @@ class ReleasePublicationStateTest(unittest.TestCase):
         self.assertIn("-F draft=false", publish)
         self.assertIn("-F prerelease=false", publish)
         self.assertIn(".isDraft == false and .isPrerelease == false", final)
+
+    def test_existing_published_release_requires_ancestor_and_equivalent_payload(self):
+        verify = self._between(
+            self.release,
+            "      - name: Verify exact release candidate assets",
+            "\n      - name: Publish verified draft release",
+        )
+        final = self.release.split(
+            "      - name: Verify immutable tag and release state", 1
+        )[1]
+        self.assertIn('compare/${TAG_SHA}...${TARGET_SHA}', verify)
+        self.assertIn('test "${MERGE_BASE}" = "${TAG_SHA}"', verify)
+        for asset in [
+            "EnthusiaLoreItems.jar",
+            "EnthusiaLoreItems.jar.sha256",
+            "bom.cyclonedx.json",
+            "gradle-dependencies.txt",
+            "normalized-entry-manifest.txt",
+            "rollback-instructions.md",
+        ]:
+            self.assertIn(asset, verify)
+        self.assertIn('test "${PUBLISHED_READY}" = "APPROVED"', verify)
+        self.assertIn('test "${PUBLISHED_VERSION}" = "${RELEASE_VERSION}"', verify)
+        self.assertIn('test "${PUBLISHED_SOURCE}" = "${TAG_SHA}"', verify)
+        self.assertIn('test "${PUBLISHED_JAR_SHA}" = "${CURRENT_JAR_SHA}"', verify)
+        self.assertIn('.environment.commit == $tag', verify)
+        self.assertIn('echo "published_equivalent=true"', verify)
+        self.assertIn('PUBLISHED_EQUIVALENT: ${{ steps.candidate.outputs.published_equivalent }}', final)
+        self.assertIn('compare/${TAG_SHA}...${TARGET_SHA}', final)
 
     def test_release_probe_preserves_non_404_api_failures(self):
         release_probe = self._between(
@@ -123,6 +156,22 @@ class ReleasePublicationStateTest(unittest.TestCase):
         )
         self.assertIn('cat "${RELEASE_LOOKUP_ERROR}" >&2', release_probe)
         self.assertIn('exit "${RELEASE_LOOKUP_STATUS}"', release_probe)
+
+    def test_draft_fallback_runs_only_after_explicit_release_tag_404(self):
+        release_probe = self._between(
+            self.resolver,
+            'RELEASE_LOOKUP_ERROR="$(mktemp)"',
+            '\n\nTAG_LOOKUP_ERROR=',
+        )
+        self.assertIn('releases?per_page=100', release_probe)
+        self.assertIn('test "${DRAFT_MATCH_COUNT}" -le 1', release_probe)
+        self.assertIn('test "${RELEASE_DRAFT}" = "true"', release_probe)
+        self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_probe)
+        self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_probe)
+        self.assertIn('test "${RELEASE_TARGET}" = "${EVENT_TARGET_SHA}"', release_probe)
+        self.assertIn(
+            'emit_state true true true "${RELEASE_ID}" "${TAG_SHA}"', release_probe
+        )
 
     def test_missing_tag_probe_preserves_api_exit_status(self):
         self.assertIn('TAG_LOOKUP_ERROR="$(mktemp)"', self.resolver)
@@ -156,10 +205,7 @@ class ReleasePublicationStateTest(unittest.TestCase):
         )
         self.assertIn('test -n "${TAG_SHA}"', tag_branch)
         self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', tag_branch)
-        self.assertIn('echo "tag_exists=true"', tag_branch)
-        self.assertIn('echo "release_exists=false"', tag_branch)
-        self.assertIn('echo "release_draft=false"', tag_branch)
-        self.assertIn('echo "released=false"', tag_branch)
+        self.assertIn('emit_state true false false "" "${TAG_SHA}"', tag_branch)
         self.assertIn("exit 0", tag_branch)
 
     def test_missing_tag_falls_through_to_exact_main_binding(self):
@@ -170,37 +216,30 @@ class ReleasePublicationStateTest(unittest.TestCase):
             missing_tag_branch,
         )
         self.assertIn('test "${EVENT_TARGET_SHA}" = "${MAIN_SHA}"', missing_tag_branch)
-        self.assertIn('echo "tag_exists=false"', missing_tag_branch)
-        self.assertIn('echo "release_exists=false"', missing_tag_branch)
-        self.assertIn('echo "release_draft=false"', missing_tag_branch)
-        self.assertIn('echo "released=false"', missing_tag_branch)
+        self.assertIn('emit_state false false false', missing_tag_branch)
 
-    def test_existing_release_requires_exact_tag_state_and_published_asset_set(self):
+    def test_existing_published_release_requires_valid_state_and_exact_asset_set(self):
         release_branch = self._between(
             self.resolver,
             'RELEASE_LOOKUP_ERROR="$(mktemp)"',
-            '\n\nTAG_LOOKUP_ERROR=',
+            '\nelse\n  RELEASE_LOOKUP_STATUS=$?',
         )
         self.assertIn(
-            "--jq '[.tag_name, .draft, .prerelease] | @tsv'",
+            "--jq '[.id, .tag_name, .draft, .prerelease] | @tsv'",
             release_branch,
         )
-        self.assertIn('test "${TAG_SHA}" = "${EVENT_TARGET_SHA}"', release_branch)
+        self.assertIn('test -n "${RELEASE_ID}"', release_branch)
+        self.assertIn('test "${RELEASE_ID}" != "null"', release_branch)
         self.assertIn('test "${RELEASE_TAG}" = "${FINAL_TAG}"', release_branch)
-        self.assertIn(
-            '[[ "${RELEASE_DRAFT}" == "true" || "${RELEASE_DRAFT}" == "false" ]]',
-            release_branch,
-        )
+        self.assertIn('test "${RELEASE_DRAFT}" = "false"', release_branch)
         self.assertIn('test "${RELEASE_PRERELEASE}" = "false"', release_branch)
-        self.assertIn('if [[ "${RELEASE_DRAFT}" == "false" ]]', release_branch)
         self.assertIn("--jq '.assets[].name'", release_branch)
         self.assertIn('test "${ASSET_COUNT}" -eq "${#REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('for asset in "${REQUIRED_ASSETS[@]}"', release_branch)
         self.assertIn('grep -Fx "${asset}"', release_branch)
-        self.assertIn('echo "tag_exists=true"', release_branch)
-        self.assertIn('echo "release_exists=true"', release_branch)
-        self.assertIn('echo "release_draft=${RELEASE_DRAFT}"', release_branch)
-        self.assertIn('echo "released=false"', release_branch)
+        self.assertIn(
+            'emit_state true true false "${RELEASE_ID}" "${TAG_SHA}"', release_branch
+        )
         self.assertNotIn('echo "released=true"', release_branch)
 
     @staticmethod
