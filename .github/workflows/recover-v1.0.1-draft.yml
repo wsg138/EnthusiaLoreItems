@@ -1,0 +1,68 @@
+name: Recover verified v1.0.1 draft release
+
+on:
+  push:
+    branches:
+      - fix/release-draft-publication
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify immutable candidate and publish existing draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TAG: v1.0.1
+          EXPECTED_SHA: a7d783267deaa0a591ca4ce485bfc8d5be4288ca
+          EXPECTED_JAR_SHA: b32a138d69f9c1edc882fa761466b7ad8220f783b232a47d97660b68fa83a455
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+
+          TAG_SHA="$(gh api "repos/${REPO}/git/ref/tags/${EXPECTED_TAG}" --jq '.object.sha')"
+          test "${TAG_SHA}" = "${EXPECTED_SHA}"
+
+          RELEASES="$(gh api "repos/${REPO}/releases?per_page=100")"
+          MATCH_COUNT="$(jq --arg tag "${EXPECTED_TAG}" '[.[] | select(.tag_name == $tag)] | length' <<<"${RELEASES}")"
+          test "${MATCH_COUNT}" -eq 1
+          RELEASE_ID="$(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .id' <<<"${RELEASES}")"
+          RELEASE_DRAFT="$(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .draft' <<<"${RELEASES}")"
+          RELEASE_PRERELEASE="$(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .prerelease' <<<"${RELEASES}")"
+          RELEASE_TARGET="$(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .target_commitish' <<<"${RELEASES}")"
+          test "${RELEASE_DRAFT}" = "true"
+          test "${RELEASE_PRERELEASE}" = "false"
+          test "${RELEASE_TARGET}" = "${EXPECTED_SHA}"
+
+          mapfile -t ASSETS < <(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .assets[].name' <<<"${RELEASES}" | sort)
+          EXPECTED_ASSETS=(
+            EnthusiaLoreItems-test-reports.tar.gz
+            EnthusiaLoreItems.jar
+            EnthusiaLoreItems.jar.sha256
+            acceptance-index.md
+            bom.cyclonedx.json
+            gradle-dependencies.txt
+            normalized-entry-manifest.txt
+            rollback-instructions.md
+            wp04-profile.json
+          )
+          mapfile -t EXPECTED_SORTED < <(printf '%s\n' "${EXPECTED_ASSETS[@]}" | sort)
+          test "${#ASSETS[@]}" -eq "${#EXPECTED_SORTED[@]}"
+          diff -u <(printf '%s\n' "${EXPECTED_SORTED[@]}") <(printf '%s\n' "${ASSETS[@]}")
+
+          JAR_DIGEST="$(jq -r --arg tag "${EXPECTED_TAG}" '.[] | select(.tag_name == $tag) | .assets[] | select(.name == "EnthusiaLoreItems.jar") | .digest' <<<"${RELEASES}")"
+          test "${JAR_DIGEST}" = "sha256:${EXPECTED_JAR_SHA}"
+
+          gh api --method PATCH "repos/${REPO}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=false >/dev/null
+
+          PUBLISHED="$(gh api "repos/${REPO}/releases/tags/${EXPECTED_TAG}")"
+          test "$(jq -r '.draft' <<<"${PUBLISHED}")" = "false"
+          test "$(jq -r '.prerelease' <<<"${PUBLISHED}")" = "false"
+          test "$(jq -r '.tag_name' <<<"${PUBLISHED}")" = "${EXPECTED_TAG}"
+          test "$(jq -r '.target_commitish' <<<"${PUBLISHED}")" = "${EXPECTED_SHA}"
+          test "$(jq -r '.assets[] | select(.name == "EnthusiaLoreItems.jar") | .digest' <<<"${PUBLISHED}")" = "sha256:${EXPECTED_JAR_SHA}"
