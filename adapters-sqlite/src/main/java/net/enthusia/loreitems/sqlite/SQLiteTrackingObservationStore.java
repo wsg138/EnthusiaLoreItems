@@ -159,11 +159,16 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         if (CONFLICTING.equals(current.state())) {
             return appendConflictEvidence(connection, request, observedAt);
         }
-        if (request.location().equals(current.location())) {
+        if (request.location().equals(current.location())
+                || (request.mode() == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
+                        && sameHolder(request.location(), current.location()))) {
             if (CONFIRMED_NOW.equals(current.state())) {
+                if (!request.location().equals(current.location())) {
+                    refreshSlotWithoutHistory(connection, request, current, observedAt);
+                }
                 return result(
                         TrackingObservationUseCase.Status.UNCHANGED,
-                        "The location is already confirmed now.");
+                        "The item remains inside the same inventory.");
             }
             return advance(
                     connection,
@@ -198,13 +203,15 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     "Conflicting state was preserved while the location became inaccessible.");
         }
         if (!request.location().equals(current.location())
+                && !sameHolder(request.location(), current.location())
                 && !samePhysicalEntity(request.location(), current.location())) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
         }
         if (LAST_CONFIRMED.equals(current.state())
-                && request.location().equals(current.location())) {
+                && (request.location().equals(current.location())
+                        || sameHolder(request.location(), current.location()))) {
             return result(
                     TrackingObservationUseCase.Status.UNCHANGED,
                     "The location is already retained as last confirmed.");
@@ -223,6 +230,44 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 InstanceCurrentState.State.LAST_CONFIRMED,
                 observedAt,
                 "tracking_location_unloaded");
+    }
+
+    /**
+     * Slot moves within one holder are not location history.
+     * Keep the exact live slot for administrative operations without generating
+     * a new observation or user-facing audit event.
+     */
+    private static boolean sameHolder(LocationDescriptor first, LocationDescriptor second) {
+        if (first == null || second == null
+                || first.type() != second.type()
+                || !first.locationKey().equals(second.locationKey())) {
+            return false;
+        }
+        return switch (first.type()) {
+            case PLAYER_INVENTORY, PLAYER_ENDER_CHEST, BLOCK_CONTAINER -> true;
+            default -> false;
+        };
+    }
+
+    private static void refreshSlotWithoutHistory(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            CurrentRow current,
+            long observedAt) throws SQLException, StaleTrackingObservationException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE instance_current_state SET container_path = ?, updated_at = ?, "
+                        + "state_revision = state_revision + 1 WHERE instance_id = ? "
+                        + "AND state_revision = ? AND state = 'CONFIRMED_NOW' "
+                        + "AND updated_at <= ?")) {
+            setNullableString(statement, 1, request.location().containerPath());
+            statement.setLong(2, observedAt);
+            statement.setString(3, request.identity().instanceId().value().toString());
+            statement.setLong(4, current.stateRevision());
+            statement.setLong(5, observedAt);
+            if (statement.executeUpdate() != SINGLE_ROW) {
+                throw new StaleTrackingObservationException();
+            }
+        }
     }
 
     private static boolean mayReplaceCurrent(

@@ -15,6 +15,7 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.entity.Player;
 
 /** Detects creative-mode copy operations that could duplicate tracked identity evidence. */
 final class PaperCreativeIdentityProtection {
@@ -39,8 +40,21 @@ final class PaperCreativeIdentityProtection {
     }
 
     boolean shouldCancelInventoryMutation(InventoryCreativeEvent event) {
-        return hasIdentityEvidenceInTree(event.getCurrentItem())
-                || hasIdentityEvidenceInTree(event.getCursor());
+        // Picking up or removing a tracked item is movement, not duplication.
+        // Reject creative packet injections without a matching source.
+        ItemStack incoming = event.getCursor();
+        if (!hasIdentityEvidenceInTree(incoming)) {
+            return false;
+        }
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return true;
+        }
+        return !sameTrackedSource(incoming, player.getItemOnCursor())
+                && !sameTrackedSource(incoming, event.getCurrentItem());
+    }
+
+    private boolean sameTrackedSource(ItemStack incoming, ItemStack source) {
+        return hasIdentityEvidenceInTree(source) && incoming.isSimilar(source);
     }
 
     boolean shouldCancelPickBlock(PlayerPickBlockEvent event) {

@@ -94,7 +94,7 @@ class PaperCreativeCloneProtectionTest {
     }
 
     @Test
-    void creativeInventoryPacketRejectsTrackedInjectionAndTrackedSlotRemoval() {
+    void creativeInventoryPacketRejectsInjectionButAllowsTrackedMovement() {
         Inventory inventory = server.createInventory(null, 9);
         player.openInventory(inventory);
 
@@ -113,7 +113,17 @@ class PaperCreativeCloneProtectionTest {
                 0,
                 ItemStack.empty());
         listener.onCreativeInventoryMutation(removal);
-        assertTrue(removal.isCancelled());
+        assertFalse(removal.isCancelled());
+
+        // A tracked source in the clicked slot must not be treated as injection.
+        inventory.setItem(0, trackedItem());
+        InventoryCreativeEvent movement = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                inventory.getItem(0));
+        listener.onCreativeInventoryMutation(movement);
+        assertFalse(movement.isCancelled());
     }
 
     @Test

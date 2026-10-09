@@ -11,11 +11,14 @@ import io.papermc.paper.event.player.PlayerFlowerPotManipulateEvent;
 import io.papermc.paper.event.player.PlayerPickBlockEvent;
 import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import net.enthusia.loreitems.application.ItemIdentityReadResult;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.VoidLossUseCase;
 import org.bukkit.Material;
 import org.bukkit.block.Crafter;
@@ -96,6 +99,8 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     private final PaperItemIdentityCodec identityCodec;
     private final PaperTrackedItemCollector itemCollector = new PaperTrackedItemCollector();
     private final PaperCreativeIdentityProtection creativeIdentityProtection;
+    private PaperCreativeCopyController creativeCopyController;
+    private BiConsumer<UUID, LoreItemIdentity> creativeLossObserver;
     private final PaperVoidLossCoordinator voidLossCoordinator;
     private final BooleanSupplier sharedContainersAllowedSupplier;
 
@@ -145,6 +150,14 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             throw new IllegalStateException("Protection listener is closed");
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
+    }
+
+    public void setCreativeCopyController(PaperCreativeCopyController controller) {
+        this.creativeCopyController = Objects.requireNonNull(controller, "controller");
+    }
+
+    public void setCreativeLossObserver(BiConsumer<UUID, LoreItemIdentity> observer) {
+        this.creativeLossObserver = Objects.requireNonNull(observer, "observer");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -238,6 +251,9 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onCreativeClone(InventoryClickEvent event) {
         if (creativeIdentityProtection.shouldCancelClone(event)) {
             event.setCancelled(true);
+            if (creativeCopyController != null && event.getWhoClicked() instanceof Player player) {
+                creativeCopyController.request(player, event.getCurrentItem());
+            }
         }
     }
 
@@ -245,7 +261,31 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     public void onCreativeInventoryMutation(InventoryCreativeEvent event) {
         if (creativeIdentityProtection.shouldCancelInventoryMutation(event)) {
             event.setCancelled(true);
+            return;
         }
+        // A disappearance is only tentative: a normal pickup moves the item
+        // to the cursor, and external container moves may still be in flight.
+        ItemStack currentItem = event.getCurrentItem();
+        if (creativeLossObserver == null || creativeCopyController == null
+                || !(event.getWhoClicked() instanceof Player player)
+                || currentItem == null || currentItem.getType().isAir()
+                || !hasLoreIdentityEvidence(currentItem)
+                || !event.getCursor().getType().isAir()) {
+            return;
+        }
+        ItemIdentityReadResult result = identityCodec.readIdentity(currentItem);
+        if (!(result instanceof ItemIdentityReadResult.Tracked tracked)) {
+            return;
+        }
+        UUID playerId = player.getUniqueId();
+        LoreItemIdentity identity = tracked.identity();
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            Player current = plugin.getServer().getPlayer(playerId);
+            if (current != null
+                    && !creativeCopyController.stillHasSource(current, identity)) {
+                creativeLossObserver.accept(playerId, identity);
+            }
+        }, 10L);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

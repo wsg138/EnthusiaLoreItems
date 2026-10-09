@@ -17,6 +17,7 @@ import net.enthusia.loreitems.application.AdoptHeldItemUseCase;
 import net.enthusia.loreitems.application.AnomalyWarningSink;
 import net.enthusia.loreitems.application.AtomicConfiguration;
 import net.enthusia.loreitems.application.CreateDefinitionUseCase;
+import net.enthusia.loreitems.application.DefinitionRepository;
 import net.enthusia.loreitems.application.DirectDeliveryExecutionUseCase;
 import net.enthusia.loreitems.application.DisplayItemObservationUseCase;
 import net.enthusia.loreitems.application.FoundationConfiguration;
@@ -35,6 +36,7 @@ import net.enthusia.loreitems.paper.GiveLoreItemCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsAdministrationCommandExecutor;
 import net.enthusia.loreitems.paper.LoreItemsCommandExecutor;
 import net.enthusia.loreitems.paper.PaperAnomalyWarningWorker;
+import net.enthusia.loreitems.paper.PaperCreativeCopyController;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryOperator;
 import net.enthusia.loreitems.paper.PaperDirectDeliveryWorker;
 import net.enthusia.loreitems.paper.PaperDisplayItemListener;
@@ -50,6 +52,8 @@ import net.enthusia.loreitems.paper.PaperUniqueAccessTrackingListener;
 import net.enthusia.loreitems.sqlite.BoundedDatabaseExecutor;
 import net.enthusia.loreitems.sqlite.MigrationRunner;
 import net.enthusia.loreitems.sqlite.SQLiteConnectionFactory;
+import net.enthusia.loreitems.sqlite.SQLiteCreativeInventoryLossStore;
+import net.enthusia.loreitems.sqlite.SQLiteDefinitionRepository;
 import net.enthusia.loreitems.sqlite.SQLiteDirectDeliveryRepository;
 import net.enthusia.loreitems.sqlite.SQLitePendingMutationRepository;
 import net.enthusia.loreitems.sqlite.SQLiteStorageRuntime;
@@ -74,6 +78,9 @@ public final class LoreItemsPlugin extends JavaPlugin {
             new AtomicReference<>(UnavailableLoreItemsUseCases.createDefinition());
     private final AtomicReference<AdoptHeldItemUseCase> adoptHeldItemDelegate =
             new AtomicReference<>(UnavailableLoreItemsUseCases.adoptHeldItem());
+    private final AtomicReference<DefinitionRepository> creativeCopyDefinitions = new AtomicReference<>();
+    private final AtomicReference<SQLiteCreativeInventoryLossStore> creativeLossStore =
+            new AtomicReference<>();
     private final AtomicReference<VoidLossUseCase> voidLossDelegate =
             new AtomicReference<>(UnavailableLoreItemsUseCases.voidLoss());
     private final AtomicReference<DisplayItemObservationUseCase> displayObservationDelegate =
@@ -94,6 +101,7 @@ public final class LoreItemsPlugin extends JavaPlugin {
     private volatile PaperDirectDeliveryWorker directDeliveryWorker;
     private volatile PaperMutationRecoveryWorker mutationRecoveryWorker;
     private volatile PaperTrackedItemProtectionListener protectionListener;
+    private volatile PaperCreativeCopyController creativeCopyController;
     private volatile PaperDisplayItemListener displayItemListener;
     private volatile PaperPhysicalTrackingListener physicalTrackingListener;
     private volatile PaperUniqueAccessTrackingListener uniqueAccessTrackingListener;
@@ -210,6 +218,10 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 giveExecutor,
                 administrationExecutor,
                 reloadExecutor);
+        PaperCreativeCopyController copyController = new PaperCreativeCopyController(
+                this, creativeCopyDefinitions::get, registeredService, this::wakeDirectDeliveries);
+        creativeCopyController = copyController;
+        executor.setCreativeCopyController(copyController);
         command.setExecutor(executor);
         command.setTabCompleter(executor);
     }
@@ -224,6 +236,19 @@ public final class LoreItemsPlugin extends JavaPlugin {
                     () -> configuration.get().current().mutationBudgetPerTick(),
                     () -> startupConfigurationGate.sharedContainersAllowed(
                             configuration.get().current()));
+            protection.setCreativeCopyController(
+                    Objects.requireNonNull(creativeCopyController, "creative copy controller"));
+            protection.setCreativeLossObserver((playerId, identity) -> {
+                SQLiteCreativeInventoryLossStore store = creativeLossStore.get();
+                if (store != null) {
+                    store.record(playerId, identity).whenComplete((recorded, failure) -> {
+                        if (failure != null) {
+                            getLogger().log(java.util.logging.Level.WARNING,
+                                    "Could not persist creative inventory loss evidence.", failure);
+                        }
+                    });
+                }
+            });
             display = new PaperDisplayItemListener(
                     this,
                     displayObservationDelegate::get,
@@ -255,6 +280,11 @@ public final class LoreItemsPlugin extends JavaPlugin {
             shutdownCleanupComplete = false;
             setUnavailableDelegates("The plugin is stopping.");
         }
+        if (creativeCopyController != null) {
+            creativeCopyController.clear();
+        }
+        creativeCopyDefinitions.set(null);
+        creativeLossStore.set(null);
         CompletionStage<Void> trackingQuiescence = PaperTrackingCoordinator.quiescenceFor(this);
         shutdownTrackingQuiescence = trackingQuiescence;
         closeQuietly(uniqueAccessTrackingListener, "unique-access tracking listener");
@@ -417,6 +447,8 @@ public final class LoreItemsPlugin extends JavaPlugin {
                 writable.displayObservation())) {
             return;
         }
+        creativeCopyDefinitions.set(new SQLiteDefinitionRepository(runtime));
+        creativeLossStore.set(new SQLiteCreativeInventoryLossStore(runtime));
         if (!StartupActivationSequence.run(
                 () -> activateTrackingListeners(writable.trackingObservation(), runtime.metrics()),
                 () -> activateDirectDeliveryWorker(writable.directDelivery(), loaded),
