@@ -375,13 +375,13 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
         LoreItemsAdministrationUseCase useCase = resolveUseCase();
         if (useCase == null) {
-            player.sendMessage(ADMINISTRATION_UNAVAILABLE);
+            LoreItemsMessages.send(player, ADMINISTRATION_UNAVAILABLE);
             return;
         }
         LoreItemsAdministrationUseCase.DuplicateResolutionRequest request =
                 PaperTrackingAdministrationRequests.duplicateResolution(playerId, view);
         if (request == null) {
-            player.sendMessage("The selected duplicate evidence is no longer valid.");
+            LoreItemsMessages.send(player, "The selected duplicate evidence is no longer valid.");
             return;
         }
         closeLater(playerId);
@@ -519,7 +519,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
         runMain(() -> {
             Player player = plugin.getServer().getPlayer(playerId);
             if (player != null) {
-                player.sendMessage(message);
+                LoreItemsMessages.send(player, message);
             }
         });
     }

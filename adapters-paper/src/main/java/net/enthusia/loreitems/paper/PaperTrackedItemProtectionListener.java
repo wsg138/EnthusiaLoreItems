@@ -263,22 +263,30 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
             event.setCancelled(true);
             return;
         }
-        // A disappearance is only tentative: a normal pickup moves the item
-        // to the cursor, and external container moves may still be in flight.
-        ItemStack currentItem = event.getCurrentItem();
+        observePotentialCreativeLoss(event);
+    }
+
+    private void observePotentialCreativeLoss(InventoryCreativeEvent event) {
         if (creativeLossObserver == null || creativeCopyController == null
-                || !(event.getWhoClicked() instanceof Player player)
-                || currentItem == null || currentItem.getType().isAir()
-                || !hasLoreIdentityEvidence(currentItem)
-                || !event.getCursor().getType().isAir()) {
+                || !(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        ItemStack currentItem = event.getCurrentItem();
+        if (!mightRemoveTrackedItem(currentItem, event.getCursor())) {
             return;
         }
         ItemIdentityReadResult result = identityCodec.readIdentity(currentItem);
-        if (!(result instanceof ItemIdentityReadResult.Tracked tracked)) {
-            return;
+        if (result instanceof ItemIdentityReadResult.Tracked tracked) {
+            scheduleCreativeLossCheck(player.getUniqueId(), tracked.identity());
         }
-        UUID playerId = player.getUniqueId();
-        LoreItemIdentity identity = tracked.identity();
+    }
+
+    private boolean mightRemoveTrackedItem(ItemStack existing, ItemStack incoming) {
+        return existing != null && !existing.getType().isAir()
+                && hasLoreIdentityEvidence(existing) && incoming.getType().isAir();
+    }
+
+    private void scheduleCreativeLossCheck(UUID playerId, LoreItemIdentity identity) {
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             Player current = plugin.getServer().getPlayer(playerId);
             if (current != null
@@ -577,6 +585,7 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
     @Override
     public void close() {
         closed = true;
+        creativeIdentityProtection.clear();
         voidLossCoordinator.close();
         HandlerList.unregisterAll(this);
     }

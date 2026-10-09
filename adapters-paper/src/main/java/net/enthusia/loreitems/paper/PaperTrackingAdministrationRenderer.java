@@ -48,7 +48,7 @@ final class PaperTrackingAdministrationRenderer {
         List<LoreDefinitionId> ids = page.items().stream().map(LoreDefinition::id).toList();
         PaperTrackingAdministrationView view =
                 PaperTrackingAdministrationView.definitions(pageNumber, page.hasMore(), ids);
-        Inventory inventory = createInventory(view, "Lore Items - Collections");
+        Inventory inventory = createInventory(view, "Lore definitions");
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
             LoreDefinition definition = page.items().get(index);
             inventory.setItem(
@@ -87,7 +87,7 @@ final class PaperTrackingAdministrationRenderer {
         List<LoreInstanceId> ids = page.items().stream().map(LoreInstance::id).toList();
         PaperTrackingAdministrationView view = PaperTrackingAdministrationView.instances(
                 definitionId, definitionPageNumber, pageNumber, page.hasMore(), ids);
-        Inventory inventory = createInventory(view, "Lore Items - Tracked Copies");
+        Inventory inventory = createInventory(view, "Lore instances");
         boolean canRemove =
                 player.hasPermission(LoreItemsDestructiveCommandExecutor.REMOVE_PERMISSION);
         for (int index = 0; index < page.items().size() && index < CONTENT; index++) {
@@ -140,7 +140,7 @@ final class PaperTrackingAdministrationRenderer {
                 data.observations().hasMore(),
                 choices,
                 duplicate);
-        Inventory inventory = createInventory(view, "Lore Items - Location & History");
+        Inventory inventory = createInventory(view, "Lore location evidence");
         populateEvidence(inventory, choices, duplicate);
         inventory.setItem(46, currentLocationItem(data.current(), duplicate));
         if (choices.isEmpty()) {

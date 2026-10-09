@@ -112,18 +112,41 @@ class PaperCreativeCloneProtectionTest {
                 InventoryType.SlotType.CONTAINER,
                 0,
                 ItemStack.empty());
+        assertTrue(removal.getCurrentItem() != null
+                && new PaperTrackedItemCollector().hasIdentityEvidence(removal.getCurrentItem()),
+                "Removal event must contain a tracked source");
+        assertTrue(new PaperItemIdentityCodec().readIdentity(trackedItem()) instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked,
+                "Tracked source must remain readable");
         listener.onCreativeInventoryMutation(removal);
         assertFalse(removal.isCancelled());
 
-        // A tracked source in the clicked slot must not be treated as injection.
-        inventory.setItem(0, trackedItem());
-        InventoryCreativeEvent movement = new InventoryCreativeEvent(
+        // Clearing the source permits exactly one matching placement.
+        inventory.setItem(0, ItemStack.empty());
+        InventoryCreativeEvent placement = new InventoryCreativeEvent(
                 player.getOpenInventory(),
                 InventoryType.SlotType.CONTAINER,
-                0,
-                inventory.getItem(0));
-        listener.onCreativeInventoryMutation(movement);
-        assertFalse(movement.isCancelled());
+                1,
+                trackedItem());
+        listener.onCreativeInventoryMutation(placement);
+        assertFalse(placement.isCancelled());
+
+        InventoryCreativeEvent replay = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                2,
+                trackedItem());
+        listener.onCreativeInventoryMutation(replay);
+        assertTrue(replay.isCancelled());
+
+        // A tracked source already on the cursor does NOT authorize cloning.
+        player.setItemOnCursor(trackedItem());
+        InventoryCreativeEvent cursorInjection = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                3,
+                trackedItem());
+        listener.onCreativeInventoryMutation(cursorInjection);
+        assertTrue(cursorInjection.isCancelled());
     }
 
     @Test

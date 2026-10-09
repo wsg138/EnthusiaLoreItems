@@ -3,6 +3,10 @@ package net.enthusia.loreitems.paper;
 import io.papermc.paper.event.player.PlayerPickBlockEvent;
 import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -28,6 +32,10 @@ final class PaperCreativeIdentityProtection {
         EquipmentSlot.HEAD
     };
 
+    private static final long MOVE_NANOS = TimeUnit.SECONDS.toNanos(3);
+    private static final int MAX_CREDITS = 256;
+    private final Map<UUID, MoveCredit> movementCredits = new ConcurrentHashMap<>();
+    private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
     private final PaperTrackedItemCollector itemCollector;
 
     PaperCreativeIdentityProtection(PaperTrackedItemCollector itemCollector) {
@@ -40,22 +48,60 @@ final class PaperCreativeIdentityProtection {
     }
 
     boolean shouldCancelInventoryMutation(InventoryCreativeEvent event) {
-        // Picking up or removing a tracked item is movement, not duplication.
-        // Reject creative packet injections without a matching source.
+        // A creative set-slot packet is not a safe clone operation. A tracked
+        // placement requires the preceding removal of that exact source stack.
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return hasIdentityEvidenceInTree(event.getCursor());
+        }
+        ItemStack old = event.getCurrentItem();
         ItemStack incoming = event.getCursor();
         if (!hasIdentityEvidenceInTree(incoming)) {
+            permitRelocation(player.getUniqueId(), old, incoming);
             return false;
         }
-        if (!(event.getWhoClicked() instanceof Player player)) {
-            return true;
+        if (samePhysicalIdentity(old, incoming)) {
+            return false;
         }
-        return !sameTrackedSource(incoming, player.getItemOnCursor())
-                && !sameTrackedSource(incoming, event.getCurrentItem());
+        return !consumeRelocation(player.getUniqueId(), incoming);
     }
 
-    private boolean sameTrackedSource(ItemStack incoming, ItemStack source) {
-        return hasIdentityEvidenceInTree(source) && incoming.isSimilar(source);
+    private void permitRelocation(UUID playerId, ItemStack old, ItemStack replacement) {
+        if (!hasIdentityEvidenceInTree(old) || !replacement.getType().isAir()) {
+            return;
+        }
+        if (movementCredits.size() >= MAX_CREDITS && !movementCredits.containsKey(playerId)) {
+            return;
+        }
+        movementCredits.put(playerId, new MoveCredit(old.clone(), System.nanoTime()));
     }
+
+    private boolean consumeRelocation(UUID playerId, ItemStack incoming) {
+        MoveCredit credit = movementCredits.remove(playerId);
+        return credit != null
+                && System.nanoTime() - credit.createdNanos() <= MOVE_NANOS
+                && samePhysicalIdentity(credit.stack(), incoming);
+    }
+
+    private boolean samePhysicalIdentity(ItemStack first, ItemStack second) {
+        if (!hasIdentityEvidenceInTree(first) || !hasIdentityEvidenceInTree(second)) {
+            return false;
+        }
+        var before = identityCodec.readIdentity(first);
+        var after = identityCodec.readIdentity(second);
+        if (before instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked a
+                && after instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked b) {
+            return first.getType() == second.getType()
+                    && first.getAmount() == second.getAmount()
+                    && a.identity().equals(b.identity());
+        }
+        return first.isSimilar(second);
+    }
+
+    void clear() {
+        movementCredits.clear();
+    }
+
+    private record MoveCredit(ItemStack stack, long createdNanos) {}
 
     boolean shouldCancelPickBlock(PlayerPickBlockEvent event) {
         return event.isIncludeData()

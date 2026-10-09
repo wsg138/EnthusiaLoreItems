@@ -85,29 +85,48 @@ public final class PaperCreativeCopyController {
             sender.sendMessage("Only authorized players can confirm creative item copies.");
             return true;
         }
-        if (arguments.length != 3 || (!"confirm".equalsIgnoreCase(arguments[1])
-                && !"cancel".equalsIgnoreCase(arguments[1]))) {
+        if (!validAction(arguments)) {
             player.sendMessage("Usage: /loreitems copy confirm|cancel <request-id>");
             return true;
         }
-        Pending request = pending.get(player.getUniqueId());
-        if (request == null || !request.token().toString().equals(arguments[2])
-                || System.nanoTime() - request.createdNanos() > CONFIRMATION_NANOS) {
-            if (request != null) {
-                pending.remove(player.getUniqueId(), request);
-            }
-            player.sendMessage("That creative copy request is missing or expired.");
-            return true;
-        }
-        if (!pending.remove(player.getUniqueId(), request)) {
-            player.sendMessage("That copy request was already used.");
+        Pending request = consumeRequest(player, arguments[2]);
+        if (request == null) {
             return true;
         }
         if ("cancel".equalsIgnoreCase(arguments[1])) {
             player.sendMessage("Creative copy cancelled. Original item was not changed.");
             return true;
         }
-        if (player.getGameMode() != GameMode.CREATIVE || !stillHasSource(player, request.identity())) {
+        return confirmCopy(player, request);
+    }
+
+    private static boolean validAction(String[] arguments) {
+        return arguments.length == 3 && ("confirm".equalsIgnoreCase(arguments[1])
+                || "cancel".equalsIgnoreCase(arguments[1]));
+    }
+
+    private Pending consumeRequest(Player player, String token) {
+        UUID playerId = player.getUniqueId();
+        Pending request = pending.get(playerId);
+        if (request == null || !request.token().toString().equals(token)) {
+            player.sendMessage("That creative copy request is missing or expired.");
+            return null;
+        }
+        if (System.nanoTime() - request.createdNanos() > CONFIRMATION_NANOS) {
+            pending.remove(playerId, request);
+            player.sendMessage("That creative copy request has expired.");
+            return null;
+        }
+        if (!pending.remove(playerId, request)) {
+            player.sendMessage("That copy request was already used.");
+            return null;
+        }
+        return request;
+    }
+
+    private boolean confirmCopy(Player player, Pending request) {
+        if (player.getGameMode() != GameMode.CREATIVE
+                || !stillHasSource(player, request.identity())) {
             player.sendMessage("Copy cancelled: the original tracked item is no longer accessible.");
             return true;
         }
@@ -120,8 +139,8 @@ public final class PaperCreativeCopyController {
         String operationId = "creative-copy:" + playerId + ":" + request.token();
         try {
             repository.findById(request.identity().definitionId())
-                    .whenComplete((definition, failure) -> resolve(playerId, request, operationId,
-                            definition, failure));
+                    .whenComplete((definition, failure) ->
+                            resolve(playerId, operationId, definition, failure));
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Creative-copy definition lookup failed.", exception);
             player.sendMessage("Failed to look up the item definition; no copy was requested.");
@@ -129,37 +148,45 @@ public final class PaperCreativeCopyController {
         return true;
     }
 
-    private void resolve(UUID playerId, Pending request, String operationId,
+    private void resolve(UUID playerId, String operationId,
             Optional<LoreDefinition> definition, Throwable failure) {
         if (failure != null || definition == null || definition.isEmpty()
                 || !definition.orElseThrow().active()) {
             notifyPlayer(playerId, "Original definition unavailable; no copy was created.");
             return;
         }
-        String key = definition.orElseThrow().key().value();
+        queueCopy(playerId, operationId, definition.orElseThrow().key().value());
+    }
+
+    private void queueCopy(UUID playerId, String operationId, String key) {
         try {
-            CompletionStage<LoreDeliveryResult> stage = delivery.queueDelivery(key, playerId, operationId);
-            stage.whenComplete((result, error) -> {
-                if (error != null || result == null) {
-                    notifyPlayer(playerId, "Could not save the creative copy request.");
-                } else if (result.status() == LoreDeliveryStatus.ACCEPTED_QUEUED
-                        || result.status() == LoreDeliveryStatus.ALREADY_ACCEPTED) {
-                    try {
-                        deliveryWakeup.accept(playerId);
-                    } catch (RuntimeException exception) {
-                        plugin.getLogger().log(Level.WARNING,
-                                "Creative copy queued; immediate delivery wakeup failed.", exception);
-                    }
-                    notifyPlayer(playerId, "New tracked copy queued with its own ID. "
-                            + "It will arrive when you have inventory space.");
-                } else {
-                    notifyPlayer(playerId, "Copy was not accepted: " + result.status());
-                }
-            });
+            CompletionStage<LoreDeliveryResult> stage =
+                    delivery.queueDelivery(key, playerId, operationId);
+            stage.whenComplete((result, error) -> notifyDelivery(playerId, result, error));
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Creative-copy delivery failed.", exception);
             notifyPlayer(playerId, "Could not save the creative copy request.");
         }
+    }
+
+    private void notifyDelivery(UUID playerId, LoreDeliveryResult result, Throwable error) {
+        if (error != null || result == null) {
+            notifyPlayer(playerId, "Could not save the creative copy request.");
+            return;
+        }
+        if (result.status() != LoreDeliveryStatus.ACCEPTED_QUEUED
+                && result.status() != LoreDeliveryStatus.ALREADY_ACCEPTED) {
+            notifyPlayer(playerId, "Copy was not accepted: " + result.status());
+            return;
+        }
+        try {
+            deliveryWakeup.accept(playerId);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Creative copy queued; immediate delivery wakeup failed.", exception);
+        }
+        notifyPlayer(playerId, "New tracked copy queued with its own ID. "
+                + "It will arrive when you have inventory space.");
     }
 
     public boolean stillHasSource(Player player, LoreItemIdentity source) {

@@ -16,13 +16,14 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
     private static final String GIVE_SUBCOMMAND = "give";
     private static final String COPY_SUBCOMMAND = "copy";
     private static final String RELOAD_SUBCOMMAND = "reload";
+    private static final String SET_SUBCOMMAND = "set";
     private static final String ANOMALIES_SUBCOMMAND = "anomalies";
     private static final String AUDIT_SUBCOMMAND = "audit";
     private static final String RECOVERY_SUBCOMMAND = "recovery";
     private static final String BROWSE_SUBCOMMAND = "browse";
     private static final String EDITOR_SUBCOMMAND = "editor";
     private static final String USAGE =
-            "Usage: /loreitems create|adopt|give|reload|browse|editor cancel|anomalies|audit|recovery|"
+            "Usage: /loreitems create|adopt|give|reload|browse|set <value>|editor cancel|anomalies|audit|recovery|"
                     + "remove|purge|delete|operations|targets|destructive-metrics|"
                     + "pause-operation|resume-operation|resolve-removal ...";
 
@@ -119,7 +120,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(arguments, "arguments");
         if (arguments.length == 0) {
-            sender.sendMessage(USAGE);
+            LoreItemsMessages.send(sender, USAGE);
             return true;
         }
         String subcommand = arguments[0].toLowerCase(Locale.ROOT);
@@ -129,7 +130,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             case GIVE_SUBCOMMAND -> giveExecutor.onCommand(sender, command, label, arguments);
             case COPY_SUBCOMMAND -> executeCopy(sender, arguments);
             case RELOAD_SUBCOMMAND -> executeReload(sender, arguments);
-            case EDITOR_SUBCOMMAND -> executeEditor(sender, arguments);
+            case EDITOR_SUBCOMMAND, SET_SUBCOMMAND -> executeEditor(sender, arguments);
             case BROWSE_SUBCOMMAND, ANOMALIES_SUBCOMMAND, AUDIT_SUBCOMMAND,
                     RECOVERY_SUBCOMMAND ->
                     executeAdministration(sender, command, label, arguments);
@@ -194,6 +195,10 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         addIfAllowed(candidates, sender, ADOPT_SUBCOMMAND, "enthusia.loreitems.admin.adopt");
         addIfAllowed(candidates, sender, GIVE_SUBCOMMAND, "enthusia.loreitems.admin.give");
         addIfAllowed(candidates, sender, COPY_SUBCOMMAND, "enthusia.loreitems.admin.give");
+        if (administrationAvailable) {
+            addIfAllowed(candidates, sender, SET_SUBCOMMAND, PaperTemplateEditorManager.EDIT_PERMISSION);
+            addIfAllowed(candidates, sender, EDITOR_SUBCOMMAND, PaperTemplateEditorManager.EDIT_PERMISSION);
+        }
         if (reloadAvailable) {
             addIfAllowed(
                     candidates,
@@ -247,7 +252,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
 
     private boolean executeReload(CommandSender sender, String[] arguments) {
         if (reloadExecutor == null || arguments.length != 1) {
-            sender.sendMessage("Usage: /loreitems reload");
+            LoreItemsMessages.send(sender, "Usage: /loreitems reload");
             return true;
         }
         return reloadExecutor.execute(sender);
@@ -255,7 +260,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
 
     private boolean executeEditor(CommandSender sender, String[] arguments) {
         if (administrationExecutor == null) {
-            sender.sendMessage(USAGE);
+            LoreItemsMessages.send(sender, USAGE);
             return true;
         }
         return administrationExecutor.executeEditorCommand(sender, arguments);
@@ -267,7 +272,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
             String label,
             String[] arguments) {
         if (administrationExecutor == null) {
-            sender.sendMessage(USAGE);
+            LoreItemsMessages.send(sender, USAGE);
             return true;
         }
         return administrationExecutor.onCommand(sender, command, label, arguments);
@@ -282,7 +287,7 @@ public final class LoreItemsCommandExecutor implements CommandExecutor, TabCompl
         if (destructiveExecutor != null && destructiveExecutor.handles(subcommand)) {
             return destructiveExecutor.onCommand(sender, command, label, arguments);
         }
-        sender.sendMessage(USAGE);
+        LoreItemsMessages.send(sender, USAGE);
         return true;
     }
 }

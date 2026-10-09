@@ -24,18 +24,41 @@ final class PaperFriendlyLocation {
             return "Location unknown";
         }
         return switch (location.type()) {
-            case PLAYER_INVENTORY -> playerName(location.locationKey()) + "'s inventory";
-            case PLAYER_ENDER_CHEST -> playerName(location.locationKey()) + "'s Ender Chest";
-            case BLOCK_CONTAINER -> blockContainer(location.locationKey());
-            case NESTED_CONTAINER -> nestedContainer(location.locationKey());
-            case DROPPED_ITEM -> entityPlace(location.locationKey(), "Dropped on the ground");
-            case ITEM_FRAME -> entityPlace(location.locationKey(), "In an item frame");
-            case ITEM_DISPLAY -> entityPlace(location.locationKey(), "In an item display");
-            case ARMOR_STAND -> entityPlace(location.locationKey(), "On an armor stand");
+            case PLAYER_INVENTORY, PLAYER_ENDER_CHEST -> playerLocation(location);
+            case BLOCK_CONTAINER, NESTED_CONTAINER -> inventoryLocation(location);
+            case DROPPED_ITEM, ITEM_FRAME, ITEM_DISPLAY, ARMOR_STAND -> entityLocation(location);
+            default -> specialLocation(location.type());
+        };
+    }
+
+    private String playerLocation(LocationDescriptor location) {
+        String suffix = location.type() == LocationDescriptor.Type.PLAYER_INVENTORY
+                ? "'s inventory" : "'s Ender Chest";
+        return playerName(location.locationKey()) + suffix;
+    }
+
+    private String inventoryLocation(LocationDescriptor location) {
+        return location.type() == LocationDescriptor.Type.BLOCK_CONTAINER
+                ? blockContainer(location.locationKey())
+                : nestedContainer(location.locationKey());
+    }
+
+    private String entityLocation(LocationDescriptor location) {
+        String label = switch (location.type()) {
+            case DROPPED_ITEM -> "Dropped on the ground";
+            case ITEM_FRAME -> "In an item frame";
+            case ITEM_DISPLAY -> "In an item display";
+            default -> "On an armor stand";
+        };
+        return entityPlace(location.locationKey(), label);
+    }
+
+    private static String specialLocation(LocationDescriptor.Type type) {
+        return switch (type) {
             case QUEUED_DELIVERY -> "Waiting to be delivered";
             case PENDING_MUTATION -> "Being updated";
             case VOID_DESTROYED -> "Destroyed in the void";
-            case DUPLICATE_CONFLICT -> "Multiple possible locations - needs review";
+            default -> "Multiple possible locations - needs review";
         };
     }
 
@@ -77,21 +100,25 @@ final class PaperFriendlyLocation {
             return "In a container (position unavailable)";
         }
         World world = world(coords.worldKey());
-        String kind = "Container";
-        if (world != null && world.isChunkLoaded(coords.x() >> 4, coords.z() >> 4)
-                && coords.y() >= world.getMinHeight() && coords.y() < world.getMaxHeight()) {
-            Material block = world.getBlockAt(coords.x(), coords.y(), coords.z()).getType();
-            kind = switch (block) {
-                case CHEST, TRAPPED_CHEST -> "Chest";
-                case BARREL -> "Barrel";
-                case HOPPER -> "Hopper";
-                case DISPENSER -> "Dispenser";
-                case DROPPER -> "Dropper";
-                default -> "Container";
-            };
-        }
+        String kind = containerKind(world, coords);
         return kind + " at " + coords.x() + ", " + coords.y() + ", " + coords.z()
                 + " (" + worldLabel(world, coords.worldKey()) + ")";
+    }
+
+    private static String containerKind(World world, Coordinates coords) {
+        if (world == null || !world.isChunkLoaded(coords.x() >> 4, coords.z() >> 4)
+                || coords.y() < world.getMinHeight() || coords.y() >= world.getMaxHeight()) {
+            return "Container";
+        }
+        Material material = world.getBlockAt(coords.x(), coords.y(), coords.z()).getType();
+        return switch (material) {
+            case CHEST, TRAPPED_CHEST -> "Chest";
+            case BARREL -> "Barrel";
+            case HOPPER -> "Hopper";
+            case DISPENSER -> "Dispenser";
+            case DROPPER -> "Dropper";
+            default -> "Container";
+        };
     }
 
     private String entityPlace(String key, String fallback) {
