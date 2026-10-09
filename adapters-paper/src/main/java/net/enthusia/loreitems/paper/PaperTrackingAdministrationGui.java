@@ -86,7 +86,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         if (event.isShiftClick()) {
-            showTechnicalDetails(player, view, slot);
+            PaperTrackingTechnicalDetails.show(plugin, player, view, slot);
             return;
         }
         if (view.screen == PaperTrackingAdministrationView.Screen.INSTANCES
@@ -95,40 +95,6 @@ public final class PaperTrackingAdministrationGui implements Listener {
             return;
         }
         dispatchClick(player, view, slot);
-    }
-
-    private void showTechnicalDetails(
-            Player player, PaperTrackingAdministrationView view, int slot) {
-        if (slot == PaperTrackingAdministrationItems.STATUS) {
-            player.sendMessage("LoreItems diagnostics: "
-                    + String.join(" | ", PaperTrackingAdministrationItems.trackingMetricsLore(plugin)));
-            return;
-        }
-        switch (view.screen) {
-            case DEFINITIONS -> {
-                if (slot < view.definitionIds.size()) {
-                    player.sendMessage("Definition UUID: " + view.definitionIds.get(slot).value());
-                }
-            }
-            case INSTANCES -> {
-                if (slot < view.instanceIds.size()) {
-                    player.sendMessage("Tracked instance UUID: " + view.instanceIds.get(slot).value());
-                }
-            }
-            case EVIDENCE -> {
-                if (slot < view.observations.size()) {
-                    ObservationChoice choice = view.observations.get(slot);
-                    player.sendMessage("Observation #" + choice.observationId()
-                            + " | " + choice.confidence().name()
-                            + " | source: " + choice.source());
-                    player.sendMessage("Raw location: " + choice.location().type().name()
-                            + " / " + choice.location().locationKey()
-                            + " / " + choice.location().containerPath());
-                }
-            }
-            case CONFIRMATION -> { /* Only the explicit confirmation buttons act here. */ }
-            default -> { }
-        }
     }
 
     private Player authorizedClicker(
@@ -325,35 +291,15 @@ public final class PaperTrackingAdministrationGui implements Listener {
         }
         ObservationChoice selected = view.observations.get(slot);
         if (selectable(selected, view.duplicate)) {
-            showConfirmation(
-                    player,
-                    view.definitionId,
-                    view.definitionPageNumber,
-                    view.parentPageNumber,
-                    view.instanceId,
-                    view.duplicate,
-                    selected,
-                    view.pageNumber);
+            showConfirmation(player, view, selected);
         }
     }
 
     private void showConfirmation(
-            Player player,
-            LoreDefinitionId definitionId,
-            int definitionPageNumber,
-            int instancePageNumber,
-            LoreInstanceId instanceId,
-            DuplicateChoice duplicate,
-            ObservationChoice observation,
-            int returnPage) {
+            Player player, PaperTrackingAdministrationView view, ObservationChoice observation) {
         Inventory inventory = renderer.confirmationInventory(
-                definitionId,
-                definitionPageNumber,
-                instancePageNumber,
-                instanceId,
-                duplicate,
-                observation,
-                returnPage);
+                view.definitionId, view.definitionPageNumber, view.parentPageNumber,
+                view.instanceId, view.duplicate, observation, view.pageNumber);
         openLater(player.getUniqueId(), inventory);
     }
 

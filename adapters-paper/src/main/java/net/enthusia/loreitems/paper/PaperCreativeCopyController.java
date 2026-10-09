@@ -63,6 +63,8 @@ public final class PaperCreativeCopyController {
             player.sendMessage("Cannot duplicate a container or item with unresolved tracking data.");
             return;
         }
+        pending.entrySet().removeIf(entry ->
+                System.nanoTime() - entry.getValue().createdNanos() > CONFIRMATION_NANOS);
         if (pending.size() >= MAX_PENDING && !pending.containsKey(player.getUniqueId())) {
             player.sendMessage("Too many creative copy confirmations are pending. Try again.");
             return;

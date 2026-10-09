@@ -1,5 +1,8 @@
 package net.enthusia.loreitems.paper;
 
+import static net.enthusia.loreitems.paper.PaperTrackedItemInteractionRules.losesIdentityOnInteraction;
+import static net.enthusia.loreitems.paper.PaperTrackedItemInteractionRules.losesIdentityOnEntityInteraction;
+
 import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
 import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
 import com.destroystokyo.paper.event.player.PlayerReadyArrowEvent;
@@ -13,7 +16,6 @@ import io.papermc.paper.event.player.PlayerPickEntityEvent;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -65,36 +67,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 public final class PaperTrackedItemProtectionListener implements Listener, AutoCloseable {
-    private static final Set<String> CONSUMPTIVE_INTERACTION_MATERIALS = Set.of(
-            "BONE_MEAL",
-            "BOWL",
-            "ENDER_EYE",
-            "FIRE_CHARGE",
-            "GLASS_BOTTLE",
-            "GLOW_INK_SAC",
-            "HONEYCOMB",
-            "INK_SAC",
-            "MAP",
-            "OMINOUS_TRIAL_KEY",
-            "RESIN_CLUMP",
-            "TRIAL_KEY");
-    private static final Set<String> CONSUMPTIVE_ENTITY_MATERIALS = Set.of(
-            "AMETHYST_SHARD",
-            "BAMBOO",
-            "BROWN_MUSHROOM",
-            "CHEST",
-            "DANDELION",
-            "HAY_BLOCK",
-            "LEAD",
-            "NAME_TAG",
-            "POPPY",
-            "RED_MUSHROOM",
-            "SADDLE",
-            "SEAGRASS",
-            "SLIME_BALL",
-            "WHEAT",
-            "WOLF_ARMOR");
-
     private final Plugin plugin;
     private final PaperItemIdentityCodec identityCodec;
     private final PaperTrackedItemCollector itemCollector = new PaperTrackedItemCollector();
@@ -259,41 +231,9 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreativeInventoryMutation(InventoryCreativeEvent event) {
-        if (creativeIdentityProtection.shouldCancelInventoryMutation(event)) {
-            event.setCancelled(true);
-            return;
-        }
-        observePotentialCreativeLoss(event);
-    }
-
-    private void observePotentialCreativeLoss(InventoryCreativeEvent event) {
-        if (creativeLossObserver == null || creativeCopyController == null
-                || !(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        ItemStack currentItem = event.getCurrentItem();
-        if (!mightRemoveTrackedItem(currentItem, event.getCursor())) {
-            return;
-        }
-        ItemIdentityReadResult result = identityCodec.readIdentity(currentItem);
-        if (result instanceof ItemIdentityReadResult.Tracked tracked) {
-            scheduleCreativeLossCheck(player.getUniqueId(), tracked.identity());
-        }
-    }
-
-    private boolean mightRemoveTrackedItem(ItemStack existing, ItemStack incoming) {
-        return existing != null && !existing.getType().isAir()
-                && hasLoreIdentityEvidence(existing) && incoming.getType().isAir();
-    }
-
-    private void scheduleCreativeLossCheck(UUID playerId, LoreItemIdentity identity) {
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            Player current = plugin.getServer().getPlayer(playerId);
-            if (current != null
-                    && !creativeCopyController.stillHasSource(current, identity)) {
-                creativeLossObserver.accept(playerId, identity);
-            }
-        }, 10L);
+        PaperCreativeInventoryMutationSupport.handle(
+                plugin, event, creativeIdentityProtection, identityCodec,
+                creativeCopyController, creativeLossObserver);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -562,24 +502,6 @@ public final class PaperTrackedItemProtectionListener implements Listener, AutoC
 
     private boolean hasLoreIdentityEvidenceInTree(ItemStack item) {
         return itemCollector.hasIdentityEvidence(item);
-    }
-
-    private static boolean losesIdentityOnInteraction(Material material) {
-        String name = material.name();
-        return material.isEdible()
-                || CONSUMPTIVE_INTERACTION_MATERIALS.contains(name)
-                || name.endsWith("_DYE")
-                || name.endsWith("_SPAWN_EGG");
-    }
-
-    private static boolean losesIdentityOnEntityInteraction(Material material) {
-        String name = material.name();
-        return losesIdentityOnInteraction(material)
-                || material.isEdible()
-                || CONSUMPTIVE_ENTITY_MATERIALS.contains(name)
-                || name.endsWith("_CARPET")
-                || name.endsWith("_HORSE_ARMOR")
-                || name.endsWith("_SEEDS");
     }
 
     @Override

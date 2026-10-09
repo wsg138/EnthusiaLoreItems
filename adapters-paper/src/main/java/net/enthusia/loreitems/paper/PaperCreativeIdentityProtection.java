@@ -32,7 +32,7 @@ final class PaperCreativeIdentityProtection {
         EquipmentSlot.HEAD
     };
 
-    private static final long MOVE_NANOS = TimeUnit.SECONDS.toNanos(3);
+    private static final long MOVE_NANOS = TimeUnit.SECONDS.toNanos(90);
     private static final int MAX_CREDITS = 256;
     private final Map<UUID, MoveCredit> movementCredits = new ConcurrentHashMap<>();
     private final PaperItemIdentityCodec identityCodec = new PaperItemIdentityCodec();
@@ -69,6 +69,8 @@ final class PaperCreativeIdentityProtection {
         if (!hasIdentityEvidenceInTree(old) || !replacement.getType().isAir()) {
             return;
         }
+        movementCredits.entrySet().removeIf(entry ->
+                System.nanoTime() - entry.getValue().createdNanos() > MOVE_NANOS);
         if (movementCredits.size() >= MAX_CREDITS && !movementCredits.containsKey(playerId)) {
             return;
         }

@@ -1,10 +1,14 @@
 package net.enthusia.loreitems.sqlite;
 
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingAnomalyQueries.hasActiveConflictEvidence;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingAnomalyQueries.hasNonDuplicateBlockingAnomaly;
+
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.appendAudit;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.conflictLocation;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.refreshDuplicateAnomaly;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.samePhysicalEntity;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.setNullableString;
+import static net.enthusia.loreitems.sqlite.SQLiteTrackingSlotMoves.sameHolder;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingConflictSupport.upsertDuplicateAnomaly;
 import static net.enthusia.loreitems.sqlite.SQLiteTrackingIdentityMismatchSupport.recordIdentityMismatchEvidence;
 
@@ -164,7 +168,10 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                         && sameHolder(request.location(), current.location()))) {
             if (CONFIRMED_NOW.equals(current.state())) {
                 if (!request.location().equals(current.location())) {
-                    refreshSlotWithoutHistory(connection, request, current, observedAt);
+                    if (!SQLiteTrackingSlotMoves.updateSlot(
+                            connection, request, current.stateRevision(), observedAt)) {
+                        throw new StaleTrackingObservationException();
+                    }
                 }
                 return result(
                         TrackingObservationUseCase.Status.UNCHANGED,
@@ -230,44 +237,6 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 InstanceCurrentState.State.LAST_CONFIRMED,
                 observedAt,
                 "tracking_location_unloaded");
-    }
-
-    /**
-     * Slot moves within one holder are not location history.
-     * Keep the exact live slot for administrative operations without generating
-     * a new observation or user-facing audit event.
-     */
-    private static boolean sameHolder(LocationDescriptor first, LocationDescriptor second) {
-        if (first == null || second == null
-                || first.type() != second.type()
-                || !first.locationKey().equals(second.locationKey())) {
-            return false;
-        }
-        return switch (first.type()) {
-            case PLAYER_INVENTORY, PLAYER_ENDER_CHEST, BLOCK_CONTAINER -> true;
-            default -> false;
-        };
-    }
-
-    private static void refreshSlotWithoutHistory(
-            Connection connection,
-            TrackingObservationUseCase.Request request,
-            CurrentRow current,
-            long observedAt) throws SQLException, StaleTrackingObservationException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE instance_current_state SET container_path = ?, updated_at = ?, "
-                        + "state_revision = state_revision + 1 WHERE instance_id = ? "
-                        + "AND state_revision = ? AND state = 'CONFIRMED_NOW' "
-                        + "AND updated_at <= ?")) {
-            setNullableString(statement, 1, request.location().containerPath());
-            statement.setLong(2, observedAt);
-            statement.setString(3, request.identity().instanceId().value().toString());
-            statement.setLong(4, current.stateRevision());
-            statement.setLong(5, observedAt);
-            if (statement.executeUpdate() != SINGLE_ROW) {
-                throw new StaleTrackingObservationException();
-            }
-        }
     }
 
     private static boolean mayReplaceCurrent(
@@ -420,48 +389,6 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                         resultSet.getString("state"),
                         location,
                         resultSet.getLong("state_revision"));
-            }
-        }
-    }
-
-    private static boolean hasNonDuplicateBlockingAnomaly(
-            Connection connection,
-            TrackingObservationUseCase.Request request) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM instance_anomalies WHERE instance_id = ? "
-                        + "AND status IN ('OPEN', 'ACKNOWLEDGED') "
-                        + "AND anomaly_type <> 'DUPLICATE_INSTANCE' LIMIT 1")) {
-            statement.setString(1, request.identity().instanceId().value().toString());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next();
-            }
-        }
-    }
-
-    private static boolean hasActiveConflictEvidence(
-            Connection connection,
-            TrackingObservationUseCase.Request request) throws SQLException {
-        LocationDescriptor location = request.location();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM instance_observations observation "
-                        + "JOIN instance_anomalies anomaly "
-                        + "ON anomaly.instance_id = observation.instance_id "
-                        + "WHERE observation.instance_id = ? "
-                        + "AND observation.location_type = ? "
-                        + "AND observation.location_key = ? "
-                        + "AND ((observation.container_path IS NULL AND ? IS NULL) "
-                        + "OR observation.container_path = ?) "
-                        + "AND observation.confidence = 'CONFLICTING' "
-                        + "AND anomaly.anomaly_type = 'DUPLICATE_INSTANCE' "
-                        + "AND anomaly.status IN ('OPEN', 'ACKNOWLEDGED') "
-                        + "AND observation.observed_at >= anomaly.first_seen_at LIMIT 1")) {
-            statement.setString(1, request.identity().instanceId().value().toString());
-            statement.setString(2, location.type().name());
-            statement.setString(3, location.locationKey());
-            setNullableString(statement, 4, location.containerPath());
-            setNullableString(statement, 5, location.containerPath());
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next();
             }
         }
     }
