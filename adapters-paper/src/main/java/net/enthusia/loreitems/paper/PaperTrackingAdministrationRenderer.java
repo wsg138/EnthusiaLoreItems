@@ -246,18 +246,22 @@ final class PaperTrackingAdministrationRenderer {
         // between holders and all conflicting evidence for staff review.
         List<ObservationChoice> visible = new ArrayList<>();
         for (InstanceObservation observation : observations.items()) {
-            ObservationChoice entry = new ObservationChoice(
-                    observation.observationId(),
-                    observation.location(),
-                    observation.confidence(),
-                    observation.source(),
-                    observation.observedAtEpochMillis());
+            ObservationChoice entry = toChoice(observation);
             if (!visible.isEmpty() && isRepeatedPlace(visible.getLast(), entry)) {
                 continue;
             }
             visible.add(entry);
         }
         return List.copyOf(visible);
+    }
+
+    private static ObservationChoice toChoice(InstanceObservation observation) {
+        return new ObservationChoice(
+                observation.observationId(),
+                observation.location(),
+                observation.confidence(),
+                observation.source(),
+                observation.observedAtEpochMillis());
     }
 
     private static boolean isRepeatedPlace(ObservationChoice previous, ObservationChoice current) {
