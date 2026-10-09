@@ -98,22 +98,6 @@ public final class PaperTemplateEditorManager implements AutoCloseable {
         return pendingChatSessions.get(Objects.requireNonNull(playerId, "playerId"));
     }
 
-    /** Only explicit private command arguments can change an editor field. */
-    void submitOwnValue(Player player, String value) {
-        Objects.requireNonNull(player, "player");
-        if (!player.hasPermission(EDIT_PERMISSION)) {
-            LoreItemsMessages.send(player, "You do not have permission to edit lore-item templates.");
-            return;
-        }
-        UUID sessionId = pendingChatSessions.get(player.getUniqueId());
-        if (sessionId == null) {
-            LoreItemsMessages.send(player,
-                    "Select an editor field in /loreitems browse before using /loreitems set.");
-            return;
-        }
-        receiveChat(player.getUniqueId(), sessionId, value);
-    }
-
     void handleQuit(UUID playerId) {
         PaperTemplateEditorSession session = sessions.get(playerId);
         if (session != null && session.state == PaperTemplateEditorSession.State.AWAITING_CHAT) {

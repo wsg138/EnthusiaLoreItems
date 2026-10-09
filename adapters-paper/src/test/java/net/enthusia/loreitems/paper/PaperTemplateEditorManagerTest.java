@@ -146,7 +146,8 @@ class PaperTemplateEditorManagerTest {
         click(11);
         assertTrue(manager.awaitingChat(player.getUniqueId()));
 
-        manager.submitOwnValue(player, "literal Private name");
+        LoreItemsEditorCommandSupport.execute(
+                player, new String[] {"set", "literal", "Private", "name"}, manager);
 
         assertFalse(manager.awaitingChat(player.getUniqueId()));
         assertEquals(PaperTemplateEditorSession.State.EDITING,

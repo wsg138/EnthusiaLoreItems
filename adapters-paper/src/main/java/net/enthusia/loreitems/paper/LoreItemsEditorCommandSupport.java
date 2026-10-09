@@ -34,7 +34,12 @@ final class LoreItemsEditorCommandSupport {
                     "Usage: /loreitems set <value> | /loreitems editor set <value> | /loreitems editor cancel");
             return true;
         }
-        templateEditor.submitOwnValue(player,
+        if (templateEditor.chatSessionId(player.getUniqueId()) == null) {
+            LoreItemsMessages.send(player,
+                    "Select an editor field in /loreitems browse before using /loreitems set.");
+            return true;
+        }
+        templateEditor.receiveChat(player.getUniqueId(),
                 String.join(" ", Arrays.copyOfRange(arguments, start, arguments.length)));
         return true;
     }
