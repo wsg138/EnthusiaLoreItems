@@ -54,7 +54,7 @@ class LoreItemsCommandCompletionTest {
                 List.of("anomalies", "audit"),
                 LoreItemsCommandExecutor.topLevelCompletions(player, "a"));
         assertEquals(
-                List.of("browse"),
+                List.of("set", "editor", "browse"),
                 LoreItemsCommandExecutor.topLevelCompletions(player, "BR"));
     }
 
