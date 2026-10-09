@@ -7,6 +7,13 @@ import org.bukkit.entity.Player;
 
 /** Explicit private command input for the GUI editor (never public chat). */
 final class LoreItemsEditorCommandSupport {
+    private static final String SET_ACTION = "set";
+    private static final String EDITOR_ACTION = "editor";
+    private static final String CANCEL_ACTION = "cancel";
+    private static final int SET_VALUE_START = 1;
+    private static final int EDITOR_VALUE_START = 2;
+    private static final int FIRST_ARGUMENT_INDEX = 0;
+
     private LoreItemsEditorCommandSupport() {}
 
     static boolean execute(
@@ -45,19 +52,21 @@ final class LoreItemsEditorCommandSupport {
     }
 
     private static int valueStart(String[] args) {
-        if (args.length >= 1 && "set".equalsIgnoreCase(args[0])) {
-            return 1;
+        if (args.length >= SET_VALUE_START
+                && SET_ACTION.equalsIgnoreCase(args[FIRST_ARGUMENT_INDEX])) {
+            return SET_VALUE_START;
         }
-        if (args.length >= 2 && "editor".equalsIgnoreCase(args[0])
-                && "set".equalsIgnoreCase(args[1])) {
-            return 2;
+        if (args.length >= EDITOR_VALUE_START
+                && EDITOR_ACTION.equalsIgnoreCase(args[FIRST_ARGUMENT_INDEX])
+                && SET_ACTION.equalsIgnoreCase(args[SET_VALUE_START])) {
+            return EDITOR_VALUE_START;
         }
         return -1;
     }
 
     static boolean isCancel(String[] arguments) {
-        return arguments.length == 2
-                && "editor".equalsIgnoreCase(arguments[0])
-                && "cancel".equalsIgnoreCase(arguments[1]);
+        return arguments.length == EDITOR_VALUE_START
+                && EDITOR_ACTION.equalsIgnoreCase(arguments[FIRST_ARGUMENT_INDEX])
+                && CANCEL_ACTION.equalsIgnoreCase(arguments[SET_VALUE_START]);
     }
 }
