@@ -13,6 +13,7 @@ import org.bukkit.plugin.Plugin;
 /** Human-readable locations for staff; never exposes raw database keys by default. */
 final class PaperFriendlyLocation {
     private static final String ENTITY_MARKER = ":entity:";
+    private static final int UUID_TEXT_LENGTH = 36;
     private final Plugin plugin;
 
     PaperFriendlyLocation(Plugin plugin) {
@@ -106,8 +107,7 @@ final class PaperFriendlyLocation {
     }
 
     private static String containerKind(World world, Coordinates coords) {
-        if (world == null || !world.isChunkLoaded(coords.x() >> 4, coords.z() >> 4)
-                || coords.y() < world.getMinHeight() || coords.y() >= world.getMaxHeight()) {
+        if (!accessibleBlock(world, coords)) {
             return "Container";
         }
         Material material = world.getBlockAt(coords.x(), coords.y(), coords.z()).getType();
@@ -121,15 +121,20 @@ final class PaperFriendlyLocation {
         };
     }
 
+    private static boolean accessibleBlock(World world, Coordinates coords) {
+        return world != null && world.isChunkLoaded(coords.x() >> 4, coords.z() >> 4)
+                && coords.y() >= world.getMinHeight() && coords.y() < world.getMaxHeight();
+    }
+
     private String entityPlace(String key, String fallback) {
         int index = key.indexOf(ENTITY_MARKER);
         if (index < 0) {
             return fallback;
         }
         String rest = key.substring(index + ENTITY_MARKER.length());
-        if (rest.length() >= 36) {
+        if (rest.length() >= UUID_TEXT_LENGTH) {
             try {
-                Entity entity = plugin.getServer().getEntity(UUID.fromString(rest.substring(0, 36)));
+                Entity entity = plugin.getServer().getEntity(UUID.fromString(rest.substring(0, UUID_TEXT_LENGTH)));
                 if (entity != null) {
                     return fallback + " at "
                             + entity.getLocation().getBlockX() + ", "
@@ -138,7 +143,8 @@ final class PaperFriendlyLocation {
                             + " (" + entity.getWorld().getName() + ")";
                 }
             } catch (IllegalArgumentException exception) {
-                // Older location data can contain an invalid or absent entity identifier.
+                plugin.getLogger().log(java.util.logging.Level.FINE,
+                        "Location evidence contained an invalid entity identifier.", exception);
             }
         }
         Coordinates coords = coordinates(key);

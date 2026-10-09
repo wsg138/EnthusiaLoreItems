@@ -142,7 +142,8 @@ final class PaperTrackingAdministrationRenderer {
                 duplicate);
         Inventory inventory = createInventory(view, "Lore location evidence");
         populateEvidence(inventory, choices, duplicate);
-        inventory.setItem(46, currentLocationItem(data.current(), duplicate));
+        inventory.setItem(PaperTrackingAdministrationItems.CURRENT_LOCATION,
+                currentLocationItem(data.current(), duplicate));
         if (choices.isEmpty()) {
             inventory.setItem(
                     22,
@@ -277,7 +278,7 @@ final class PaperTrackingAdministrationRenderer {
             List<ObservationChoice> choices,
             DuplicateChoice duplicate) {
         for (int index = 0; index < choices.size() && index < CONTENT; index++) {
-            inventory.setItem(index, evidenceItem(plugin, choices.get(index), duplicate));
+            inventory.setItem(index, evidenceItem(places, choices.get(index), duplicate));
         }
     }
 

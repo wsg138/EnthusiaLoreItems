@@ -35,7 +35,7 @@ class PaperCreativeCopyControllerTest {
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
             new TemplateRevision(1));
 
-    private Plugin plugin;
+    private static final String COPY_COMMAND = "copy";
     private PlayerMock player;
     private AtomicInteger queued;
     private AtomicInteger woken;
@@ -44,7 +44,7 @@ class PaperCreativeCopyControllerTest {
     @BeforeEach
     void setUp() {
         MockBukkit.mock();
-        plugin = MockBukkit.createMockPlugin();
+        Plugin plugin = MockBukkit.createMockPlugin();
         player = MockBukkit.getMock().addPlayer();
         player.setGameMode(GameMode.CREATIVE);
         player.addAttachment(plugin, GiveLoreItemCommandExecutor.GIVE_PERMISSION, true);
@@ -77,10 +77,10 @@ class PaperCreativeCopyControllerTest {
         assertNotNull(token);
         assertEquals(0, queued.get());
 
-        controller.execute(player, new String[]{"copy", "confirm", token.toString()});
+        controller.execute(player, new String[]{COPY_COMMAND, "confirm", token.toString()});
         assertEquals(1, queued.get());
         assertEquals(1, woken.get());
-        controller.execute(player, new String[]{"copy", "confirm", token.toString()});
+        controller.execute(player, new String[]{COPY_COMMAND, "confirm", token.toString()});
         assertEquals(1, queued.get());
     }
 
@@ -88,13 +88,13 @@ class PaperCreativeCopyControllerTest {
     void cancelledAndMissingSourceRequestsDoNotDeliver() {
         controller.request(player, player.getInventory().getItem(0));
         UUID token = controller.pendingTokenForTest(player.getUniqueId());
-        controller.execute(player, new String[]{"copy", "cancel", token.toString()});
+        controller.execute(player, new String[]{COPY_COMMAND, "cancel", token.toString()});
         assertEquals(0, queued.get());
 
         controller.request(player, player.getInventory().getItem(0));
         token = controller.pendingTokenForTest(player.getUniqueId());
         player.getInventory().setItem(0, ItemStack.empty());
-        controller.execute(player, new String[]{"copy", "confirm", token.toString()});
+        controller.execute(player, new String[]{COPY_COMMAND, "confirm", token.toString()});
         assertEquals(0, queued.get());
     }
 
@@ -107,7 +107,7 @@ class PaperCreativeCopyControllerTest {
                 DEFINITION_ID, new DefinitionKey("creative_copy_test"),
                 "Creative Copy Test", new TemplateRevision(1), 0L, null);
         return (DefinitionRepository) Proxy.newProxyInstance(
-                DefinitionRepository.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[]{DefinitionRepository.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("findById")) {

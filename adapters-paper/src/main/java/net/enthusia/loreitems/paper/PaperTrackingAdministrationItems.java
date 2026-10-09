@@ -17,6 +17,7 @@ import org.bukkit.plugin.Plugin;
 /** Shared rendering primitives for the tracking administration inventories. */
 final class PaperTrackingAdministrationItems {
     static final int BACK = 45;
+    static final int CURRENT_LOCATION = 46;
     static final int PREVIOUS = 48;
     static final int STATUS = 49;
     static final int NEXT = 50;
@@ -82,8 +83,7 @@ final class PaperTrackingAdministrationItems {
     }
 
     static ItemStack evidenceItem(
-            Plugin plugin, ObservationChoice choice, DuplicateChoice duplicate) {
-        PaperFriendlyLocation location = new PaperFriendlyLocation(plugin);
+            PaperFriendlyLocation location, ObservationChoice choice, DuplicateChoice duplicate) {
         String place = location.describe(choice.location());
         boolean conflicting = choice.confidence() == InstanceObservation.Confidence.CONFLICTING;
         List<String> lore = new ArrayList<>();

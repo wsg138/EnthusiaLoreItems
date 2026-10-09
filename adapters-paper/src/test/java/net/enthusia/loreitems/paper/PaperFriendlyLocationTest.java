@@ -12,14 +12,14 @@ import org.mockbukkit.mockbukkit.MockBukkit;
 import org.mockbukkit.mockbukkit.entity.PlayerMock;
 
 class PaperFriendlyLocationTest {
-    private Plugin plugin;
+
     private PlayerMock player;
     private PaperFriendlyLocation friendly;
 
     @BeforeEach
     void setUp() {
         MockBukkit.mock();
-        plugin = MockBukkit.createMockPlugin();
+        Plugin plugin = MockBukkit.createMockPlugin();
         player = MockBukkit.getMock().addPlayer("P2wn");
         friendly = new PaperFriendlyLocation(plugin);
     }

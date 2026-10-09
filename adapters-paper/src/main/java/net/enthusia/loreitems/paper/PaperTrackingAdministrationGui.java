@@ -253,7 +253,7 @@ public final class PaperTrackingAdministrationGui implements Listener {
     private void clickEvidence(
             Player player, PaperTrackingAdministrationView view, int slot) {
         UUID playerId = player.getUniqueId();
-        if (slot == 46) {
+        if (slot == PaperTrackingAdministrationItems.CURRENT_LOCATION) {
             openEvidence(playerId, view.definitionId, view.definitionPageNumber,
                     view.parentPageNumber, view.instanceId, view.pageNumber);
             return;
