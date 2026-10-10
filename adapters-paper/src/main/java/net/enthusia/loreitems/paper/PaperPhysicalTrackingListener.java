@@ -64,8 +64,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
     private final Set<UUID> deathDrops = new HashSet<>();
-    /** Only coalesces same-player, same-source deferred scans for the current tick. */
-    private final Set<PaperDeferredPlayerScanKey> pendingPlayerScans = new HashSet<>();
+    private final PaperPlayerScanCoalescer pendingPlayerScans;
 
     private BukkitTask scanTask;
     private BukkitTask seedTask;
@@ -91,6 +90,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
+        this.pendingPlayerScans = new PaperPlayerScanCoalescer(
+                deferredActions, metrics, (id, source) -> scanPlayer(id, true, source));
         this.blockInventoryTracking = new PaperBlockInventoryTracking(
                 plugin, scanner, deferredActions, MAX_ITEMS_PER_SCAN);
         currentBudget();
@@ -293,22 +294,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     void schedulePlayerUnique(UUID playerId, String source) {
-        if (closed) {
-            return;
-        }
-        PaperDeferredPlayerScanKey request = new PaperDeferredPlayerScanKey(playerId, source);
-        if (!pendingPlayerScans.add(request)) {
-            metrics.increment("tracking.deferred_player_scan_coalesced");
-            return;
-        }
-        if (!deferredActions.schedule(() -> {
-            // Release the key before execution so a new event can schedule a fresh scan.
-            pendingPlayerScans.remove(request);
-            scanPlayer(request.playerId(), true, request.source());
-        })) {
-            // Failed or shutdown-time scheduling must never poison future scan keys.
-            pendingPlayerScans.remove(request);
-            metrics.increment("tracking.deferred_player_scan_schedule_rejected");
+        if (!closed) {
+            pendingPlayerScans.schedule(playerId, source);
         }
     }
 
