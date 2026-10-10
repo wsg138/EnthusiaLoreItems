@@ -93,12 +93,8 @@ final class PaperTrackedItemCollector {
                 && hasIdentityEvidence(blockMeta.getBlockState(), 0)) {
             return meta;
         }
-        if (meta instanceof BundleMeta bundle) {
-            for (ItemStack nested : bundle.getItems()) {
-                if (hasIdentityEvidence(nested, 1)) {
-                    return meta;
-                }
-            }
+        if (meta instanceof BundleMeta bundle && bundleHasIdentityEvidence(bundle, 0)) {
+            return meta;
         }
         return null;
     }
