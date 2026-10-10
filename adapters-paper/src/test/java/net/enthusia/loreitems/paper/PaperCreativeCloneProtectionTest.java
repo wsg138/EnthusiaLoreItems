@@ -199,6 +199,86 @@ class PaperCreativeCloneProtectionTest {
     }
 
     @Test
+    void creativePacketCannotIncreaseTrackedStackAmountWithSameIdentity() {
+        Inventory inventory = server.createInventory(null, 9);
+        player.openInventory(inventory);
+        ItemStack original = trackedItem();
+        inventory.setItem(0, original);
+
+        ItemStack inflated = original.clone();
+        inflated.setAmount(2);
+        InventoryCreativeEvent sameSlot = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                inflated);
+        listener.onCreativeInventoryMutation(sameSlot);
+        assertTrue(sameSlot.isCancelled());
+
+        InventoryCreativeEvent removal = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                ItemStack.empty());
+        listener.onCreativeInventoryMutation(removal);
+        assertFalse(removal.isCancelled());
+        inventory.setItem(0, ItemStack.empty());
+
+        InventoryCreativeEvent inflatedPlacement = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                1,
+                inflated);
+        listener.onCreativeInventoryMutation(inflatedPlacement);
+        assertTrue(inflatedPlacement.isCancelled());
+
+        // A failed placement must consume the credit; the real item cannot
+        // be replayed later to disguise the attempted creative duplication.
+        InventoryCreativeEvent replay = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                2,
+                original.clone());
+        listener.onCreativeInventoryMutation(replay);
+        assertTrue(replay.isCancelled());
+    }
+
+    @Test
+    void creativePacketCannotIncreaseAmountOfContainerWithNestedTrackedIdentity() {
+        Inventory inventory = server.createInventory(null, 9);
+        player.openInventory(inventory);
+        ItemStack original = shulkerContaining(trackedItem());
+        inventory.setItem(0, original);
+
+        ItemStack inflated = original.clone();
+        inflated.setAmount(2);
+        InventoryCreativeEvent sameSlot = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                inflated);
+        listener.onCreativeInventoryMutation(sameSlot);
+        assertTrue(sameSlot.isCancelled());
+
+        InventoryCreativeEvent removal = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                ItemStack.empty());
+        listener.onCreativeInventoryMutation(removal);
+        assertFalse(removal.isCancelled());
+        inventory.setItem(0, ItemStack.empty());
+
+        InventoryCreativeEvent inflatedPlacement = new InventoryCreativeEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                1,
+                inflated);
+        listener.onCreativeInventoryMutation(inflatedPlacement);
+        assertTrue(inflatedPlacement.isCancelled());
+    }
+
+    @Test
     void creativePickBlockWithDataRejectsTrackedContainerCopy() {
         Inventory inventory = server.createInventory(null, InventoryType.SHULKER_BOX);
         inventory.setItem(0, trackedItem());
