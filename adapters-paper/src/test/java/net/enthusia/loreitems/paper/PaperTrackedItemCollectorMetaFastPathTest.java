@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.paper;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -81,7 +82,7 @@ class PaperTrackedItemCollectorMetaFastPathTest {
         assertTrue(codec.hasIdentityEvidence(malformed));
         ItemIdentityReadResult.Invalid result = assertInstanceOf(
                 ItemIdentityReadResult.Invalid.class, codec.readIdentity(malformed));
-        assertTrue(result.failure() == ItemIdentityFailure.PARTIAL_DATA);
+        assertEquals(ItemIdentityFailure.PARTIAL_DATA, result.failure());
     }
 
     @Test
