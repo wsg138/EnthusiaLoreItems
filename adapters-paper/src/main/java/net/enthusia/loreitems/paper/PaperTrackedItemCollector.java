@@ -48,14 +48,17 @@ final class PaperTrackedItemCollector {
             return;
         }
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH && hasNestedIdentityEvidence(item)) {
-            collectNested(
-                    item.getItemMeta(),
-                    nestedLocationKey(type, key),
-                    path,
-                    observations,
-                    depth,
-                    limit);
+        if (depth < MAX_NESTING_DEPTH) {
+            ItemMeta nestedMeta = nestedMetaWithIdentityEvidence(item);
+            if (nestedMeta != null) {
+                collectNested(
+                        nestedMeta,
+                        nestedLocationKey(type, key),
+                        path,
+                        observations,
+                        depth,
+                        limit);
+            }
         }
     }
 
@@ -74,27 +77,29 @@ final class PaperTrackedItemCollector {
     }
 
     boolean hasNestedIdentityEvidence(ItemStack item) {
-        if (item == null || item.getType().isAir()) {
-            return false;
-        }
-        // A metadata-free item cannot contain shulker or bundle contents.
-        // hasItemMeta avoids a fresh metadata copy for ordinary inventory items.
-        if (!item.hasItemMeta()) {
-            return false;
+        return nestedMetaWithIdentityEvidence(item) != null;
+    }
+
+    /** Returns the metadata snapshot used to prove nested identity evidence. */
+    ItemMeta nestedMetaWithIdentityEvidence(ItemStack item) {
+        // Preserve the metadata-free shortcut while avoiding a second snapshot
+        // for nested shulker/bundle traversal after identity discovery.
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return null;
         }
         ItemMeta meta = item.getItemMeta();
         if (meta instanceof BlockStateMeta blockMeta
                 && hasIdentityEvidence(blockMeta.getBlockState(), 0)) {
-            return true;
+            return meta;
         }
         if (meta instanceof BundleMeta bundle) {
             for (ItemStack nested : bundle.getItems()) {
                 if (hasIdentityEvidence(nested, 1)) {
-                    return true;
+                    return meta;
                 }
             }
         }
-        return false;
+        return null;
     }
 
     static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
