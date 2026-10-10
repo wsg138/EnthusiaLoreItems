@@ -92,9 +92,9 @@ final class PaperCreativeIdentityProtection {
         var after = identityCodec.readIdentity(second);
         if (before instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked a
                 && after instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked b) {
-            return first.getType() == second.getType()
-                    && first.getAmount() == second.getAmount()
-                    && a.identity().equals(b.identity());
+            // UUID identity alone is not proof that a creative set-slot packet
+            // preserved the item. Reject unauthorized lore/enchant/PDC edits.
+            return a.identity().equals(b.identity()) && first.isSimilar(second);
         }
         return first.isSimilar(second);
     }
