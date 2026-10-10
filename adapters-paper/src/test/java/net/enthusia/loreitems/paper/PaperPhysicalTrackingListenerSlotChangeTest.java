@@ -98,6 +98,74 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         assertEquals(1, observed.size());
     }
 
+    @Test
+    void repeatedSlotChangesScheduleOnlyOneScanPerPlayerAndTick() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        listener = new PaperPhysicalTrackingListener(
+                plugin, () -> recordingUseCase(observed), () -> 4, MetricsPort.noOp());
+        PlayerMock player = server.addPlayer();
+        ItemStack tracked = trackedItem();
+        player.getInventory().setHelmet(tracked);
+        PlayerInventorySlotChangeEvent event = new PlayerInventorySlotChangeEvent(
+                player, 0, ItemStack.empty(), tracked);
+
+        for (int count = 0; count < 50; count++) {
+            listener.onSlotChange(event);
+        }
+
+        assertEquals(1, listener.pendingUniquePlayerScans());
+        server.getScheduler().performOneTick();
+        assertEquals(0, listener.pendingUniquePlayerScans());
+        assertCanonicalHelmetObservation(observed);
+
+        // The deduplication window ends when the scheduled action executes.
+        listener.onSlotChange(event);
+        assertEquals(1, listener.pendingUniquePlayerScans());
+        server.getScheduler().performOneTick();
+        assertEquals(0, listener.pendingUniquePlayerScans());
+    }
+
+    @Test
+    void differentPlayersAndEventSourcesAreNeverCoalescedTogether() {
+        listener = new PaperPhysicalTrackingListener(
+                plugin, () -> recordingUseCase(new CopyOnWriteArrayList<>()),
+                () -> 4, MetricsPort.noOp());
+        PlayerMock first = server.addPlayer();
+        PlayerMock second = server.addPlayer();
+
+        listener.schedulePlayerUnique(first.getUniqueId(), "inventory-slot-change");
+        listener.schedulePlayerUnique(first.getUniqueId(), "player-respawn");
+        listener.schedulePlayerUnique(second.getUniqueId(), "inventory-slot-change");
+        listener.schedulePlayerUnique(second.getUniqueId(), "inventory-slot-change");
+
+        assertEquals(3, listener.pendingUniquePlayerScans());
+        server.getScheduler().performOneTick();
+        assertEquals(0, listener.pendingUniquePlayerScans());
+    }
+
+    @Test
+    void shutdownDrainsCoalescedScansExactlyOnce() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        listener = new PaperPhysicalTrackingListener(
+                plugin, () -> recordingUseCase(observed), () -> 4, MetricsPort.noOp());
+        PlayerMock player = server.addPlayer();
+        ItemStack tracked = trackedItem();
+        player.getInventory().setHelmet(tracked);
+        PlayerInventorySlotChangeEvent event = new PlayerInventorySlotChangeEvent(
+                player, 0, ItemStack.empty(), tracked);
+
+        for (int count = 0; count < 40; count++) {
+            listener.onSlotChange(event);
+        }
+        assertEquals(1, listener.pendingUniquePlayerScans());
+        listener.close();
+
+        assertEquals(0, listener.pendingUniquePlayerScans());
+        assertCanonicalHelmetObservation(observed);
+        server.getScheduler().performOneTick();
+        assertEquals(1, observed.size());
+    }
+
     private static TrackingObservationUseCase recordingUseCase(
             List<TrackingObservationUseCase.Request> observed) {
         return request -> {
