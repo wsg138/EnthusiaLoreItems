@@ -46,7 +46,7 @@ class PaperTemplateUpdateScanner {
         ScanCursor cursor = cursors.computeIfAbsent(
                 inventoryReference,
                 ignored -> createCursor(inventoryReference, inventory));
-        boolean overflowed = processPass(plugin, cursor);
+        boolean overflowed = processPass(inventory, cursor);
         cursor.incrementContinuationPasses();
         if (overflowed
                 || (!cursor.pendingNodes().isEmpty()
@@ -90,12 +90,12 @@ class PaperTemplateUpdateScanner {
         return cursor;
     }
 
-    private boolean processPass(Plugin plugin, ScanCursor cursor) {
+    private boolean processPass(Inventory inventory, ScanCursor cursor) {
         int processed = 0;
         while (processed < MAX_ITEMS_PER_PASS && !cursor.pendingNodes().isEmpty()) {
             ScanNode node = cursor.pendingNodes().remove();
             Optional<PaperTemplateUpdateItemReference.Resolved> resolved =
-                    node.reference().resolve(plugin);
+                    node.reference().resolveIn(inventory);
             if (resolved.isPresent()) {
                 ItemStack item = resolved.orElseThrow().originalItem();
                 cursor.observe(readCandidate(item, node.reference()));
