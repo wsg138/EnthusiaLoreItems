@@ -97,10 +97,11 @@ class PaperTemplateUpdateScannerTest {
     @Test
     void discoveryAvoidsThirtyPerItemPlayerInventoryResolutions() {
         int itemCount = 30;
+        PaperItemIdentityCodec codec = new PaperItemIdentityCodec();
         for (int slot = 0; slot < itemCount; slot++) {
             ItemStack item = ItemStack.of(Material.COBBLESTONE);
             if (slot == itemCount - 1) {
-                item = new PaperItemIdentityCodec().writeIdentity(item, TARGET_IDENTITY);
+                item = codec.writeIdentity(item, TARGET_IDENTITY);
             }
             player.getInventory().setItem(slot, item);
         }
