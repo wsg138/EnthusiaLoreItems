@@ -38,7 +38,7 @@ For each sampling window, record start/end UTC, candidate SHA, total seconds, on
 | Duplicate/malformed identity and creative-copy warnings | Events | Security correctness check, not optimization score |
 | Storage pending-operation/rollback counts | State | Durable state must survive reload and restart |
 
-Counters are confirmed from PR #52 source; check actual metric exporter/dashboard availability before relying on them. These performance counters do **not** record the duration of each scan, so the next observability work should capture bounded, low-overhead, source-tagged timing only after review.
+**Observability gap found during review:** PR #52's scan-coalescing and scheduler-refusal counters are emitted by call sites, but the current `TrackingMetrics` collector ignores those three counter names; they will not appear in the staff GUI until [follow-up draft PR #57](https://github.com/wsg138/EnthusiaLoreItems/pull/57) is independently validated and included in a later build. The existing `tracking.scan_backlog`, `tracking.rejected`, and `tracking.scan_truncated` values are implemented in the collector. Even with #57, these counters do **not** measure scan wall-time: capture bounded, low-overhead, source-tagged timing only after separate review.
 
 ## Release gates
 
