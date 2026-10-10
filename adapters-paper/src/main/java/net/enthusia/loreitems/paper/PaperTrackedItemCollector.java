@@ -114,6 +114,7 @@ final class PaperTrackedItemCollector {
             return true;
         }
         return depth < MAX_NESTING_DEPTH
+                && item.hasItemMeta()
                 && hasNestedIdentityEvidence(item.getItemMeta(), depth);
     }
 
