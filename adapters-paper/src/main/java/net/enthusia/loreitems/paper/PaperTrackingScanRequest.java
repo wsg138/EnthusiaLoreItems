@@ -40,7 +40,9 @@ record PaperTrackingScanRequest(
      * have distinct evidence semantics and always retain their own queue slot.
      */
     ChunkReference periodicChunkKey() {
-        return "periodic-loaded-chunk".equals(source) ? chunk : null;
+        return "periodic-loaded-chunk".equals(source)
+                && presence == TrackingObservationUseCase.Presence.PRESENT
+                ? chunk : null;
     }
 
     void run(Plugin plugin, PaperPhysicalTrackingListener listener) {
