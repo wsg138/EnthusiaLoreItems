@@ -60,11 +60,17 @@ public final class TrackingMetrics implements MetricsPort {
             case FAILED -> failed.incrementAndGet();
             case CONFLICTS -> conflicts.incrementAndGet();
             case SCAN_TRUNCATED -> scanTruncated.incrementAndGet();
+            default -> incrementScanDiagnostics(name);
+        }
+    }
+
+    private void incrementScanDiagnostics(String name) {
+        switch (name) {
             case DEFERRED_PLAYER_SCAN_COALESCED -> deferredPlayerScanCoalesced.incrementAndGet();
             case PERIODIC_CHUNK_SCAN_COALESCED -> periodicChunkScanCoalesced.incrementAndGet();
             case DEFERRED_PLAYER_SCAN_SCHEDULE_REJECTED -> deferredPlayerScanScheduleRejected.incrementAndGet();
             default -> {
-                // Metrics outside this phase are intentionally ignored by this focused port.
+                // Ignore unrelated metric names, preserving the existing contract.
             }
         }
     }
