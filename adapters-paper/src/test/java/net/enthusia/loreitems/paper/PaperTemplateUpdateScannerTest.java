@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -13,9 +14,13 @@ import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Container;
 import org.bukkit.block.ShulkerBox;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,6 +91,93 @@ class PaperTemplateUpdateScannerTest {
         assertEquals(2, candidates.size());
         assertTrue(candidates.stream().allMatch(candidate ->
                 TARGET_IDENTITY.equals(candidate.identity())));
+    }
+
+    @Test
+    void discoversBlockContainerItemsWithoutReopeningTheBlockForEveryChild() {
+        World world = ((ServerMock) plugin.getServer()).addSimpleWorld("scan-world");
+        world.getChunkAt(0, 0);
+        world.getBlockAt(4, 64, 4).setType(Material.CHEST);
+        Inventory chest = assertInstanceOf(
+                Container.class, world.getBlockAt(4, 64, 4).getState()).getInventory();
+        assertInstanceOf(
+                PaperInventoryReference.Block.class,
+                PaperInventoryReference.capture(chest).orElseThrow());
+        chest.setItem(0, new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.DIAMOND), TARGET_IDENTITY));
+        chest.setItem(1, ItemStack.of(Material.COBBLESTONE));
+
+        // An inventory is supplied by the controller for this pass. Scanning its
+        // children must not resolve the block through Plugin.getServer() again.
+        Plugin forbidAdditionalResolution = (Plugin) Proxy.newProxyInstance(
+                Plugin.class.getClassLoader(),
+                new Class<?>[] {Plugin.class},
+                (proxy, method, arguments) -> {
+                    throw new AssertionError("Unexpected plugin lookup: " + method.getName());
+                });
+        PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
+
+        PaperTemplateUpdateScanner.ScanResult result =
+                scanner.scan(forbidAdditionalResolution, chest, candidates::add);
+
+        assertFalse(result.continuationRequired());
+        assertFalse(result.abandoned());
+        assertEquals(1, result.submitted());
+        assertEquals(TARGET_IDENTITY, candidates.getFirst().identity());
+        // Candidate references still resolve the live inventory at update time.
+        assertTrue(candidates.getFirst().reference().resolve(plugin).isPresent());
+    }
+
+    @Test
+    void continuationUsesCurrentInventoryContentsNotStaleShulkerSnapshots() {
+        populateShulkers(false);
+        PaperTemplateUpdateScanner scanner = new PaperTemplateUpdateScanner();
+        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
+
+        PaperTemplateUpdateScanner.ScanResult first =
+                scanner.scan(plugin, player.getInventory(), candidates::add);
+        assertTrue(first.continuationRequired());
+        assertTrue(candidates.isEmpty());
+
+        ItemStack replacement = player.getInventory().getItem(9).clone();
+        BlockStateMeta meta = assertInstanceOf(
+                BlockStateMeta.class, replacement.getItemMeta());
+        ShulkerBox shulker = assertInstanceOf(
+                ShulkerBox.class, meta.getBlockState());
+        shulker.getInventory().setItem(26, ItemStack.of(Material.COBBLESTONE));
+        meta.setBlockState(shulker);
+        assertTrue(replacement.setItemMeta(meta));
+        player.getInventory().setItem(9, replacement);
+
+        PaperTemplateUpdateScanner.ScanResult second =
+                scanner.scan(plugin, player.getInventory(), candidates::add);
+        assertFalse(second.continuationRequired());
+        assertFalse(second.abandoned());
+        assertEquals(0, second.submitted());
+        assertTrue(candidates.isEmpty());
+    }
+
+    @Test
+    void discoversTrackedItemsInsideBundlesWithResolvableReferences() {
+        ItemStack bundle = ItemStack.of(Material.BUNDLE);
+        BundleMeta meta = assertInstanceOf(BundleMeta.class, bundle.getItemMeta());
+        meta.setItems(List.of(
+                ItemStack.of(Material.COBBLESTONE),
+                new PaperItemIdentityCodec().writeIdentity(
+                        ItemStack.of(Material.DIAMOND), TARGET_IDENTITY)));
+        assertTrue(bundle.setItemMeta(meta));
+        player.getInventory().setItem(0, bundle);
+
+        List<PaperTemplateUpdateScanner.Candidate> candidates = new ArrayList<>();
+        PaperTemplateUpdateScanner.ScanResult result = new PaperTemplateUpdateScanner()
+                .scan(plugin, player.getInventory(), candidates::add);
+
+        assertFalse(result.continuationRequired());
+        assertFalse(result.abandoned());
+        assertEquals(1, result.submitted());
+        assertEquals(TARGET_IDENTITY, candidates.getFirst().identity());
+        assertTrue(candidates.getFirst().reference().resolve(plugin).isPresent());
     }
 
     private void populateShulkers(boolean includeEarlyDuplicate) {
