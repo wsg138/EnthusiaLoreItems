@@ -291,7 +291,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
     }
 
-    private void schedulePlayerUnique(UUID playerId, String source) {
+    void schedulePlayerUnique(UUID playerId, String source) {
         if (closed) {
             return;
         }
