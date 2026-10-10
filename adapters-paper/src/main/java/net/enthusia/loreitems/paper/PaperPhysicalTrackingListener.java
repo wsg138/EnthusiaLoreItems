@@ -64,7 +64,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
     /** Only coalesces same-player, same-source deferred scans for the current tick. */
-    private final Set<PendingPlayerScan> pendingPlayerScans = new HashSet<>();
+    private final Set<PaperDeferredPlayerScanKey> pendingPlayerScans = new HashSet<>();
 
     private BukkitTask scanTask;
     private BukkitTask seedTask;
@@ -295,7 +295,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         if (closed) {
             return;
         }
-        PendingPlayerScan request = new PendingPlayerScan(playerId, source);
+        PaperDeferredPlayerScanKey request = new PaperDeferredPlayerScanKey(playerId, source);
         if (!pendingPlayerScans.add(request)) {
             metrics.increment("tracking.deferred_player_scan_coalesced");
             return;
@@ -313,13 +313,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     int pendingUniquePlayerScans() {
         return pendingPlayerScans.size();
-    }
-
-    private record PendingPlayerScan(UUID playerId, String source) {
-        private PendingPlayerScan {
-            Objects.requireNonNull(playerId, "playerId");
-            Objects.requireNonNull(source, "source");
-        }
     }
 
     private void drain() {
