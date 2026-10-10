@@ -9,6 +9,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
@@ -91,6 +92,54 @@ class PaperTemplateUpdateScannerTest {
         assertEquals(2, candidates.size());
         assertTrue(candidates.stream().allMatch(candidate ->
                 TARGET_IDENTITY.equals(candidate.identity())));
+    }
+
+    @Test
+    void discoveryAvoidsThirtyPerItemPlayerInventoryResolutions() {
+        int itemCount = 30;
+        for (int slot = 0; slot < itemCount; slot++) {
+            ItemStack item = ItemStack.of(Material.COBBLESTONE);
+            if (slot == itemCount - 1) {
+                item = new PaperItemIdentityCodec().writeIdentity(item, TARGET_IDENTITY);
+            }
+            player.getInventory().setItem(slot, item);
+        }
+
+        AtomicInteger serverLookups = new AtomicInteger();
+        Plugin countedPlugin = (Plugin) Proxy.newProxyInstance(
+                Thread.currentThread().getContextClassLoader(),
+                new Class<?>[] {Plugin.class},
+                (proxy, method, arguments) -> {
+                    if ("getServer".equals(method.getName())) {
+                        serverLookups.incrementAndGet();
+                        return plugin.getServer();
+                    }
+                    throw new AssertionError("Unexpected plugin method: " + method.getName());
+                });
+
+        PaperInventoryReference.PlayerMain reference =
+                new PaperInventoryReference.PlayerMain(player.getUniqueId());
+        // Exercise exactly the per-item resolution operation formerly called
+        // by processPass, to establish its deterministic lookup count.
+        for (int slot = 0; slot < itemCount; slot++) {
+            assertTrue(PaperTemplateUpdateItemReference.root(reference, slot)
+                    .resolve(countedPlugin).isPresent());
+        }
+        assertEquals(itemCount, serverLookups.get());
+
+        serverLookups.set(0);
+        List<PaperTemplateUpdateScanner.Candidate> found = new ArrayList<>();
+        PaperTemplateUpdateScanner.ScanResult result =
+                new PaperTemplateUpdateScanner().scan(
+                        countedPlugin, player.getInventory(), found::add);
+
+        assertFalse(result.abandoned());
+        assertFalse(result.continuationRequired());
+        assertEquals(1, result.submitted());
+        assertEquals(TARGET_IDENTITY, found.getFirst().identity());
+        // The current pass uses its supplied inventory, not Plugin.getServer()
+        // for every node. These are API-lookup counts, NOT a TPS benchmark.
+        assertEquals(0, serverLookups.get());
     }
 
     @Test
