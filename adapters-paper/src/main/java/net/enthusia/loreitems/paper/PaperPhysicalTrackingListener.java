@@ -63,6 +63,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperBlockInventoryTracking blockInventoryTracking;
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     private final Set<UUID> deathDrops = new HashSet<>();
+    /** Only coalesces same-player, same-source deferred scans for the current tick. */
+    private final Set<PendingPlayerScan> pendingPlayerScans = new HashSet<>();
 
     private BukkitTask scanTask;
     private BukkitTask seedTask;
@@ -290,7 +292,30 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private void schedulePlayerUnique(UUID playerId, String source) {
-        scheduleNextTick(() -> scanPlayer(playerId, true, source));
+        if (closed) {
+            return;
+        }
+        PendingPlayerScan request = new PendingPlayerScan(playerId, source);
+        if (!pendingPlayerScans.add(request)) {
+            metrics.increment("tracking.deferred_player_scan_coalesced");
+            return;
+        }
+        scheduleNextTick(() -> {
+            // Release the key before execution so a new event can schedule a fresh scan.
+            pendingPlayerScans.remove(request);
+            scanPlayer(request.playerId(), true, request.source());
+        });
+    }
+
+    int pendingUniquePlayerScans() {
+        return pendingPlayerScans.size();
+    }
+
+    private record PendingPlayerScan(UUID playerId, String source) {
+        private PendingPlayerScan {
+            Objects.requireNonNull(playerId, "playerId");
+            Objects.requireNonNull(source, "source");
+        }
     }
 
     private void drain() {
@@ -512,6 +537,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             seedTask.cancel();
         }
         deferredActions.close();
+        pendingPlayerScans.clear();
         scans.clear();
         deathDrops.clear();
         scanSaturated = false;
