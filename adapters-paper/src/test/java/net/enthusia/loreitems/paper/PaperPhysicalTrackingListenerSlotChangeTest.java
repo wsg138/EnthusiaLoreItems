@@ -144,6 +144,15 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
     }
 
     @Test
+    void deferredSchedulerRejectsNewWorkAfterClose() {
+        PaperDeferredMainThreadActions actions = new PaperDeferredMainThreadActions(
+                plugin, "test scheduling refusal");
+        assertEquals(true, actions.schedule(() -> {}));
+        actions.close();
+        assertEquals(false, actions.schedule(() -> {}));
+    }
+
+    @Test
     void shutdownDrainsCoalescedScansExactlyOnce() {
         List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
         listener = new PaperPhysicalTrackingListener(
