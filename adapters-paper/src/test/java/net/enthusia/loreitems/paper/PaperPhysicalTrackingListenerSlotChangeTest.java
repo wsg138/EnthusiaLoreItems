@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.List;
@@ -147,9 +149,9 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
     void deferredSchedulerRejectsNewWorkAfterClose() {
         PaperDeferredMainThreadActions actions = new PaperDeferredMainThreadActions(
                 plugin, "test scheduling refusal");
-        assertEquals(true, actions.schedule(() -> {}));
+        assertTrue(actions.schedule(() -> {}));
         actions.close();
-        assertEquals(false, actions.schedule(() -> {}));
+        assertFalse(actions.schedule(() -> {}));
     }
 
     @Test
