@@ -300,11 +300,15 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             metrics.increment("tracking.deferred_player_scan_coalesced");
             return;
         }
-        scheduleNextTick(() -> {
+        if (!deferredActions.schedule(() -> {
             // Release the key before execution so a new event can schedule a fresh scan.
             pendingPlayerScans.remove(request);
             scanPlayer(request.playerId(), true, request.source());
-        });
+        })) {
+            // Failed or shutdown-time scheduling must never poison future scan keys.
+            pendingPlayerScans.remove(request);
+            metrics.increment("tracking.deferred_player_scan_schedule_rejected");
+        }
     }
 
     int pendingUniquePlayerScans() {
