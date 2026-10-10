@@ -1,16 +1,20 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.UUID;
 import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.application.ItemIdentityReadResult;
+import net.enthusia.loreitems.application.ItemIdentityFailure;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
 import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
@@ -52,6 +56,8 @@ class PaperTrackedItemCollectorMetaFastPathTest {
         };
         assertFalse(ordinary.hasItemMeta());
         assertFalse(codec.hasIdentityEvidence(ordinary));
+        assertInstanceOf(ItemIdentityReadResult.Untracked.class, codec.readIdentity(ordinary));
+        assertNull(collector.trackedIdentity(ordinary));
         assertFalse(collector.hasIdentityEvidence(ordinary));
         assertFalse(collector.hasNestedIdentityEvidence(ordinary));
     }
@@ -62,6 +68,20 @@ class PaperTrackedItemCollectorMetaFastPathTest {
         assertTrue(codec.hasIdentityEvidence(tracked));
         assertTrue(collector.hasIdentityEvidence(tracked));
         assertFalse(collector.hasNestedIdentityEvidence(tracked));
+    }
+
+    @Test
+    void malformedAndPartialMetadataEvidenceStillGetsDecoded() {
+        ItemStack malformed = trackedItem();
+        ItemMeta meta = malformed.getItemMeta();
+        meta.getPersistentDataContainer().remove(
+                NamespacedKey.fromString("enthusialoreitems:instance_id"));
+        assertTrue(malformed.setItemMeta(meta));
+        assertTrue(malformed.hasItemMeta());
+        assertTrue(codec.hasIdentityEvidence(malformed));
+        ItemIdentityReadResult.Invalid result = assertInstanceOf(
+                ItemIdentityReadResult.Invalid.class, codec.readIdentity(malformed));
+        assertTrue(result.failure() == ItemIdentityFailure.PARTIAL_DATA);
     }
 
     @Test
