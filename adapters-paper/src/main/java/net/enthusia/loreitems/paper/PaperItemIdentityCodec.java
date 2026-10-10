@@ -80,6 +80,11 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
         if (item == null || item.getType().isAir()) {
             return false;
         }
+        // Ordinary items with no metadata cannot carry any persistent identity
+        // keys. Avoid materializing ItemMeta on the hot-path evidence probe.
+        if (!item.hasItemMeta()) {
+            return false;
+        }
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return false;

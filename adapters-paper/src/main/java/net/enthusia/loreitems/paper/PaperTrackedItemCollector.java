@@ -77,6 +77,11 @@ final class PaperTrackedItemCollector {
         if (item == null || item.getType().isAir()) {
             return false;
         }
+        // A metadata-free item cannot contain shulker or bundle contents.
+        // hasItemMeta avoids a fresh metadata copy for ordinary inventory items.
+        if (!item.hasItemMeta()) {
+            return false;
+        }
         ItemMeta meta = item.getItemMeta();
         if (meta instanceof BlockStateMeta blockMeta
                 && hasIdentityEvidence(blockMeta.getBlockState(), 0)) {
@@ -109,6 +114,7 @@ final class PaperTrackedItemCollector {
             return true;
         }
         return depth < MAX_NESTING_DEPTH
+                && item.hasItemMeta()
                 && hasNestedIdentityEvidence(item.getItemMeta(), depth);
     }
 
