@@ -37,7 +37,14 @@ class PaperTrackedItemCollectorMetaFastPathTest {
 
     @Test
     void metadataFreeOrdinaryItemsDoNotMaterializeItemMetaDuringEvidenceProbes() {
+        // MockBukkit may report a default ItemMeta for ordinary items. This
+        // test double explicitly models the Bukkit no-metadata contract.
         ItemStack ordinary = new ItemStack(Material.COBBLESTONE) {
+            @Override
+            public boolean hasItemMeta() {
+                return false;
+            }
+
             @Override
             public ItemMeta getItemMeta() {
                 throw new AssertionError("Metadata-free item must not copy ItemMeta");
