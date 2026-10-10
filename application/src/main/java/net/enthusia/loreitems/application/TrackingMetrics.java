@@ -15,6 +15,12 @@ public final class TrackingMetrics implements MetricsPort {
     private static final String FAILED = "tracking.failed";
     private static final String CONFLICTS = "tracking.conflicts";
     private static final String SCAN_TRUNCATED = "tracking.scan_truncated";
+    private static final String DEFERRED_SCAN_COALESCED =
+            "tracking.deferred_player_scan_coalesced";
+    private static final String PERIODIC_CHUNK_COALESCED =
+            "tracking.periodic_chunk_scan_coalesced";
+    private static final String DEFERRED_SCHEDULE_REJECTED =
+            "tracking.deferred_player_scan_schedule_rejected";
     private static final String PERSISTENCE_NANOS = "tracking.persistence_nanos";
 
     private final AtomicLong queued = new AtomicLong();
@@ -28,6 +34,9 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong conflicts = new AtomicLong();
     private final AtomicLong scanTruncated = new AtomicLong();
+    private final AtomicLong deferredScanCoalesced = new AtomicLong();
+    private final AtomicLong periodicChunkCoalesced = new AtomicLong();
+    private final AtomicLong deferredScheduleRejected = new AtomicLong();
     private final AtomicLong durationNanos = new AtomicLong();
 
     @Override
@@ -53,6 +62,9 @@ public final class TrackingMetrics implements MetricsPort {
             case FAILED -> failed.incrementAndGet();
             case CONFLICTS -> conflicts.incrementAndGet();
             case SCAN_TRUNCATED -> scanTruncated.incrementAndGet();
+            case DEFERRED_SCAN_COALESCED -> deferredScanCoalesced.incrementAndGet();
+            case PERIODIC_CHUNK_COALESCED -> periodicChunkCoalesced.incrementAndGet();
+            case DEFERRED_SCHEDULE_REJECTED -> deferredScheduleRejected.incrementAndGet();
             default -> {
                 // Metrics outside this phase are intentionally ignored by this focused port.
             }
@@ -81,7 +93,10 @@ public final class TrackingMetrics implements MetricsPort {
                 failed.get(),
                 conflicts.get(),
                 scanTruncated.get(),
-                durationNanos.get());
+                durationNanos.get(),
+                deferredScanCoalesced.get(),
+                periodicChunkCoalesced.get(),
+                deferredScheduleRejected.get());
     }
 
     public record Snapshot(
@@ -94,7 +109,10 @@ public final class TrackingMetrics implements MetricsPort {
             long failed,
             long conflicts,
             long scanTruncated,
-            long persistenceNanos) {}
+            long persistenceNanos,
+            long deferredScanCoalesced,
+            long periodicChunkCoalesced,
+            long deferredScheduleRejected) {}
 
     private record AdditionalQueueMetrics(TrackingMetrics metrics) implements MetricsPort {
         @Override
