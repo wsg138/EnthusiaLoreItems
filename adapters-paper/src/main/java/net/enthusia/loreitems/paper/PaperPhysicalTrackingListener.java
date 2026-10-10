@@ -62,6 +62,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperDeferredMainThreadActions deferredActions;
     private final PaperBlockInventoryTracking blockInventoryTracking;
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
+    private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
     private final Set<UUID> deathDrops = new HashSet<>();
     /** Only coalesces same-player, same-source deferred scans for the current tick. */
     private final Set<PaperDeferredPlayerScanKey> pendingPlayerScans = new HashSet<>();
@@ -322,6 +323,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             if (request == null) {
                 break;
             }
+            periodicChunkKeys.release(request);
             request.run(plugin, this);
         }
         if (scans.isEmpty() && scanSaturated) {
@@ -377,12 +379,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         seededChunks = EMPTY_CHUNKS;
     }
 
-    private void enqueue(PaperTrackingScanRequest request) {
-        if (closed) {
+    void enqueue(PaperTrackingScanRequest request) {
+        Objects.requireNonNull(request, "request");
+        if (closed || !periodicChunkKeys.tryRegister(request, metrics)) {
             return;
         }
         int maximum = maxQueuedScans();
         if (scans.size() >= maximum) {
+            periodicChunkKeys.release(request);
             metrics.increment("tracking.rejected");
             reportScanSaturation();
             return;
@@ -391,6 +395,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         if (scans.size() == maximum) {
             reportScanSaturation();
         }
+    }
+
+    int queuedScanCount() {
+        return scans.size();
+    }
+
+    int queuedPeriodicChunkCount() {
+        return periodicChunkKeys.size();
     }
 
     private void reportScanSaturation() {
@@ -536,6 +548,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         deferredActions.close();
         pendingPlayerScans.clear();
         scans.clear();
+        periodicChunkKeys.clear();
         deathDrops.clear();
         scanSaturated = false;
         coordinator.close();
