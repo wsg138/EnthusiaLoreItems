@@ -1,0 +1,25 @@
+# LoreItems tracking telemetry audit — 2026-10-10
+
+**Scope:** read-only source review of combined optimization candidate `e50ae6128047c9ab6cc1deb54408c099774a7090` (PR #52). This document does not claim a production deployment or measured MSPT improvement. The candidate must remain immutable for its existing 24/24 acceptance evidence.
+
+## Confirmed measurement boundaries
+
+1. **New savings counters not exposed in #52.** `PaperPlayerScanCoalescer` and `PaperPeriodicChunkScanKeys` emit `tracking.deferred_player_scan_coalesced`, `tracking.periodic_chunk_scan_coalesced` and `tracking.deferred_player_scan_schedule_rejected`. The candidate's `TrackingMetrics.increment` switch silently ignores these names. Follow-up draft #57 adds collection/GUI presentation; it is **not** in the pinned e50ae612 JAR. Interpret missing counters as *not available*, never zero.
+2. **Queue snapshot misses within-tick high water.** `PaperPhysicalTrackingListener.enqueue` adds requests to an `ArrayDeque`, while `tracking.scan_backlog` is sampled only at the end of the once-per-tick `drain`. This reports post-drain backlog, not the maximum reached between drains. Queue capacity is `currentBudget() * 32` (e.g. 512 for a verified budget of 16, not an assertion of the current live configuration).
+3. **No source attribution for saturation.** When the queue is full, `enqueue` increments only aggregate `tracking.rejected`. The request has a `source` and `presence`, but there is no bounded per-source rejected counter; a logger warns once per saturation episode. Aggregate backlog/rejections cannot distinguish periodic reconciliation from a player or LAST_CONFIRMED lifecycle observation.
+4. **Mixed truncation causes.** `tracking.scan_truncated` is incremented by both bounded `scanLifecycleEntities` and `scanChunk` with different source semantics; aggregate counts alone cannot identify which traversal exhausted the 256-item cap.
+5. **Two independent queues.** Pending same-player/source next-tick unique scans are tracked in `PaperPlayerScanCoalescer.pending`. Its size is not included in the `tracking.scan_backlog` gauge of queued `PaperTrackingScanRequest` objects. The durable application/persistence queue uses still other queued/in-flight gauges. Do not present one number as total work pending.
+6. **Process-local telemetry.** `TrackingMetrics` uses in-memory atomic counters; an uptime boundary invalidates cumulative counter subtraction across restarts. Save snapshots with boot/session identity and use within-session deltas only.
+
+## Follow-up, in priority order
+
+- **P0 correctness (issue #39 / #45):** reproduce saturated periodic scans with concurrent player/lifecycle requests on a disposable Paper fixture. Record accepted/rejected events by coarse source class and presence, plus resulting durable observations. Confirm lifecycle/LAST_CONFIRMED requests are not starved indefinitely; do not simply drop them, raise limits, or invent priority guarantees.
+- **P1 bounded, low-cost counters:** consider fixed-class counters for attempted/enqueued/rejected/coalesced requests and truncated scan type, and a queue high-water gauge updated on enqueue. Include pending unique-player and database queue separately. Avoid dynamic per-world/player labels, raw identity/PDC/UUID data, per-item logs and unbounded histogram allocations.
+- **P2 elapsed work:** only after review, add low-rate/sample-based source-class execution-duration tracking around bounded scan passes. Report samples/quantiles and overhead, not continuous per-item timings on the main thread.
+- **P3 comparison:** compare matched pre/post Spark windows by players, loaded chunks, container/hopper workload, host/AI load, duration and version SHA. Include TPS, MSPT p50/p95/p99, queue high-water, within-boot rejected/truncated/coalesced deltas, creative/duplicate/malformed-identity health, and persisted work. Inclusive Spark samples are overlapping, not exclusive CPU.
+
+## Database and staging dependency
+
+`docs/operator-guide.md` explicitly identifies SQLite WAL mode. Copying only live `plugins/EnthusiaLoreItems/loreitems.db` over SFTP cannot serve as a consistent rollback point. Before staging, require one verified SQLite-supported **online** backup with integrity check and a consistent snapshot of supporting group/marker files, or a **clean offline** backup at an approved maintenance window. SFTP file read/write tools alone do not implement a SQLite online backup. Preserve exactly one baseline JAR outside scanning paths and one deployment database/data backup; never blindly restore an old DB after new writes.
+
+Sources: `application/src/main/java/net/enthusia/loreitems/application/TrackingMetrics.java`, `adapters-paper/src/main/java/net/enthusia/loreitems/paper/PaperPhysicalTrackingListener.java`, `PaperPlayerScanCoalescer.java`, `PaperTrackingScanRequest.java` at PR #52 exact head; `docs/operator-guide.md`; historical Spark review `wsg138/Enthusia-AI` and LoreItems issues #39, #45, #54. This is a design/release-gap review, not production metrics.
