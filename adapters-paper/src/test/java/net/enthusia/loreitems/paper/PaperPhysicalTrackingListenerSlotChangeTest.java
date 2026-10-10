@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -152,6 +154,34 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         assertTrue(actions.schedule(() -> {}));
         actions.close();
         assertFalse(actions.schedule(() -> {}));
+    }
+
+    @Test
+    void burstCoalescingStillReportsBothCopiesOfTheSameTrackedIdentity() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        listener = new PaperPhysicalTrackingListener(
+                plugin, () -> recordingUseCase(observed), () -> 4, MetricsPort.noOp());
+        PlayerMock player = server.addPlayer();
+        ItemStack item = trackedItem();
+        player.getInventory().setItem(5, item.clone());
+        player.getInventory().setHelmet(item.clone());
+        PlayerInventorySlotChangeEvent event = new PlayerInventorySlotChangeEvent(
+                player, 0, ItemStack.empty(), item);
+
+        for (int count = 0; count < 25; count++) {
+            listener.onSlotChange(event);
+        }
+        assertEquals(1, listener.pendingUniquePlayerScans());
+        server.getScheduler().performOneTick();
+
+        assertEquals(2, observed.size());
+        assertEquals(
+                Set.of("slot:5", "armor:3"),
+                observed.stream()
+                        .map(request -> request.location().containerPath())
+                        .collect(Collectors.toSet()));
+        assertTrue(observed.stream().allMatch(request ->
+                request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
     }
 
     @Test
