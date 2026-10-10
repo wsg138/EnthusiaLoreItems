@@ -106,7 +106,8 @@ class PaperCreativeCloneProtectionTest {
         listener.onCreativeInventoryMutation(injection);
         assertTrue(injection.isCancelled());
 
-        inventory.setItem(0, trackedItem());
+        ItemStack original = trackedItem();
+        inventory.setItem(0, original);
         InventoryCreativeEvent removal = new InventoryCreativeEvent(
                 player.getOpenInventory(),
                 InventoryType.SlotType.CONTAINER,
@@ -120,13 +121,14 @@ class PaperCreativeCloneProtectionTest {
         listener.onCreativeInventoryMutation(removal);
         assertFalse(removal.isCancelled());
 
-        // Clearing the source permits exactly one matching placement.
+        // A real relocation carries the actual source item and all its
+        // metadata; a newly forged stack with just the UUID is not equivalent.
         inventory.setItem(0, ItemStack.empty());
         InventoryCreativeEvent placement = new InventoryCreativeEvent(
                 player.getOpenInventory(),
                 InventoryType.SlotType.CONTAINER,
                 1,
-                trackedItem());
+                original.clone());
         listener.onCreativeInventoryMutation(placement);
         assertFalse(placement.isCancelled());
 
@@ -134,7 +136,7 @@ class PaperCreativeCloneProtectionTest {
                 player.getOpenInventory(),
                 InventoryType.SlotType.CONTAINER,
                 2,
-                trackedItem());
+                original.clone());
         listener.onCreativeInventoryMutation(replay);
         assertTrue(replay.isCancelled());
 
