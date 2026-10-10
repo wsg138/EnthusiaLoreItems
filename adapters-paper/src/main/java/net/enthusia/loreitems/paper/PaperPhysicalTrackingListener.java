@@ -63,7 +63,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperBlockInventoryTracking blockInventoryTracking;
     private final Queue<PaperTrackingScanRequest> scans = new ArrayDeque<>();
     /** Positions already awaiting a routine reconciliation scan. */
-    private final Set<PaperTrackingScanRequest.ChunkReference> periodicChunkKeys = new HashSet<>();
+    private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
     private final Set<UUID> deathDrops = new HashSet<>();
 
     private BukkitTask scanTask;
@@ -302,10 +302,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             if (request == null) {
                 break;
             }
-            PaperTrackingScanRequest.ChunkReference periodicKey = request.periodicChunkKey();
-            if (periodicKey != null) {
-                periodicChunkKeys.remove(periodicKey);
-            }
+            periodicChunkKeys.release(request);
             request.run(plugin, this);
         }
         if (scans.isEmpty() && scanSaturated) {
@@ -366,16 +363,12 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         if (closed) {
             return;
         }
-        PaperTrackingScanRequest.ChunkReference periodicKey = request.periodicChunkKey();
-        if (periodicKey != null && !periodicChunkKeys.add(periodicKey)) {
-            metrics.increment("tracking.periodic_chunk_scan_coalesced");
+        if (!periodicChunkKeys.tryRegister(request, metrics)) {
             return;
         }
         int maximum = maxQueuedScans();
         if (scans.size() >= maximum) {
-            if (periodicKey != null) {
-                periodicChunkKeys.remove(periodicKey);
-            }
+            periodicChunkKeys.release(request);
             metrics.increment("tracking.rejected");
             reportScanSaturation();
             return;
