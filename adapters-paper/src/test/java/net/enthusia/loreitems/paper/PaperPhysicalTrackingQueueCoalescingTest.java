@@ -64,6 +64,14 @@ class PaperPhysicalTrackingQueueCoalescingTest {
                 chunk, TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
         assertEquals(3, listener.queuedScanCount());
         assertEquals(1, listener.queuedPeriodicChunkCount());
+
+        // Even if a caller accidentally uses the periodic label for a
+        // LAST_CONFIRMED observation, it must never be coalesced into PRESENT.
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                chunk, TrackingObservationUseCase.Presence.LAST_CONFIRMED,
+                "periodic-loaded-chunk"));
+        assertEquals(4, listener.queuedScanCount());
+        assertEquals(1, listener.queuedPeriodicChunkCount());
     }
 
     @Test
