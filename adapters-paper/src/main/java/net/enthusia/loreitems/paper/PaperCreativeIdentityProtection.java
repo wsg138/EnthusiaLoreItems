@@ -88,6 +88,12 @@ final class PaperCreativeIdentityProtection {
         if (!hasIdentityEvidenceInTree(first) || !hasIdentityEvidenceInTree(second)) {
             return false;
         }
+        // Bukkit isSimilar intentionally ignores stack amount. A creative packet
+        // changing the count must never be treated as a physical relocation,
+        // including when tracked identities are nested inside containers.
+        if (first.getAmount() != second.getAmount()) {
+            return false;
+        }
         var before = identityCodec.readIdentity(first);
         var after = identityCodec.readIdentity(second);
         if (before instanceof net.enthusia.loreitems.application.ItemIdentityReadResult.Tracked a
