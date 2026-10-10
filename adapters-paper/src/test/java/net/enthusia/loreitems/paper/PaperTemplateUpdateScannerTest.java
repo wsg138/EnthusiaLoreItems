@@ -125,8 +125,15 @@ class PaperTemplateUpdateScannerTest {
         assertFalse(result.abandoned());
         assertEquals(1, result.submitted());
         assertEquals(TARGET_IDENTITY, candidates.getFirst().identity());
-        // Candidate references still resolve the live inventory at update time.
-        assertTrue(candidates.getFirst().reference().resolve(plugin).isPresent());
+        // Discovery retains a reload-safe block reference rather than a captured
+        // Inventory. Mutation-time code will independently resolve the live world.
+        assertInstanceOf(
+                PaperTemplateUpdateItemReference.class, candidates.getFirst().reference());
+        assertEquals(
+                "LOADED_BLOCK_INVENTORY",
+                candidates.getFirst().reference().destructiveLocation().locationType());
+        assertEquals(
+                "slot=0", candidates.getFirst().reference().destructiveLocation().containerPath());
     }
 
     @Test
