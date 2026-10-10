@@ -110,7 +110,7 @@ class PaperTemplateUpdateScannerTest {
         // An inventory is supplied by the controller for this pass. Scanning its
         // children must not resolve the block through Plugin.getServer() again.
         Plugin forbidAdditionalResolution = (Plugin) Proxy.newProxyInstance(
-                Plugin.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {Plugin.class},
                 (proxy, method, arguments) -> {
                     throw new AssertionError("Unexpected plugin lookup: " + method.getName());
