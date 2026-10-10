@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -110,7 +110,7 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
     @Test
     void nestedCollectorReusesIdentityConfirmedMetadataSnapshot() {
         CountingShulkerItem item = countingShulkerContaining(trackedItem());
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
 
         new PaperTrackedItemCollector().collectItem(
                 item,
@@ -164,7 +164,7 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
     }
 
     private static final class CountingShulkerItem extends ItemStack {
-        private int metadataReads;
+        private int metadataReadCount;
 
         CountingShulkerItem() {
             super(Material.SHULKER_BOX);
@@ -172,16 +172,16 @@ class PaperPhysicalInventoryScannerNestedMoveTest {
 
         @Override
         public ItemMeta getItemMeta() {
-            metadataReads++;
+            metadataReadCount++;
             return super.getItemMeta();
         }
 
         int metadataReads() {
-            return metadataReads;
+            return metadataReadCount;
         }
 
         void clearMetadataReads() {
-            metadataReads = 0;
+            metadataReadCount = 0;
         }
     }
 
