@@ -30,6 +30,7 @@ import org.mockbukkit.mockbukkit.entity.PlayerMock;
 import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 class PaperPhysicalTrackingListenerSlotChangeTest {
+    private static final String SLOT_CHANGE_SOURCE = "inventory-slot-change";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString(
                     "11111111-1111-1111-1111-111111111111")),
@@ -137,10 +138,10 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         PlayerMock first = server.addPlayer();
         PlayerMock second = server.addPlayer();
 
-        listener.schedulePlayerUnique(first.getUniqueId(), "inventory-slot-change");
+        listener.schedulePlayerUnique(first.getUniqueId(), SLOT_CHANGE_SOURCE);
         listener.schedulePlayerUnique(first.getUniqueId(), "player-respawn");
-        listener.schedulePlayerUnique(second.getUniqueId(), "inventory-slot-change");
-        listener.schedulePlayerUnique(second.getUniqueId(), "inventory-slot-change");
+        listener.schedulePlayerUnique(second.getUniqueId(), SLOT_CHANGE_SOURCE);
+        listener.schedulePlayerUnique(second.getUniqueId(), SLOT_CHANGE_SOURCE);
 
         assertEquals(3, listener.pendingUniquePlayerScans());
         server.getScheduler().performOneTick();
@@ -232,6 +233,6 @@ class PaperPhysicalTrackingListenerSlotChangeTest {
         assertEquals(
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
                 request.mode());
-        assertEquals("inventory-slot-change", request.source());
+        assertEquals(SLOT_CHANGE_SOURCE, request.source());
     }
 }
