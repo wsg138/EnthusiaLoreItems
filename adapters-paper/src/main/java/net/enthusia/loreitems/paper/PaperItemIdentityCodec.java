@@ -101,6 +101,13 @@ public final class PaperItemIdentityCodec implements ItemIdentityCodec<ItemStack
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Air cannot carry lore-item identity");
         }
 
+        // Identity is stored exclusively in ItemMeta PDC. A non-air stack
+        // without ItemMeta has no identity bytes to validate or decode.
+        // The primary-thread guard and malformed air behavior remain above.
+        if (!item.hasItemMeta()) {
+            return new ItemIdentityReadResult.Untracked();
+        }
+
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return invalid(ItemIdentityFailure.MALFORMED_DATA, "Item metadata is unavailable");
