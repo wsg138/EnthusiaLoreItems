@@ -16,14 +16,14 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 /** Prevents routine queue optimizations from silently removing lifecycle evidence. */
 class PaperPhysicalTrackingQueueCoalescingTest {
+    private static final String PERIODIC_SOURCE = "periodic-loaded-chunk";
     private ServerMock server;
-    private PluginMock plugin;
     private PaperPhysicalTrackingListener listener;
 
     @BeforeEach
     void setUp() {
         server = MockBukkit.mock();
-        plugin = MockBukkit.createMockPlugin();
+        PluginMock plugin = MockBukkit.createMockPlugin();
         TrackingObservationUseCase recorder = request ->
                 CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
                         TrackingObservationUseCase.Status.RECORDED, "ok"));
@@ -43,7 +43,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         Chunk chunk = world.getChunkAt(0, 0);
         PaperTrackingScanRequest periodic = PaperTrackingScanRequest.chunk(
                 chunk, TrackingObservationUseCase.Presence.PRESENT,
-                "periodic-loaded-chunk");
+                PERIODIC_SOURCE);
 
         for (int n = 0; n < 50; n++) {
             listener.enqueue(periodic);
@@ -53,7 +53,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(1, listener.queuedPeriodicChunkCount());
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 chunk, TrackingObservationUseCase.Presence.PRESENT,
-                "periodic-loaded-chunk"));
+                PERIODIC_SOURCE));
         assertEquals(1, listener.queuedScanCount());
 
         // A real chunk-load observation must not be discarded merely because a
@@ -69,7 +69,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         // LAST_CONFIRMED observation, it must never be coalesced into PRESENT.
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 chunk, TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                "periodic-loaded-chunk"));
+                PERIODIC_SOURCE));
         assertEquals(4, listener.queuedScanCount());
         assertEquals(1, listener.queuedPeriodicChunkCount());
     }
@@ -80,10 +80,10 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         World second = server.addSimpleWorld("two");
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 first.getChunkAt(0, 0), TrackingObservationUseCase.Presence.PRESENT,
-                "periodic-loaded-chunk"));
+                PERIODIC_SOURCE));
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 second.getChunkAt(0, 0), TrackingObservationUseCase.Presence.PRESENT,
-                "periodic-loaded-chunk"));
+                PERIODIC_SOURCE));
 
         assertEquals(2, listener.queuedScanCount());
         assertEquals(2, listener.queuedPeriodicChunkCount());
@@ -94,7 +94,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         World world = server.addSimpleWorld("world");
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 world.getChunkAt(0, 0), TrackingObservationUseCase.Presence.PRESENT,
-                "periodic-loaded-chunk"));
+                PERIODIC_SOURCE));
         assertEquals(1, listener.queuedPeriodicChunkCount());
 
         listener.close();
