@@ -60,7 +60,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         build = (ROOT / "build.gradle.kts").read_text()
         release_versions = re.findall(r"^releaseVersion=(.+)$", properties, re.MULTILINE)
         self.assertEqual(1, len(release_versions))
-        self.assertRegex(release_versions[0], r"^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+        self.assertRegex(release_versions[0], r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
         self.assertIn('rootDir.resolve("gradle.properties")', build)
         self.assertIn('sourceReleaseVersion', build)
         self.assertIn('Ignoring -PreleaseVersion=', build)
@@ -88,7 +88,7 @@ class Wp04ReleaseContractTest(unittest.TestCase):
         resolver = (ROOT / ".github/scripts/resolve_release_publication_state.sh").read_text()
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         strict_semver = (
-            "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\."
+            "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\."
             "(0|[1-9][0-9]*)$"
         )
         self.assert_production_version_resolution(release, strict_semver)
