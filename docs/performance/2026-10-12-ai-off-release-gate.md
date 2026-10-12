@@ -49,11 +49,11 @@ For the eventual **frozen candidate commit**, preserve:
 
 ### Disposable offline backup verifier (never point at a running server)
 
-The repository's \`tools/check_offline_backup.py\` is a read-only **structural** preflight on an existing stopped-process backup copy and separately preserved rollback JAR. With the matching paths and independently measured *original* JAR checksum, run:
+The repository's `tools/check_offline_backup.py` is a read-only **structural** preflight on an existing stopped-process backup copy and separately preserved rollback JAR. With the matching paths and independently measured *original* JAR checksum, run:
 
-\`\`\`bash
+```bash
 python3 tools/check_offline_backup.py --offline-data-dir /offline-backups/EnthusiaLoreItems --rollback-jar /offline-backups/EnthusiaLoreItems-original.jar --expected-jar-sha256 ORIGINAL_JAR_SHA256
-\`\`\`
+```
 
 This rejects malformed/wrong-hash JARs, wrong plugin identity, missing configuration or group marker folders, SQLite structural corruption, symlinks in checked paths, and leftover database WAL/SHM companions. It uses SQLite immutable read-only mode on a copy and writes no output files. A pass **does not** prove the source process was stopped, a consistent backup moment, or agreement with player/world item data; preserve independent maintenance evidence and rehearse a disposable restore.
 
