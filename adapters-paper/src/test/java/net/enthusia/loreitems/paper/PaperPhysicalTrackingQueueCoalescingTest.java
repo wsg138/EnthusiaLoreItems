@@ -260,4 +260,17 @@ class PaperPhysicalTrackingQueueCoalescingTest {
                 metrics.snapshot().scanDrainPeakNanos() >= sample.scanDrainPeakNanos());
     }
 
+
+    @Test
+    void capturesDrainPeakEvenWhenAQueuedScanThrows() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                NullPointerException.class, listener::drain);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                metrics.snapshot().scanDrainPeakNanos() > 0L);
+    }
+
 }
