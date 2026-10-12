@@ -301,6 +301,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     void drain() {
+        long started = System.nanoTime();
         int budget = currentBudget();
         for (int count = 0; count < budget; count++) {
             PaperTrackingScanRequest request = scans.poll();
@@ -312,6 +313,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
+        metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - started);
     }
 
     private void seedLoadedChunks() {
