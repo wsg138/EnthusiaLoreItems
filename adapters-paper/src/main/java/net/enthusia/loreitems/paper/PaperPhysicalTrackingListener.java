@@ -416,10 +416,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         source)));
     }
 
-    void scanPlayer(UUID playerId, boolean unique, String source) {
+    boolean scanPlayer(UUID playerId, boolean unique, String source) {
         Player player = plugin.getServer().getPlayer(playerId);
         if (player == null) {
-            return;
+            return false;
         }
         if (unique) {
             scanner.scanPlayerUnique(player, source);
@@ -430,6 +430,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                     source);
         }
+        return true;
     }
 
     void scanChunk(
