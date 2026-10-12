@@ -192,8 +192,10 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         }
 
         listener.drain();
-        assertEquals(3L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted(),
+                "Offline random player UUIDs are inaccessible, not completed scans");
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted(),
+                "MockBukkit does not prove a full accessible chunk scan");
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(9, listener.queuedScanCount());
     }
@@ -213,8 +215,10 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
-        assertEquals(1L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted(),
+                "A missing player is not a successfully verified inventory");
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted(),
+                "MockBukkit does not prove a full accessible chunk scan");
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
@@ -231,5 +235,23 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
+    }
+    @Test
+    void naturalLoadOverCapacityStaysMarkedDirtyInsteadOfDisappearing() {
+        World world = server.addSimpleWorld("loaded");
+        var key = new PaperTrackingScanRequest.ChunkReference(world.getUID(), 0, 0);
+        for (int i = 0; i < 1_000; i++) {
+            listener.observeNaturalChunkLoad(key, "chunk-load");
+        }
+        assertEquals(1, listener.queuedScanCount());
+
+        for (int i = 1; i < 1_200; i++) {
+            listener.observeNaturalChunkLoad(
+                    new PaperTrackingScanRequest.ChunkReference(world.getUID(), i, 0),
+                    "chunk-load");
+        }
+        assertEquals(128, listener.queuedScanCount());
+        assertEquals(1_072, listener.dirtyChunkCount());
+        assertEquals(1_072L, metrics.snapshot().scanChunkRejected());
     }
 }

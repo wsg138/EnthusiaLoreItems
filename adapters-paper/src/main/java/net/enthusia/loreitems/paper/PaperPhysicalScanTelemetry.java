@@ -9,6 +9,7 @@ import org.bukkit.plugin.Plugin;
 final class PaperPhysicalScanTelemetry {
     private final MetricsPort metrics;
     private boolean saturated;
+    private long failures;
 
     PaperPhysicalScanTelemetry(MetricsPort metrics) {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -51,20 +52,34 @@ final class PaperPhysicalScanTelemetry {
         }
     }
 
-    void execute(
+    boolean execute(
             PaperTrackingScanRequest request,
             Plugin plugin,
             PaperPhysicalTrackingListener listener) {
         boolean periodic = request.periodicChunkKey() != null;
         long started = System.nanoTime();
         try {
-            request.run(plugin, listener);
-        } finally {
-            metrics.recordDurationNanos(
-                    periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
-                    System.nanoTime() - started);
+            boolean complete = request.run(plugin, listener);
             metrics.increment(periodic
-                    ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
+                    ? (complete ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped")
+                    : (complete ? "tracking.scan_event_completed" : "tracking.scan_event_skipped"));
+            return complete;
+        } catch (RuntimeException failure) {
+            metrics.increment(periodic
+                    ? "tracking.scan_periodic_failed" : "tracking.scan_event_failed");
+            failures++;
+            if (failures == 1 || failures % 100 == 0) {
+                plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "Incomplete LoreItems scan: " + request.source(), failure);
+            }
+            return false;
+        } finally {
+            long elapsed = System.nanoTime() - started;
+            metrics.recordDurationNanos(
+                    periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos", elapsed);
+            metrics.setGauge(periodic ? "tracking.scan_periodic_peak_nanos"
+                    : request.playerId() != null ? "tracking.scan_player_peak_nanos"
+                    : "tracking.scan_chunk_peak_nanos", elapsed);
         }
     }
 }
