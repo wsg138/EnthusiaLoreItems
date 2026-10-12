@@ -15,6 +15,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -42,6 +44,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private final Object lock = new Object();
     private final Queue<PendingObservation> queued = new ArrayDeque<>();
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
+    private final PaperDurableTrackingRetryLedger unresolved = new PaperDurableTrackingRetryLedger();
+    private final AtomicLong submissionOrder = new AtomicLong();
 
     private int inFlight;
     private boolean saturated;
@@ -129,27 +133,71 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         }
     }
 
+    /** Admission is not a durable-write acknowledgement. */
     public boolean submit(TrackingObservationUseCase.Request request) {
+        return submitInternal(request, null);
+    }
+
+    /** Use this API when a caller must distinguish queue admission from database settlement. */
+    public PaperTrackingAcknowledgement submitAcknowledged(
+            TrackingObservationUseCase.Request request) {
+        CompletableFuture<PaperTrackingAcknowledgement.Settlement> future =
+                new CompletableFuture<>();
+        boolean accepted = submitInternal(request, future);
+        return new PaperTrackingAcknowledgement(accepted, future);
+    }
+
+    /** Dirty holders require NEW naturally observed evidence; stale transitions are never replayed. */
+    public boolean needsReconciliation(TrackingObservationUseCase.Request request) {
+        return unresolved.needsReconciliation(Objects.requireNonNull(request, "request"));
+    }
+
+    public DurabilitySnapshot durabilitySnapshot() {
+        PaperDurableTrackingRetryLedger.Snapshot snapshot = unresolved.snapshot();
+        return new DurabilitySnapshot(
+                snapshot.unresolvedHolders(), snapshot.overflow(), snapshot.overflowedKeys());
+    }
+
+    private boolean submitInternal(
+            TrackingObservationUseCase.Request request,
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement) {
         Objects.requireNonNull(request, "request");
+        long sequence = submissionOrder.incrementAndGet();
         if (rejectIfClosed()) {
+            markUnresolved(request, sequence);
+            settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.REJECTED);
             return false;
         }
         if (coalesceNaturalAccess(request)) {
+            settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.COALESCED_UNVERIFIED);
             return true;
         }
-        Optional<PendingObservation> resolved = resolve(request);
+        Optional<PendingObservation> resolved = resolve(request, sequence, acknowledgement);
         if (resolved.isEmpty()) {
             return false;
         }
-        Submission submission = reserve(resolved.orElseThrow());
-        if (submission == Submission.DISPATCH) {
-            startCounted(resolved.orElseThrow());
+        PendingObservation observation = resolved.orElseThrow();
+        Submission submission = reserve(observation);
+        if (submission == Submission.REJECTED) {
+            markUnresolved(request, sequence);
+            naturalAccessDebounce.clear();
+            settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.REJECTED);
+            return false;
         }
-        return submission != Submission.REJECTED;
+        if (unresolved.needsReconciliation(request)
+                && request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION
+                && request.presence() == TrackingObservationUseCase.Presence.PRESENT) {
+            metrics.increment("tracking.persistence_reobservations");
+        }
+        if (submission == Submission.DISPATCH) {
+            startCounted(observation);
+        }
+        return true;
     }
 
     private boolean coalesceNaturalAccess(TrackingObservationUseCase.Request request) {
-        if (!request.source().endsWith(NATURAL_ACCESS_SUFFIX)) {
+        if (!request.source().endsWith(NATURAL_ACCESS_SUFFIX)
+                || unresolved.needsReconciliation(request)) {
             return false;
         }
         BoundedDebounceRegistry.OfferResult result = naturalAccessDebounce.offer(
@@ -176,18 +224,15 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     }
 
     private Optional<PendingObservation> resolve(
-            TrackingObservationUseCase.Request request) {
+            TrackingObservationUseCase.Request request, long sequence,
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement) {
         try {
             return Optional.of(new PendingObservation(
                     Objects.requireNonNull(
                             useCaseSupplier.get(), "tracking use case supplier returned null"),
-                    request));
+                    request, sequence, acknowledgement));
         } catch (RuntimeException exception) {
-            metrics.increment("tracking.failed");
-            plugin.getLogger().log(
-                    Level.SEVERE,
-                    "Could not resolve lore-item tracking persistence.",
-                    exception);
+            fail(request, sequence, acknowledgement, exception);
             return Optional.empty();
         }
     }
@@ -236,36 +281,108 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     /** Starts one request whose in-flight slot has already been counted exactly once. */
     private void startCounted(PendingObservation observation) {
         long startedAt = System.nanoTime();
-        CompletionStage<TrackingObservationUseCase.Result> stage;
+        AtomicBoolean finished = new AtomicBoolean();
         try {
-            stage = Objects.requireNonNull(
-                    observation.useCase().record(observation.request()),
-                    "tracking use case returned null");
+            CompletionStage<TrackingObservationUseCase.Result> stage =
+                    Objects.requireNonNull(
+                            observation.useCase().record(observation.request()),
+                            "tracking use case returned null stage");
+            stage.whenComplete((result, failure) ->
+                    finish(observation, startedAt, result, failure, finished));
         } catch (RuntimeException exception) {
-            metrics.increment("tracking.failed");
-            plugin.getLogger().log(Level.SEVERE, "Could not start lore-item tracking.", exception);
-            completeCountedRequest();
+            finish(observation, startedAt, null, exception, finished);
+        }
+    }
+
+    private void finish(
+            PendingObservation observation, long startedAt,
+            TrackingObservationUseCase.Result result, Throwable failure,
+            AtomicBoolean finished) {
+        if (!finished.compareAndSet(false, true)) {
             return;
         }
-        stage.whenComplete((result, failure) -> {
+        try {
             metrics.recordDurationNanos(
                     "tracking.persistence_nanos", System.nanoTime() - startedAt);
-            if (failure != null) {
-                metrics.increment("tracking.failed");
-                plugin.getLogger().log(
-                        Level.SEVERE,
-                        "Could not persist lore-item tracking evidence.",
-                        unwrap(failure));
+            if (failure != null || result == null) {
+                Throwable cause = failure != null
+                        ? unwrap(failure) : new IllegalStateException("Null persistence result");
+                fail(observation.request(), observation.sequence(),
+                        observation.acknowledgement(), cause);
             } else {
-                metrics.increment("tracking.completed");
-                if (result != null
-                        && result.status()
-                                == TrackingObservationUseCase.Status.CONFLICT_RECORDED) {
-                    metrics.increment("tracking.conflicts");
-                }
+                acknowledgeResult(observation, result);
             }
+        } finally {
             completeCountedRequest();
-        });
+        }
+    }
+
+    private void acknowledgeResult(
+            PendingObservation observation, TrackingObservationUseCase.Result result) {
+        metrics.increment("tracking.completed");
+        switch (result.status()) {
+            case RECORDED, UNCHANGED -> acknowledgeConfirmed(observation);
+            case CONFLICT_RECORDED -> {
+                metrics.increment("tracking.conflicts");
+                settle(observation.acknowledgement(),
+                        PaperTrackingAcknowledgement.Settlement.CONFLICT_RECORDED);
+            }
+            default -> {
+                if (result.status() == TrackingObservationUseCase.Status.SERVICE_UNAVAILABLE) {
+                    markUnresolved(observation.request(), observation.sequence());
+                }
+                metrics.increment("tracking.persistence_not_recorded");
+                settle(observation.acknowledgement(),
+                        PaperTrackingAcknowledgement.Settlement.NOT_RECORDED);
+            }
+        }
+    }
+
+    private void acknowledgeConfirmed(PendingObservation observation) {
+        metrics.increment("tracking.persistence_confirmed");
+        if (unresolved.reconcile(observation.request(), observation.sequence())) {
+            metrics.increment("tracking.persistence_recovered");
+            updateDurabilityGauges();
+        }
+        settle(observation.acknowledgement(),
+                PaperTrackingAcknowledgement.Settlement.CONFIRMED);
+    }
+
+    private void fail(
+            TrackingObservationUseCase.Request request, long sequence,
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement,
+            Throwable failure) {
+        metrics.increment("tracking.failed");
+        markUnresolved(request, sequence);
+        naturalAccessDebounce.clear();
+        plugin.getLogger().log(Level.SEVERE,
+                "Lore-item persistence failed; holder requires fresh natural reconciliation.",
+                failure);
+        settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.FAILED);
+    }
+
+    private void markUnresolved(TrackingObservationUseCase.Request request, long sequence) {
+        if (unresolved.markUnresolved(request, sequence)) {
+            plugin.getLogger().severe("Tracking dirty-holder capacity exceeded: "
+                    + "global uncertainty is sticky until independent reconciliation.");
+        }
+        metrics.increment("tracking.persistence_unresolved");
+        updateDurabilityGauges();
+    }
+
+    private void updateDurabilityGauges() {
+        PaperDurableTrackingRetryLedger.Snapshot snapshot = unresolved.snapshot();
+        metrics.setGauge("tracking.persistence_unresolved_holders",
+                snapshot.unresolvedHolders());
+        metrics.setGauge("tracking.persistence_overflow", snapshot.overflow() ? 1L : 0L);
+    }
+
+    private static void settle(
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement,
+            PaperTrackingAcknowledgement.Settlement status) {
+        if (acknowledgement != null) {
+            acknowledgement.complete(status);
+        }
     }
 
     private void completeCountedRequest() {
@@ -395,9 +512,14 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         REJECTED
     }
 
+    public record DurabilitySnapshot(
+            int unresolvedHolders, boolean overflow, long overflowedKeys) {}
+
     private record PendingObservation(
             TrackingObservationUseCase useCase,
-            TrackingObservationUseCase.Request request) {
+            TrackingObservationUseCase.Request request,
+            long sequence,
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement) {
         private PendingObservation {
             Objects.requireNonNull(useCase, "useCase");
             Objects.requireNonNull(request, "request");
