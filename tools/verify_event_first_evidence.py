@@ -80,7 +80,7 @@ def _check_provenance(data, errors):
         errors.append("provenance: missing inner-JAR and loaded-file hash evidence")
 
 
-def _check_run(run, label, errors):
+def _check_run_profile(run, label, errors):
     for field in MATCH_FIELDS:
         if field not in run:
             errors.append(f"{label}.{field}: missing normalized workload field")
@@ -88,14 +88,23 @@ def _check_run(run, label, errors):
         errors.append(f"{label}: requires Paper 26.2 and Java 25")
     if run.get("ai_state") != "OFF":
         errors.append(f"{label}: requires AI-OFF fixture")
-    if not isinstance(run.get("evidence"), str) or not run["evidence"].strip():
+    proof = run.get("evidence")
+    if not isinstance(proof, str) or not proof.strip():
         errors.append(f"{label}: missing benchmark evidence")
-    for field in MSPT_FIELDS:
-        if not _valid_number(run.get(field)):
+
+
+def _check_run_latency(run, label, errors):
+    values = [run.get(field) for field in MSPT_FIELDS]
+    for field, value in zip(MSPT_FIELDS, values):
+        if not _valid_number(value):
             errors.append(f"{label}.{field}: invalid or missing MSPT")
-    values = [run.get(name) for name in MSPT_FIELDS]
     if all(_valid_number(v) for v in values) and values != sorted(values):
         errors.append(f"{label}: MSPT percentiles/max must be monotonic")
+
+
+def _check_run(run, label, errors):
+    _check_run_profile(run, label, errors)
+    _check_run_latency(run, label, errors)
 
 
 def _check_candidate_counters(run, errors):
@@ -105,7 +114,8 @@ def _check_candidate_counters(run, errors):
         "false_unique_after_partial_scan",
     )
     for field in expected_zero:
-        if type(run.get(field)) is not int or run[field] != 0:
+        value = run.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value != 0:
             errors.append(f"benchmark.candidate.{field}: requires measured zero")
     if not isinstance(run.get("queue_rejection_recovery_evidence"), str) or not run[
         "queue_rejection_recovery_evidence"
@@ -125,6 +135,8 @@ def _check_benchmark(data, errors):
     _check_candidate_counters(candidate, errors)
     for field in ("mspt_p95", "mspt_p99"):
         a, z = baseline.get(field), candidate.get(field)
+        if not isinstance(a, (int, float)) or not isinstance(z, (int, float)):
+            continue
         if _valid_number(a) and _valid_number(z) and z > a:
             errors.append(f"benchmark: candidate {field} regressed ({z} > {a})")
 
