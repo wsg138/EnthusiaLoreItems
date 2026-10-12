@@ -15,11 +15,18 @@ record PaperPhysicalInventorySnapshot(
         net.enthusia.loreitems.domain.LocationDescriptor.Type type,
         String key) {
     static Optional<PaperPhysicalInventorySnapshot> capture(Inventory inventory) {
-        Optional<PaperInventoryReference> reference = PaperInventoryReference.capture(inventory);
+        if (inventory == null) {
+            return Optional.empty();
+        }
+        // CraftInventory.getHolder() can deserialize a block-state snapshot.
+        // Capture it once and reuse it for both the reload-safe reference and
+        // its durable location descriptor; never retain the Bukkit holder.
+        InventoryHolder holder = inventory.getHolder();
+        Optional<PaperInventoryReference> reference =
+                PaperInventoryReference.capture(inventory, holder);
         if (reference.isEmpty()) {
             return Optional.empty();
         }
-        InventoryHolder holder = inventory.getHolder();
         if (holder instanceof Player player) {
             boolean main = inventory instanceof PlayerInventory;
             return Optional.of(new PaperPhysicalInventorySnapshot(
