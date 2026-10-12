@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.loreitems.application.TrackingMetrics;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import org.bukkit.World;
