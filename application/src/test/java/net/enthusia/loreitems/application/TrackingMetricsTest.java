@@ -47,6 +47,37 @@ class TrackingMetricsTest {
     }
 
     @Test
+    void recordsChunkRecoveryAndBoundedTickPeaksForStaffDiagnostics() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        metrics.setGauge("tracking.scan_dirty_locations", 28L);
+        metrics.setGauge("tracking.scan_known_loaded", 153L);
+        metrics.increment("tracking.scan_dirty_admission");
+        metrics.increment("tracking.scan_chunk_coalesced");
+        metrics.increment("tracking.scan_event_skipped");
+        metrics.increment("tracking.scan_periodic_skipped");
+        metrics.increment("tracking.scan_event_failed");
+        metrics.increment("tracking.scan_periodic_failed");
+        metrics.setGauge("tracking.scan_chunk_peak_nanos", 11_000_000L);
+        metrics.setGauge("tracking.scan_chunk_peak_nanos", 500_000L);
+        metrics.setGauge("tracking.scan_player_peak_nanos", 2_000_000L);
+        metrics.setGauge("tracking.scan_periodic_peak_nanos", 3_000_000L);
+        metrics.setGauge("tracking.scan_drain_peak_nanos", 5_000_000L);
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(28L, snapshot.scanDirtyLocations());
+        assertEquals(153L, snapshot.scanKnownLoaded());
+        assertEquals(1L, snapshot.scanDirtyAdmissions());
+        assertEquals(1L, snapshot.scanChunkCoalesced());
+        assertEquals(1L, snapshot.scanEventSkipped());
+        assertEquals(1L, snapshot.scanPeriodicSkipped());
+        assertEquals(1L, snapshot.scanEventFailed());
+        assertEquals(1L, snapshot.scanPeriodicFailed());
+        assertEquals(11_000_000L, snapshot.scanChunkPeakNanos());
+        assertEquals(2_000_000L, snapshot.scanPlayerPeakNanos());
+        assertEquals(3_000_000L, snapshot.scanPeriodicPeakNanos());
+        assertEquals(5_000_000L, snapshot.scanDrainPeakNanos());
+    }
+
+    @Test
     void recordsBoundedHopperTimesAcrossBothQueueViews() {
         TrackingMetrics metrics = new TrackingMetrics();
         MetricsPort additional = metrics.additionalQueueView();
