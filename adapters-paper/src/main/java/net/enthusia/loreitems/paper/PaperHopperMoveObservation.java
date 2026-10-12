@@ -45,11 +45,19 @@ final class PaperHopperMoveObservation {
     void observe(InventoryMoveItemEvent event) {
         long started = System.nanoTime();
         try {
+            // Most vanilla hopper transfers contain no lore-item metadata. Their
+            // movement cannot relocate a tracked identity, so avoid resolving
+            // expensive block holders and scheduling two full scans. This checks
+            // nested containers and malformed identity evidence as well: they
+            // must retain the existing reconciliation path for safety.
+            if (!scanner.hasIdentityEvidence(event.getItem())) {
+                return;
+            }
+            Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
             Optional<PaperPhysicalInventorySnapshot> source =
                     PaperPhysicalInventorySnapshot.capture(event.getSource());
             Optional<PaperPhysicalInventorySnapshot> destination =
                     PaperPhysicalInventorySnapshot.capture(event.getDestination());
-            Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
             deferredActions.schedule(() -> reconcile(source, destination, identities));
         } finally {
             long elapsed = System.nanoTime() - started;
