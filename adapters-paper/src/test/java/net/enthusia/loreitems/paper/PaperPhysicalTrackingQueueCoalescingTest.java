@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -246,17 +248,17 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         listener.drain();
         TrackingMetrics.Snapshot sample = metrics.snapshot();
-        org.junit.jupiter.api.Assertions.assertTrue(sample.scanPlayerPeakNanos() > 0L);
-        org.junit.jupiter.api.Assertions.assertTrue(sample.scanChunkPeakNanos() > 0L);
-        org.junit.jupiter.api.Assertions.assertTrue(sample.scanPeriodicPeakNanos() > 0L);
-        org.junit.jupiter.api.Assertions.assertTrue(
+        assertTrue(sample.scanPlayerPeakNanos() > 0L);
+        assertTrue(sample.scanChunkPeakNanos() > 0L);
+        assertTrue(sample.scanPeriodicPeakNanos() > 0L);
+        assertTrue(
                 sample.scanDrainPeakNanos() >= sample.scanChunkPeakNanos());
         assertEquals(0, listener.queuedScanCount());
         assertEquals(2L, sample.scanEventCompleted());
         assertEquals(1L, sample.scanPeriodicCompleted());
 
         listener.drain();
-        org.junit.jupiter.api.Assertions.assertTrue(
+        assertTrue(
                 metrics.snapshot().scanDrainPeakNanos() >= sample.scanDrainPeakNanos());
     }
 
@@ -267,9 +269,9 @@ class PaperPhysicalTrackingQueueCoalescingTest {
                 null, false, null, TrackingObservationUseCase.Presence.PRESENT,
                 "malformed-test-request"));
 
-        org.junit.jupiter.api.Assertions.assertThrows(
+        assertThrows(
                 NullPointerException.class, listener::drain);
-        org.junit.jupiter.api.Assertions.assertTrue(
+        assertTrue(
                 metrics.snapshot().scanDrainPeakNanos() > 0L);
     }
 
