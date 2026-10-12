@@ -9,7 +9,7 @@ AI-off Minecraft Spark profiles `vzQFP8HmFH`, `rTX7VwSBCe`, and the later post-r
 - `tracking.scan_player_peak_nanos`: highest *one queued player request* execution duration since plugin startup.
 - `tracking.scan_chunk_peak_nanos`: highest *one non-periodic chunk lifecycle request* duration.
 - `tracking.scan_periodic_peak_nanos`: highest *one optional periodic chunk request* duration.
-- `tracking.scan_drain_peak_nanos`: highest elapsed time from entry through exit of one **normally completed** `PaperPhysicalTrackingListener.drain()` (the work scheduled once per tick), including the queue polling, executed requests, and metrics updates. An exceptional drain is not added to this peak.
+- `tracking.scan_drain_peak_nanos`: highest elapsed time from entry through exit of one `PaperPhysicalTrackingListener.drain()` (the work scheduled once per tick), including the queue polling, executed requests, and metrics updates. The timer uses `finally`, so a drain that throws also contributes to the peak.
 
 The operator's existing `LoreItems diagnostics:` view shows two new lines: `Scan peak player / chunk (ms)` and `Scan peak periodic / drain (ms)`. Integer milliseconds are **truncated**; a zero on screen may reflect a nonzero submillisecond sample. Monotonic process-local atomics retain only peak amounts, no player, world, inventory or item identifiers, no stack traces and no per-event logs. Counters restart with plugin initialization, so never subtract peaks across restarts. Compare with Spark at similar uptime and workload.
 
