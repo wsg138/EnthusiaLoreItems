@@ -47,6 +47,16 @@ For the eventual **frozen candidate commit**, preserve:
 5. **Startup acceptance:** after approved restart, record actual loaded JAR path/hash and class/version metadata; verify SQL migrations, no startup errors, read/write service, stable identity, conflict and duplicate warnings, representative item operations, queue accounting, loaded chunk semantics, and bounded GC/main-thread costs. Halt and roll back on new identity loss, database errors, unexpected migration, duplicate loaded plugin or material TPS deterioration.
 6. **Rollback:** stop the server; preserve the failed-state files for forensics; restore **matching** original JAR + complete database/config/group state from the same snapshot; revalidate integrity and identity. Do **not** downgrade just the JAR after a migration or roll back an older database over newly changed player/world item inventories without reconciling those inventories: this can reintroduce duplicate, missing, or stale item identities. Keep the server closed for review if a consistent restore point is unavailable.
 
+### Disposable offline backup verifier (never point at a running server)
+
+The repository's \`tools/check_offline_backup.py\` is a read-only **structural** preflight on an existing stopped-process backup copy and separately preserved rollback JAR. With the matching paths and independently measured *original* JAR checksum, run:
+
+\`\`\`bash
+python3 tools/check_offline_backup.py --offline-data-dir /offline-backups/EnthusiaLoreItems --rollback-jar /offline-backups/EnthusiaLoreItems-original.jar --expected-jar-sha256 ORIGINAL_JAR_SHA256
+\`\`\`
+
+This rejects malformed/wrong-hash JARs, wrong plugin identity, missing configuration or group marker folders, SQLite structural corruption, symlinks in checked paths, and leftover database WAL/SHM companions. It uses SQLite immutable read-only mode on a copy and writes no output files. A pass **does not** prove the source process was stopped, a consistent backup moment, or agreement with player/world item data; preserve independent maintenance evidence and rehearse a disposable restore.
+
 ## 5. AI-OFF SMP baseline packet — *only after a separately approved release*
 
 Never run Qwen inference to collect this baseline. Tell the EnthusiaAI coordinator (issue [#119](https://github.com/wsg138/Enthusia-AI/issues/119)) whether a verified optimized JAR is actually loaded; if not, capture **pre-release comparison only**, not an optimized baseline.
