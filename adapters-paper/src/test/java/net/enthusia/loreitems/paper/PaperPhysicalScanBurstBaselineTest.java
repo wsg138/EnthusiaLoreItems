@@ -21,6 +21,7 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
 class PaperPhysicalScanBurstBaselineTest {
     private static final int CAPACITY = 128; // currentBudget 4 times QUEUE_MULTIPLIER 32
     private static final int BUDGET = 4;
+    private static final String CHUNK_LOAD_SOURCE = "chunk-load";
     private ServerMock server;
     private PaperPhysicalTrackingListener listener;
     private TrackingMetrics metrics;
@@ -37,6 +38,10 @@ class PaperPhysicalScanBurstBaselineTest {
                 plugin, () -> useCase, () -> BUDGET, metrics);
     }
 
+    private static UUID playerId(long index) {
+        return new UUID(0L, index);
+    }
+
     @AfterEach
     void tearDown() {
         listener.close();
@@ -49,7 +54,7 @@ class PaperPhysicalScanBurstBaselineTest {
         for (int index = 0; index < CAPACITY + 8; index++) {
             listener.enqueue(PaperTrackingScanRequest.chunk(
                     world.getChunkAt(index, 0),
-                    TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+                    TrackingObservationUseCase.Presence.PRESENT, CHUNK_LOAD_SOURCE));
         }
 
         assertEquals(CAPACITY, listener.queuedScanCount());
@@ -74,17 +79,17 @@ class PaperPhysicalScanBurstBaselineTest {
         for (int index = 0; index < CAPACITY - 2; index++) {
             listener.enqueue(PaperTrackingScanRequest.chunk(
                     world.getChunkAt(index, 1),
-                    TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+                    TrackingObservationUseCase.Presence.PRESENT, CHUNK_LOAD_SOURCE));
         }
         for (int index = 0; index < 2; index++) {
             listener.enqueue(PaperTrackingScanRequest.player(
-                    new UUID(0L, index + 1L), true, "player-join"));
+                    playerId(index + 1L), true, "player-join"));
         }
         listener.enqueue(PaperTrackingScanRequest.player(
                 new UUID(0L, 3L), true, "player-join"));
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 world.getChunkAt(CAPACITY, 1),
-                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+                TrackingObservationUseCase.Presence.PRESENT, CHUNK_LOAD_SOURCE));
 
         assertEquals(CAPACITY, listener.queuedScanCount());
         assertEquals(2, metrics.snapshot().scanEventRejected());
@@ -98,14 +103,14 @@ class PaperPhysicalScanBurstBaselineTest {
         World world = server.addSimpleWorld("world");
         for (int index = 0; index < CAPACITY - 1; index++) {
             listener.enqueue(PaperTrackingScanRequest.player(
-                    new UUID(1L, index + 1L), true, "tracking-start"));
+                    playerId(index + 1L), true, "tracking-start"));
         }
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 world.getChunkAt(1, 1),
                 TrackingObservationUseCase.Presence.PRESENT, "periodic-loaded-chunk"));
         listener.enqueue(PaperTrackingScanRequest.chunk(
                 world.getChunkAt(2, 1),
-                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+                TrackingObservationUseCase.Presence.PRESENT, CHUNK_LOAD_SOURCE));
 
         assertEquals(CAPACITY, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
