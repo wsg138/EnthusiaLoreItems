@@ -19,6 +19,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.junit.jupiter.api.Test;
 
 class PaperPhysicalInventorySnapshotTest {
+    private static final String HOLDER_METHOD = "getHolder";
     @Test
     void entityInventoryUsesStableEntityIdentityBeforeBlockLocation() {
         UUID entityId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -37,7 +38,7 @@ class PaperPhysicalInventorySnapshotTest {
                 });
         AtomicInteger holderReads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
-            case "getHolder" -> {
+            case HOLDER_METHOD -> {
                 holderReads.incrementAndGet();
                 yield holder;
             }
@@ -73,7 +74,7 @@ class PaperPhysicalInventorySnapshotTest {
                 });
         AtomicInteger holderReads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
-            case "getHolder" -> {
+            case HOLDER_METHOD -> {
                 holderReads.incrementAndGet();
                 yield holder;
             }
@@ -101,7 +102,7 @@ class PaperPhysicalInventorySnapshotTest {
         AtomicInteger mainHolderReads = new AtomicInteger();
         PlayerInventory mainInventory = proxy(PlayerInventory.class,
                 (method, arguments) -> switch (method) {
-                    case "getHolder" -> {
+                    case HOLDER_METHOD -> {
                         mainHolderReads.incrementAndGet();
                         yield player;
                     }
@@ -119,7 +120,7 @@ class PaperPhysicalInventorySnapshotTest {
         AtomicInteger enderHolderReads = new AtomicInteger();
         Inventory enderInventory = proxy(Inventory.class, (method, arguments) ->
                 switch (method) {
-                    case "getHolder" -> {
+                    case HOLDER_METHOD -> {
                         enderHolderReads.incrementAndGet();
                         yield player;
                     }
@@ -139,7 +140,7 @@ class PaperPhysicalInventorySnapshotTest {
                 PaperPhysicalInventorySnapshot.capture(null).isEmpty());
         AtomicInteger reads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
-            case "getHolder" -> {
+            case HOLDER_METHOD -> {
                 reads.incrementAndGet();
                 yield null;
             }
