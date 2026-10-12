@@ -135,16 +135,22 @@ public final class TrackingMetrics implements MetricsPort {
             case SCAN_PERIODIC_REJECTED -> scanPeriodicRejected.incrementAndGet();
             case SCAN_PLAYER_REJECTED -> scanPlayerRejected.incrementAndGet();
             case SCAN_CHUNK_REJECTED -> scanChunkRejected.incrementAndGet();
+            case HOPPER_MOVE_EVENTS -> hopperMoveEvents.incrementAndGet();
+            case HOPPER_MOVE_DEFERRED -> hopperMoveDeferred.incrementAndGet();
+            default -> incrementScanExecutionOutcome(name);
+        }
+    }
+
+    private void incrementScanExecutionOutcome(String name) {
+        switch (name) {
             case SCAN_EVENT_COMPLETED -> scanEventCompleted.incrementAndGet();
             case SCAN_PERIODIC_COMPLETED -> scanPeriodicCompleted.incrementAndGet();
             case SCAN_EVENT_FAILED -> scanEventFailed.incrementAndGet();
             case SCAN_PERIODIC_FAILED -> scanPeriodicFailed.incrementAndGet();
             case SCAN_EVENT_SKIPPED -> scanEventSkipped.incrementAndGet();
             case SCAN_PERIODIC_SKIPPED -> scanPeriodicSkipped.incrementAndGet();
-            case HOPPER_MOVE_EVENTS -> hopperMoveEvents.incrementAndGet();
-            case HOPPER_MOVE_DEFERRED -> hopperMoveDeferred.incrementAndGet();
             default -> {
-                // Ignore unrelated metric names, preserving the existing contract.
+                // Unknown metrics are intentionally ignored.
             }
         }
     }
