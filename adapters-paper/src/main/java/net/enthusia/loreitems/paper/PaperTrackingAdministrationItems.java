@@ -134,6 +134,11 @@ final class PaperTrackingAdministrationItems {
                 "Scan time event / periodic (ms): "
                         + snapshot.scanEventNanos() / 1_000_000L
                         + '/' + snapshot.scanPeriodicNanos() / 1_000_000L,
+                "Hopper move event / deferred counts: "
+                        + snapshot.hopperMoveEvents() + '/' + snapshot.hopperMoveDeferred(),
+                "Hopper move event / deferred (ms): "
+                        + snapshot.hopperMoveEventNanos() / 1_000_000L
+                        + '/' + snapshot.hopperMoveDeferredNanos() / 1_000_000L,
                 "Truncated bounded scans: " + snapshot.scanTruncated(),
                 "Player scans coalesced: " + snapshot.deferredPlayerScanCoalesced(),
                 "Periodic chunks coalesced: " + snapshot.periodicChunkScanCoalesced(),
