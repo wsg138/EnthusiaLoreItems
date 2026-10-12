@@ -1,10 +1,10 @@
 package net.enthusia.loreitems.paper;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -33,7 +33,7 @@ final class PaperPhysicalInventoryScanner {
 
     void scanPlayerUnique(Player player, String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         collectPlayer(player, observations, limit);
         submitUnique(observations, limit.hasRemaining(), source);
     }
@@ -165,8 +165,13 @@ final class PaperPhysicalInventoryScanner {
         return collector.trackedIdentity(item);
     }
 
+    /** True for tracked, partial/malformed or nested identity evidence. */
+    boolean hasIdentityEvidence(ItemStack item) {
+        return collector.hasIdentityEvidence(item);
+    }
+
     Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         collector.collectItem(
                 item,
                 LocationDescriptor.Type.NESTED_CONTAINER,
@@ -388,7 +393,7 @@ final class PaperPhysicalInventoryScanner {
             Inventory inventory,
             LocationDescriptor.Type type,
             String key) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         collector.collectArray(
                 contentsOrEmpty(inventory.getContents()),
