@@ -123,6 +123,15 @@ def _check_candidate_counters(run, errors):
         errors.append("benchmark.candidate: missing queue rejection/recovery proof")
 
 
+def _check_benchmark_latency(baseline, candidate, errors):
+    for field in ("mspt_p95", "mspt_p99"):
+        a, z = baseline.get(field), candidate.get(field)
+        if not isinstance(a, (int, float)) or not isinstance(z, (int, float)):
+            continue
+        if _valid_number(a) and _valid_number(z) and z > a:
+            errors.append(f"benchmark: candidate {field} regressed ({z} > {a})")
+
+
 def _check_benchmark(data, errors):
     b = _mapping(data.get("benchmark"), "benchmark", errors)
     baseline = _mapping(b.get("baseline"), "benchmark.baseline", errors)
@@ -133,12 +142,7 @@ def _check_benchmark(data, errors):
         if baseline.get(name) != candidate.get(name):
             errors.append(f"benchmark: unmatched {name}")
     _check_candidate_counters(candidate, errors)
-    for field in ("mspt_p95", "mspt_p99"):
-        a, z = baseline.get(field), candidate.get(field)
-        if not isinstance(a, (int, float)) or not isinstance(z, (int, float)):
-            continue
-        if _valid_number(a) and _valid_number(z) and z > a:
-            errors.append(f"benchmark: candidate {field} regressed ({z} > {a})")
+    _check_benchmark_latency(baseline, candidate, errors)
 
 
 def verify(data):

@@ -204,6 +204,13 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         return recordConflict(connection, request, current, observedAt);
     }
 
+    private static boolean matchesLastConfirmedLocation(
+            TrackingObservationUseCase.Request request, CurrentRow current) {
+        return request.location().equals(current.location())
+                || sameHolder(request.location(), current.location())
+                || samePhysicalEntity(request.location(), current.location());
+    }
+
     private static TrackingObservationUseCase.Result recordLastConfirmed(
             Connection connection,
             TrackingObservationUseCase.Request request,
@@ -214,17 +221,12 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.BLOCKED_ANOMALY,
                     "Conflicting state was preserved while the location became inaccessible.");
         }
-        if (!request.location().equals(current.location())
-                && !sameHolder(request.location(), current.location())
-                && !samePhysicalEntity(request.location(), current.location())) {
+        if (!matchesLastConfirmedLocation(request, current)) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
         }
-        if (LAST_CONFIRMED.equals(current.state())
-                && (request.location().equals(current.location())
-                        || sameHolder(request.location(), current.location())
-                        || samePhysicalEntity(request.location(), current.location()))) {
+        if (LAST_CONFIRMED.equals(current.state())) {
             return result(
                     TrackingObservationUseCase.Status.UNCHANGED,
                     "The location is already retained as last confirmed.");

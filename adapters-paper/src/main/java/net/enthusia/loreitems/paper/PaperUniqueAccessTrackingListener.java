@@ -164,19 +164,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             } else {
                 complete = false;
             }
-            for (InventorySnapshot reference : pending.containers) {
-                if (player != null && coveredByPlayer(player, reference.type(), reference.key())) {
-                    continue;
-                }
-                Optional<Inventory> inventory = reference.resolve(plugin);
-                if (inventory.isEmpty()) {
-                    complete = false;
-                    metrics.increment("tracking.unique.inventory_unresolved");
-                    continue;
-                }
-                collector.collectArray(contentsOrEmpty(inventory.orElseThrow().getContents()),
-                        reference.type(), reference.key(), SLOT_PREFIX, observed, limit);
-            }
+            complete &= collectPendingContainers(player, pending, observed, limit);
             if (!limit.hasRemaining() || !complete) {
                 metrics.increment("tracking.unique.incomplete_reconciliation");
             }
@@ -185,6 +173,29 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             metrics.recordDurationNanos("tracking.unique.access_deferred_nanos",
                     System.nanoTime() - started);
         }
+    }
+
+    /** Report missing inventory coverage without discarding already observed evidence. */
+    private boolean collectPendingContainers(
+            Player player,
+            PendingAccess pending,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observed,
+            PaperScanLimit limit) {
+        boolean complete = true;
+        for (InventorySnapshot reference : pending.containers) {
+            if (player != null && coveredByPlayer(player, reference.type(), reference.key())) {
+                continue;
+            }
+            Optional<Inventory> inventory = reference.resolve(plugin);
+            if (inventory.isEmpty()) {
+                complete = false;
+                metrics.increment("tracking.unique.inventory_unresolved");
+                continue;
+            }
+            collector.collectArray(contentsOrEmpty(inventory.orElseThrow().getContents()),
+                    reference.type(), reference.key(), SLOT_PREFIX, observed, limit);
+        }
+        return complete;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)

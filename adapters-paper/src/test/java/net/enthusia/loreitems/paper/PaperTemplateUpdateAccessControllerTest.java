@@ -129,7 +129,7 @@ class PaperTemplateUpdateAccessControllerTest {
                 scanner);
         PaperTemplateUpdateEvents listener = new PaperTemplateUpdateEvents(controller);
         Inventory playerInventory = (Inventory) Proxy.newProxyInstance(
-                PlayerInventory.class.getClassLoader(),
+                PlayerThread.currentThread().getContextClassLoader(),
                 new Class<?>[] {PlayerInventory.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getHolder" -> {
@@ -143,10 +143,11 @@ class PaperTemplateUpdateAccessControllerTest {
                     case "equals" -> proxy == args[0];
                     default -> null;
                 });
+        InventoryMoveItemEvent ordinaryMove = new InventoryMoveItemEvent(
+                playerInventory, org.bukkit.inventory.ItemStack.of(Material.STONE),
+                playerInventory, true);
         for (int index = 0; index < 1000; index++) {
-            listener.onInventoryMove(new InventoryMoveItemEvent(
-                    playerInventory, org.bukkit.inventory.ItemStack.of(Material.STONE),
-                    playerInventory, true));
+            listener.onInventoryMove(ordinaryMove);
         }
         assertEquals(0, scanner.scanCalls);
         ((ServerMock) plugin.getServer()).getScheduler().performOneTick();

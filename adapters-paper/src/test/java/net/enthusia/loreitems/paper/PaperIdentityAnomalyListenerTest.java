@@ -165,7 +165,7 @@ class PaperIdentityAnomalyListenerTest {
 
     private Inventory inventoryProbe(boolean allowLocation) {
         return (Inventory) Proxy.newProxyInstance(
-                Inventory.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {Inventory.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getHolder" -> {

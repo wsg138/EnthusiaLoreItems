@@ -18,9 +18,7 @@ final class PaperInventoryEventHint {
     }
 
     boolean relevant(InventoryClickEvent event, Player player) {
-        if (event.getClick() == ClickType.DOUBLE_CLICK
-                || event.getAction() == InventoryAction.COLLECT_TO_CURSOR
-                || event.getAction() == InventoryAction.UNKNOWN) {
+        if (conservativeAction(event)) {
             return true;
         }
         if (evidence(event.getCursor()) || evidence(event.getCurrentItem())) {
@@ -36,6 +34,12 @@ final class PaperInventoryEventHint {
         }
         return event instanceof CraftItemEvent craft
                 && evidence(craft.getRecipe().getResult());
+    }
+
+    private static boolean conservativeAction(InventoryClickEvent event) {
+        return event.getClick() == ClickType.DOUBLE_CLICK
+                || event.getAction() == InventoryAction.COLLECT_TO_CURSOR
+                || event.getAction() == InventoryAction.UNKNOWN;
     }
 
     boolean relevant(InventoryDragEvent event) {

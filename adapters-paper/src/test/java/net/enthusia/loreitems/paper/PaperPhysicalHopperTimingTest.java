@@ -57,9 +57,10 @@ class PaperPhysicalHopperTimingTest {
     void thousandOrdinaryHopperMovesNeverQueueReconciliation() {
         Inventory source = inventoryReferenceProbe();
         Inventory destination = inventoryReferenceProbe();
+        InventoryMoveItemEvent ordinaryMove = new InventoryMoveItemEvent(
+                source, ItemStack.of(Material.STONE), destination, true);
         for (int index = 0; index < 1000; index++) {
-            listener.onInventoryMove(new InventoryMoveItemEvent(
-                    source, ItemStack.of(Material.STONE), destination, true));
+            listener.onInventoryMove(ordinaryMove);
         }
         assertEquals(1000, metrics.snapshot().hopperMoveEvents());
         assertEquals(0, metrics.snapshot().hopperMoveDeferred());
@@ -124,7 +125,7 @@ class PaperPhysicalHopperTimingTest {
     /** Assert Paper's no-snapshot lookup without MockBukkit's missing overload. */
     private static Inventory inventoryReferenceProbe() {
         return (Inventory) Proxy.newProxyInstance(
-                Inventory.class.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {Inventory.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getHolder" -> {

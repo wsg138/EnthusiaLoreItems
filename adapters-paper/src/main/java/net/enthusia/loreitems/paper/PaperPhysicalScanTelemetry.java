@@ -52,6 +52,20 @@ final class PaperPhysicalScanTelemetry {
         }
     }
 
+    private static String resultMetric(boolean periodic, boolean complete) {
+        if (periodic) {
+            return complete ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped";
+        }
+        return complete ? "tracking.scan_event_completed" : "tracking.scan_event_skipped";
+    }
+
+    private static String peakMetric(boolean periodic, boolean playerScan) {
+        if (periodic) {
+            return "tracking.scan_periodic_peak_nanos";
+        }
+        return playerScan ? "tracking.scan_player_peak_nanos" : "tracking.scan_chunk_peak_nanos";
+    }
+
     boolean execute(
             PaperTrackingScanRequest request,
             Plugin plugin,
@@ -60,9 +74,7 @@ final class PaperPhysicalScanTelemetry {
         long started = System.nanoTime();
         try {
             boolean complete = request.run(plugin, listener);
-            metrics.increment(periodic
-                    ? (complete ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped")
-                    : (complete ? "tracking.scan_event_completed" : "tracking.scan_event_skipped"));
+            metrics.increment(resultMetric(periodic, complete));
             return complete;
         } catch (RuntimeException failure) {
             metrics.increment(periodic
@@ -77,9 +89,7 @@ final class PaperPhysicalScanTelemetry {
             long elapsed = System.nanoTime() - started;
             metrics.recordDurationNanos(
                     periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos", elapsed);
-            metrics.setGauge(periodic ? "tracking.scan_periodic_peak_nanos"
-                    : request.playerId() != null ? "tracking.scan_player_peak_nanos"
-                    : "tracking.scan_chunk_peak_nanos", elapsed);
+            metrics.setGauge(peakMetric(periodic, request.playerId() != null), elapsed);
         }
     }
 }

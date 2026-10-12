@@ -69,7 +69,7 @@ class PaperLoadedOnlyInventoryReferenceTest {
 
     private static <T> T proxy(Class<T> type, Invocation invocation) {
         return type.cast(Proxy.newProxyInstance(
-                type.getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {type},
                 (proxy, method, arguments) -> invocation.invoke(
                         method.getName(), arguments == null ? new Object[0] : arguments)));
