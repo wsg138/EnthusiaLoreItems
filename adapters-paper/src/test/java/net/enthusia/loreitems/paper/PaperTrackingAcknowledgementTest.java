@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -279,8 +279,8 @@ class PaperTrackingAcknowledgementTest {
     }
 
     private static final class RecordingMetrics implements MetricsPort {
-        private final Map<String, AtomicLong> counters =
-                new java.util.concurrent.ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, AtomicLong> counters =
+                new ConcurrentHashMap<>();
 
         @Override
         public void setGauge(String name, long value) {}

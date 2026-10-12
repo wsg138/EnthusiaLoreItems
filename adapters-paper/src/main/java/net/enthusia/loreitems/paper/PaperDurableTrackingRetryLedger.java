@@ -1,7 +1,6 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -15,12 +14,19 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 final class PaperDurableTrackingRetryLedger {
     static final int MAX_UNRESOLVED = 4_096;
 
-    private final Map<Holder, Long> unresolved = new HashMap<>();
+    private final Object lock = new Object();
+    private final ConcurrentHashMap<Holder, Long> unresolved = new ConcurrentHashMap<>();
     private boolean overflow;
     private long overflowedKeys;
 
-    synchronized boolean markUnresolved(TrackingObservationUseCase.Request request, long sequence) {
+    boolean markUnresolved(TrackingObservationUseCase.Request request, long sequence) {
         Holder holder = Holder.from(request);
+        synchronized (lock) {
+            return markHolderUnresolved(holder, sequence);
+        }
+    }
+
+    private boolean markHolderUnresolved(Holder holder, long sequence) {
         Long previous = unresolved.get(holder);
         if (previous != null) {
             unresolved.put(holder, Math.max(previous, sequence));
@@ -36,27 +42,34 @@ final class PaperDurableTrackingRetryLedger {
         return false;
     }
 
-    synchronized boolean needsReconciliation(TrackingObservationUseCase.Request request) {
-        return overflow || unresolved.containsKey(Holder.from(request));
+    boolean needsReconciliation(TrackingObservationUseCase.Request request) {
+        Holder holder = Holder.from(request);
+        synchronized (lock) {
+            return overflow || unresolved.containsKey(holder);
+        }
     }
 
     /** Successful NEW, present reconciliation for the same holder is the only clearing proof. */
-    synchronized boolean reconcile(TrackingObservationUseCase.Request request, long sequence) {
+    boolean reconcile(TrackingObservationUseCase.Request request, long sequence) {
         if (request.presence() != TrackingObservationUseCase.Presence.PRESENT
                 || request.mode() != TrackingObservationUseCase.EvidenceMode.RECONCILIATION) {
             return false;
         }
         Holder holder = Holder.from(request);
-        Long failedSequence = unresolved.get(holder);
-        if (failedSequence == null || sequence <= failedSequence) {
-            return false;
+        synchronized (lock) {
+            Long failedSequence = unresolved.get(holder);
+            if (failedSequence == null || sequence <= failedSequence) {
+                return false;
+            }
+            unresolved.remove(holder);
+            return true;
         }
-        unresolved.remove(holder);
-        return true;
     }
 
-    synchronized Snapshot snapshot() {
-        return new Snapshot(unresolved.size(), overflow, overflowedKeys);
+    Snapshot snapshot() {
+        synchronized (lock) {
+            return new Snapshot(unresolved.size(), overflow, overflowedKeys);
+        }
     }
 
     record Snapshot(int unresolvedHolders, boolean overflow, long overflowedKeys) {}

@@ -169,8 +169,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             return false;
         }
         if (coalesceNaturalAccess(request)) {
-            settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.COALESCED_UNVERIFIED);
-            return true;
+            return coalescedSubmission(request, sequence, acknowledgement);
         }
         Optional<PendingObservation> resolved = resolve(request, sequence, acknowledgement);
         if (resolved.isEmpty()) {
@@ -184,15 +183,31 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.REJECTED);
             return false;
         }
+        recordFreshReobservation(request);
+        if (submission == Submission.DISPATCH) {
+            startCounted(observation);
+        }
+        return true;
+    }
+
+    private boolean coalescedSubmission(
+            TrackingObservationUseCase.Request request, long sequence,
+            CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement) {
+        if (rejectIfClosed()) {
+            markUnresolved(request, sequence);
+            settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.REJECTED);
+            return false;
+        }
+        settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.COALESCED_UNVERIFIED);
+        return true;
+    }
+
+    private void recordFreshReobservation(TrackingObservationUseCase.Request request) {
         if (unresolved.needsReconciliation(request)
                 && request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION
                 && request.presence() == TrackingObservationUseCase.Presence.PRESENT) {
             metrics.increment("tracking.persistence_reobservations");
         }
-        if (submission == Submission.DISPATCH) {
-            startCounted(observation);
-        }
-        return true;
     }
 
     private boolean coalesceNaturalAccess(TrackingObservationUseCase.Request request) {
