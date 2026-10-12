@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,6 +21,8 @@ import org.bukkit.World;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,6 +116,44 @@ class PaperTemplateUpdateAccessControllerTest {
                 + ", ender=" + scanner.inventories.contains(player.getEnderChest())
                 + ", chest=" + scanner.inventories.contains(chest)
                 + ", scans=" + scanner.scanCalls);
+    }
+
+    @Test
+    void repeatedHopperMovesToSameReferencesShareOnePendingTemplateScan() {
+        RecordingInventoryScanner scanner = new RecordingInventoryScanner();
+        controller = new PaperTemplateUpdateAccessController(
+                plugin,
+                new UnexpectedExecutionUseCase(),
+                new PaperTemplateUpdateOperator(),
+                8,
+                scanner);
+        PaperTemplateUpdateEvents listener = new PaperTemplateUpdateEvents(controller);
+        Inventory playerInventory = (Inventory) Proxy.newProxyInstance(
+                PlayerInventory.class.getClassLoader(),
+                new Class<?>[] {PlayerInventory.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getHolder" -> {
+                        assertEquals(1, args.length);
+                        assertEquals(false, args[0]);
+                        yield player;
+                    }
+                    case "getLocation" -> null;
+                    case "toString" -> "player-inventory-proxy";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                });
+        for (int index = 0; index < 1000; index++) {
+            listener.onInventoryMove(new InventoryMoveItemEvent(
+                    playerInventory, org.bukkit.inventory.ItemStack.of(Material.STONE),
+                    playerInventory, true));
+        }
+        assertEquals(0, scanner.scanCalls);
+        ((ServerMock) plugin.getServer()).getScheduler().performOneTick();
+        controller.drain();
+        assertEquals(1, scanner.scanCalls);
+        controller.drain();
+        assertEquals(1, scanner.scanCalls);
     }
 
     private void assertRetriesWithoutAnotherAccessEvent(RetryOnceScanner scanner) {
