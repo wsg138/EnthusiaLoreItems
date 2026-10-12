@@ -38,15 +38,6 @@ class TrackingMetricsTest {
         additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
         metrics.recordDurationNanos("tracking.scan_periodic_nanos", 17L);
         metrics.recordDurationNanos("tracking.scan_event_nanos", -10L);
-        metrics.increment("tracking.hopper_move_events");
-        additional.increment("tracking.hopper_move_deferred");
-        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", 21L);
-        additional.recordDurationNanos("tracking.hopper_move_deferred_nanos", 31L);
-        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", -5L);
-        metrics.setGauge("tracking.hopper_move_event_peak_nanos", 2100000L);
-        additional.setGauge("tracking.hopper_move_event_peak_nanos", 1400000L);
-        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", 3100000L);
-        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", -50L);
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(8L, snapshot.queued());
@@ -70,6 +61,23 @@ class TrackingMetricsTest {
         assertEquals(1L, snapshot.scanPeriodicCompleted());
         assertEquals(41L, snapshot.scanEventNanos());
         assertEquals(17L, snapshot.scanPeriodicNanos());
+    }
+
+    @Test
+    void recordsBoundedHopperTimesAcrossBothQueueViews() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.hopper_move_events");
+        additional.increment("tracking.hopper_move_deferred");
+        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", 21L);
+        additional.recordDurationNanos("tracking.hopper_move_deferred_nanos", 31L);
+        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", -5L);
+        metrics.setGauge("tracking.hopper_move_event_peak_nanos", 2100000L);
+        additional.setGauge("tracking.hopper_move_event_peak_nanos", 1400000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", 3100000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", -50L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(1L, snapshot.hopperMoveEvents());
         assertEquals(1L, snapshot.hopperMoveDeferred());
         assertEquals(21L, snapshot.hopperMoveEventNanos());
