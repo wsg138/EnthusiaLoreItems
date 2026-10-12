@@ -7,6 +7,7 @@ from contextlib import closing
 import importlib.util
 from pathlib import Path
 import sqlite3
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -89,6 +90,38 @@ class OfflineBackupPreflightTest(unittest.TestCase):
         self.jar.write_bytes(b"not a ZIP")
         self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
         self.assert_rejected("malformed")
+
+    def test_separate_wal_export_preserves_original_capture(self):
+        raw = Path(self.temp.name) / "raw-capture"
+        work = Path(self.temp.name) / "working-copy"
+        raw.mkdir()
+        work.mkdir()
+        database = raw / "loreitems.db"
+        with closing(sqlite3.connect(database)) as writer:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            writer.execute("CREATE TABLE events (message TEXT)")
+            writer.commit()
+            writer.execute("INSERT INTO events VALUES ('wal-committed')")
+            writer.commit()
+            for suffix in ("", "-wal", "-shm"):
+                shutil.copy2(Path(str(database) + suffix), Path(str(work / "loreitems.db") + suffix))
+        raw_copy_hashes = {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in work.iterdir()
+        }
+        # SQLite applies committed WAL pages while writing a standalone exported DB.
+        with closing(sqlite3.connect((work / "loreitems.db").resolve().as_uri() + "?mode=ro", uri=True)) as source:
+            with closing(sqlite3.connect(self.database)) as target:
+                source.backup(target)
+        with closing(sqlite3.connect(self.database)) as result:
+            self.assertEqual("wal-committed", result.execute(
+                "SELECT message FROM events"
+            ).fetchone()[0])
+        self.assertEqual(raw_copy_hashes, {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in work.iterdir()
+        })
+        self.assertEqual("STRUCTURAL_CHECK_PASS_NOT_POINT_IN_TIME_PROOF",
+                         preflight.validate(self.backup, self.jar, self.hash)["status"])
 
     def test_corrupt_deflate_stream_is_rejected(self):
         with zipfile.ZipFile(self.jar, "w", compression=zipfile.ZIP_DEFLATED) as archive:
