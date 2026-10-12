@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,9 @@ import net.enthusia.loreitems.domain.LoreInstanceId;
 import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
 import org.bukkit.block.ShulkerBox;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.plugin.Plugin;
@@ -137,6 +141,46 @@ class PaperIdentityAnomalyListenerTest {
         ShulkerBox storedShulker = assertInstanceOf(
                 ShulkerBox.class, storedMeta.getBlockState());
         assertEquals(2, storedShulker.getInventory().getItem(0).getAmount());
+    }
+
+    @Test
+    void ordinaryHopperMoveDoesNotResolveHolderOrReportAnomaly() {
+        Inventory poison = inventoryProbe(false);
+        listener.onInventoryMove(new InventoryMoveItemEvent(
+                poison, ItemStack.of(Material.STONE), poison, true));
+        assertTrue(useCase.requests.isEmpty());
+    }
+
+    @Test
+    void malformedHopperItemStillReportsAnomaly() {
+        ItemStack malformed = trackedItem();
+        malformed.setAmount(2);
+        Inventory source = inventoryProbe(true);
+        listener.onInventoryMove(new InventoryMoveItemEvent(
+                source, malformed, inventoryProbe(false), true));
+        assertEquals(1, useCase.requests.size());
+        assertEquals(ItemAnomalyObservationUseCase.Kind.MALFORMED_STACK,
+                useCase.requests.getFirst().kind());
+    }
+
+    private Inventory inventoryProbe(boolean allowLocation) {
+        return (Inventory) Proxy.newProxyInstance(
+                Inventory.class.getClassLoader(),
+                new Class<?>[] {Inventory.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getHolder" -> {
+                        if (!allowLocation) {
+                            throw new AssertionError("Ordinary hopper item must not resolve holder");
+                        }
+                        yield player;
+                    }
+                    case "getType" -> InventoryType.CHEST;
+                    case "getContents" -> new ItemStack[9];
+                    case "toString" -> "test-probe";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                });
     }
 
     private ItemStack trackedItem() {
