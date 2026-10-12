@@ -165,6 +165,11 @@ final class PaperPhysicalInventoryScanner {
         return collector.trackedIdentity(item);
     }
 
+    /** Includes malformed metadata and nested lore-item evidence, not only valid identities. */
+    boolean hasIdentityEvidence(ItemStack item) {
+        return collector.hasIdentityEvidence(item);
+    }
+
     Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collector.collectItem(
