@@ -29,13 +29,6 @@ class TrackingMetricsTest {
         metrics.increment("tracking.periodic_chunk_scan_coalesced");
         additional.increment("tracking.deferred_player_scan_schedule_rejected");
         additional.recordDurationNanos("tracking.persistence_nanos", 11L);
-        metrics.increment("tracking.scan_event_rejected");
-        additional.increment("tracking.scan_periodic_rejected");
-        metrics.increment("tracking.scan_event_completed");
-        additional.increment("tracking.scan_periodic_completed");
-        additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
-        metrics.recordDurationNanos("tracking.scan_periodic_nanos", 17L);
-        metrics.recordDurationNanos("tracking.scan_event_nanos", -10L);
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(8L, snapshot.queued());
@@ -51,11 +44,54 @@ class TrackingMetricsTest {
         assertEquals(10L, snapshot.scanBacklogPeak());
         assertEquals(4L, snapshot.scanEventBacklog());
         assertEquals(3L, snapshot.scanPeriodicBacklog());
+    }
+
+    @Test
+    void recordsBoundedHopperTimesAcrossBothQueueViews() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.hopper_move_events");
+        additional.increment("tracking.hopper_move_deferred");
+        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", 21L);
+        additional.recordDurationNanos("tracking.hopper_move_deferred_nanos", 31L);
+        metrics.recordDurationNanos("tracking.hopper_move_event_nanos", -5L);
+        metrics.setGauge("tracking.hopper_move_event_peak_nanos", 2100000L);
+        additional.setGauge("tracking.hopper_move_event_peak_nanos", 1400000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", 3100000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", -50L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(1L, snapshot.hopperMoveEvents());
+        assertEquals(1L, snapshot.hopperMoveDeferred());
+        assertEquals(21L, snapshot.hopperMoveEventNanos());
+        assertEquals(31L, snapshot.hopperMoveDeferredNanos());
+        assertEquals(2100000L, snapshot.hopperMoveEventPeakNanos());
+        assertEquals(3100000L, snapshot.hopperMoveDeferredPeakNanos());
+    }
+
+    @Test
+    void tracksScanSourcesAndDurationsWithoutChangingAggregateCounts() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.scan_event_rejected");
+        additional.increment("tracking.scan_periodic_rejected");
+        metrics.increment("tracking.scan_player_rejected");
+        additional.increment("tracking.scan_chunk_rejected");
+        metrics.increment("tracking.scan_event_completed");
+        additional.increment("tracking.scan_periodic_completed");
+        additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
+        metrics.recordDurationNanos("tracking.scan_periodic_nanos", 17L);
+        metrics.recordDurationNanos("tracking.scan_event_nanos", -10L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(1L, snapshot.scanEventRejected());
         assertEquals(1L, snapshot.scanPeriodicRejected());
+        assertEquals(1L, snapshot.scanPlayerRejected());
+        assertEquals(1L, snapshot.scanChunkRejected());
         assertEquals(1L, snapshot.scanEventCompleted());
         assertEquals(1L, snapshot.scanPeriodicCompleted());
         assertEquals(41L, snapshot.scanEventNanos());
         assertEquals(17L, snapshot.scanPeriodicNanos());
     }
+
 }

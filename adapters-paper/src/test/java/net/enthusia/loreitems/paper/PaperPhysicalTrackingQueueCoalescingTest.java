@@ -118,6 +118,8 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventRejected(),
                 "New lifecycle work displaces routine reconciliation, never event scans");
         assertEquals(2L, metrics.snapshot().scanPeriodicRejected());
+        assertEquals(0L, metrics.snapshot().scanPlayerRejected());
+        assertEquals(0L, metrics.snapshot().scanChunkRejected());
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(128, listener.queuedScanCount());
         assertEquals(128L, metrics.snapshot().scanBacklogPeak());
@@ -134,6 +136,26 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         assertEquals(128, listener.queuedScanCount());
         assertEquals(1L, metrics.snapshot().scanEventRejected());
+        assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
+        assertEquals(1L, metrics.snapshot().scanPlayerRejected());
+        assertEquals(0L, metrics.snapshot().scanChunkRejected());
+    }
+
+    @Test
+    void recordsWhichLifecycleSourceExhaustedTheEventQueue() {
+        World world = server.addSimpleWorld("world");
+        for (int i = 0; i < 128; i++) {
+            listener.enqueue(PaperTrackingScanRequest.player(
+                    new UUID(0L, i + 1L), true, "tracking-start"));
+        }
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(5, 0),
+                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+
+        assertEquals(128, listener.queuedScanCount());
+        assertEquals(1L, metrics.snapshot().scanEventRejected());
+        assertEquals(0L, metrics.snapshot().scanPlayerRejected());
+        assertEquals(1L, metrics.snapshot().scanChunkRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
 

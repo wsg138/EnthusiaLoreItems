@@ -58,6 +58,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
+    private final PaperHopperMoveObservation hopperMoves;
     private final PaperDeferredMainThreadActions deferredActions;
     private final PaperBlockInventoryTracking blockInventoryTracking;
     private final PaperPhysicalScanQueue scans = new PaperPhysicalScanQueue();
@@ -92,6 +93,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
+        this.hopperMoves = new PaperHopperMoveObservation(
+                scanner, deferredActions, metrics,
+                this::scanReference, this::submitMatchingIdentities);
         this.pendingPlayerScans = new PaperPlayerScanCoalescer(
                 deferredActions, metrics, (id, source) -> scanPlayer(id, true, source));
         this.blockInventoryTracking = new PaperBlockInventoryTracking(
@@ -132,16 +136,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
-        Optional<PaperPhysicalInventorySnapshot> source =
-                PaperPhysicalInventorySnapshot.capture(event.getSource());
-        Optional<PaperPhysicalInventorySnapshot> destination =
-                PaperPhysicalInventorySnapshot.capture(event.getDestination());
-        Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
-        scheduleNextTick(() -> {
-            scanReference(source, "inventory-move-source");
-            submitMatchingIdentities(destination, identities, "inventory-move-destination");
-            scanReference(destination, "inventory-move-destination");
-        });
+        hopperMoves.observe(event);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

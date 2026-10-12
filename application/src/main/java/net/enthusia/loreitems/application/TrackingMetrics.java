@@ -14,10 +14,18 @@ public final class TrackingMetrics implements MetricsPort {
     private static final String SCAN_PERIODIC_BACKLOG = "tracking.scan_periodic_backlog";
     private static final String SCAN_EVENT_REJECTED = "tracking.scan_event_rejected";
     private static final String SCAN_PERIODIC_REJECTED = "tracking.scan_periodic_rejected";
+    private static final String SCAN_PLAYER_REJECTED = "tracking.scan_player_rejected";
+    private static final String SCAN_CHUNK_REJECTED = "tracking.scan_chunk_rejected";
     private static final String SCAN_EVENT_COMPLETED = "tracking.scan_event_completed";
     private static final String SCAN_PERIODIC_COMPLETED = "tracking.scan_periodic_completed";
     private static final String SCAN_EVENT_NANOS = "tracking.scan_event_nanos";
     private static final String SCAN_PERIODIC_NANOS = "tracking.scan_periodic_nanos";
+    private static final String HOPPER_MOVE_EVENTS = "tracking.hopper_move_events";
+    private static final String HOPPER_MOVE_DEFERRED = "tracking.hopper_move_deferred";
+    private static final String HOPPER_MOVE_EVENT_NANOS = "tracking.hopper_move_event_nanos";
+    private static final String HOPPER_MOVE_DEFERRED_NANOS = "tracking.hopper_move_deferred_nanos";
+    private static final String HOPPER_MOVE_EVENT_PEAK_NANOS = "tracking.hopper_move_event_peak_nanos";
+    private static final String HOPPER_MOVE_DEFERRED_PEAK_NANOS = "tracking.hopper_move_deferred_peak_nanos";
     private static final String ACCEPTED = "tracking.accepted";
     private static final String REJECTED = "tracking.rejected";
     private static final String COMPLETED = "tracking.completed";
@@ -40,10 +48,18 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong scanPeriodicBacklog = new AtomicLong();
     private final AtomicLong scanEventRejected = new AtomicLong();
     private final AtomicLong scanPeriodicRejected = new AtomicLong();
+    private final AtomicLong scanPlayerRejected = new AtomicLong();
+    private final AtomicLong scanChunkRejected = new AtomicLong();
     private final AtomicLong scanEventCompleted = new AtomicLong();
     private final AtomicLong scanPeriodicCompleted = new AtomicLong();
     private final AtomicLong scanEventNanos = new AtomicLong();
     private final AtomicLong scanPeriodicNanos = new AtomicLong();
+    private final AtomicLong hopperMoveEvents = new AtomicLong();
+    private final AtomicLong hopperMoveDeferred = new AtomicLong();
+    private final AtomicLong hopperMoveEventNanos = new AtomicLong();
+    private final AtomicLong hopperMoveDeferredNanos = new AtomicLong();
+    private final AtomicLong hopperMoveEventPeakNanos = new AtomicLong();
+    private final AtomicLong hopperMoveDeferredPeakNanos = new AtomicLong();
     private final AtomicLong accepted = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong completed = new AtomicLong();
@@ -73,6 +89,10 @@ public final class TrackingMetrics implements MetricsPort {
                     Math.max(0L, value), Math::max);
             case SCAN_EVENT_BACKLOG -> scanEventBacklog.set(value);
             case SCAN_PERIODIC_BACKLOG -> scanPeriodicBacklog.set(value);
+            case HOPPER_MOVE_EVENT_PEAK_NANOS -> hopperMoveEventPeakNanos.accumulateAndGet(
+                    Math.max(0L, value), Math::max);
+            case HOPPER_MOVE_DEFERRED_PEAK_NANOS -> hopperMoveDeferredPeakNanos.accumulateAndGet(
+                    Math.max(0L, value), Math::max);
             default -> {
                 // Unknown metrics are intentionally ignored.
             }
@@ -105,8 +125,12 @@ public final class TrackingMetrics implements MetricsPort {
         switch (name) {
             case SCAN_EVENT_REJECTED -> scanEventRejected.incrementAndGet();
             case SCAN_PERIODIC_REJECTED -> scanPeriodicRejected.incrementAndGet();
+            case SCAN_PLAYER_REJECTED -> scanPlayerRejected.incrementAndGet();
+            case SCAN_CHUNK_REJECTED -> scanChunkRejected.incrementAndGet();
             case SCAN_EVENT_COMPLETED -> scanEventCompleted.incrementAndGet();
             case SCAN_PERIODIC_COMPLETED -> scanPeriodicCompleted.incrementAndGet();
+            case HOPPER_MOVE_EVENTS -> hopperMoveEvents.incrementAndGet();
+            case HOPPER_MOVE_DEFERRED -> hopperMoveDeferred.incrementAndGet();
             default -> {
                 // Ignore unrelated metric names, preserving the existing contract.
             }
@@ -122,6 +146,8 @@ public final class TrackingMetrics implements MetricsPort {
             case PERSISTENCE_NANOS -> durationNanos.addAndGet(value);
             case SCAN_EVENT_NANOS -> scanEventNanos.addAndGet(value);
             case SCAN_PERIODIC_NANOS -> scanPeriodicNanos.addAndGet(value);
+            case HOPPER_MOVE_EVENT_NANOS -> hopperMoveEventNanos.addAndGet(value);
+            case HOPPER_MOVE_DEFERRED_NANOS -> hopperMoveDeferredNanos.addAndGet(value);
             default -> {
                 // Unknown timing samples are intentionally ignored.
             }
@@ -150,7 +176,11 @@ public final class TrackingMetrics implements MetricsPort {
                 scanBacklogPeak.get(), scanEventBacklog.get(), scanPeriodicBacklog.get(),
                 scanEventRejected.get(), scanPeriodicRejected.get(),
                 scanEventCompleted.get(), scanPeriodicCompleted.get(),
-                scanEventNanos.get(), scanPeriodicNanos.get());
+                scanEventNanos.get(), scanPeriodicNanos.get(),
+                hopperMoveEvents.get(), hopperMoveDeferred.get(),
+                hopperMoveEventNanos.get(), hopperMoveDeferredNanos.get(),
+                hopperMoveEventPeakNanos.get(), hopperMoveDeferredPeakNanos.get(),
+                scanPlayerRejected.get(), scanChunkRejected.get());
     }
 
     public record Snapshot(
@@ -175,7 +205,15 @@ public final class TrackingMetrics implements MetricsPort {
             long scanEventCompleted,
             long scanPeriodicCompleted,
             long scanEventNanos,
-            long scanPeriodicNanos) {}
+            long scanPeriodicNanos,
+            long hopperMoveEvents,
+            long hopperMoveDeferred,
+            long hopperMoveEventNanos,
+            long hopperMoveDeferredNanos,
+            long hopperMoveEventPeakNanos,
+            long hopperMoveDeferredPeakNanos,
+            long scanPlayerRejected,
+            long scanChunkRejected) {}
 
     private record AdditionalQueueMetrics(TrackingMetrics metrics) implements MetricsPort {
         @Override
