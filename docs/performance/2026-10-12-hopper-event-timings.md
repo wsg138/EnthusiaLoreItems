@@ -15,6 +15,12 @@ Recent AI-OFF SMP Java Spark profiles [vzQFP8HmFH](https://spark.lucko.me/vzQFP8
 
 All labels are fixed strings. Each invocation adds two `System.nanoTime()` calls and bounded atomic sums, counts and monotonic peak-gauge updates, with no per-player/item/world tags, unbounded logs, or retained Bukkit references. No scanning, queue, identity, event ordering, reconciliation, item mutation or persistence policy changes. Metrics are cumulative from plugin startup.
 
+## Separate queue saturation source attribution
+
+The existing historical `scanEventRejected` count combines **queued player scans** and **queued chunk-load scans**, not hopper inventory-move events. The actual current `PaperPhysicalTrackingListener.enqueue` sources are startup/player-join and chunk-load; other entity/chunk unload paths scan synchronously and are not represented in this deferred queue. The prior 871 event rejections therefore cannot be assigned to hoppers.
+
+This change adds **fixed-category**, process-local counters for `tracking.scan_player_rejected` and `tracking.scan_chunk_rejected`. `PaperPhysicalScanTelemetry.reject` preserves the previous aggregate `tracking.scan_event_rejected` and increments exactly one subcategory when the refused request is not optional periodic reconciliation. Existing periodic rejection accounting and unchanged source ordering are preserved. The GUI displays `Rejected event scans player / chunk`. On the new version, their **same-uptime total** should equal the aggregate event-rejected count. Test full mixed and all-event queue saturation to make sure nothing is dropped from accounting. Counters begin at zero **on next plugin restart**; older 871/32 screenshot cannot be retroactively split.
+
 ## Interpretation and limitations
 
 Take screenshots from the **same server uptime** at T0 and T1, with actual wall timestamps, then subtract the counters. `(eventNanos delta / event count delta)` and `(deferredNanos delta / deferred count delta)` are approximate mean milliseconds **per invocation**. Total elapsed time divided by wall time approximates fraction of wall time spent in these callbacks but is *not* exclusive CPU cost in an asynchronous JVM profile. Peaks are **per-invocation** maxima across uptime and do not establish a per-tick total or p95. Never subtract across server restarts. If either count delta is zero, its per-invocation average is unavailable, not zero.
