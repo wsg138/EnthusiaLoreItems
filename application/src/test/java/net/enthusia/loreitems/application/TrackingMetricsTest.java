@@ -41,6 +41,10 @@ class TrackingMetricsTest {
         metrics.recordDurationNanos("tracking.hopper_move_event_nanos", 21L);
         additional.recordDurationNanos("tracking.hopper_move_deferred_nanos", 31L);
         metrics.recordDurationNanos("tracking.hopper_move_event_nanos", -5L);
+        metrics.setGauge("tracking.hopper_move_event_peak_nanos", 2100000L);
+        additional.setGauge("tracking.hopper_move_event_peak_nanos", 1400000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", 3100000L);
+        metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", -50L);
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(8L, snapshot.queued());
@@ -66,5 +70,7 @@ class TrackingMetricsTest {
         assertEquals(1L, snapshot.hopperMoveDeferred());
         assertEquals(21L, snapshot.hopperMoveEventNanos());
         assertEquals(31L, snapshot.hopperMoveDeferredNanos());
+        assertEquals(2100000L, snapshot.hopperMoveEventPeakNanos());
+        assertEquals(3100000L, snapshot.hopperMoveDeferredPeakNanos());
     }
 }
