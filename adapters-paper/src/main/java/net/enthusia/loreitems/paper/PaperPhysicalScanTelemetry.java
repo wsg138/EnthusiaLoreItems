@@ -42,8 +42,13 @@ final class PaperPhysicalScanTelemetry {
 
     void reject(PaperTrackingScanRequest request) {
         metrics.increment("tracking.rejected");
-        metrics.increment(request.periodicChunkKey() == null
-                ? "tracking.scan_event_rejected" : "tracking.scan_periodic_rejected");
+        if (request.periodicChunkKey() != null) {
+            metrics.increment("tracking.scan_periodic_rejected");
+        } else {
+            metrics.increment("tracking.scan_event_rejected");
+            metrics.increment(request.playerId() != null
+                    ? "tracking.scan_player_rejected" : "tracking.scan_chunk_rejected");
+        }
     }
 
     void execute(
