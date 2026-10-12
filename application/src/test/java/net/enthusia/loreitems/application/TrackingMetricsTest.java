@@ -31,6 +31,8 @@ class TrackingMetricsTest {
         additional.recordDurationNanos("tracking.persistence_nanos", 11L);
         metrics.increment("tracking.scan_event_rejected");
         additional.increment("tracking.scan_periodic_rejected");
+        metrics.increment("tracking.scan_player_rejected");
+        additional.increment("tracking.scan_chunk_rejected");
         metrics.increment("tracking.scan_event_completed");
         additional.increment("tracking.scan_periodic_completed");
         additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
@@ -62,6 +64,8 @@ class TrackingMetricsTest {
         assertEquals(3L, snapshot.scanPeriodicBacklog());
         assertEquals(1L, snapshot.scanEventRejected());
         assertEquals(1L, snapshot.scanPeriodicRejected());
+        assertEquals(1L, snapshot.scanPlayerRejected());
+        assertEquals(1L, snapshot.scanChunkRejected());
         assertEquals(1L, snapshot.scanEventCompleted());
         assertEquals(1L, snapshot.scanPeriodicCompleted());
         assertEquals(41L, snapshot.scanEventNanos());
