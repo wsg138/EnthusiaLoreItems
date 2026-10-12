@@ -162,55 +162,21 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     }
 
     /**
-     * Call only after a complete, naturally loaded inventory scan. Every observation must be
-     * a newly admitted, confirmed PRESENT reconciliation for this physical holder. An
-     * incomplete/truncated scan, absence-only scan, or coalesced response is never a proof.
-     * The scanner (Worker07/08) owns the full-coverage assertion.
+     * Completeness is asserted only by the natural-load scanner after full inventory coverage.
+     * One recorded item alone never clears dirty-holder uncertainty.
      */
     public CompletionStage<Boolean> confirmCompleteHolderReconciliation(
             TrackingObservationUseCase.Request holder,
             boolean completeCoverage,
             List<PaperTrackingAcknowledgement> observations) {
-        Objects.requireNonNull(holder, "holder");
-        Objects.requireNonNull(observations, "observations");
-        if (!completeCoverage || observations.isEmpty()) {
-            return CompletableFuture.completedFuture(false);
-        }
-        CompletableFuture<?>[] stages = observations.stream()
-                .map(observation -> observation.settlement().toCompletableFuture())
-                .toArray(CompletableFuture[]::new);
-        return CompletableFuture.allOf(stages).handle((ignored, failure) ->
-                failure == null && confirmReceipts(holder, observations));
-    }
-
-    private boolean confirmReceipts(
-            TrackingObservationUseCase.Request holder,
-            List<PaperTrackingAcknowledgement> observations) {
-        long earliest = Long.MAX_VALUE;
-        for (PaperTrackingAcknowledgement observation : observations) {
-            if (!verifiedHolderReceipt(holder, observation)) {
-                return false;
-            }
-            earliest = Math.min(earliest, observation.sequence());
-        }
-        if (!unresolved.reconcile(holder, earliest)) {
-            return false;
-        }
-        metrics.increment("tracking.persistence_recovered");
-        updateDurabilityGauges();
-        return true;
-    }
-
-    private boolean verifiedHolderReceipt(
-            TrackingObservationUseCase.Request holder,
-            PaperTrackingAcknowledgement observation) {
-        TrackingObservationUseCase.Request request = observation.request();
-        return observation.admitted()
-                && request.presence() == TrackingObservationUseCase.Presence.PRESENT
-                && request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION
-                && unresolved.sameHolder(holder, request)
-                && observation.settlement().toCompletableFuture().join()
-                        == PaperTrackingAcknowledgement.Settlement.CONFIRMED;
+        return PaperTrackingAcknowledgementVerifier.confirm(
+                unresolved, holder, completeCoverage, observations).thenApply(recovered -> {
+                    if (recovered) {
+                        metrics.increment("tracking.persistence_recovered");
+                        updateDurabilityGauges();
+                    }
+                    return recovered;
+                });
     }
 
     private boolean submitInternal(
