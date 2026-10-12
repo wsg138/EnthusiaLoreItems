@@ -57,6 +57,24 @@ python3 tools/check_offline_backup.py --offline-data-dir /offline-backups/Enthus
 
 This rejects malformed/wrong-hash JARs, wrong plugin identity, missing configuration or group marker folders, SQLite structural corruption, symlinks in checked paths, and leftover database WAL/SHM companions. It uses SQLite immutable read-only mode on a copy and writes no output files. A pass **does not** prove the source process was stopped, a consistent backup moment, or agreement with player/world item data; preserve independent maintenance evidence and rehearse a disposable restore.
 
+**If the raw capture contains `loreitems.db-wal` or `loreitems.db-shm`:** do **not** delete, rename, truncate, or separately checkpoint the companions in the original capture. The validator intentionally rejects them because `immutable=1` can silently ignore unapplied WAL records. Preserve the original stopped-process capture, its companion files and checksums unchanged. Prepare a **separate disposable working copy** of the entire captured plugin data directory (including matching WAL and SHM files), not the live server or the raw master capture. On that isolated working copy, use SQLite's supported backup API to materialize the logically complete database (including committed WAL transactions) into a **different** validation directory containing separately copied `config.yml` and `groups/` files:
+
+```python
+import sqlite3
+from contextlib import closing
+from pathlib import Path
+
+source = Path("/isolated-work/raw-copy/EnthusiaLoreItems/loreitems.db")
+destination = Path("/isolated-work/validation/EnthusiaLoreItems/loreitems.db")
+# source's -wal/-shm companions remain beside source throughout this operation.
+# destination's parent must already hold an independent copy of config.yml/groups/.
+with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(destination)) as out:
+        db.backup(out)
+```
+
+Run the verifier **only on the separate validation directory** after all SQLite connections are closed and after confirming it contains no `-wal`/`-shm` companions. Do not destroy the unprocessed working copy or original capture, and do not copy only the raw main `.db` while omitting its companion transactions. If the SQLite backup fails, capture lineage is ambiguous, or the file snapshots were taken while writes were active, **recapture under a separately approved clean shutdown** instead of bypassing this gate. An isolated database export does not prove that database transactions and external group/player/world state share a consistent moment, nor that rollback is safe.
+
 ## 5. AI-OFF SMP baseline packet — *only after a separately approved release*
 
 Never run Qwen inference to collect this baseline. Tell the EnthusiaAI coordinator (issue [#119](https://github.com/wsg138/Enthusia-AI/issues/119)) whether a verified optimized JAR is actually loaded; if not, capture **pre-release comparison only**, not an optimized baseline.

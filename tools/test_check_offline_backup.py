@@ -90,6 +90,19 @@ class OfflineBackupPreflightTest(unittest.TestCase):
         self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
         self.assert_rejected("malformed")
 
+    def test_corrupt_deflate_stream_is_rejected(self):
+        with zipfile.ZipFile(self.jar, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("plugin.yml", "name: EnthusiaLoreItems\\n" + "A" * 200)
+        contents = bytearray(self.jar.read_bytes())
+        # ZIP local header: 26/28 hold the filename and extra-field lengths.
+        compressed_at = 30 + int.from_bytes(contents[26:28], "little") + int.from_bytes(
+            contents[28:30], "little"
+        )
+        contents[compressed_at] = 0xFF  # invalid DEFLATE block header
+        self.jar.write_bytes(contents)
+        self.hash = hashlib.sha256(contents).hexdigest()
+        self.assert_rejected("malformed")
+
     def test_relative_offline_path_is_supported(self):
         from os import path as os_path
         original = self.backup

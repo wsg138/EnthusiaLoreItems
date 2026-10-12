@@ -15,6 +15,7 @@ import json
 import re
 import sqlite3
 import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -65,7 +66,7 @@ def check_jar(jar: Path) -> None:
             plugin = archive.read("plugin.yml").decode("utf-8")
             if archive.testzip() is not None:
                 raise BackupRejected("rollback JAR failed ZIP checksum validation")
-    except (OSError, KeyError, UnicodeError, zipfile.BadZipFile) as error:
+    except (OSError, KeyError, UnicodeError, zipfile.BadZipFile, zlib.error) as error:
         raise BackupRejected("rollback JAR is missing plugin.yml or is malformed") from error
     if not re.search(r"^name:\s*EnthusiaLoreItems\s*$", plugin, re.MULTILINE):
         raise BackupRejected("rollback JAR plugin.yml does not identify EnthusiaLoreItems")
