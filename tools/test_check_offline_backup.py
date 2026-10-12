@@ -107,7 +107,7 @@ class OfflineBackupPreflightTest(unittest.TestCase):
             for suffix in ("", "-wal", "-shm"):
                 shutil.copy2(Path(str(database) + suffix), Path(str(work / "loreitems.db") + suffix))
         raw_copy_hashes = {
-            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in work.iterdir()
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in raw.iterdir()
         }
         # SQLite applies committed WAL pages while writing a standalone exported DB.
         with closing(sqlite3.connect((work / "loreitems.db").resolve().as_uri() + "?mode=ro", uri=True)) as source:
@@ -118,7 +118,7 @@ class OfflineBackupPreflightTest(unittest.TestCase):
                 "SELECT message FROM events"
             ).fetchone()[0])
         self.assertEqual(raw_copy_hashes, {
-            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in work.iterdir()
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in raw.iterdir()
         })
         self.assertEqual("STRUCTURAL_CHECK_PASS_NOT_POINT_IN_TIME_PROOF",
                          preflight.validate(self.backup, self.jar, self.hash)["status"])
