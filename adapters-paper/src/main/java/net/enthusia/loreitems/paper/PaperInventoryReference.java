@@ -18,6 +18,7 @@ sealed interface PaperInventoryReference
         permits PaperInventoryReference.PlayerMain,
                 PaperInventoryReference.PlayerEnder,
                 PaperInventoryReference.Block,
+                PaperInventoryReference.DoubleChestBlock,
                 PaperInventoryReference.EntityInventory {
     Optional<Inventory> resolve(Plugin plugin);
 
@@ -42,15 +43,7 @@ sealed interface PaperInventoryReference
         if (holder instanceof Entity entity) {
             return Optional.of(new EntityInventory(entity.getUniqueId()));
         }
-        Location location = inventory.getLocation();
-        if (location != null && location.getWorld() != null) {
-            return Optional.of(new Block(
-                    location.getWorld().getUID(),
-                    location.getBlockX(),
-                    location.getBlockY(),
-                    location.getBlockZ()));
-        }
-        return Optional.empty();
+        return PaperDoubleChestIdentity.capture(inventory, holder);
     }
 
     static String blockKey(Location location) {
@@ -85,9 +78,41 @@ sealed interface PaperInventoryReference
                 return Optional.empty();
             }
             BlockState state = world.getBlockAt(x, y, z).getState(false);
+            if (state instanceof org.bukkit.block.Chest chest) {
+                if (!(state.getBlockData() instanceof org.bukkit.block.data.type.Chest data)
+                        || data.getType() != org.bukkit.block.data.type.Chest.Type.SINGLE) {
+                    return Optional.empty();
+                }
+                Inventory inventory = chest.getInventory();
+                return inventory.getSize() == 27 ? Optional.of(inventory) : Optional.empty();
+            }
             return state instanceof InventoryHolder holder
                     ? Optional.of(holder.getInventory())
                     : Optional.empty();
+        }
+    }
+
+    record DoubleChestBlock(
+            UUID worldId,
+            PaperDoubleChestIdentity.Position first,
+            PaperDoubleChestIdentity.Position second) implements PaperInventoryReference {
+        public DoubleChestBlock {
+            Objects.requireNonNull(worldId, "worldId");
+            Objects.requireNonNull(first, "first");
+            Objects.requireNonNull(second, "second");
+            if (first.compareTo(second) >= 0 || !first.adjacent(second)) {
+                throw new IllegalArgumentException("Double chest halves must be ordered neighbors");
+            }
+        }
+
+        @Override
+        public Optional<Inventory> resolve(Plugin plugin) {
+            return PaperDoubleChestIdentity.resolve(
+                    plugin.getServer().getWorld(worldId), this);
+        }
+
+        String stableKey() {
+            return PaperDoubleChestIdentity.key(this);
         }
     }
 
