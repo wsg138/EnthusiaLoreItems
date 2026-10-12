@@ -94,4 +94,21 @@ class TrackingMetricsTest {
         assertEquals(17L, snapshot.scanPeriodicNanos());
     }
 
+
+    @Test
+    void recordsQueuedScanFailuresIndependentlyFromPersistenceFailures() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.scan_event_failed");
+        additional.increment("tracking.scan_periodic_failed");
+        additional.increment("tracking.scan_periodic_failed");
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(1L, snapshot.scanEventFailed());
+        assertEquals(2L, snapshot.scanPeriodicFailed());
+        assertEquals(0L, snapshot.scanEventCompleted());
+        assertEquals(0L, snapshot.scanPeriodicCompleted());
+        assertEquals(0L, snapshot.failed(), "Persistence failures remain separate");
+    }
+
 }
