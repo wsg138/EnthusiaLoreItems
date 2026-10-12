@@ -1,0 +1,170 @@
+"""Read-only offline backup preflight regression tests; never touch live SMP data."""
+
+from __future__ import annotations
+
+import hashlib
+from contextlib import closing
+import importlib.util
+from pathlib import Path
+import sqlite3
+import shutil
+import tempfile
+import unittest
+import zipfile
+
+
+MODULE = Path(__file__).with_name("check_offline_backup.py")
+SPEC = importlib.util.spec_from_file_location("check_offline_backup", MODULE)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError("cannot load offline backup verifier")
+preflight = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(preflight)
+
+
+class OfflineBackupPreflightTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.backup = root / "EnthusiaLoreItems"
+        (self.backup / "groups" / "completed").mkdir(parents=True)
+        (self.backup / "groups" / "cancelled").mkdir(parents=True)
+        (self.backup / "config.yml").write_text("mutation-budget-per-tick: 16\n", encoding="utf-8")
+        self.database = self.backup / "loreitems.db"
+        with closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("CREATE TABLE lore_instances (instance_id TEXT PRIMARY KEY)")
+            connection.execute("INSERT INTO lore_instances VALUES ('synthetic')")
+            connection.commit()
+        self.jar = root / "EnthusiaLoreItems.jar"
+        with zipfile.ZipFile(self.jar, "w") as archive:
+            archive.writestr("plugin.yml", "name: EnthusiaLoreItems\nversion: 1.0.1\n")
+        self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
+
+    def assert_rejected(self, phrase):
+        with self.assertRaisesRegex(preflight.BackupRejected, phrase):
+            preflight.validate(self.backup, self.jar, self.hash)
+
+    def test_valid_offline_snapshot_has_read_only_structural_result(self):
+        original_bytes = self.database.read_bytes()
+        original_files = sorted(str(path.relative_to(self.backup))
+                                for path in self.backup.rglob("*"))
+        report = preflight.validate(self.backup, self.jar, self.hash)
+        self.assertEqual("STRUCTURAL_CHECK_PASS_NOT_POINT_IN_TIME_PROOF", report["status"])
+        self.assertEqual(1, report["sqlite_user_tables"])
+        self.assertEqual(self.hash, report["jar_sha256"])
+        self.assertEqual(original_bytes, self.database.read_bytes())
+        self.assertEqual(original_files, sorted(str(path.relative_to(self.backup))
+                                                for path in self.backup.rglob("*")))
+
+    def test_wrong_jar_hash_is_rejected(self):
+        with self.assertRaisesRegex(preflight.BackupRejected, "SHA256 mismatch"):
+            preflight.validate(self.backup, self.jar, "a" * 64)
+
+    def test_invalid_digest_format_is_rejected(self):
+        with self.assertRaisesRegex(preflight.BackupRejected, "64 hex"):
+            preflight.validate(self.backup, self.jar, "not-a-checksum")
+
+    def test_uncheckpointed_wal_is_rejected_even_when_main_db_looks_intact(self):
+        (self.backup / "loreitems.db-wal").write_bytes(b"synthetic pending WAL")
+        self.assert_rejected("WAL/SHM")
+
+    def test_stale_shm_is_rejected_as_unverified_backup_state(self):
+        (self.backup / "loreitems.db-shm").write_bytes(b"synthetic shm")
+        self.assert_rejected("WAL/SHM")
+
+    def test_corrupt_database_is_rejected(self):
+        self.database.write_bytes(b"not a sqlite database")
+        self.assert_rejected("integrity query failed")
+
+    def test_missing_group_markers_is_rejected(self):
+        (self.backup / "groups" / "cancelled").rmdir()
+        self.assert_rejected("missing or symlinked directory")
+
+    def test_jar_with_wrong_plugin_identity_is_rejected(self):
+        with zipfile.ZipFile(self.jar, "w") as archive:
+            archive.writestr("plugin.yml", "name: AnotherPlugin\n")
+        self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
+        self.assert_rejected("does not identify EnthusiaLoreItems")
+
+    def test_malformed_jar_is_rejected(self):
+        self.jar.write_bytes(b"not a ZIP")
+        self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
+        self.assert_rejected("malformed")
+
+    def test_separate_wal_export_preserves_original_capture(self):
+        raw = Path(self.temp.name) / "raw-capture"
+        work = Path(self.temp.name) / "working-copy"
+        raw.mkdir()
+        work.mkdir()
+        database = raw / "loreitems.db"
+        with closing(sqlite3.connect(database)) as writer:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            writer.execute("CREATE TABLE events (message TEXT)")
+            writer.commit()
+            writer.execute("INSERT INTO events VALUES ('wal-committed')")
+            writer.commit()
+            for suffix in ("", "-wal", "-shm"):
+                shutil.copy2(Path(str(database) + suffix), Path(str(work / "loreitems.db") + suffix))
+        raw_copy_hashes = {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in raw.iterdir()
+        }
+        # SQLite applies committed WAL pages while writing a standalone exported DB.
+        with closing(sqlite3.connect((work / "loreitems.db").resolve().as_uri() + "?mode=ro", uri=True)) as source:
+            with closing(sqlite3.connect(self.database)) as target:
+                source.backup(target)
+        with closing(sqlite3.connect(self.database)) as result:
+            self.assertEqual("wal-committed", result.execute(
+                "SELECT message FROM events"
+            ).fetchone()[0])
+        self.assertEqual(raw_copy_hashes, {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in raw.iterdir()
+        })
+        self.assertEqual("STRUCTURAL_CHECK_PASS_NOT_POINT_IN_TIME_PROOF",
+                         preflight.validate(self.backup, self.jar, self.hash)["status"])
+
+    def test_corrupt_deflate_stream_is_rejected(self):
+        with zipfile.ZipFile(self.jar, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("plugin.yml", "name: EnthusiaLoreItems\\n" + "A" * 200)
+        contents = bytearray(self.jar.read_bytes())
+        # ZIP local header: 26/28 hold the filename and extra-field lengths.
+        compressed_at = 30 + int.from_bytes(contents[26:28], "little") + int.from_bytes(
+            contents[28:30], "little"
+        )
+        contents[compressed_at] = 0xFF  # invalid DEFLATE block header
+        self.jar.write_bytes(contents)
+        self.hash = hashlib.sha256(contents).hexdigest()
+        self.assert_rejected("malformed")
+
+    def test_relative_offline_path_is_supported(self):
+        from os import path as os_path
+        original = self.backup
+        try:
+            relative = Path(os_path.relpath(original, Path.cwd()))
+        except ValueError as error:
+            self.skipTest(f"relative path unavailable across drives: {error}")
+        report = preflight.validate(relative, self.jar, self.hash)
+        self.assertEqual(1, report["sqlite_user_tables"])
+
+    def test_nested_symlink_in_groups_is_rejected(self):
+        target = Path(self.temp.name) / "external-marker"
+        target.write_text("synthetic", encoding="utf-8")
+        link = self.backup / "groups" / "completed" / "external"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks not supported here: {error}")
+        self.assert_rejected("symlink found inside")
+
+    def test_symlinked_database_is_rejected(self):
+        external = Path(self.temp.name) / "external.db"
+        self.database.rename(external)
+        try:
+            self.database.symlink_to(external)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks not supported here: {error}")
+        self.assert_rejected("symlinked regular file")
+
+
+if __name__ == "__main__":
+    unittest.main()

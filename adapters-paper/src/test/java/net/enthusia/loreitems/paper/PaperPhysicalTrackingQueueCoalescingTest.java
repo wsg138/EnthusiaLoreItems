@@ -1,8 +1,12 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.enthusia.loreitems.application.TrackingMetrics;
@@ -20,6 +24,7 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
 class PaperPhysicalTrackingQueueCoalescingTest {
     private static final String PERIODIC_SOURCE = "periodic-loaded-chunk";
     private ServerMock server;
+    private PluginMock plugin;
     private PaperPhysicalTrackingListener listener;
     private TrackingMetrics metrics;
     private AtomicInteger scanBudget;
@@ -27,7 +32,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
     @BeforeEach
     void setUp() {
         server = MockBukkit.mock();
-        PluginMock plugin = MockBukkit.createMockPlugin();
+        plugin = MockBukkit.createMockPlugin();
         TrackingObservationUseCase recorder = request ->
                 CompletableFuture.completedFuture(TrackingObservationUseCase.Result.of(
                         TrackingObservationUseCase.Status.RECORDED, "ok"));
@@ -182,30 +187,30 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
     @Test
     void routineReconciliationMakesProgressDuringEventFlood() {
-        World world = server.addSimpleWorld("world");
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
-                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+        // A missing world proves fairness without relying on MockBukkit block-entity support.
+        listener.enqueue(unavailablePeriodicRequest());
         for (int i = 0; i < 12; i++) {
             listener.enqueue(PaperTrackingScanRequest.player(
                     new UUID(0L, i + 1L), true, "player-join"));
         }
 
         listener.drain();
-        assertEquals(3L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(3L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed(),
+                "Inaccessible periodic fixtures must not hide scanner exceptions");
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(9, listener.queuedScanCount());
     }
 
     @Test
     void oneTickDrainCapturesEventAndRoutineCostWithoutChangingAdmissions() {
-        World world = server.addSimpleWorld("world");
         listener.enqueue(PaperTrackingScanRequest.player(
                 UUID.randomUUID(), true, "player-join"));
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
-                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+        // A missing world proves fairness without relying on MockBukkit block-entity support.
+        listener.enqueue(unavailablePeriodicRequest());
 
         listener.drain();
 
@@ -213,8 +218,12 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
-        assertEquals(1L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed(),
+                "Inaccessible periodic fixtures must not hide scanner exceptions");
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
@@ -232,4 +241,135 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+
+    private static PaperTrackingScanRequest unavailablePeriodicRequest() {
+        return new PaperTrackingScanRequest(
+                null, false, new PaperTrackingScanRequest.ChunkReference(
+                        UUID.randomUUID(), 0, 0),
+                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE);
+    }
+
+    @Test
+    void recordsPeakTimingForScannedAndSkippedQueuedRequestOutcomes() {
+        World world = server.addSimpleWorld("world");
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(8, 0), TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(9, 0), TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+
+        listener.drain();
+
+        TrackingMetrics.Snapshot result = metrics.snapshot();
+        assertTrue(result.scanPlayerPeakNanos() > 0);
+        assertTrue(result.scanChunkPeakNanos() > 0);
+        assertTrue(result.scanPeriodicPeakNanos() > 0);
+        assertTrue(result.scanDrainPeakNanos() >= result.scanChunkPeakNanos());
+        assertEquals(4L, result.scanEventCompleted() + result.scanEventSkipped()
+                + result.scanEventFailed() + result.scanPeriodicCompleted()
+                + result.scanPeriodicSkipped() + result.scanPeriodicFailed());
+        assertEquals(1L, result.scanEventSkipped());
+        assertEquals(0, listener.queuedScanCount());
+
+        listener.drain();
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() >= result.scanDrainPeakNanos());
+    }
+
+    @Test
+    void failedScanDurationIsRecordedBeforeWarningIsLogged() {
+        AtomicBoolean elapsedVisibleAtWarning = new AtomicBoolean();
+        Handler observer = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getMessage().startsWith("LoreItems queued scan failed")) {
+                    elapsedVisibleAtWarning.set(metrics.snapshot().scanEventNanos() > 0L
+                            && metrics.snapshot().scanChunkPeakNanos() > 0L);
+                }
+            }
+
+            @Override
+            public void flush() { }
+
+            @Override
+            public void close() { }
+        };
+        plugin.getLogger().addHandler(observer);
+        try {
+            PaperPhysicalScanTelemetry telemetry = new PaperPhysicalScanTelemetry(metrics);
+            telemetry.execute(new PaperTrackingScanRequest(
+                    null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                    "malformed-test-request"), plugin, listener);
+        } finally {
+            plugin.getLogger().removeHandler(observer);
+        }
+        assertTrue(elapsedVisibleAtWarning.get(),
+                "Record request duration before writing stack traces to logger");
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+    }
+
+    @Test
+    void recordsDrainTimingWhenScanFailsButDoesNotAbortLaterRequests() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+
+        listener.drain();
+
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() > 0);
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void missingWorldChunkIsSkippedWithoutLoadingOrReportingCompletion() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, new PaperTrackingScanRequest.ChunkReference(
+                        UUID.randomUUID(), 12, -15),
+                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.drain();
+
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertTrue(metrics.snapshot().scanChunkPeakNanos() > 0L);
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void offlinePlayerIsSkippedRatherThanCountedAsPhysicalEvidence() {
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.drain();
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void malformedQueuedScanCannotAbortFollowingLifecycleObservations() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+
+        listener.drain();
+
+        assertEquals(0, listener.queuedScanCount());
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed());
+        assertEquals(0L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().failed());
+        listener.drain();
+        assertEquals(1L, metrics.snapshot().scanEventFailed(), "Failed work must not replay forever");
+    }
+
 }
