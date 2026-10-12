@@ -50,6 +50,7 @@ import org.bukkit.plugin.Plugin;
 public final class PaperIdentityAnomalyListener implements Listener, AutoCloseable {
     private final Plugin plugin;
     private final PaperIdentityObservationScanner scanner;
+    private final PaperTrackedItemCollector evidence = new PaperTrackedItemCollector();
 
     private boolean closed;
 
@@ -108,6 +109,12 @@ public final class PaperIdentityAnomalyListener implements Listener, AutoCloseab
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryMove(InventoryMoveItemEvent event) {
+        // Do not reconstruct block holders or scan destination inventories
+        // for ordinary hopper items. Malformed and nested evidence still flows
+        // through the anomaly reporter unchanged.
+        if (!evidence.hasIdentityEvidence(event.getItem())) {
+            return;
+        }
         LocationDescriptor sourceLocation = PaperIdentityObservationScanner.inventoryLocation(
                 event.getSource(), "moving-item");
         if (sourceLocation == null) {

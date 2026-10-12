@@ -45,6 +45,12 @@ final class PaperHopperMoveObservation {
     void observe(InventoryMoveItemEvent event) {
         long started = System.nanoTime();
         try {
+            // A plain moved stack cannot relocate a tracked identity. Avoid
+            // snapshotting either inventory or enqueueing full reconciliations.
+            // The guard also checks nested containers and malformed PDC.
+            if (!scanner.hasIdentityEvidence(event.getItem())) {
+                return;
+            }
             Optional<PaperPhysicalInventorySnapshot> source =
                     PaperPhysicalInventorySnapshot.capture(event.getSource());
             Optional<PaperPhysicalInventorySnapshot> destination =
@@ -67,7 +73,9 @@ final class PaperHopperMoveObservation {
         try {
             scanReference.scan(source, "inventory-move-source");
             submitMatching.scan(destination, identities, "inventory-move-destination");
-            scanReference.scan(destination, "inventory-move-destination");
+            if (!source.equals(destination)) {
+                scanReference.scan(destination, "inventory-move-destination");
+            }
         } finally {
             long elapsed = System.nanoTime() - started;
             metrics.recordDurationNanos("tracking.hopper_move_deferred_nanos", elapsed);
