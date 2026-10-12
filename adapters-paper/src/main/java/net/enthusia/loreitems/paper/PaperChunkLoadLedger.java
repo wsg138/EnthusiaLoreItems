@@ -93,7 +93,7 @@ final class PaperChunkLoadLedger {
 
     Pending nextDirty(long tick) {
         int attempts = Math.min(16, retry.size());
-        while (attempts-- > 0 && !retry.isEmpty()) {
+        for (int index = 0; index < attempts && !retry.isEmpty(); index++) {
             Pending pending = retry.removeFirst();
             Entry entry = current(pending);
             if (entry != null) {
@@ -139,7 +139,7 @@ final class PaperChunkLoadLedger {
 
     Pending nextTrackedDue(long tick, long cadence) {
         int candidates = Math.min(32, tracked.size());
-        while (candidates-- > 0) {
+        for (int index = 0; index < candidates; index++) {
             PaperTrackingScanRequest.ChunkReference key = tracked.removeFirst();
             Entry entry = loaded.get(key);
             if (entry == null || !entry.observedTracked) {

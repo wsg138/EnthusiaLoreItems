@@ -24,16 +24,22 @@ final class PaperInventoryEventHint {
         if (evidence(event.getCursor()) || evidence(event.getCurrentItem())) {
             return true;
         }
-        int hotbar = event.getHotbarButton();
-        if (hotbar >= 0 && hotbar < 9 && evidence(player.getInventory().getItem(hotbar))) {
-            return true;
-        }
-        if (event.getClick() == ClickType.SWAP_OFFHAND
-                && evidence(player.getInventory().getItemInOffHand())) {
+        if (hotbarHasEvidence(event, player) || offhandHasEvidence(event, player)) {
             return true;
         }
         return event instanceof CraftItemEvent craft
                 && evidence(craft.getRecipe().getResult());
+    }
+
+    private boolean hotbarHasEvidence(InventoryClickEvent event, Player player) {
+        int hotbar = event.getHotbarButton();
+        return hotbar >= 0 && hotbar < 9
+                && evidence(player.getInventory().getItem(hotbar));
+    }
+
+    private boolean offhandHasEvidence(InventoryClickEvent event, Player player) {
+        return event.getClick() == ClickType.SWAP_OFFHAND
+                && evidence(player.getInventory().getItemInOffHand());
     }
 
     private static boolean conservativeAction(InventoryClickEvent event) {

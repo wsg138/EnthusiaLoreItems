@@ -49,6 +49,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
     private static final long MAX_DRAIN_NANOS = 2_000_000L;
+    private static final long METRICS_UPDATE_TICKS = 20L;
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -316,7 +317,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             }
             if (System.nanoTime() - start >= MAX_DRAIN_NANOS) break;
         }
-        if (tick % 20L == 0L) {
+        if (tick % METRICS_UPDATE_TICKS == 0L) {
             PaperChunkLoadLedger.Pending due = chunkLedger.nextTrackedDue(
                     tick, TRACKED_RECONCILIATION_TICKS);
             if (due != null) enqueueNatural(due, "tracked-loaded-chunk");
@@ -375,9 +376,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     private void restoreRejectedScans() {
+        recoverDeferredPlayers();
+        recoverDirtyChunks();
+    }
+
+    private void recoverDeferredPlayers() {
         int capacity = maxQueuedScans();
         int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
-        while (slots-- > 0 && !deferredOnlinePlayers.isEmpty()) {
+        for (int index = 0; index < slots && !deferredOnlinePlayers.isEmpty(); index++) {
             UUID playerId = deferredOnlinePlayers.iterator().next();
             deferredOnlinePlayers.remove(playerId);
             if (plugin.getServer().getPlayer(playerId) != null
@@ -387,8 +393,12 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 return;
             }
         }
-        slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
-        while (slots-- > 0) {
+    }
+
+    private void recoverDirtyChunks() {
+        int capacity = maxQueuedScans();
+        int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
+        for (int index = 0; index < slots; index++) {
             PaperChunkLoadLedger.Pending pending = chunkLedger.nextDirty(tick);
             if (pending == null) break;
             World world = plugin.getServer().getWorld(pending.key().worldId());
@@ -405,19 +415,26 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 ? new PaperChunkLoadLedger.Pending(request.chunk(), request.generation()) : null;
     }
 
+    private boolean cannotMakeRoom(PaperTrackingScanRequest request, int maximum) {
+        return scans.size() > maximum || !scanAdmission.makeRoomFor(request);
+    }
+
+    private void reportRejectedAdmission(PaperTrackingScanRequest request) {
+        periodicChunkKeys.release(request);
+        scanTelemetry.reject(request);
+        scanTelemetry.saturated(plugin.getLogger());
+        if (request.playerId() != null
+                && plugin.getServer().getPlayer(request.playerId()) != null) {
+            deferredOnlinePlayers.add(request.playerId());
+        }
+    }
+
     boolean enqueue(PaperTrackingScanRequest request) {
         Objects.requireNonNull(request, "request");
         if (closed || !periodicChunkKeys.tryRegister(request, metrics)) return false;
         int maximum = maxQueuedScans();
-        if (scans.size() >= maximum
-                && (scans.size() > maximum || !scanAdmission.makeRoomFor(request))) {
-            periodicChunkKeys.release(request);
-            scanTelemetry.reject(request);
-            scanTelemetry.saturated(plugin.getLogger());
-            if (request.playerId() != null
-                    && plugin.getServer().getPlayer(request.playerId()) != null) {
-                deferredOnlinePlayers.add(request.playerId());
-            }
+        if (scans.size() >= maximum && cannotMakeRoom(request, maximum)) {
+            reportRejectedAdmission(request);
             return false;
         }
         scans.add(request);
