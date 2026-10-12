@@ -118,6 +118,8 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventRejected(),
                 "New lifecycle work displaces routine reconciliation, never event scans");
         assertEquals(2L, metrics.snapshot().scanPeriodicRejected());
+        assertEquals(0L, metrics.snapshot().scanPlayerRejected());
+        assertEquals(0L, metrics.snapshot().scanChunkRejected());
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(128, listener.queuedScanCount());
         assertEquals(128L, metrics.snapshot().scanBacklogPeak());
