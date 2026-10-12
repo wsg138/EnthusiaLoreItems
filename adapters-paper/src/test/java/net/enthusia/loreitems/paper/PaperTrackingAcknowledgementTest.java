@@ -71,6 +71,10 @@ class PaperTrackingAcknowledgementTest {
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
         store.complete(1, TrackingObservationUseCase.Status.RECORDED);
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(fresh));
+        assertTrue(coordinator.needsReconciliation(first));
+        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+                request(2, TrackingObservationUseCase.EvidenceMode.RECONCILIATION),
+                true, List.of(fresh)).toCompletableFuture().join());
         assertFalse(coordinator.needsReconciliation(first));
         assertEquals(1L, metrics.counter("tracking.persistence_recovered"));
         assertEquals(1L, metrics.counter("tracking.persistence_reobservations"));
@@ -100,6 +104,11 @@ class PaperTrackingAcknowledgementTest {
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
         store.complete(9, TrackingObservationUseCase.Status.RECORDED);
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(recovered));
+        assertTrue(coordinator.needsReconciliation(request(99,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
+        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+                request(99, TrackingObservationUseCase.EvidenceMode.RECONCILIATION),
+                true, List.of(recovered)).toCompletableFuture().join());
         assertFalse(coordinator.needsReconciliation(request(99,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
     }
@@ -125,6 +134,9 @@ class PaperTrackingAcknowledgementTest {
 
         var next = coordinator.submitAcknowledged(request);
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(next));
+        assertTrue(coordinator.needsReconciliation(request));
+        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+                request, true, List.of(next)).toCompletableFuture().join());
         assertFalse(coordinator.needsReconciliation(request));
     }
 
@@ -149,6 +161,11 @@ class PaperTrackingAcknowledgementTest {
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
         store.complete(2, TrackingObservationUseCase.Status.RECORDED);
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(fresh));
+        assertTrue(coordinator.needsReconciliation(request(2,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
+        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+                request(3, TrackingObservationUseCase.EvidenceMode.RECONCILIATION),
+                true, List.of(fresh)).toCompletableFuture().join());
         assertFalse(coordinator.needsReconciliation(request(2,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
     }
@@ -174,6 +191,34 @@ class PaperTrackingAcknowledgementTest {
         assertEquals(2, store.stages.size());
         store.complete(1, TrackingObservationUseCase.Status.UNCHANGED);
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(fresh));
+    }
+
+    @Test
+    void partialOrMismatchedScanCannotClearDirtyHolder() {
+        BlockingUseCase store = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
+                MetricsPort.noOp());
+        var holder = request(1, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        var first = coordinator.submitAcknowledged(holder);
+        store.fail(0, "disk full");
+        assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(first));
+
+        var next = coordinator.submitAcknowledged(holder);
+        store.complete(1, TrackingObservationUseCase.Status.RECORDED);
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                holder, false, List.of(next)).toCompletableFuture().join());
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                holder, true, List.of(first)).toCompletableFuture().join());
+        assertTrue(coordinator.needsReconciliation(holder));
+
+        var other = new TrackingObservationUseCase.Request(IDENTITY,
+                new LocationDescriptor(LocationDescriptor.Type.PLAYER_INVENTORY,
+                        "player:other", "slot:1"),
+                TrackingObservationUseCase.Presence.PRESENT,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION, "durable-ack-test");
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                other, true, List.of(next)).toCompletableFuture().join());
+        assertTrue(coordinator.needsReconciliation(holder));
     }
 
     @Test

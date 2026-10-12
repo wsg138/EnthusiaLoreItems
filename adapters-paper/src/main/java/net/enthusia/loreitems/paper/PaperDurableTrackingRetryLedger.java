@@ -42,6 +42,12 @@ final class PaperDurableTrackingRetryLedger {
         return false;
     }
 
+    boolean sameHolder(
+            TrackingObservationUseCase.Request first,
+            TrackingObservationUseCase.Request second) {
+        return Holder.from(first).equals(Holder.from(second));
+    }
+
     boolean needsReconciliation(TrackingObservationUseCase.Request request) {
         Holder holder = Holder.from(request);
         synchronized (lock) {

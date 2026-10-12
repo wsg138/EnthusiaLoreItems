@@ -135,16 +135,19 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     /** Admission is not a durable-write acknowledgement. */
     public boolean submit(TrackingObservationUseCase.Request request) {
-        return submitInternal(request, null);
+        Objects.requireNonNull(request, "request");
+        return submitInternal(request, submissionOrder.incrementAndGet(), null);
     }
 
     /** Use this API when a caller must distinguish queue admission from database settlement. */
     public PaperTrackingAcknowledgement submitAcknowledged(
             TrackingObservationUseCase.Request request) {
+        Objects.requireNonNull(request, "request");
+        long sequence = submissionOrder.incrementAndGet();
         CompletableFuture<PaperTrackingAcknowledgement.Settlement> future =
                 new CompletableFuture<>();
-        boolean accepted = submitInternal(request, future);
-        return new PaperTrackingAcknowledgement(accepted, future);
+        boolean accepted = submitInternal(request, sequence, future);
+        return new PaperTrackingAcknowledgement(accepted, future, request, sequence);
     }
 
     /** Dirty holders require NEW naturally observed evidence; stale transitions are never replayed. */
@@ -158,11 +161,61 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 snapshot.unresolvedHolders(), snapshot.overflow(), snapshot.overflowedKeys());
     }
 
+    /**
+     * Call only after a complete, naturally loaded inventory scan. Every observation must be
+     * a newly admitted, confirmed PRESENT reconciliation for this physical holder. An
+     * incomplete/truncated scan, absence-only scan, or coalesced response is never a proof.
+     * The scanner (Worker07/08) owns the full-coverage assertion.
+     */
+    public CompletionStage<Boolean> confirmCompleteHolderReconciliation(
+            TrackingObservationUseCase.Request holder,
+            boolean completeCoverage,
+            List<PaperTrackingAcknowledgement> observations) {
+        Objects.requireNonNull(holder, "holder");
+        Objects.requireNonNull(observations, "observations");
+        if (!completeCoverage || observations.isEmpty()) {
+            return CompletableFuture.completedFuture(false);
+        }
+        CompletableFuture<?>[] stages = observations.stream()
+                .map(observation -> observation.settlement().toCompletableFuture())
+                .toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(stages).handle((ignored, failure) ->
+                failure == null && confirmReceipts(holder, observations));
+    }
+
+    private boolean confirmReceipts(
+            TrackingObservationUseCase.Request holder,
+            List<PaperTrackingAcknowledgement> observations) {
+        long earliest = Long.MAX_VALUE;
+        for (PaperTrackingAcknowledgement observation : observations) {
+            if (!verifiedHolderReceipt(holder, observation)) {
+                return false;
+            }
+            earliest = Math.min(earliest, observation.sequence());
+        }
+        if (!unresolved.reconcile(holder, earliest)) {
+            return false;
+        }
+        metrics.increment("tracking.persistence_recovered");
+        updateDurabilityGauges();
+        return true;
+    }
+
+    private boolean verifiedHolderReceipt(
+            TrackingObservationUseCase.Request holder,
+            PaperTrackingAcknowledgement observation) {
+        TrackingObservationUseCase.Request request = observation.request();
+        return observation.admitted()
+                && request.presence() == TrackingObservationUseCase.Presence.PRESENT
+                && request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION
+                && unresolved.sameHolder(holder, request)
+                && observation.settlement().toCompletableFuture().join()
+                        == PaperTrackingAcknowledgement.Settlement.CONFIRMED;
+    }
+
     private boolean submitInternal(
-            TrackingObservationUseCase.Request request,
+            TrackingObservationUseCase.Request request, long sequence,
             CompletableFuture<PaperTrackingAcknowledgement.Settlement> acknowledgement) {
-        Objects.requireNonNull(request, "request");
-        long sequence = submissionOrder.incrementAndGet();
         if (rejectIfClosed()) {
             markUnresolved(request, sequence);
             settle(acknowledgement, PaperTrackingAcknowledgement.Settlement.REJECTED);
@@ -355,10 +408,6 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
 
     private void acknowledgeConfirmed(PendingObservation observation) {
         metrics.increment("tracking.persistence_confirmed");
-        if (unresolved.reconcile(observation.request(), observation.sequence())) {
-            metrics.increment("tracking.persistence_recovered");
-            updateDurabilityGauges();
-        }
         settle(observation.acknowledgement(),
                 PaperTrackingAcknowledgement.Settlement.CONFIRMED);
     }
