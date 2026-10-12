@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.Objects;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.enthusia.loreitems.application.MetricsPort;
 import org.bukkit.plugin.Plugin;
@@ -9,6 +10,7 @@ import org.bukkit.plugin.Plugin;
 final class PaperPhysicalScanTelemetry {
     private final MetricsPort metrics;
     private boolean saturated;
+    private long scanFailures;
 
     PaperPhysicalScanTelemetry(MetricsPort metrics) {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -57,14 +59,28 @@ final class PaperPhysicalScanTelemetry {
             PaperPhysicalTrackingListener listener) {
         boolean periodic = request.periodicChunkKey() != null;
         long started = System.nanoTime();
+        boolean completed = false;
         try {
             request.run(plugin, listener);
+            completed = true;
+        } catch (RuntimeException failure) {
+            metrics.increment(periodic
+                    ? "tracking.scan_periodic_failed" : "tracking.scan_event_failed");
+            scanFailures++;
+            if (scanFailures == 1L || scanFailures % 100L == 0L) {
+                plugin.getLogger().log(Level.WARNING,
+                        "LoreItems queued scan failed for " + request.source()
+                                + "; prior durable evidence retained, current scan incomplete.",
+                        failure);
+            }
         } finally {
             metrics.recordDurationNanos(
                     periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
                     System.nanoTime() - started);
-            metrics.increment(periodic
-                    ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
+            if (completed) {
+                metrics.increment(periodic
+                        ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
+            }
         }
     }
 }
