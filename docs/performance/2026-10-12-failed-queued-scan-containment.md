@@ -19,3 +19,7 @@ MockBukkit regression enqueues a deliberately malformed chunk request followed b
 Before release, require exact-head clean CI, 25 WP-05 acceptance workflows, static analysis, Paper runtime fixture and independent review. The change does not repair historical 871/32 **queue admission rejections**; those require source attribution via the GUI from merged PR #73 before safe admission-policy changes. No live SMP action taken.
 
 Related: [#71](https://github.com/wsg138/EnthusiaLoreItems/issues/71), [#39](https://github.com/wsg138/EnthusiaLoreItems/issues/39), [PR #73](https://github.com/wsg138/EnthusiaLoreItems/pull/73), [PR #75](https://github.com/wsg138/EnthusiaLoreItems/pull/75).
+
+### Deterministic fairness fixtures
+
+The queue-fairness unit tests deliberately enqueue a periodic request whose world UUID does not exist, so the periodic request must count as **skipped**, with exactly zero **completed** and zero **failed** outcomes. This avoids mistaking an unsupported MockBukkit block-entity path for a successful periodic scan. Independent loaded-chunk behavior remains subject to the disposable real-Paper acceptance tests. Earlier aggregate `completed + skipped + failed == 1` assertions were too permissive: they could pass even if a periodic scan crashed.

@@ -183,10 +183,8 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
     @Test
     void routineReconciliationMakesProgressDuringEventFlood() {
-        World world = server.addSimpleWorld("world");
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
-                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+        // A missing world proves fairness without relying on MockBukkit block-entity support.
+        listener.enqueue(unavailablePeriodicRequest());
         for (int i = 0; i < 12; i++) {
             listener.enqueue(PaperTrackingScanRequest.player(
                     new UUID(0L, i + 1L), true, "player-join"));
@@ -195,21 +193,20 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         listener.drain();
         assertEquals(0L, metrics.snapshot().scanEventCompleted());
         assertEquals(3L, metrics.snapshot().scanEventSkipped());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted()
-                + metrics.snapshot().scanPeriodicSkipped()
-                + metrics.snapshot().scanPeriodicFailed(), "Routine work must be dequeued");
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed(),
+                "Inaccessible periodic fixtures must not hide scanner exceptions");
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(9, listener.queuedScanCount());
     }
 
     @Test
     void oneTickDrainCapturesEventAndRoutineCostWithoutChangingAdmissions() {
-        World world = server.addSimpleWorld("world");
         listener.enqueue(PaperTrackingScanRequest.player(
                 UUID.randomUUID(), true, "player-join"));
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
-                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+        // A missing world proves fairness without relying on MockBukkit block-entity support.
+        listener.enqueue(unavailablePeriodicRequest());
 
         listener.drain();
 
@@ -219,9 +216,10 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
         assertEquals(0L, metrics.snapshot().scanEventCompleted());
         assertEquals(1L, metrics.snapshot().scanEventSkipped());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted()
-                + metrics.snapshot().scanPeriodicSkipped()
-                + metrics.snapshot().scanPeriodicFailed());
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed(),
+                "Inaccessible periodic fixtures must not hide scanner exceptions");
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
@@ -238,6 +236,13 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
+    }
+
+    private static PaperTrackingScanRequest unavailablePeriodicRequest() {
+        return new PaperTrackingScanRequest(
+                null, false, new PaperTrackingScanRequest.ChunkReference(
+                        UUID.randomUUID(), 0, 0),
+                TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE);
     }
 
     @Test
