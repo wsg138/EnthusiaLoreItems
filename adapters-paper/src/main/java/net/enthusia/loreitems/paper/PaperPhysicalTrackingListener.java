@@ -460,7 +460,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             String source,
             PaperScanLimit limit) {
         Set<String> scannedInventories = new HashSet<>();
-        for (BlockState state : chunk.getTileEntities()) {
+        // Paper's no-arg overload serializes every tile entity before our bounded scan.
+        for (BlockState state : chunk.getTileEntities(false)) {
             if (!limit.hasRemaining()) {
                 return;
             }
