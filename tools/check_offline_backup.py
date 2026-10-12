@@ -9,6 +9,7 @@ running SMP or substitute it for the separately authorized backup procedure.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import re
@@ -45,7 +46,7 @@ def sqlite_tables(backup_db: Path) -> int:
         if Path(str(backup_db) + suffix).exists():
             raise BackupRejected("uncheckpointed SQLite WAL/SHM files present; recapture offline")
     try:
-        with sqlite3.connect(backup_db.as_uri() + "?mode=ro&immutable=1", uri=True) as connection:
+        with closing(sqlite3.connect(backup_db.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
             result = connection.execute("PRAGMA integrity_check").fetchall()
             tables = connection.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' "
