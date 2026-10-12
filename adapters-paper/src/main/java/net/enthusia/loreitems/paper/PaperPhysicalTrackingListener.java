@@ -132,16 +132,31 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
-        Optional<PaperPhysicalInventorySnapshot> source =
-                PaperPhysicalInventorySnapshot.capture(event.getSource());
-        Optional<PaperPhysicalInventorySnapshot> destination =
-                PaperPhysicalInventorySnapshot.capture(event.getDestination());
-        Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
-        scheduleNextTick(() -> {
-            scanReference(source, "inventory-move-source");
-            submitMatchingIdentities(destination, identities, "inventory-move-destination");
-            scanReference(destination, "inventory-move-destination");
-        });
+        long started = System.nanoTime();
+        try {
+            Optional<PaperPhysicalInventorySnapshot> source =
+                    PaperPhysicalInventorySnapshot.capture(event.getSource());
+            Optional<PaperPhysicalInventorySnapshot> destination =
+                    PaperPhysicalInventorySnapshot.capture(event.getDestination());
+            Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
+            scheduleNextTick(() -> {
+                long deferredStarted = System.nanoTime();
+                try {
+                    scanReference(source, "inventory-move-source");
+                    submitMatchingIdentities(destination, identities, "inventory-move-destination");
+                    scanReference(destination, "inventory-move-destination");
+                } finally {
+                    metrics.recordDurationNanos(
+                            "tracking.hopper_move_deferred_nanos",
+                            System.nanoTime() - deferredStarted);
+                    metrics.increment("tracking.hopper_move_deferred");
+                }
+            });
+        } finally {
+            metrics.recordDurationNanos(
+                    "tracking.hopper_move_event_nanos", System.nanoTime() - started);
+            metrics.increment("tracking.hopper_move_events");
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
