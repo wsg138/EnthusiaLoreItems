@@ -46,7 +46,7 @@ def sqlite_tables(backup_db: Path) -> int:
         if Path(str(backup_db) + suffix).exists():
             raise BackupRejected("uncheckpointed SQLite WAL/SHM files present; recapture offline")
     try:
-        with closing(sqlite3.connect(backup_db.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+        with closing(sqlite3.connect(backup_db.absolute().as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
             result = connection.execute("PRAGMA integrity_check").fetchall()
             tables = connection.execute(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' "
@@ -81,6 +81,9 @@ def validate(backup: Path, jar: Path, expected_jar_sha256: str) -> dict[str, obj
     real_directory(backup / "groups" / "cancelled")
     for name in ("config.yml", "loreitems.db"):
         regular_file(backup / name)
+    for entry in backup.rglob("*"):
+        if entry.is_symlink():
+            raise BackupRejected("symlink found inside offline backup directory")
     regular_file(jar)
     actual_jar_sha256 = digest(jar)
     if actual_jar_sha256 != expected_jar_sha256.lower():
