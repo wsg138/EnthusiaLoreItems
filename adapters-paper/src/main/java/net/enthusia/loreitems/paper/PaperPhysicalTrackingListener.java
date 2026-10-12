@@ -58,6 +58,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
+    private final PaperHopperMoveObservation hopperMoves;
     private final PaperDeferredMainThreadActions deferredActions;
     private final PaperBlockInventoryTracking blockInventoryTracking;
     private final PaperPhysicalScanQueue scans = new PaperPhysicalScanQueue();
@@ -92,6 +93,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
+        this.hopperMoves = new PaperHopperMoveObservation(
+                scanner, deferredActions, metrics,
+                this::scanReference, this::submitMatchingIdentities);
         this.pendingPlayerScans = new PaperPlayerScanCoalescer(
                 deferredActions, metrics, (id, source) -> scanPlayer(id, true, source));
         this.blockInventoryTracking = new PaperBlockInventoryTracking(
@@ -132,32 +136,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
-        long started = System.nanoTime();
-        try {
-            Optional<PaperPhysicalInventorySnapshot> source =
-                    PaperPhysicalInventorySnapshot.capture(event.getSource());
-            Optional<PaperPhysicalInventorySnapshot> destination =
-                    PaperPhysicalInventorySnapshot.capture(event.getDestination());
-            Set<LoreItemIdentity> identities = scanner.trackedIdentities(event.getItem());
-            scheduleNextTick(() -> {
-                long deferredStarted = System.nanoTime();
-                try {
-                    scanReference(source, "inventory-move-source");
-                    submitMatchingIdentities(destination, identities, "inventory-move-destination");
-                    scanReference(destination, "inventory-move-destination");
-                } finally {
-                    long elapsed = System.nanoTime() - deferredStarted;
-                    metrics.recordDurationNanos("tracking.hopper_move_deferred_nanos", elapsed);
-                    metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", elapsed);
-                    metrics.increment("tracking.hopper_move_deferred");
-                }
-            });
-        } finally {
-            long elapsed = System.nanoTime() - started;
-            metrics.recordDurationNanos("tracking.hopper_move_event_nanos", elapsed);
-            metrics.setGauge("tracking.hopper_move_event_peak_nanos", elapsed);
-            metrics.increment("tracking.hopper_move_events");
-        }
+        hopperMoves.observe(event);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
