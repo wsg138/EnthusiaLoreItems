@@ -236,6 +236,11 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+    private static PaperTrackingScanRequest.ChunkReference chunkReference(
+            UUID worldId, int x, int z) {
+        return new PaperTrackingScanRequest.ChunkReference(worldId, x, z);
+    }
+
     @Test
     void naturalLoadOverCapacityStaysMarkedDirtyInsteadOfDisappearing() {
         World world = server.addSimpleWorld("loaded");
@@ -247,7 +252,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         for (int i = 1; i < 1_200; i++) {
             listener.observeNaturalChunkLoad(
-                    new PaperTrackingScanRequest.ChunkReference(world.getUID(), i, 0),
+                    chunkReference(world.getUID(), i, 0),
                     "chunk-load");
         }
         assertEquals(128, listener.queuedScanCount());

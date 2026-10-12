@@ -14,6 +14,12 @@ import org.junit.jupiter.api.Test;
 class PaperChunkLoadLedgerTest {
     private static final UUID FIRST = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID SECOND = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final int DIRECT_ADMISSION_CAPACITY = 512;
+
+    private static PaperChunkLoadLedger.Pending startPending(
+            PaperChunkLoadLedger ledger, PaperTrackingScanRequest.ChunkReference key) {
+        return new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+    }
 
     @Test
     void thousandDuplicateLoadsOneGenerationButReloadReceivesAnother() {
@@ -42,8 +48,8 @@ class PaperChunkLoadLedgerTest {
         Set<PaperTrackingScanRequest.ChunkReference> scanned = new HashSet<>();
         for (int i = 0; i < 1_200; i++) {
             var key = PaperChunkLoadLedger.key(FIRST, i, 0);
-            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
-            if (i < 512) {
+            var pending = startPending(ledger, key);
+            if (i < DIRECT_ADMISSION_CAPACITY) {
                 assertTrue(ledger.queued(pending));
                 assertTrue(ledger.begin(pending));
                 scanned.add(key);
@@ -53,12 +59,13 @@ class PaperChunkLoadLedgerTest {
             }
         }
         assertEquals(688, ledger.dirtyCount());
-        PaperChunkLoadLedger.Pending recovered;
-        while ((recovered = ledger.nextDirty(20)) != null) {
+        PaperChunkLoadLedger.Pending recovered = ledger.nextDirty(20);
+        while (recovered != null) {
             assertTrue(ledger.queued(recovered));
             assertTrue(ledger.begin(recovered));
             scanned.add(recovered.key());
             ledger.complete(recovered, true, true, 21);
+            recovered = ledger.nextDirty(20);
         }
         assertEquals(1_200, scanned.size());
         assertEquals(0, ledger.dirtyCount());

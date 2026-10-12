@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +39,7 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
 import net.kyori.adventure.text.Component;
 
 class PaperUniqueAccessEventCoalescingTest {
+    private static final String ACCESS_SCHEDULED = "tracking.unique.access_scheduled";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
@@ -81,7 +82,7 @@ class PaperUniqueAccessEventCoalescingTest {
             listener.onClick(click);
         }
         assertEquals(1000, metrics.count("tracking.unique.plain_click_skipped"));
-        assertEquals(0, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(0, metrics.count(ACCESS_SCHEDULED));
         server.getScheduler().performOneTick();
         assertTrue(observed.isEmpty());
     }
@@ -94,7 +95,7 @@ class PaperUniqueAccessEventCoalescingTest {
         for (int index = 0; index < 1000; index++) {
             listener.onClick(click);
         }
-        assertEquals(1, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(1, metrics.count(ACCESS_SCHEDULED));
         assertEquals(999, metrics.count("tracking.unique.access_coalesced"));
         player.setItemOnCursor(ItemStack.empty());
         player.getInventory().setItem(7, trackedItem());
@@ -146,7 +147,7 @@ class PaperUniqueAccessEventCoalescingTest {
         player.setItemOnCursor(ItemStack.empty());
         player.getInventory().setItem(2, trackedItem());
         server.getScheduler().performOneTick();
-        assertEquals(1, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(1, metrics.count(ACCESS_SCHEDULED));
         assertEquals(1, metrics.count("tracking.unique.access_coalesced"));
         assertEquals("slot:2", observed.getFirst().location().containerPath());
     }
@@ -157,7 +158,7 @@ class PaperUniqueAccessEventCoalescingTest {
         player.getInventory().setItemInOffHand(trackedItem());
         listener.onClick(click(ClickType.SWAP_OFFHAND, InventoryAction.HOTBAR_SWAP));
         server.getScheduler().performOneTick();
-        assertEquals(1, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(1, metrics.count(ACCESS_SCHEDULED));
         assertEquals("offhand", observed.getFirst().location().containerPath());
     }
 
@@ -196,7 +197,7 @@ class PaperUniqueAccessEventCoalescingTest {
                         + metrics.count("tracking.unique.inventory_unresolved")
                         + " incomplete="
                         + metrics.count("tracking.unique.incomplete_reconciliation")
-                        + " scheduled=" + metrics.count("tracking.unique.access_scheduled"));
+                        + " scheduled=" + metrics.count(ACCESS_SCHEDULED));
         assertEquals("slot:4", observed.getLast().location().containerPath());
         assertEquals(TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
                 observed.getLast().mode());
@@ -231,7 +232,7 @@ class PaperUniqueAccessEventCoalescingTest {
                 0, ClickType.NUMBER_KEY, InventoryAction.HOTBAR_SWAP, 2);
         listener.onClick(click);
         server.getScheduler().performOneTick();
-        assertEquals(1, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(1, metrics.count(ACCESS_SCHEDULED));
         assertEquals("slot:2", observed.getFirst().location().containerPath());
     }
 
@@ -264,7 +265,7 @@ class PaperUniqueAccessEventCoalescingTest {
         player.setItemOnCursor(malformed);
         listener.onClick(click(ClickType.LEFT, InventoryAction.PLACE_ALL));
         server.getScheduler().performOneTick();
-        assertEquals(1, metrics.count("tracking.unique.access_scheduled"));
+        assertEquals(1, metrics.count(ACCESS_SCHEDULED));
         assertEquals(0, metrics.count("tracking.unique.plain_click_skipped"));
     }
 
@@ -303,7 +304,7 @@ class PaperUniqueAccessEventCoalescingTest {
     }
 
     private static final class CountingMetrics implements MetricsPort {
-        private final Map<String, Long> counters = new HashMap<>();
+        private final Map<String, Long> counters = new ConcurrentHashMap<>();
 
         long count(String name) {
             return counters.getOrDefault(name, 0L);
