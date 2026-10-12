@@ -232,4 +232,32 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+
+    @Test
+    void recordsSeparateRealExecutionPeaksAndCompleteDrainTick() {
+        World world = server.addSimpleWorld("world");
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(8, 0), TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(9, 0), TrackingObservationUseCase.Presence.PRESENT,
+                PERIODIC_SOURCE));
+
+        listener.drain();
+        TrackingMetrics.Snapshot sample = metrics.snapshot();
+        org.junit.jupiter.api.Assertions.assertTrue(sample.scanPlayerPeakNanos() > 0L);
+        org.junit.jupiter.api.Assertions.assertTrue(sample.scanChunkPeakNanos() > 0L);
+        org.junit.jupiter.api.Assertions.assertTrue(sample.scanPeriodicPeakNanos() > 0L);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                sample.scanDrainPeakNanos() >= sample.scanChunkPeakNanos());
+        assertEquals(0, listener.queuedScanCount());
+        assertEquals(2L, sample.scanEventCompleted());
+        assertEquals(1L, sample.scanPeriodicCompleted());
+
+        listener.drain();
+        org.junit.jupiter.api.Assertions.assertTrue(
+                metrics.snapshot().scanDrainPeakNanos() >= sample.scanDrainPeakNanos());
+    }
+
 }
