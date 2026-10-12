@@ -60,9 +60,15 @@ final class PaperPhysicalScanTelemetry {
         try {
             request.run(plugin, listener);
         } finally {
+            long elapsed = System.nanoTime() - started;
             metrics.recordDurationNanos(
                     periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
-                    System.nanoTime() - started);
+                    elapsed);
+            metrics.setGauge(periodic
+                    ? "tracking.scan_periodic_peak_nanos"
+                    : request.playerId() != null
+                            ? "tracking.scan_player_peak_nanos" : "tracking.scan_chunk_peak_nanos",
+                    elapsed);
             metrics.increment(periodic
                     ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
         }
