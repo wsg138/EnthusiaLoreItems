@@ -22,10 +22,18 @@ sealed interface PaperInventoryReference
     Optional<Inventory> resolve(Plugin plugin);
 
     static Optional<PaperInventoryReference> capture(Inventory inventory) {
+        return inventory == null ? Optional.empty() : capture(inventory, inventory.getHolder());
+    }
+
+    /**
+     * Use a holder already read by the caller, so Bukkit does not reconstruct
+     * a block-state inventory holder twice during one event snapshot.
+     */
+    static Optional<PaperInventoryReference> capture(
+            Inventory inventory, InventoryHolder holder) {
         if (inventory == null) {
             return Optional.empty();
         }
-        InventoryHolder holder = inventory.getHolder();
         if (holder instanceof Player player) {
             return Optional.of(inventory instanceof PlayerInventory
                     ? new PlayerMain(player.getUniqueId())
