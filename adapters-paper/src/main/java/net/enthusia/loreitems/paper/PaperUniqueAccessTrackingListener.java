@@ -51,6 +51,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
 
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
+    private final PaperUniquePlayerCollector playerCollector = new PaperUniquePlayerCollector(collector);
     private final PaperInventoryEventHint eventHint = new PaperInventoryEventHint(collector);
     private final MetricsPort metrics;
     private final Map<UUID, PendingAccess> pendingAccess = new HashMap<>();
@@ -391,45 +392,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             Player player,
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             PaperScanLimit limit) {
-        String key = "player:" + player.getUniqueId();
-        PlayerInventory inventory = player.getInventory();
-        collector.collectArray(
-                contentsOrEmpty(inventory.getStorageContents()),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                SLOT_PREFIX,
-                observations,
-                limit);
-        collector.collectArray(
-                contentsOrEmpty(inventory.getArmorContents()),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "armor:",
-                observations,
-                limit);
-        collector.collectItem(
-                inventory.getItemInOffHand(),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "offhand",
-                observations,
-                0,
-                limit);
-        collector.collectItem(
-                player.getItemOnCursor(),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "cursor",
-                observations,
-                0,
-                limit);
-        collector.collectArray(
-                contentsOrEmpty(player.getEnderChest().getContents()),
-                LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                key,
-                SLOT_PREFIX,
-                observations,
-                limit);
+        playerCollector.collectPlayer(player, observations, limit);
     }
 
     private void submitUnique(
