@@ -192,8 +192,11 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         }
 
         listener.drain();
-        assertEquals(3L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(3L, metrics.snapshot().scanEventSkipped());
+        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted()
+                + metrics.snapshot().scanPeriodicSkipped()
+                + metrics.snapshot().scanPeriodicFailed(), "Routine work must be dequeued");
         assertEquals(0, listener.queuedPeriodicChunkCount());
         assertEquals(9, listener.queuedScanCount());
     }
@@ -213,8 +216,11 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
-        assertEquals(1L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted()
+                + metrics.snapshot().scanPeriodicSkipped()
+                + metrics.snapshot().scanPeriodicFailed());
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
@@ -234,12 +240,23 @@ class PaperPhysicalTrackingQueueCoalescingTest {
     }
 
     @Test
+    void offlinePlayerIsSkippedRatherThanCountedAsPhysicalEvidence() {
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.drain();
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
     void malformedQueuedScanCannotAbortFollowingLifecycleObservations() {
         listener.enqueue(new PaperTrackingScanRequest(
                 null, false, null, TrackingObservationUseCase.Presence.PRESENT,
                 "malformed-test-request"));
         listener.enqueue(PaperTrackingScanRequest.player(
-                UUID.randomUUID(), true, "player-join"));
+                server.addPlayer().getUniqueId(), true, "player-join"));
 
         listener.drain();
 
@@ -247,6 +264,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(1L, metrics.snapshot().scanEventFailed());
         assertEquals(1L, metrics.snapshot().scanEventCompleted());
         assertEquals(0L, metrics.snapshot().scanPeriodicFailed());
+        assertEquals(0L, metrics.snapshot().scanEventSkipped());
         assertEquals(0L, metrics.snapshot().failed());
         listener.drain();
         assertEquals(1L, metrics.snapshot().scanEventFailed(), "Failed work must not replay forever");

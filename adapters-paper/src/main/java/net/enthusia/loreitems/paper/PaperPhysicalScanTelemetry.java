@@ -59,10 +59,11 @@ final class PaperPhysicalScanTelemetry {
             PaperPhysicalTrackingListener listener) {
         boolean periodic = request.periodicChunkKey() != null;
         long started = System.nanoTime();
-        boolean completed = false;
         try {
-            request.run(plugin, listener);
-            completed = true;
+            boolean scanned = request.run(plugin, listener);
+            metrics.increment(periodic
+                    ? (scanned ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped")
+                    : (scanned ? "tracking.scan_event_completed" : "tracking.scan_event_skipped"));
         } catch (RuntimeException failure) {
             metrics.increment(periodic
                     ? "tracking.scan_periodic_failed" : "tracking.scan_event_failed");
@@ -77,10 +78,7 @@ final class PaperPhysicalScanTelemetry {
             metrics.recordDurationNanos(
                     periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
                     System.nanoTime() - started);
-            if (completed) {
-                metrics.increment(periodic
-                        ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
-            }
+
         }
     }
 }

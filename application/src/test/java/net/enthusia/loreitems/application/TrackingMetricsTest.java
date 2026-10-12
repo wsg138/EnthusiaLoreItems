@@ -102,10 +102,14 @@ class TrackingMetricsTest {
         metrics.increment("tracking.scan_event_failed");
         additional.increment("tracking.scan_periodic_failed");
         additional.increment("tracking.scan_periodic_failed");
+        metrics.increment("tracking.scan_event_skipped");
+        additional.increment("tracking.scan_periodic_skipped");
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(1L, snapshot.scanEventFailed());
         assertEquals(2L, snapshot.scanPeriodicFailed());
+        assertEquals(1L, snapshot.scanEventSkipped());
+        assertEquals(1L, snapshot.scanPeriodicSkipped());
         assertEquals(0L, snapshot.scanEventCompleted());
         assertEquals(0L, snapshot.scanPeriodicCompleted());
         assertEquals(0L, snapshot.failed(), "Persistence failures remain separate");
