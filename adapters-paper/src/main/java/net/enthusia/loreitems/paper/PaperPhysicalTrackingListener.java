@@ -301,17 +301,22 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     void drain() {
-        int budget = currentBudget();
-        for (int count = 0; count < budget; count++) {
-            PaperTrackingScanRequest request = scans.poll();
-            if (request == null) {
-                break;
+        long started = System.nanoTime();
+        try {
+            int budget = currentBudget();
+            for (int count = 0; count < budget; count++) {
+                PaperTrackingScanRequest request = scans.poll();
+                if (request == null) {
+                    break;
+                }
+                periodicChunkKeys.release(request);
+                scanTelemetry.execute(request, plugin, this);
             }
-            periodicChunkKeys.release(request);
-            scanTelemetry.execute(request, plugin, this);
+            scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
+            scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
+        } finally {
+            metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - started);
         }
-        scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
-        scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
     }
 
     private void seedLoadedChunks() {

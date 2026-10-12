@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -232,4 +234,45 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+
+    @Test
+    void recordsSeparateRealExecutionPeaksAndCompleteDrainTick() {
+        World world = server.addSimpleWorld("world");
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(8, 0), TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(9, 0), TrackingObservationUseCase.Presence.PRESENT,
+                PERIODIC_SOURCE));
+
+        listener.drain();
+        TrackingMetrics.Snapshot sample = metrics.snapshot();
+        assertTrue(sample.scanPlayerPeakNanos() > 0L);
+        assertTrue(sample.scanChunkPeakNanos() > 0L);
+        assertTrue(sample.scanPeriodicPeakNanos() > 0L);
+        assertTrue(
+                sample.scanDrainPeakNanos() >= sample.scanChunkPeakNanos());
+        assertEquals(0, listener.queuedScanCount());
+        assertEquals(2L, sample.scanEventCompleted());
+        assertEquals(1L, sample.scanPeriodicCompleted());
+
+        listener.drain();
+        assertTrue(
+                metrics.snapshot().scanDrainPeakNanos() >= sample.scanDrainPeakNanos());
+    }
+
+
+    @Test
+    void capturesDrainPeakEvenWhenAQueuedScanThrows() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+
+        assertThrows(
+                NullPointerException.class, listener::drain);
+        assertTrue(
+                metrics.snapshot().scanDrainPeakNanos() > 0L);
+    }
+
 }

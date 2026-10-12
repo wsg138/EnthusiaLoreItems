@@ -136,6 +136,12 @@ final class PaperTrackingAdministrationItems {
                 "Scan time event / periodic (ms): "
                         + snapshot.scanEventNanos() / 1_000_000L
                         + '/' + snapshot.scanPeriodicNanos() / 1_000_000L,
+                "Scan peak player / chunk (ms): "
+                        + snapshot.scanPlayerPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanChunkPeakNanos() / 1_000_000L,
+                "Scan peak periodic / drain (ms): "
+                        + snapshot.scanPeriodicPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanDrainPeakNanos() / 1_000_000L,
                 "Hopper move event / deferred counts: "
                         + snapshot.hopperMoveEvents() + '/' + snapshot.hopperMoveDeferred(),
                 "Hopper move event / deferred (ms): "
