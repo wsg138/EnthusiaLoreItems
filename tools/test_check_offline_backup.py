@@ -90,6 +90,26 @@ class OfflineBackupPreflightTest(unittest.TestCase):
         self.hash = hashlib.sha256(self.jar.read_bytes()).hexdigest()
         self.assert_rejected("malformed")
 
+    def test_relative_offline_path_is_supported(self):
+        from os import path as os_path
+        original = self.backup
+        try:
+            relative = Path(os_path.relpath(original, Path.cwd()))
+            report = preflight.validate(relative, self.jar, self.hash)
+            self.assertEqual(1, report["sqlite_user_tables"])
+        except ValueError as error:
+            self.fail(f"relative backup path unexpectedly rejected: {error}")
+
+    def test_nested_symlink_in_groups_is_rejected(self):
+        target = Path(self.temp.name) / "external-marker"
+        target.write_text("synthetic", encoding="utf-8")
+        link = self.backup / "groups" / "completed" / "external"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks not supported here: {error}")
+        self.assert_rejected("symlink found inside")
+
     def test_symlinked_database_is_rejected(self):
         external = Path(self.temp.name) / "external.db"
         self.database.rename(external)
