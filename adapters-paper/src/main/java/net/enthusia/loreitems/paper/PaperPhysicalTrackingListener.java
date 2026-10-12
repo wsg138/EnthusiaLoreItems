@@ -301,6 +301,15 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     void drain() {
+        long started = System.nanoTime();
+        try {
+            drainScheduledScans();
+        } finally {
+            metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - started);
+        }
+    }
+
+    private void drainScheduledScans() {
         int budget = currentBudget();
         for (int count = 0; count < budget; count++) {
             PaperTrackingScanRequest request = scans.poll();

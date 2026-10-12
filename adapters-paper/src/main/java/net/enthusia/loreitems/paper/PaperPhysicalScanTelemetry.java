@@ -75,10 +75,15 @@ final class PaperPhysicalScanTelemetry {
                         failure);
             }
         } finally {
-            metrics.recordDurationNanos(
-                    periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
-                    System.nanoTime() - started);
-
+            recordElapsed(request, periodic, System.nanoTime() - started);
         }
+    }
+
+    private void recordElapsed(PaperTrackingScanRequest request, boolean periodic, long elapsed) {
+        metrics.recordDurationNanos(
+                periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos", elapsed);
+        metrics.setGauge(periodic ? "tracking.scan_periodic_peak_nanos"
+                : request.playerId() != null ? "tracking.scan_player_peak_nanos"
+                : "tracking.scan_chunk_peak_nanos", elapsed);
     }
 }

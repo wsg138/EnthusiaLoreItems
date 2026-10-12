@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -237,6 +238,51 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
+    }
+
+    @Test
+    void recordsPeakTimingForScannedAndSkippedQueuedRequestOutcomes() {
+        World world = server.addSimpleWorld("world");
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(8, 0), TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(9, 0), TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+
+        listener.drain();
+
+        TrackingMetrics.Snapshot result = metrics.snapshot();
+        assertTrue(result.scanPlayerPeakNanos() > 0);
+        assertTrue(result.scanChunkPeakNanos() > 0);
+        assertTrue(result.scanPeriodicPeakNanos() > 0);
+        assertTrue(result.scanDrainPeakNanos() >= result.scanChunkPeakNanos());
+        assertEquals(4L, result.scanEventCompleted() + result.scanEventSkipped()
+                + result.scanEventFailed() + result.scanPeriodicCompleted()
+                + result.scanPeriodicSkipped() + result.scanPeriodicFailed());
+        assertEquals(1L, result.scanEventSkipped());
+        assertEquals(0, listener.queuedScanCount());
+
+        listener.drain();
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() >= result.scanDrainPeakNanos());
+    }
+
+    @Test
+    void recordsDrainTimingWhenScanFailsButDoesNotAbortLaterRequests() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+
+        listener.drain();
+
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() > 0);
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0, listener.queuedScanCount());
     }
 
     @Test

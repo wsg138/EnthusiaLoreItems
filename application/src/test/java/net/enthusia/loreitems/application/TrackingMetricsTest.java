@@ -96,6 +96,25 @@ class TrackingMetricsTest {
 
 
     @Test
+    void scanTailLatencyPeaksRemainMonotonicAcrossQueueViews() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.setGauge("tracking.scan_player_peak_nanos", 2_000_000L);
+        additional.setGauge("tracking.scan_player_peak_nanos", 1_000_000L);
+        metrics.setGauge("tracking.scan_chunk_peak_nanos", 11_000_000L);
+        additional.setGauge("tracking.scan_chunk_peak_nanos", -1L);
+        metrics.setGauge("tracking.scan_periodic_peak_nanos", 3_000_000L);
+        additional.setGauge("tracking.scan_drain_peak_nanos", 18_000_000L);
+        metrics.setGauge("tracking.scan_drain_peak_nanos", 5_000_000L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(2_000_000L, snapshot.scanPlayerPeakNanos());
+        assertEquals(11_000_000L, snapshot.scanChunkPeakNanos());
+        assertEquals(3_000_000L, snapshot.scanPeriodicPeakNanos());
+        assertEquals(18_000_000L, snapshot.scanDrainPeakNanos());
+    }
+
+    @Test
     void recordsQueuedScanFailuresIndependentlyFromPersistenceFailures() {
         TrackingMetrics metrics = new TrackingMetrics();
         MetricsPort additional = metrics.additionalQueueView();
