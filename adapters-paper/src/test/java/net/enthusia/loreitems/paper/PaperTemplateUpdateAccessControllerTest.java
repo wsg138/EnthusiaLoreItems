@@ -129,7 +129,7 @@ class PaperTemplateUpdateAccessControllerTest {
                 scanner);
         PaperTemplateUpdateEvents listener = new PaperTemplateUpdateEvents(controller);
         Inventory playerInventory = (Inventory) Proxy.newProxyInstance(
-                PlayerThread.currentThread().getContextClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {PlayerInventory.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getHolder" -> {
