@@ -232,4 +232,24 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+
+    @Test
+    void malformedQueuedScanCannotAbortFollowingLifecycleObservations() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+
+        listener.drain();
+
+        assertEquals(0, listener.queuedScanCount());
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed());
+        assertEquals(0L, metrics.snapshot().failed());
+        listener.drain();
+        assertEquals(1L, metrics.snapshot().scanEventFailed(), "Failed work must not replay forever");
+    }
+
 }
