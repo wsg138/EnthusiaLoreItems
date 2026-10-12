@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
 import importlib.util
 from pathlib import Path
 import sqlite3
@@ -29,9 +30,10 @@ class OfflineBackupPreflightTest(unittest.TestCase):
         (self.backup / "groups" / "cancelled").mkdir(parents=True)
         (self.backup / "config.yml").write_text("mutation-budget-per-tick: 16\n", encoding="utf-8")
         self.database = self.backup / "loreitems.db"
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection:
             connection.execute("CREATE TABLE lore_instances (instance_id TEXT PRIMARY KEY)")
             connection.execute("INSERT INTO lore_instances VALUES ('synthetic')")
+            connection.commit()
         self.jar = root / "EnthusiaLoreItems.jar"
         with zipfile.ZipFile(self.jar, "w") as archive:
             archive.writestr("plugin.yml", "name: EnthusiaLoreItems\nversion: 1.0.1\n")
