@@ -53,14 +53,14 @@ class PaperChunkContainerSingleInventoryReadTest {
         Location location = new Location(world, 12, 70, -8);
         InventoryHolder[] holder = new InventoryHolder[1];
         Inventory inventory = (Inventory) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {Inventory.class},
+                Thread.currentThread().getContextClassLoader(), new Class<?>[] {Inventory.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getHolder" -> holder[0];
                     case "getLocation" -> location;
                     default -> invoke(method, delegate, arguments);
                 });
         holder[0] = (InventoryHolder) Proxy.newProxyInstance(
-                getClass().getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
                 new Class<?>[] {BlockState.class, InventoryHolder.class},
                 (proxy, method, arguments) -> {
                     if (INVENTORY_METHOD.equals(method.getName())) {
@@ -70,7 +70,7 @@ class PaperChunkContainerSingleInventoryReadTest {
                     return null;
                 });
         Chunk chunk = (Chunk) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {Chunk.class},
+                Thread.currentThread().getContextClassLoader(), new Class<?>[] {Chunk.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getTileEntities" -> new BlockState[] {(BlockState) holder[0]};
                     case "getEntities" -> new Entity[0];
