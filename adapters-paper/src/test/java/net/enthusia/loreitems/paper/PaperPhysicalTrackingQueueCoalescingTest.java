@@ -286,6 +286,21 @@ class PaperPhysicalTrackingQueueCoalescingTest {
     }
 
     @Test
+    void missingWorldChunkIsSkippedWithoutLoadingOrReportingCompletion() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, new PaperTrackingScanRequest.ChunkReference(
+                        UUID.randomUUID(), 12, -15),
+                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.drain();
+
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertTrue(metrics.snapshot().scanChunkPeakNanos() > 0L);
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
     void offlinePlayerIsSkippedRatherThanCountedAsPhysicalEvidence() {
         listener.enqueue(PaperTrackingScanRequest.player(
                 UUID.randomUUID(), true, "player-join"));
