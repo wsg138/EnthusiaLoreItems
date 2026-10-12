@@ -478,8 +478,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             if (!(state instanceof InventoryHolder holder)) {
                 continue;
             }
+            org.bukkit.inventory.Inventory inventory = holder.getInventory();
             Optional<PaperPhysicalInventorySnapshot> snapshot =
-                    PaperPhysicalInventorySnapshot.capture(holder.getInventory());
+                    PaperPhysicalInventorySnapshot.capture(inventory);
             if (snapshot.isEmpty()) {
                 continue;
             }
@@ -492,7 +493,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 return;
             }
             scanner.scanInventory(
-                    holder.getInventory(),
+                    inventory,
                     reference.type(),
                     reference.key(),
                     presence,
