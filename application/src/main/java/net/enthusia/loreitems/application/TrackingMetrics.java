@@ -14,6 +14,8 @@ public final class TrackingMetrics implements MetricsPort {
     private static final String SCAN_PERIODIC_BACKLOG = "tracking.scan_periodic_backlog";
     private static final String SCAN_EVENT_REJECTED = "tracking.scan_event_rejected";
     private static final String SCAN_PERIODIC_REJECTED = "tracking.scan_periodic_rejected";
+    private static final String SCAN_PLAYER_REJECTED = "tracking.scan_player_rejected";
+    private static final String SCAN_CHUNK_REJECTED = "tracking.scan_chunk_rejected";
     private static final String SCAN_EVENT_COMPLETED = "tracking.scan_event_completed";
     private static final String SCAN_PERIODIC_COMPLETED = "tracking.scan_periodic_completed";
     private static final String SCAN_EVENT_NANOS = "tracking.scan_event_nanos";
@@ -46,6 +48,8 @@ public final class TrackingMetrics implements MetricsPort {
     private final AtomicLong scanPeriodicBacklog = new AtomicLong();
     private final AtomicLong scanEventRejected = new AtomicLong();
     private final AtomicLong scanPeriodicRejected = new AtomicLong();
+    private final AtomicLong scanPlayerRejected = new AtomicLong();
+    private final AtomicLong scanChunkRejected = new AtomicLong();
     private final AtomicLong scanEventCompleted = new AtomicLong();
     private final AtomicLong scanPeriodicCompleted = new AtomicLong();
     private final AtomicLong scanEventNanos = new AtomicLong();
@@ -121,6 +125,8 @@ public final class TrackingMetrics implements MetricsPort {
         switch (name) {
             case SCAN_EVENT_REJECTED -> scanEventRejected.incrementAndGet();
             case SCAN_PERIODIC_REJECTED -> scanPeriodicRejected.incrementAndGet();
+            case SCAN_PLAYER_REJECTED -> scanPlayerRejected.incrementAndGet();
+            case SCAN_CHUNK_REJECTED -> scanChunkRejected.incrementAndGet();
             case SCAN_EVENT_COMPLETED -> scanEventCompleted.incrementAndGet();
             case SCAN_PERIODIC_COMPLETED -> scanPeriodicCompleted.incrementAndGet();
             case HOPPER_MOVE_EVENTS -> hopperMoveEvents.incrementAndGet();
@@ -173,7 +179,8 @@ public final class TrackingMetrics implements MetricsPort {
                 scanEventNanos.get(), scanPeriodicNanos.get(),
                 hopperMoveEvents.get(), hopperMoveDeferred.get(),
                 hopperMoveEventNanos.get(), hopperMoveDeferredNanos.get(),
-                hopperMoveEventPeakNanos.get(), hopperMoveDeferredPeakNanos.get());
+                hopperMoveEventPeakNanos.get(), hopperMoveDeferredPeakNanos.get(),
+                scanPlayerRejected.get(), scanChunkRejected.get());
     }
 
     public record Snapshot(
@@ -204,7 +211,9 @@ public final class TrackingMetrics implements MetricsPort {
             long hopperMoveEventNanos,
             long hopperMoveDeferredNanos,
             long hopperMoveEventPeakNanos,
-            long hopperMoveDeferredPeakNanos) {}
+            long hopperMoveDeferredPeakNanos,
+            long scanPlayerRejected,
+            long scanChunkRejected) {}
 
     private record AdditionalQueueMetrics(TrackingMetrics metrics) implements MetricsPort {
         @Override
