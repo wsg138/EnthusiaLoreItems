@@ -146,15 +146,16 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     submitMatchingIdentities(destination, identities, "inventory-move-destination");
                     scanReference(destination, "inventory-move-destination");
                 } finally {
-                    metrics.recordDurationNanos(
-                            "tracking.hopper_move_deferred_nanos",
-                            System.nanoTime() - deferredStarted);
+                    long elapsed = System.nanoTime() - deferredStarted;
+                    metrics.recordDurationNanos("tracking.hopper_move_deferred_nanos", elapsed);
+                    metrics.setGauge("tracking.hopper_move_deferred_peak_nanos", elapsed);
                     metrics.increment("tracking.hopper_move_deferred");
                 }
             });
         } finally {
-            metrics.recordDurationNanos(
-                    "tracking.hopper_move_event_nanos", System.nanoTime() - started);
+            long elapsed = System.nanoTime() - started;
+            metrics.recordDurationNanos("tracking.hopper_move_event_nanos", elapsed);
+            metrics.setGauge("tracking.hopper_move_event_peak_nanos", elapsed);
             metrics.increment("tracking.hopper_move_events");
         }
     }
