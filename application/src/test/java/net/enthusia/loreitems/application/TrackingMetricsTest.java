@@ -29,15 +29,6 @@ class TrackingMetricsTest {
         metrics.increment("tracking.periodic_chunk_scan_coalesced");
         additional.increment("tracking.deferred_player_scan_schedule_rejected");
         additional.recordDurationNanos("tracking.persistence_nanos", 11L);
-        metrics.increment("tracking.scan_event_rejected");
-        additional.increment("tracking.scan_periodic_rejected");
-        metrics.increment("tracking.scan_player_rejected");
-        additional.increment("tracking.scan_chunk_rejected");
-        metrics.increment("tracking.scan_event_completed");
-        additional.increment("tracking.scan_periodic_completed");
-        additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
-        metrics.recordDurationNanos("tracking.scan_periodic_nanos", 17L);
-        metrics.recordDurationNanos("tracking.scan_event_nanos", -10L);
 
         TrackingMetrics.Snapshot snapshot = metrics.snapshot();
         assertEquals(8L, snapshot.queued());
@@ -53,14 +44,6 @@ class TrackingMetricsTest {
         assertEquals(10L, snapshot.scanBacklogPeak());
         assertEquals(4L, snapshot.scanEventBacklog());
         assertEquals(3L, snapshot.scanPeriodicBacklog());
-        assertEquals(1L, snapshot.scanEventRejected());
-        assertEquals(1L, snapshot.scanPeriodicRejected());
-        assertEquals(1L, snapshot.scanPlayerRejected());
-        assertEquals(1L, snapshot.scanChunkRejected());
-        assertEquals(1L, snapshot.scanEventCompleted());
-        assertEquals(1L, snapshot.scanPeriodicCompleted());
-        assertEquals(41L, snapshot.scanEventNanos());
-        assertEquals(17L, snapshot.scanPeriodicNanos());
     }
 
     @Test
@@ -85,4 +68,30 @@ class TrackingMetricsTest {
         assertEquals(2100000L, snapshot.hopperMoveEventPeakNanos());
         assertEquals(3100000L, snapshot.hopperMoveDeferredPeakNanos());
     }
+
+    @Test
+    void tracksScanSourcesAndDurationsWithoutChangingAggregateCounts() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.scan_event_rejected");
+        additional.increment("tracking.scan_periodic_rejected");
+        metrics.increment("tracking.scan_player_rejected");
+        additional.increment("tracking.scan_chunk_rejected");
+        metrics.increment("tracking.scan_event_completed");
+        additional.increment("tracking.scan_periodic_completed");
+        additional.recordDurationNanos("tracking.scan_event_nanos", 41L);
+        metrics.recordDurationNanos("tracking.scan_periodic_nanos", 17L);
+        metrics.recordDurationNanos("tracking.scan_event_nanos", -10L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(1L, snapshot.scanEventRejected());
+        assertEquals(1L, snapshot.scanPeriodicRejected());
+        assertEquals(1L, snapshot.scanPlayerRejected());
+        assertEquals(1L, snapshot.scanChunkRejected());
+        assertEquals(1L, snapshot.scanEventCompleted());
+        assertEquals(1L, snapshot.scanPeriodicCompleted());
+        assertEquals(41L, snapshot.scanEventNanos());
+        assertEquals(17L, snapshot.scanPeriodicNanos());
+    }
+
 }
