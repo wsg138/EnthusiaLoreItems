@@ -43,12 +43,12 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.path = Path(temp.name) / "snapshot.sqlite"
         with sqlite3.connect(self.path) as connection:
             connection.executescript("""
-                CREATE TABLE instance_current_state (location_type TEXT,location_key TEXT);
+                CREATE TABLE instance_current_state (location_type TEXT,location_key TEXT,state TEXT);
                 CREATE TABLE instance_observations (location_type TEXT,location_key TEXT);
                 INSERT INTO instance_current_state VALUES
-                    ('BLOCK_CONTAINER','minecraft:world:-1:70:8'),
-                    ('NESTED_CONTAINER','root:BLOCK_CONTAINER:minecraft:world:2:70:8'),
-                    ('BLOCK_CONTAINER','block-v2:11111111-2222-3333-4444-555555555555:2:70:8');
+                    ('BLOCK_CONTAINER','minecraft:world:-1:70:8','LAST_CONFIRMED'),
+                    ('NESTED_CONTAINER','root:BLOCK_CONTAINER:minecraft:world:2:70:8','CONFLICTING'),
+                    ('BLOCK_CONTAINER','block-v2:11111111-2222-3333-4444-555555555555:2:70:8','CONFIRMED_NOW');
                 INSERT INTO instance_observations VALUES
                     ('BLOCK_CONTAINER','minecraft:world:-1:70:8'),
                     ('BLOCK_CONTAINER','minecraft:world:-1:70:8'),
@@ -62,6 +62,9 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertEqual(3, result["tables"]["instance_current_state"]["rows"])
         self.assertEqual(2, result["tables"]["instance_current_state"]["categories"]["legacy_world_name"])
         self.assertEqual(2, result["tables"]["instance_observations"]["categories"]["legacy_world_name"])
+        self.assertEqual({"CONFLICTING": 1, "LAST_CONFIRMED": 1},
+                         result["tables"]["instance_current_state"]["legacy_current_state_counts"])
+        self.assertEqual({}, result["tables"]["instance_observations"]["legacy_current_state_counts"])
         self.assertEqual("UNRESOLVED",
                          result["tables"]["instance_current_state"]["legacy_world_name_groups"][0]["classification"])
         self.assertFalse(result["assessment"]["world_uuid_inferred"])
