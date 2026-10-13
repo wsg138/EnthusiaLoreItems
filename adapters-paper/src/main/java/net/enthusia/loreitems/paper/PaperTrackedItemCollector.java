@@ -33,6 +33,10 @@ final class PaperTrackedItemCollector {
             return;
         }
         for (int index = 0; index < contents.length; index++) {
+            if (!limit.canVisit()) {
+                limit.markTruncated();
+                return;
+            }
             collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
         }
     }
@@ -45,22 +49,28 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        // Charge even empty slots; otherwise huge sparse inventories appear "complete".
+        if (!limit.tryConsume() || !scannable(item)) {
             return;
         }
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH) {
-            NestedEvidence evidence = nestedEvidenceWithIdentityEvidence(item);
-            if (evidence != null) {
-                collectNested(
-                        evidence,
-                        nestedLocationKey(type, key),
-                        path,
-                        observations,
-                        depth,
-                        limit);
-            }
+        // Never recursively pre-scan metadata for a positive identity hint:
+        // the evidence probe itself could visit an unbounded subtree.
+        NestedEvidence evidence = nestedContents(item);
+        if (evidence == null) {
+            return;
         }
+        if (depth == MAX_NESTING_DEPTH) {
+            limit.markTruncated();
+            return;
+        }
+        collectNested(evidence, nestedLocationKey(type, key),
+                path, observations, depth, limit);
+    }
+
+    /** Single decode so bounded scans can distinguish malformed identity from absence. */
+    ItemIdentityReadResult identityResult(ItemStack item) {
+        return identityCodec.readIdentity(item);
     }
 
     LoreItemIdentity trackedIdentity(ItemStack item) {
@@ -73,32 +83,40 @@ final class PaperTrackedItemCollector {
                 : null;
     }
 
+    /**
+     * Conservative event hint, NOT a proof of presence. When an evidence walk
+     * reaches its cap, report relevant so the listener reconciles rather than
+     * silently skipping a potentially tracked nested item.
+     */
     boolean hasIdentityEvidence(ItemStack item) {
-        return hasIdentityEvidence(item, 0);
+        return hasIdentityEvidence(item, 0, new PaperScanLimit(256));
     }
 
     boolean hasNestedIdentityEvidence(ItemStack item) {
         return nestedEvidenceWithIdentityEvidence(item) != null;
     }
 
-    /** Reuse the same shulker snapshot for evidence and subsequent traversal. */
     NestedEvidence nestedEvidenceWithIdentityEvidence(ItemStack item) {
-        if (item == null || item.getType().isAir()
-                || !canHaveNestedContents(item.getType()) || !item.hasItemMeta()) {
-            return null;
-        }
-        ItemMeta meta = item.getItemMeta();
-        if (meta instanceof BlockStateMeta blockMeta) {
-            BlockState state = blockMeta.getBlockState();
-            return hasIdentityEvidence(state, 0) ? new NestedEvidence(meta, state) : null;
-        }
-        if (meta instanceof BundleMeta bundle && bundleHasIdentityEvidence(bundle, 0)) {
-            return new NestedEvidence(meta, null);
-        }
-        return null;
+        NestedEvidence evidence = nestedContents(item);
+        return evidence != null
+                && hasNestedIdentityEvidence(evidence, 0, new PaperScanLimit(256))
+                ? evidence : null;
     }
 
     record NestedEvidence(ItemMeta meta, BlockState blockState) {}
+
+    /** Metadata discovery only; traversal must charge each nested slot to a budget. */
+    NestedEvidence nestedContents(ItemStack item) {
+        if (!scannable(item) || !canHaveNestedContents(item.getType())
+                || !item.hasItemMeta()) {
+            return null;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta block) {
+            return new NestedEvidence(meta, block.getBlockState());
+        }
+        return meta instanceof BundleMeta ? new NestedEvidence(meta, null) : null;
+    }
 
     static String nestedLocationKey(LocationDescriptor.Type parentType, String locationKey) {
         Objects.requireNonNull(parentType, "parentType");
@@ -109,43 +127,46 @@ final class PaperTrackedItemCollector {
         return ROOT_KEY_PREFIX + parentType.name() + ':' + locationKey;
     }
 
-    private boolean hasIdentityEvidence(ItemStack item, int depth) {
+    private boolean hasIdentityEvidence(ItemStack item, int depth, PaperScanLimit budget) {
+        if (!budget.tryConsume()) {
+            return true; // Unknown: fail closed by scheduling reconciliation.
+        }
         if (!scannable(item)) {
             return false;
         }
         if (identityCodec.hasIdentityEvidence(item)) {
             return true;
         }
-        return depth < MAX_NESTING_DEPTH
-                && canHaveNestedContents(item.getType())
-                && item.hasItemMeta()
-                && hasNestedIdentityEvidence(item.getItemMeta(), depth);
-    }
-
-    private boolean hasNestedIdentityEvidence(ItemMeta meta, int depth) {
-        if (meta instanceof BlockStateMeta blockMeta
-                && hasIdentityEvidence(blockMeta.getBlockState(), depth)) {
-            return true;
+        NestedEvidence evidence = nestedContents(item);
+        if (evidence == null) {
+            return false;
         }
-        return meta instanceof BundleMeta bundle
-                && bundleHasIdentityEvidence(bundle, depth);
+        return depth >= MAX_NESTING_DEPTH
+                || hasNestedIdentityEvidence(evidence, depth, budget);
     }
 
-    private boolean bundleHasIdentityEvidence(BundleMeta bundle, int depth) {
-        for (ItemStack nested : bundle.getItems()) {
-            if (hasIdentityEvidence(nested, depth + 1)) {
+    private boolean hasNestedIdentityEvidence(NestedEvidence evidence, int depth,
+                                              PaperScanLimit budget) {
+        if (evidence.blockState() instanceof ShulkerBox box) {
+            return hasInventoryEvidence(box.getInventory(), depth, budget);
+        }
+        return evidence.meta() instanceof BundleMeta bundle
+                && hasBundleEvidence(bundle, depth, budget);
+    }
+
+    private boolean hasInventoryEvidence(org.bukkit.inventory.Inventory inventory,
+                                         int depth, PaperScanLimit budget) {
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            if (hasIdentityEvidence(inventory.getItem(slot), depth + 1, budget)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean hasIdentityEvidence(BlockState blockState, int depth) {
-        if (!(blockState instanceof ShulkerBox shulker)) {
-            return false;
-        }
-        for (ItemStack nested : shulker.getInventory().getContents()) {
-            if (hasIdentityEvidence(nested, depth + 1)) {
+    private boolean hasBundleEvidence(BundleMeta bundle, int depth, PaperScanLimit budget) {
+        for (ItemStack nested : bundle.getItems()) {
+            if (hasIdentityEvidence(nested, depth + 1, budget)) {
                 return true;
             }
         }
@@ -215,6 +236,10 @@ final class PaperTrackedItemCollector {
             return;
         }
         for (int index = 0; index < contents.length; index++) {
+            if (!limit.canVisit()) {
+                limit.markTruncated();
+                return;
+            }
             collectItem(
                     contents[index],
                     LocationDescriptor.Type.NESTED_CONTAINER,

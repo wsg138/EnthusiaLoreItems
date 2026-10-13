@@ -11,6 +11,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.PageRequest;
@@ -86,7 +89,7 @@ class SQLiteTrackingObservationStoreTest {
     }
 
     @Test
-    void movingSlotsInSameInventoryKeepsOneLocationHistoryEntry() {
+    void authoritativeSlotMovePreservesExactDurableObservationEvidence() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("slot-moves.db"));
         try {
             seedActiveInstance(runtime);
@@ -96,7 +99,7 @@ class SQLiteTrackingObservationStoreTest {
                     TrackingObservationUseCase.Status.RECORDED,
                     record(store, present(SLOT_ONE, reconciliation()), 1_000L).status());
             assertEquals(
-                    TrackingObservationUseCase.Status.UNCHANGED,
+                    TrackingObservationUseCase.Status.RECORDED,
                     record(store, present(SLOT_TWO, authoritative()), 1_100L).status());
 
             InstanceCurrentState current = currentState(runtime);
@@ -105,7 +108,10 @@ class SQLiteTrackingObservationStoreTest {
             var observations = new SQLiteObservationRepository(runtime)
                     .listByInstance(INSTANCE_ID, PageRequest.first(20))
                     .toCompletableFuture().join().items();
-            assertEquals(1, observations.size());
+            assertEquals(2, observations.size());
+            assertTrue(observations.stream().anyMatch(observation ->
+                    observation.observationId() == current.lastObservationId()
+                            && SLOT_TWO.equals(observation.location())));
             assertTrue(new SQLiteAnomalyRepository(runtime)
                     .listByInstance(INSTANCE_ID, PageRequest.first(10))
                     .toCompletableFuture().join().items().isEmpty());
@@ -113,10 +119,151 @@ class SQLiteTrackingObservationStoreTest {
             assertEquals(
                     TrackingObservationUseCase.Status.RECORDED,
                     record(store, present(DROPPED, authoritative()), 1_200L).status());
-            assertEquals(2, new SQLiteObservationRepository(runtime)
+            assertEquals(3, new SQLiteObservationRepository(runtime)
                     .listByInstance(INSTANCE_ID, PageRequest.first(20))
                     .toCompletableFuture().join().items().size());
         } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void staleHolderUnloadRetainsExactSlotAndRestartsWithoutRegression() {
+        Path database = temporaryDirectory.resolve("last-confirmed-holder.db");
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            record(store, present(SLOT_ONE, reconciliation()), 1_000L);
+            record(store, present(SLOT_TWO, authoritative()), 1_100L);
+
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, lastConfirmed(SLOT_ONE), 1_200L).status());
+            InstanceCurrentState current = currentState(runtime);
+            assertEquals(InstanceCurrentState.State.LAST_CONFIRMED, current.state());
+            assertEquals(SLOT_TWO, current.location());
+            assertTrue(new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                    .toCompletableFuture().join().items().stream().anyMatch(observation ->
+                            observation.observationId() == current.lastObservationId()
+                                    && SLOT_TWO.equals(observation.location())
+                                    && observation.confidence()
+                                            == InstanceObservation.Confidence.LAST_CONFIRMED));
+
+            assertEquals(TrackingObservationUseCase.Status.STALE,
+                    record(store, present(SLOT_ONE, authoritative()), 1_050L).status());
+            assertEquals(SLOT_TWO, currentState(runtime).location());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+        runtime = start(database);
+        try {
+            assertEquals(InstanceCurrentState.State.LAST_CONFIRMED, currentState(runtime).state());
+            assertEquals(SLOT_TWO, currentState(runtime).location());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void lateEntityUnloadCannotRewriteLastKnownCoordinates() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("entity-unload.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor moved = new LocationDescriptor(
+                    LocationDescriptor.Type.DROPPED_ITEM,
+                    "minecraft:overworld:entity:44444444-4444-4444-4444-444444444444:2:64:1",
+                    "item-entity");
+            record(store, present(DROPPED, reconciliation()), 1_000L);
+            record(store, present(moved, reconciliation()), 1_100L);
+
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, lastConfirmed(DROPPED), 1_200L).status());
+            assertEquals(InstanceCurrentState.State.LAST_CONFIRMED, currentState(runtime).state());
+            assertEquals(moved, currentState(runtime).location());
+            assertEquals(TrackingObservationUseCase.Status.UNCHANGED,
+                    record(store, lastConfirmed(DROPPED), 1_300L).status());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void failedSlotMoveAuditRollsBackSlotAndSupportingObservation() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("slot-rollback.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            record(store, present(SLOT_ONE, reconciliation()), 1_000L);
+            runtime.execute(connection -> {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("CREATE TRIGGER reject_slot_audit "
+                            + "BEFORE INSERT ON audit_events "
+                            + "WHEN NEW.event_type = 'tracking_slot_moved' "
+                            + "BEGIN SELECT RAISE(ABORT, 'forced slot audit failure'); END");
+                }
+                return null;
+            }).toCompletableFuture().join();
+
+            assertThrows(CompletionException.class,
+                    () -> record(store, present(SLOT_TWO, authoritative()), 1_100L));
+            assertEquals(SLOT_ONE, currentState(runtime).location());
+            assertEquals(1, new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().size());
+
+            runtime.execute(connection -> {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("DROP TRIGGER reject_slot_audit");
+                }
+                return null;
+            }).toCompletableFuture().join();
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(SLOT_TWO, authoritative()), 1_100L).status());
+            assertEquals(SLOT_TWO, currentState(runtime).location());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void saturatedDatabaseRejectsExplicitlyAndRetryAfterDrainPersists() throws Exception {
+        MetricsPort metrics = MetricsPort.noOp();
+        SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
+                new SQLiteConnectionFactory(temporaryDirectory.resolve("overflow.db"), 5_000),
+                new MigrationRunner(),
+                new BoundedDatabaseExecutor("tracking-overflow-test", 1, metrics),
+                metrics);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            runtime.start().toCompletableFuture().join();
+            seedActiveInstance(runtime);
+            var running = runtime.execute(connection -> {
+                entered.countDown();
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Test blocker timed out");
+                }
+                return null;
+            });
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var queued = runtime.execute(connection -> null);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+
+            CompletionException failed = assertThrows(CompletionException.class,
+                    () -> record(store, present(SLOT_ONE, reconciliation()), 1_000L));
+            assertInstanceOf(RejectedExecutionException.class, failed.getCause());
+            release.countDown();
+            running.toCompletableFuture().join();
+            queued.toCompletableFuture().join();
+            assertEquals(InstanceCurrentState.State.MISSING_UNRESOLVED, currentState(runtime).state());
+
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(SLOT_ONE, reconciliation()), 1_000L).status());
+            assertEquals(SLOT_ONE, currentState(runtime).location());
+        } finally {
+            release.countDown();
             runtime.close(Duration.ofSeconds(5));
         }
     }
