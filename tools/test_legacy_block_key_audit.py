@@ -44,15 +44,20 @@ class OfflineSQLiteTests(unittest.TestCase):
         with sqlite3.connect(self.path) as connection:
             connection.executescript("""
                 CREATE TABLE instance_current_state (location_type TEXT,location_key TEXT,state TEXT);
-                CREATE TABLE instance_observations (location_type TEXT,location_key TEXT);
+                CREATE TABLE instance_observations (
+                    observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instance_id TEXT NOT NULL,
+                    location_type TEXT,location_key TEXT
+                );
+                CREATE INDEX idx_test_instance ON instance_observations(instance_id);
                 INSERT INTO instance_current_state VALUES
                     ('BLOCK_CONTAINER','minecraft:world:-1:70:8','LAST_CONFIRMED'),
                     ('NESTED_CONTAINER','root:BLOCK_CONTAINER:minecraft:world:2:70:8','CONFLICTING'),
                     ('BLOCK_CONTAINER','block-v2:11111111-2222-3333-4444-555555555555:2:70:8','CONFIRMED_NOW');
-                INSERT INTO instance_observations VALUES
-                    ('BLOCK_CONTAINER','minecraft:world:-1:70:8'),
-                    ('BLOCK_CONTAINER','minecraft:world:-1:70:8'),
-                    ('DROPPED_ITEM','minecraft:world:1:2:3');
+                INSERT INTO instance_observations(instance_id,location_type,location_key) VALUES
+                    ('legacy-1','BLOCK_CONTAINER','minecraft:world:-1:70:8'),
+                    ('legacy-1','BLOCK_CONTAINER','minecraft:world:-1:70:8'),
+                    ('dropped-1','DROPPED_ITEM','minecraft:world:1:2:3');
             """)
 
     def test_counts_without_database_mutation_or_uuid_guess(self):
@@ -70,6 +75,42 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertFalse(result["assessment"]["world_uuid_inferred"])
         self.assertFalse(result["assessment"]["safe_to_deploy"])
 
+    def test_history_overlap_reports_one_and_multiple_observed_uuids_without_mapping(self):
+        first = '11111111-2222-3333-4444-555555555555'
+        second = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        with sqlite3.connect(self.path) as connection:
+            connection.executemany(
+                'INSERT INTO instance_observations(instance_id,location_type,location_key) '
+                'VALUES (?,?,?)', [
+                    ('mixed-one', 'BLOCK_CONTAINER', 'minecraft:world:-1:70:8'),
+                    ('mixed-one', 'BLOCK_CONTAINER', f'block-v2:{first}:-1:70:8'),
+                    ('mixed-one', 'NESTED_CONTAINER',
+                     f'root:BLOCK_CONTAINER:block-v2:{first}:-1:70:8'),
+                    ('mixed-two', 'BLOCK_CONTAINER', 'minecraft:world:20:70:8'),
+                    ('mixed-two', 'BLOCK_CONTAINER', f'block-v2:{first}:20:70:8'),
+                    ('mixed-two', 'BLOCK_CONTAINER', f'block-v2:{second}:20:70:8'),
+                    ('modern-only', 'BLOCK_CONTAINER', f'block-v2:{first}:22:70:8'),
+                ])
+            connection.commit()
+        before = self.path.read_bytes()
+        result = audit(self.path)
+        self.assertEqual(before, self.path.read_bytes())
+        risk = result['historical_instance_overlap']
+        self.assertEqual('REVIEW_ONLY_NO_WORLD_MAPPING', risk['resolution'])
+        self.assertEqual({
+            'legacy_without_modern_history': 1,
+            'legacy_with_one_observed_modern_world': 1,
+            'legacy_with_multiple_observed_modern_worlds': 1,
+            'modern_without_legacy_history': 1,
+            'neither_legacy_nor_modern_block_history': 1,
+        }, risk['risk_counts'])
+        self.assertNotIn('mixed-two', json.dumps(risk))
+        self.assertFalse(result['assessment']['world_uuid_inferred'])
+
+    def test_duplicate_legacy_events_are_one_instance_not_two(self):
+        overlap = audit(self.path)['historical_instance_overlap']['risk_counts']
+        self.assertEqual(1, overlap['legacy_without_modern_history'])
+        self.assertEqual(1, overlap['neither_legacy_nor_modern_block_history'])
     def test_consistent_sqlite_backup_includes_committed_wal_without_future_writes(self):
         # Entirely synthetic source: a live server database is never touched.
         with sqlite3.connect(self.path) as source:
