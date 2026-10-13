@@ -297,11 +297,48 @@ PY
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
 wait_player_copy acc_track_nested
-echo 'wp05accept place Wp05TrackBot bundle' >&3
-sleep 1
+# Use ordinary client inventory click (tracked sword on cursor into bundle)
+# and then GUI-deposit the actual bundle into the existing fixture chest.
 touch "$ROOT/go-track2-bundle"
 wait_marker track2-bundle-done 180
-sleep 1
+
+python3 - "$DB" "$EVIDENCE/track2-real-bundle-receipt.txt" <<'PY'
+import sqlite3,sys,time
+path,proof=sys.argv[1:3]
+rows=[]
+for _ in range(120):
+    with sqlite3.connect(path) as c:
+        rows=c.execute("""
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
+          from instance_current_state s join lore_instances i on i.instance_id=s.instance_id
+          join lore_definitions d on d.definition_id=i.definition_id
+          where d.lookup_key='acc_track_nested'
+        """).fetchall()
+    bundles=[r for r in rows if r[1]=='NESTED_CONTAINER'
+             and ':16:70:0' in r[2] and r[3] and '/bundle:' in r[3]]
+    if len(bundles)==1 and bundles[0][0]=='CONFIRMED_NOW':
+        break
+    if any(r[0]=='CONFLICTING' for r in rows):
+        break
+    time.sleep(.25)
+with sqlite3.connect(path) as c:
+    details=c.execute("""
+      select o.instance_id,o.location_type,o.location_key,o.container_path,
+             o.confidence,o.source
+      from instance_observations o join lore_definitions d
+      on d.definition_id=o.definition_id
+      where d.lookup_key='acc_track_nested'
+      order by o.observation_id
+    """).fetchall()
+with open(proof,'w') as f:
+    f.write('real-client-bundle-current-states='+repr(rows)+'\n')
+    f.write('real-client-bundle-observations='+repr(details)+'\n')
+print('TRACK2_REAL_BUNDLE_RECEIPT',rows,flush=True)
+assert len(bundles)==1 and bundles[0][0]=='CONFIRMED_NOW', (
+    'real player bundle nested move was not authoritatively confirmed: '+proof)
+assert not any(r[0]=='CONFLICTING' for r in rows), (
+    'bundle real client move created a conflict: '+proof)
+PY
 
 python3 - "$DB" <<'PY'
 import sqlite3
