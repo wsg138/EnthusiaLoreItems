@@ -68,13 +68,16 @@ final class PaperLoadedTrackedContainerIndex {
         boolean unresolved;
     }
 
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Accessed only on Paper's main thread.
     private final Map<ContainerKey, Entry> entries = new HashMap<>();
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Main-thread chunk lifecycle only.
     private final Map<PaperTrackingScanRequest.ChunkReference, Set<ContainerKey>> byChunk =
             new HashMap<>();
+    @SuppressWarnings("PMD.UseConcurrentHashMap") // Main-thread container events only.
     private final Map<BlockKey, Set<ContainerKey>> byBlock = new HashMap<>();
     private final Set<ContainerKey> roundRobin = new LinkedHashSet<>();
     private final Set<ContainerKey> urgent = new LinkedHashSet<>();
-    private int peakPending;
+    private int peakUrgentDepth;
 
     void observed(ContainerKey key, boolean evidence, boolean complete, long tick) {
         Objects.requireNonNull(key, "key");
@@ -119,7 +122,7 @@ final class PaperLoadedTrackedContainerIndex {
             if (!entry.urgent) {
                 entry.urgent = true;
                 urgent.add(key);
-                peakPending = Math.max(peakPending, urgent.size());
+                peakUrgentDepth = Math.max(peakUrgentDepth, urgent.size());
             }
         }
     }
@@ -149,18 +152,19 @@ final class PaperLoadedTrackedContainerIndex {
             long tick, long cadence,
             Predicate<PaperTrackingScanRequest.ChunkReference> loaded) {
         int attempts = Math.min(32, roundRobin.size());
-        for (int n = 0; n < attempts; n++) {
+        ContainerKey selected = null;
+        for (int n = 0; n < attempts && selected == null; n++) {
             ContainerKey key = takeFirst(roundRobin);
             Entry entry = entries.get(key);
-            if (entry == null) continue;
-            roundRobin.add(key);
-            long last = Math.max(entry.lastVerifiedTick, entry.lastAttemptTick);
-            if (tick - last < cadence || !canRun(key, entry, tick, loaded)) {
-                continue;
+            if (entry != null) {
+                roundRobin.add(key);
+                long last = Math.max(entry.lastVerifiedTick, entry.lastAttemptTick);
+                if (tick - last >= cadence && canRun(key, entry, tick, loaded)) {
+                    selected = key;
+                }
             }
-            return key;
         }
-        return null;
+        return selected;
     }
 
     private static ContainerKey takeFirst(Set<ContainerKey> queue) {
@@ -200,13 +204,19 @@ final class PaperLoadedTrackedContainerIndex {
         Entry entry = new Entry();
         roundRobin.add(key);
         for (PaperTrackingScanRequest.ChunkReference chunk : key.chunks()) {
-            byChunk.computeIfAbsent(chunk, ignored -> new HashSet<>()).add(key);
+            byChunk.computeIfAbsent(chunk, PaperLoadedTrackedContainerIndex::newChunkGroup)
+                    .add(key);
         }
         byBlock.computeIfAbsent(key.first(), ignored -> new HashSet<>()).add(key);
         if (key.second() != null) {
             byBlock.computeIfAbsent(key.second(), ignored -> new HashSet<>()).add(key);
         }
         return entry;
+    }
+
+    private static Set<ContainerKey> newChunkGroup(
+            PaperTrackingScanRequest.ChunkReference unused) {
+        return new HashSet<>();
     }
 
     private void remove(ContainerKey key) {
@@ -251,7 +261,7 @@ final class PaperLoadedTrackedContainerIndex {
     }
 
     int peakPending() {
-        return peakPending;
+        return peakUrgentDepth;
     }
 
     void clear() {
@@ -260,6 +270,6 @@ final class PaperLoadedTrackedContainerIndex {
         byBlock.clear();
         roundRobin.clear();
         urgent.clear();
-        peakPending = 0;
+        peakUrgentDepth = 0;
     }
 }

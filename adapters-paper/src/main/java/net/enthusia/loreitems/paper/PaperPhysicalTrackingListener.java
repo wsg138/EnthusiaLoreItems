@@ -53,6 +53,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
     private static final long MAX_DRAIN_NANOS = 2_000_000L;
     private static final long METRICS_UPDATE_TICKS = 20L;
+    private static final long BLOCK_REFRESH_INTERVAL_TICKS = 2L;
+    private static final long ON_INTERVAL = 0L;
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -361,7 +363,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         seedLoadedChunks();
         restoreRejectedScans();
         drainQueued(start, drainTrackedWork(start));
-        if (tick % METRICS_UPDATE_TICKS == 0L) updateIndexMetrics();
+        if (tick % METRICS_UPDATE_TICKS == ON_INTERVAL) updateIndexMetrics();
         scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
         metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - start);
@@ -395,7 +397,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private int drainTrackedWork(long start) {
         if (System.nanoTime() - start >= MAX_DRAIN_NANOS) return 0;
-        if (tick % 2L == 0L && !pendingBlockRefresh.isEmpty()) {
+        if (tick % BLOCK_REFRESH_INTERVAL_TICKS == ON_INTERVAL && !pendingBlockRefresh.isEmpty()) {
             var iterator = pendingBlockRefresh.iterator();
             var key = iterator.next();
             iterator.remove();
@@ -403,7 +405,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             metrics.increment("tracking.scan_block_refresh");
             return 1;
         }
-        if (tick % METRICS_UPDATE_TICKS != 0L) return 0;
+        if (tick % METRICS_UPDATE_TICKS != ON_INTERVAL) return 0;
         var next = trackedContainers.nextWork(
                 tick, TRACKED_RECONCILIATION_TICKS, this::naturallyLoaded);
         if (next == null) return 0;

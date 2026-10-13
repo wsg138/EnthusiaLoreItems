@@ -68,7 +68,6 @@ class PaperCrossChunkLifecycleIndexTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var container = pair(FIRST, 15);
         var first = container.first().chunk();
-        var second = container.second().chunk();
         index.observed(container, true, true, 10);
         index.chunkUnloaded(first);
         for (int i = 0; i < 1_000; i++) {

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Logger;
+import java.util.logging.Level;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import org.bukkit.Chunk;
@@ -57,7 +58,9 @@ final class PaperPhysicalChunkScanner {
         boolean complete = scanChunkContainers(chunk, presence, source, limit, tick);
         if (limit.hasRemaining() && complete) return true;
         metrics.increment("tracking.scan_truncated");
-        logger.fine("Lore-item bounded chunk scan was incomplete for " + source + '.');
+        if (logger.isLoggable(Level.FINE)) {
+            logger.fine("Lore-item bounded chunk scan was incomplete for " + source + '.');
+        }
         return false;
     }
 
