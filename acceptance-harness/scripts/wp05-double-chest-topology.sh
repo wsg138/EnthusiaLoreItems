@@ -62,14 +62,14 @@ wait_for 'Physical lore-item tracking and natural-access reconciliation are acti
 # The *test host*, not LoreItems, temporarily holds the fixture chunks loaded.
 # This validates only actual Paper composite chest topology, not absence of
 # plugin-induced chunk loading. A separate release gate tests unloaded halves.
-printf 'forceload add -16 -16 16 16\n' >&3
+printf 'forceload add -32 -32 16 16\n' >&3
 sleep 2
-# The disposable *host* prepares exactly ten known blocks as empty fixture
+# The disposable *host* prepares exactly fourteen known blocks as empty fixture
 # coordinates. The test helper itself is deliberately forbidden to overwrite
 # any non-air block; the production plugin is never given this capability.
 for coordinates in \
   '8 8' '9 8' '15 8' '16 8' '8 15' '8 16' \
-  '-1 8' '0 8' '8 -1' '8 0'; do
+  '-1 8' '0 8' '8 -1' '8 0' '-17 8' '-16 8' '8 -17' '8 -16'; do
   read -r x z <<< "$coordinates"
   printf 'setblock %s 70 %s minecraft:air replace\n' "$x" "$z" >&3
 done
@@ -77,7 +77,7 @@ sleep 1
 
 : > "$EVIDENCE/topology-results.txt"
 : > "$EVIDENCE/production-results.txt"
-for case_name in same xplus zplus xminus zminus; do
+for case_name in same xplus zplus xminus zminus xminus2 zminus2; do
   marker="WP05_DOUBLE_CHEST_TOPOLOGY_OK case=$case_name"
   production="WP05_DOUBLE_CHEST_PRODUCTION_OK case=$case_name"
   before=$(grep -Fc "$marker" "$LOG" 2>/dev/null || true)
@@ -91,11 +91,15 @@ for case_name in same xplus zplus xminus zminus; do
   grep -F "$production" "$LOG" | tail -1 >>"$EVIDENCE/production-results.txt"
 done
 
-[[ "$(wc -l < "$EVIDENCE/topology-results.txt")" -eq 5 ]]
-[[ "$(wc -l < "$EVIDENCE/production-results.txt")" -eq 5 ]]
+[[ "$(wc -l < "$EVIDENCE/topology-results.txt")" -eq 7 ]]
+[[ "$(wc -l < "$EVIDENCE/production-results.txt")" -eq 7 ]]
 grep -q 'case=xplus.*key=double-chest:.*:15:70:8|16:70:8:left=' "$EVIDENCE/production-results.txt"
 grep -q 'case=zminus.*key=double-chest:.*:8:70:-1|8:70:0:left=' "$EVIDENCE/production-results.txt"
 grep -q 'case=xminus.*chunks=-1,0;0,0' "$EVIDENCE/topology-results.txt"
+grep -q 'case=xminus2.*chunks=-2,0;-1,0' "$EVIDENCE/topology-results.txt"
+grep -q 'case=zminus2.*chunks=0,-2;0,-1' "$EVIDENCE/topology-results.txt"
+grep -q 'case=xminus2.*key=double-chest:.*:-17:70:8|-16:70:8:left=' "$EVIDENCE/production-results.txt"
+grep -q 'case=zminus2.*key=double-chest:.*:8:70:-17|8:70:-16:left=' "$EVIDENCE/production-results.txt"
 grep -q 'case=zminus.*chunks=0,-1;0,0' "$EVIDENCE/topology-results.txt"
 grep -q 'case=xplus.*chunks=0,0;1,0' "$EVIDENCE/topology-results.txt"
 grep -q 'case=zplus.*chunks=0,0;0,1' "$EVIDENCE/topology-results.txt"
@@ -103,4 +107,4 @@ if grep -Eq 'WP05_ACCEPT FAIL|WP05_DOUBLE_CHEST_UNRESOLVED' "$LOG"; then
   echo 'topology setup or inspection failed closed' >&2
   exit 1
 fi
-echo "PASS: five real Paper topologies AND production capture/resolve of all physical halves"
+echo "PASS: seven real Paper topologies AND production capture/resolve of all physical halves"
