@@ -133,6 +133,18 @@ final class PaperTrackingAdministrationItems {
                         + '/' + snapshot.scanPeriodicRejected(),
                 "Rejected event scans player / chunk: " + snapshot.scanPlayerRejected()
                         + '/' + snapshot.scanChunkRejected(),
+                "Dirty / known loaded chunks: " + snapshot.scanDirtyLocations()
+                        + '/' + snapshot.scanKnownLoaded(),
+                "Chunk load coalesced / dirty admissions: " + snapshot.scanChunkCoalesced()
+                        + '/' + snapshot.scanDirtyAdmissions(),
+                "Scan skipped event / periodic: " + snapshot.scanEventSkipped()
+                        + '/' + snapshot.scanPeriodicSkipped(),
+                "Scan failed event / periodic: " + snapshot.scanEventFailed()
+                        + '/' + snapshot.scanPeriodicFailed(),
+                "Scan peak chunk/player/drain (ms): "
+                        + snapshot.scanChunkPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanPlayerPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanDrainPeakNanos() / 1_000_000L,
                 "Scan time event / periodic (ms): "
                         + snapshot.scanEventNanos() / 1_000_000L
                         + '/' + snapshot.scanPeriodicNanos() / 1_000_000L,
