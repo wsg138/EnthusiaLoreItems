@@ -145,6 +145,60 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
                     'its historical world-name location.'),
     }
 
+def inspect_projection_links(connection: sqlite3.Connection) -> dict:
+    """Read-only consistency gate: each live projection must match its evidence."""
+    required = {
+        'instance_current_state': {
+            'instance_id', 'state', 'location_type', 'location_key',
+            'container_path', 'last_observation_id'},
+        'instance_observations': {
+            'observation_id', 'instance_id', 'confidence',
+            'location_type', 'location_key', 'container_path'},
+    }
+    for table, columns in required.items():
+        present = {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}
+        if not columns.issubset(present):
+            return {'schema_compatible': False,
+                    'assessment': 'REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
+                    'counts': {}}
+    counts: Counter[str] = Counter()
+    cursor = connection.execute(
+        'SELECT c.instance_id, c.state, c.location_type, c.location_key, '
+        'c.container_path, c.last_observation_id, o.instance_id, '
+        'o.confidence, o.location_type, o.location_key, o.container_path '
+        'FROM instance_current_state c '
+        'LEFT JOIN instance_observations o '
+        'ON c.last_observation_id = o.observation_id')
+    expected = {'CONFIRMED_NOW', 'LAST_CONFIRMED', 'CONFLICTING', 'TERMINAL_VOID'}
+    while batch := cursor.fetchmany(BATCH_SIZE):
+        for (instance, state, kind, key, path, pointer, linked_instance,
+             confidence, observed_kind, observed_key, observed_path) in batch:
+            if state == 'MISSING_UNRESOLVED':
+                label = ('valid_unresolved' if pointer is None and kind is None
+                         and key is None and path is None
+                         else 'invalid_unresolved')
+            elif state not in expected:
+                label = 'unknown_projection_state'
+            elif pointer is None:
+                label = 'missing_observation_pointer'
+            elif linked_instance is None:
+                label = 'dangling_observation_pointer'
+            elif instance != linked_instance:
+                label = 'cross_instance_observation_pointer'
+            elif state != confidence:
+                label = 'state_confidence_mismatch'
+            elif (kind, key, path) != (observed_kind, observed_key, observed_path):
+                label = 'projection_location_mismatch'
+            else:
+                label = 'linked_projection_valid'
+            counts[label] += 1
+    failures = sum(count for name, count in counts.items()
+                   if name not in ('valid_unresolved', 'linked_projection_valid'))
+    return {'schema_compatible': True,
+            'assessment': 'REVIEW_REQUIRED' if failures else 'CONSISTENT_LINKS_ONLY',
+            'inconsistent_rows': failures,
+            'counts': dict(sorted(counts.items()))}
+
 def audit(database: Path) -> dict:
     if not database.is_file():
         raise ValueError("Offline SQLite copy does not exist")
@@ -160,6 +214,7 @@ def audit(database: Path) -> dict:
             raise ValueError("SQLite quick_check failed; report cannot be trusted")
         results = {table: inspect_table(connection, table) for table in TABLES}
         history_overlap = inspect_history_overlap(connection)
+        projection_links = inspect_projection_links(connection)
     return {
         "report_version": 1,
         "read_only": True,
@@ -167,6 +222,7 @@ def audit(database: Path) -> dict:
         "quick_check": quick_check,
         "tables": results,
         "historical_instance_overlap": history_overlap,
+        "projection_link_consistency": projection_links,
         "assessment": {
             "legacy_mapping_applied": False,
             "world_uuid_inferred": False,
