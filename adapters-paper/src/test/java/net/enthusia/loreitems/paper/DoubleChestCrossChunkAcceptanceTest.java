@@ -215,6 +215,7 @@ class DoubleChestCrossChunkAcceptanceTest {
             case "getHolder" -> null;
             case "getLocation" -> anchor;
             case "getContents" -> contents.clone();
+            case "getItem" -> contents[(int) args[0]];
             case "getSize" -> contents.length;
             default -> null;
         });
@@ -274,6 +275,7 @@ class DoubleChestCrossChunkAcceptanceTest {
                 case "getLocation" -> new Location(world, (x + otherX) / 2.0,
                         64, (z + otherZ) / 2.0);
                 case "getContents" -> items.clone();
+                case "getItem" -> items[(int) args[0]];
                 default -> null;
             });
         }
@@ -364,6 +366,7 @@ class DoubleChestCrossChunkAcceptanceTest {
                 case "getType" -> InventoryType.CHEST;
                 case "getContents" -> Arrays.copyOfRange(items, left ? 0 : 27,
                         left ? 27 : 54);
+                case "getItem" -> items[(left ? 0 : 27) + (int) args[0]];
                 case "getLocation" -> new Location(world,
                         left ? x : otherX, 64, left ? z : otherZ);
                 case "getHolder" -> {
