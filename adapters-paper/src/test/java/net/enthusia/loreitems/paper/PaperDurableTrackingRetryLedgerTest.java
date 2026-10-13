@@ -69,6 +69,26 @@ class PaperDurableTrackingRetryLedgerTest {
     }
 
     @Test
+    void rejectedAuthoritativeMoveDirtiesPriorSourceAndEveryOtherHolder() {
+        PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
+        var originalChest = new TrackingObservationUseCase.Request(IDENTITY,
+                new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER,
+                        "test:chest", "slot:53"),
+                TrackingObservationUseCase.Presence.PRESENT,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION, "ledger-test");
+        var attemptedDestination = request(FIRST_PLAYER, "slot:1",
+                TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION);
+        ledger.markUnresolved(attemptedDestination, 2);
+        assertTrue(ledger.needsReconciliation(originalChest));
+        assertTrue(ledger.needsReconciliation(attemptedDestination));
+        assertFalse(ledger.reconcile(originalChest, 3));
+        assertFalse(ledger.reconcile(request(FIRST_PLAYER, "slot:2",
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION), 4));
+        assertEquals(1, ledger.snapshot().unresolvedHolders());
+        assertTrue(ledger.needsReconciliation(originalChest));
+    }
+
+    @Test
     void overflowIsStickyAndConservativelyCoversUntrackedHolders() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
         for (int index = 0; index < PaperDurableTrackingRetryLedger.MAX_UNRESOLVED; index++) {

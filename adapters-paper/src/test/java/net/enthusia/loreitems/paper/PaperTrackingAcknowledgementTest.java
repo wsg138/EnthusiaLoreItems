@@ -264,23 +264,31 @@ class PaperTrackingAcknowledgementTest {
     }
 
     @Test
-    void completeEmptyChestAndOldReceiptsCannotForgeRecoveredAbsence() {
+    void failedMoveOutOfEmptyChestLeavesItsOldSourceUnresolved() {
         BlockingUseCase store = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
                 MetricsPort.noOp());
-        var holder = request(53, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
-        var old = coordinator.submitAcknowledged(holder);
+        var chest = chestRequest();
+        var previous = coordinator.submitAcknowledged(chest);
         store.complete(0, TrackingObservationUseCase.Status.RECORDED);
-        var failedMove = coordinator.submitAcknowledged(request(52,
+        var failedMove = coordinator.submitAcknowledged(request(0,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION));
         store.fail(1, "disk full after chest emptied");
-        assertFalse(coordinator.confirmCompleteHolderReconciliation(
-                holder, true, List.of(old)).toCompletableFuture().join());
-        assertFalse(coordinator.confirmCompleteHolderReconciliation(
-                holder, true, List.of()).toCompletableFuture().join());
-        assertTrue(coordinator.needsReconciliation(holder));
-        assertEquals(1, coordinator.durabilitySnapshot().unresolvedHolders());
+
         assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(failedMove));
+        assertTrue(coordinator.needsReconciliation(chest));
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                chest, true, List.of(previous)).toCompletableFuture().join());
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                chest, true, List.of()).toCompletableFuture().join());
+        var discoveredDestination = coordinator.submitAcknowledged(request(0,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        store.complete(2, TrackingObservationUseCase.Status.RECORDED);
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                request(0, TrackingObservationUseCase.EvidenceMode.RECONCILIATION),
+                true, List.of(discoveredDestination)).toCompletableFuture().join());
+        assertTrue(coordinator.needsReconciliation(chest));
+        assertEquals(1, coordinator.durabilitySnapshot().unresolvedHolders());
     }
 
     @Test
@@ -361,6 +369,14 @@ class PaperTrackingAcknowledgementTest {
             Thread.onSpinWait();
         }
         assertEquals(expected, useCase.stages.size());
+    }
+
+    private static TrackingObservationUseCase.Request chestRequest() {
+        return new TrackingObservationUseCase.Request(IDENTITY,
+                new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER,
+                        "test:two-half-chest", "slot:53"),
+                TrackingObservationUseCase.Presence.PRESENT,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION, "durable-ack-test");
     }
 
     private static TrackingObservationUseCase.Request naturalRequest() {

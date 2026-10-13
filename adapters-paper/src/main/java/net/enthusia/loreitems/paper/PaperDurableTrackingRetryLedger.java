@@ -14,13 +14,16 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
 final class PaperDurableTrackingRetryLedger {
     static final int MAX_UNRESOLVED = 4_096;
 
+    private static final String ALL_HOLDERS = "<all-physical-holders>";
     private final Object lock = new Object();
     private final ConcurrentHashMap<Holder, Long> unresolved = new ConcurrentHashMap<>();
     private boolean overflow;
     private long overflowedKeys;
 
     boolean markUnresolved(TrackingObservationUseCase.Request request, long sequence) {
-        Holder holder = Holder.from(request);
+        Holder holder = request.mode()
+                == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
+                ? Holder.allHolders(request) : Holder.from(request);
         synchronized (lock) {
             return markHolderUnresolved(holder, sequence);
         }
@@ -51,7 +54,8 @@ final class PaperDurableTrackingRetryLedger {
     boolean needsReconciliation(TrackingObservationUseCase.Request request) {
         Holder holder = Holder.from(request);
         synchronized (lock) {
-            return overflow || unresolved.containsKey(holder);
+            return overflow || unresolved.containsKey(holder)
+                    || unresolved.containsKey(Holder.allHolders(request));
         }
     }
 
@@ -63,7 +67,7 @@ final class PaperDurableTrackingRetryLedger {
         }
         Holder holder = Holder.from(request);
         synchronized (lock) {
-            if (overflow) {
+            if (overflow || unresolved.containsKey(Holder.allHolders(request))) {
                 return false;
             }
             Long failedSequence = unresolved.get(holder);
@@ -94,6 +98,12 @@ final class PaperDurableTrackingRetryLedger {
         private static Holder from(TrackingObservationUseCase.Request request) {
             return new Holder(request.identity(),
                     request.location().type(), request.location().locationKey());
+        }
+
+        /** Tracking requests cannot use DUPLICATE_CONFLICT; this key is local, never persisted. */
+        private static Holder allHolders(TrackingObservationUseCase.Request request) {
+            return new Holder(request.identity(), LocationDescriptor.Type.DUPLICATE_CONFLICT,
+                    ALL_HOLDERS);
         }
     }
 }
