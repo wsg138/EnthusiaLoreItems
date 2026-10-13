@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -66,13 +67,20 @@ final class PaperDoubleChestIdentity {
             Inventory inventory, Location location, org.bukkit.block.Chest holder) {
         World world = location.getWorld();
         Position origin = Position.at(location);
-        if (!(holder.getBlockData() instanceof Chest data)
+        if (!sameBlock(holder.getLocation(), location)
+                || !(holder.getBlockData() instanceof Chest data)
                 || inventory.getSize() != HALF_SIZE) {
             return Optional.empty();
         }
         return data.getType() == Chest.Type.SINGLE
                 ? captureSingle(world, origin)
                 : capturePairedHalf(world, origin, data);
+    }
+
+    private static boolean sameBlock(Location holder, Location inventory) {
+        return holder != null && holder.getWorld() != null
+                && holder.getWorld().getUID().equals(inventory.getWorld().getUID())
+                && Position.at(holder).equals(Position.at(inventory));
     }
 
     private static Optional<PaperInventoryReference> captureSingle(
@@ -218,6 +226,34 @@ final class PaperDoubleChestIdentity {
         return "double-chest:" + ref.worldId() + ':' + ref.first().key()
                 + '|' + ref.second().key() + ":left=" + orientation;
     }
+
+    /** Physical half-local slot to canonical GUI slot; no half-slot aliasing. */
+    static OptionalInt combinedSlot(
+            PaperInventoryReference.DoubleChestBlock pair,
+            UUID worldId, Position half, int localSlot) {
+        if (!pair.worldId().equals(worldId) || localSlot < 0 || localSlot >= HALF_SIZE) {
+            return OptionalInt.empty();
+        }
+        if (pair.leftSide().equals(half)) {
+            return OptionalInt.of(localSlot);
+        }
+        return pair.first().equals(half) || pair.second().equals(half)
+                ? OptionalInt.of(localSlot + HALF_SIZE) : OptionalInt.empty();
+    }
+
+    /** Canonical GUI slot to actual physical chest block and its local slot. */
+    static Optional<HalfSlot> physicalSlot(
+            PaperInventoryReference.DoubleChestBlock pair, int combinedSlot) {
+        if (combinedSlot < 0 || combinedSlot >= DOUBLE_SIZE) {
+            return Optional.empty();
+        }
+        Position left = pair.leftSide();
+        Position right = left.equals(pair.first()) ? pair.second() : pair.first();
+        return Optional.of(new HalfSlot(
+                combinedSlot < HALF_SIZE ? left : right, combinedSlot % HALF_SIZE));
+    }
+
+    record HalfSlot(Position half, int localSlot) {}
 
     record Position(int x, int y, int z) implements Comparable<Position> {
         static Position at(Location location) {

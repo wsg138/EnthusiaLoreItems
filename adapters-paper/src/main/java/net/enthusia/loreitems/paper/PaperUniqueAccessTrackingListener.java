@@ -353,16 +353,22 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectPlayer(player, observations, limit);
+        boolean fullCoverage = true;
         if (!coveredByPlayer(player, type, key)) {
-            collector.collectArray(
-                    contentsOrEmpty(inventory.getContents()),
-                    type,
-                    key,
-                    SLOT_PREFIX,
-                    observations,
-                    limit);
+            if (type == LocationDescriptor.Type.BLOCK_CONTAINER) {
+                Optional<PaperPhysicalInventorySnapshot.ResolvedView> view =
+                        PaperPhysicalInventorySnapshot.captureResolved(inventory, plugin);
+                fullCoverage = view.isPresent();
+                view.ifPresent(resolved -> collector.collectArray(
+                        contentsOrEmpty(resolved.inventory().getContents()),
+                        resolved.snapshot().type(), resolved.snapshot().key(),
+                        SLOT_PREFIX, observations, limit));
+            } else {
+                collector.collectArray(contentsOrEmpty(inventory.getContents()),
+                        type, key, SLOT_PREFIX, observations, limit);
+            }
         }
-        submitUnique(observations, false, limit.hasRemaining(), source);
+        submitUnique(observations, false, fullCoverage && limit.hasRemaining(), source);
     }
 
     void submitPlayerAndDisplay(

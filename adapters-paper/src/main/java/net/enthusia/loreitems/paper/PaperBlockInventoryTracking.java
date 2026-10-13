@@ -60,23 +60,25 @@ final class PaperBlockInventoryTracking {
     }
 
     void onSpecialBlockInventoryInteract(PlayerInteractEvent event) {
-        if (event.getClickedBlock() == null) {
+        org.bukkit.block.Block clicked = event.getClickedBlock();
+        if (clicked == null) {
             return;
         }
-        BlockState state = event.getClickedBlock().getState();
+        BlockState state = clicked.getState();
         if (!(state instanceof InventoryHolder holder) || state instanceof Container) {
             return;
         }
         Inventory inventory = holder.getInventory();
         Optional<PaperPhysicalInventorySnapshot> snapshot =
                 PaperPhysicalInventorySnapshot.capture(inventory);
-        snapshot.ifPresent(reference -> scanner.scanInventory(
-                inventory,
-                reference.type(),
-                reference.key(),
-                TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                "special-container-interact-source"));
+        snapshot.ifPresent(reference -> reference.resolve(plugin).ifPresent(resolved ->
+                scanner.scanInventory(
+                        resolved,
+                        reference.type(),
+                        reference.key(),
+                        TrackingObservationUseCase.Presence.LAST_CONFIRMED,
+                        TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                        "special-container-interact-source")));
         Set<LoreItemIdentity> heldIdentities = scanner.trackedIdentities(event.getItem());
         deferredActions.schedule(() -> {
             submitMatchingIdentities(
@@ -118,16 +120,16 @@ final class PaperBlockInventoryTracking {
             TrackingObservationUseCase.Presence presence,
             String source,
             PaperScanLimit limit) {
-        Optional<PaperPhysicalInventorySnapshot> snapshot =
-                PaperPhysicalInventorySnapshot.capture(inventory);
-        if (snapshot.isEmpty() || !limit.tryConsume()) {
+        Optional<PaperPhysicalInventorySnapshot.ResolvedView> view =
+                PaperPhysicalInventorySnapshot.captureResolved(inventory, plugin);
+        if (view.isEmpty() || !limit.tryConsume()) {
             return;
         }
-        PaperPhysicalInventorySnapshot reference = snapshot.orElseThrow();
+        PaperPhysicalInventorySnapshot.ResolvedView verified = view.orElseThrow();
         scanner.scanInventory(
-                inventory,
-                reference.type(),
-                reference.key(),
+                verified.inventory(),
+                verified.snapshot().type(),
+                verified.snapshot().key(),
                 presence,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 source,

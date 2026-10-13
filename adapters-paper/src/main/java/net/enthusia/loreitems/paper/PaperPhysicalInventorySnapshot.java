@@ -66,4 +66,26 @@ record PaperPhysicalInventorySnapshot(
     Optional<Inventory> resolve(Plugin plugin) {
         return reference.resolve(plugin);
     }
+
+    /**
+     * Capture and resolve the authoritative inventory as one operation.
+     * A paired 27-slot block inventory is NEVER safe to scan with the
+     * canonical 54-slot double-chest key; resolve it to the verified merged
+     * inventory before constructing any slot paths.
+     */
+    static Optional<ResolvedView> captureResolved(Inventory source, Plugin plugin) {
+        return capture(source).flatMap(snapshot -> snapshot.resolve(plugin)
+                .filter(snapshot::hasCanonicalShape)
+                .map(inventory -> new ResolvedView(snapshot, inventory)));
+    }
+
+    private boolean hasCanonicalShape(Inventory inventory) {
+        if (reference instanceof PaperInventoryReference.DoubleChestBlock) {
+            return inventory instanceof org.bukkit.inventory.DoubleChestInventory
+                    && inventory.getSize() == 54;
+        }
+        return true;
+    }
+
+    record ResolvedView(PaperPhysicalInventorySnapshot snapshot, Inventory inventory) {}
 }
