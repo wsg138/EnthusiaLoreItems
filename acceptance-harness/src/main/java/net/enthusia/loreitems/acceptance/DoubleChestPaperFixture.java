@@ -112,14 +112,16 @@ final class DoubleChestPaperFixture {
             return;
         }
         DoubleChestInventory combined = resolvedInventory(world, pair);
-        verifyHalfMapping(combined, world, pair);
+        boolean firstIsPaperLeft = verifyHalfMapping(combined, world, pair);
         sender.sendMessage("WP05_DOUBLE_CHEST_TOPOLOGY_OK case=" + caseName
                 + " world_uuid=" + world.getUID()
                 + " first=" + pair.x1 + ",70," + pair.z1
                 + " second=" + pair.x2 + ",70," + pair.z2
                 + " chunks=" + pair.chunkX1() + "," + pair.chunkZ1()
                 + ";" + pair.chunkX2() + "," + pair.chunkZ2()
-                + " slots=54 half_slots=27,27");
+                + " slots=54 half_slots=27,27"
+                + " paper_left=" + (firstIsPaperLeft ? "first" : "second")
+                + " first_block_type=LEFT second_block_type=RIGHT");
     }
 
     private static DoubleChestInventory resolvedInventory(World world, Pair pair) {
@@ -136,7 +138,7 @@ final class DoubleChestPaperFixture {
         return combined;
     }
 
-    private static void verifyHalfMapping(
+    private static boolean verifyHalfMapping(
             DoubleChestInventory combined, World world, Pair pair) {
         Inventory left = combined.getLeftSide();
         Inventory right = combined.getRightSide();
@@ -152,19 +154,36 @@ final class DoubleChestPaperFixture {
                 || second.getBlockInventory().getSize() != 27) {
             throw new IllegalStateException("physical block half slots are not 27 each");
         }
-        // Checking the composite against getLeftSide/getRightSide alone is not enough:
-        // it can pass even if an inventory half was attributed to the wrong block.
-        verifyPhysicalHalf(first, left, org.bukkit.block.data.type.Chest.Type.LEFT);
-        verifyPhysicalHalf(second, right, org.bukkit.block.data.type.Chest.Type.RIGHT);
+        // Bukkit Chest.Type and DoubleChestInventory left/right are independent
+        // API concepts. Prove the physical block for EACH side from the real
+        // Inventory.getLocation(), rather than assuming their names align.
+        boolean firstIsLeft = sameBlock(first.getLocation(), left.getLocation());
+        boolean secondIsLeft = sameBlock(second.getLocation(), left.getLocation());
+        if (firstIsLeft == secondIsLeft) {
+            throw new IllegalStateException("real Paper left inventory cannot be assigned to one block:"
+                    + " first=" + coordinates(first.getLocation())
+                    + " second=" + coordinates(second.getLocation())
+                    + " left=" + coordinates(left.getLocation()));
+        }
+        Chest physicalLeft = firstIsLeft ? first : second;
+        Chest physicalRight = firstIsLeft ? second : first;
+        verifyPhysicalHalf(physicalLeft, left, "LEFT_API_HALF");
+        verifyPhysicalHalf(physicalRight, right, "RIGHT_API_HALF");
         verifyBoundaryItems(combined, left, right);
+        return firstIsLeft;
+    }
+
+    private static boolean sameBlock(org.bukkit.Location one, org.bukkit.Location two) {
+        return one != null && two != null && one.getWorld() != null
+                && two.getWorld() != null
+                && one.getWorld().getUID().equals(two.getWorld().getUID())
+                && one.getBlockX() == two.getBlockX()
+                && one.getBlockY() == two.getBlockY()
+                && one.getBlockZ() == two.getBlockZ();
     }
 
     private static void verifyPhysicalHalf(
-            Chest physical, Inventory side, org.bukkit.block.data.type.Chest.Type expectedType) {
-        if (!(physical.getBlockData() instanceof org.bukkit.block.data.type.Chest data)
-                || data.getType() != expectedType) {
-            throw new IllegalStateException("physical chest left/right blockdata mismatch");
-        }
+            Chest physical, Inventory side, String sideName) {
         org.bukkit.Location block = physical.getLocation();
         org.bukkit.Location inventory = side.getLocation();
         if (block == null || block.getWorld() == null || inventory == null
@@ -174,7 +193,7 @@ final class DoubleChestPaperFixture {
                 || block.getBlockY() != inventory.getBlockY()
                 || block.getBlockZ() != inventory.getBlockZ()) {
             throw new IllegalStateException("chest half inventory assigned to wrong physical block:"
-                    + " side=" + expectedType
+                    + " side=" + sideName
                     + " expected=" + coordinates(block)
                     + " inventory=" + coordinates(inventory));
         }
