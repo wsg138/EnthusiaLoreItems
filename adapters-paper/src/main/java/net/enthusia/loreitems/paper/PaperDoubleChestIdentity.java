@@ -104,10 +104,20 @@ final class PaperDoubleChestIdentity {
         if (neighbor == null || !loaded(world, origin) || !loaded(world, neighbor)) {
             return Optional.empty();
         }
-        Position leftSide = data.getType() == Chest.Type.LEFT ? origin : neighbor;
-        PaperInventoryReference.DoubleChestBlock ref =
-                sortedPair(world.getUID(), origin, neighbor, leftSide);
-        return resolve(world, ref).map(ignored -> ref);
+        // Paper 26.2 real runtime shows Chest.Type.LEFT block data can be
+        // physically opposite DoubleChestInventory.getLeftSide(). Do not
+        // persist a guessed 27-to-54 slot offset: accept a candidate only
+        // after resolving both loaded halves against actual API-side locations.
+        Position paperLeft = data.getType() == Chest.Type.LEFT ? neighbor : origin;
+        PaperInventoryReference.DoubleChestBlock observedFirst =
+                sortedPair(world.getUID(), origin, neighbor, paperLeft);
+        if (resolve(world, observedFirst).isPresent()) {
+            return Optional.of(observedFirst);
+        }
+        Position otherSide = data.getType() == Chest.Type.LEFT ? origin : neighbor;
+        PaperInventoryReference.DoubleChestBlock fallback =
+                sortedPair(world.getUID(), origin, neighbor, otherSide);
+        return resolve(world, fallback).map(ignored -> fallback);
     }
 
     static Optional<Inventory> resolve(
@@ -129,17 +139,12 @@ final class PaperDoubleChestIdentity {
         InventoryHolder holder = doubleInventory.getHolder(false);
         Location left = sideLocation(doubleInventory.getLeftSide(), holder, true);
         Location right = sideLocation(doubleInventory.getRightSide(), holder, false);
-        Position physicalLeft = leftForPair(first, pair);
+        // Inventory.getLeftSide()/getRightSide() are authoritative for
+        // 54-slot order. Chest.Type.LEFT/RIGHT cannot be equated to those
+        // API-side names on the verified real-Paper fixture.
         return pair(left, right)
                 .filter(pair::equals)
-                .filter(ref -> ref.leftSide().equals(physicalLeft))
                 .map(ignored -> combined);
-    }
-
-    private static Position leftForPair(
-            BlockState first, PaperInventoryReference.DoubleChestBlock pair) {
-        Chest firstData = (Chest) first.getBlockData();
-        return firstData.getType() == Chest.Type.LEFT ? pair.first() : pair.second();
     }
 
     private static boolean validPair(
