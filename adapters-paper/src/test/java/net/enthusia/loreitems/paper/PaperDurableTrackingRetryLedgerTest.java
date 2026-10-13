@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class PaperDurableTrackingRetryLedgerTest {
     private static final String FIRST_PLAYER = "player:one";
+    private static final String ROOT_SLOT = "slot:0";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
@@ -55,11 +56,11 @@ class PaperDurableTrackingRetryLedgerTest {
     @Test
     void stickyOverflowCannotClaimEvenPreviouslyEnumeratedHolderWasRecovered() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
-        var first = request(FIRST_PLAYER, "slot:0",
+        var first = request(FIRST_PLAYER, ROOT_SLOT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
         ledger.markUnresolved(first, 1);
         for (int index = 1; index <= PaperDurableTrackingRetryLedger.MAX_UNRESOLVED; index++) {
-            ledger.markUnresolved(request("player:" + index, "slot:0",
+            ledger.markUnresolved(request("player:" + index, ROOT_SLOT,
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION), index + 1L);
         }
         assertTrue(ledger.snapshot().overflow());
@@ -71,10 +72,10 @@ class PaperDurableTrackingRetryLedgerTest {
     void overflowIsStickyAndConservativelyCoversUntrackedHolders() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
         for (int index = 0; index < PaperDurableTrackingRetryLedger.MAX_UNRESOLVED; index++) {
-            assertFalse(ledger.markUnresolved(request("player:" + index, "slot:0",
+            assertFalse(ledger.markUnresolved(request("player:" + index, ROOT_SLOT,
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION), index));
         }
-        var overflowRequest = request("player:overflow", "slot:0",
+        var overflowRequest = request("player:overflow", ROOT_SLOT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
         assertTrue(ledger.markUnresolved(overflowRequest, 4_097));
         assertFalse(ledger.markUnresolved(overflowRequest, 4_098));

@@ -33,7 +33,9 @@ public final class PaperTrackingAcknowledgement {
     }
 
     boolean belongsTo(Object expectedIssuer) {
-        return issuingCoordinator == expectedIssuer;
+        // Both sides are plain new Object() tokens; Object.equals is identity equality.
+        return Objects.requireNonNull(expectedIssuer, "expectedIssuer")
+                .equals(issuingCoordinator);
     }
 
     public boolean admitted() {
