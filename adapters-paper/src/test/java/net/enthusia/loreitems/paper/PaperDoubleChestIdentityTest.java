@@ -96,6 +96,25 @@ class PaperDoubleChestIdentityTest {
     }
 
     @Test
+    void realPaperApiSidesCanBeReversedFromChestBlockDataTypes() {
+        // Verified using actual Paper 26.2/Java 25: at X=8 TYPE.LEFT the
+        // DoubleChestInventory API-left physical inventory was at X=9.
+        // This test models that observed geometry rather than assuming that
+        // Chest.Type.LEFT and getLeftSide() describe the same physical block.
+        Fixture fixture = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
+        fixture.apiSideReversed = true;
+        var gui = PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
+        var firstHalf = PaperPhysicalInventorySnapshot.capture(fixture.left).orElseThrow();
+        var secondHalf = PaperPhysicalInventorySnapshot.capture(fixture.right).orElseThrow();
+        assertEquals(gui, firstHalf);
+        assertEquals(gui, secondHalf);
+        assertEquals("double-chest:" + WORLD_ID + ":15:70:0|16:70:0:left=1", gui.key());
+        Inventory resolved = gui.resolve(fixture.plugin).orElseThrow();
+        assertEquals(Material.EMERALD, resolved.getContents()[26].getType());
+        assertEquals(Material.DIAMOND, resolved.getContents()[27].getType());
+    }
+
+    @Test
     void twoRealCopiesAtHalfLocalSlotZeroHaveDifferentCanonicalPaths() {
         Fixture fixture = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
         LoreItemIdentity identity = new LoreItemIdentity(
@@ -319,6 +338,7 @@ class PaperDoubleChestIdentityTest {
         final Inventory right;
         final DoubleChestInventory combined;
         final Set<String> chunks = new HashSet<>();
+        boolean apiSideReversed;
         Chest.Type leftType = Chest.Type.LEFT;
         Chest.Type rightType = Chest.Type.RIGHT;
         BlockFace leftFacing;
@@ -382,11 +402,13 @@ class PaperDoubleChestIdentityTest {
         }
 
         private Inventory apiLeft() {
-            return leftType == Chest.Type.LEFT ? left : right;
+            boolean firstLeft = leftType == Chest.Type.LEFT;
+            return firstLeft == apiSideReversed ? right : left;
         }
 
         private Inventory apiRight() {
-            return leftType == Chest.Type.LEFT ? right : left;
+            boolean firstLeft = leftType == Chest.Type.LEFT;
+            return firstLeft == apiSideReversed ? left : right;
         }
 
         private ItemStack[] combinedContents() {
