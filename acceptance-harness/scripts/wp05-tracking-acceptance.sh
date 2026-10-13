@@ -267,6 +267,34 @@ wait_player_copy acc_track_nested
 touch "$ROOT/go-track2-shulker"
 wait_marker track2-shulker-done 180
 
+python3 - "$DB" "$EVIDENCE/track2-real-shulker-receipt.txt" <<'PY'
+import sqlite3,sys,time
+path,proof=sys.argv[1:3]
+rows=[]
+for _ in range(120):
+    with sqlite3.connect(path) as c:
+        rows=c.execute("""
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
+          from instance_current_state s join lore_instances i on i.instance_id=s.instance_id
+          join lore_definitions d on d.definition_id=i.definition_id
+          where d.lookup_key='acc_track_nested'
+        """).fetchall()
+    shulkers=[r for r in rows if r[1]=='NESTED_CONTAINER'
+             and ':14:70:0' in r[2] and r[3] and '/shulker:' in r[3]]
+    if len(shulkers)==1 and shulkers[0][0]=='CONFIRMED_NOW':
+        break
+    if any(r[0]=='CONFLICTING' for r in rows):
+        break
+    time.sleep(.25)
+with open(proof,'w') as f:
+    f.write('real-client-shulker-current-states='+repr(rows)+'\n')
+print('TRACK2_REAL_SHULKER_RECEIPT',rows,flush=True)
+assert len(shulkers)==1 and shulkers[0][0]=='CONFIRMED_NOW', (
+    'real player shulker nested move was not authoritatively confirmed: '+proof)
+assert not any(r[0]=='CONFLICTING' for r in rows), (
+    'shulker real client move created a conflict: '+proof)
+PY
+
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
 wait_player_copy acc_track_nested
 echo 'wp05accept place Wp05TrackBot bundle' >&3
