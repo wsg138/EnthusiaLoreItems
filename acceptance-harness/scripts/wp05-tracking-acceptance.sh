@@ -238,9 +238,20 @@ for _ in range(120):
         if any(row[0]=='CONFLICTING' for row in states):
             break
     time.sleep(.25)
+with sqlite3.connect(path) as c:
+    audit=c.execute("""
+        select event_type, detail_json from audit_events
+        where aggregate_type='lore_instance' and aggregate_id in (
+            select i.instance_id from lore_instances i
+            join lore_definitions d on d.definition_id=i.definition_id
+            where d.lookup_key='acc_track_nested'
+        )
+        order by audit_id desc limit 30
+    """).fetchall()
 with open(proof,'w') as f:
     f.write('real-client hopper-to-chest states='+repr(states)+'\n')
     f.write('observations='+repr(observations)+'\n')
+    f.write('audit modes and provenance='+repr(audit)+'\n')
 print('TRACK2_REAL_HOPPER_RECEIPT',states,flush=True)
 assert len(states)==1 and states[0][0]=='CONFIRMED_NOW' \
     and states[0][1]=='BLOCK_CONTAINER' \
