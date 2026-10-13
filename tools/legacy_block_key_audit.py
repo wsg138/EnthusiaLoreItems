@@ -116,7 +116,6 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
     cursor = connection.execute(
         'SELECT instance_id, location_type, location_key '
         'FROM instance_observations ORDER BY instance_id')
-    )
     for batch in iter(lambda: cursor.fetchmany(BATCH_SIZE), []):
         for instance_id, location_type, key in batch:
             if previous_id is not None and instance_id != previous_id:
