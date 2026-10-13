@@ -349,6 +349,11 @@ async function phaseTwo() {
   // A real GUI movement into a placed shulker, then a normal block break,
   // natural item pickup and GUI deposit into the final chest. No PDC clones
   // or server-side inventory teleportation are used.
+  // A disposable flat catch floor keeps the naturally mined shulker item
+  // from falling into random caves below terrain. The item still has to be
+  // dropped by vanilla mining and picked up through player proximity.
+  bot.chat('/fill 12 69 -2 16 69 2 minecraft:stone')
+  await sleep(500)
   bot.chat('/setblock 14 71 0 minecraft:air')
   bot.chat('/setblock 14 70 0 minecraft:shulker_box')
   block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'placed shulker')
