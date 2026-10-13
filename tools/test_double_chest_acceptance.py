@@ -29,14 +29,26 @@ def synthetic_fixture(root):
             "assertions": {name: True for name in ASSERTIONS},
             "evidence": evidence,
         }
+    provenance_files = {}
+    for name in ("paper_server_jar", "built_inner_jar", "loaded_inner_jar",
+                 "java_version_log"):
+        payload = (b"SYNTHETIC JAR" if name in
+                   ("built_inner_jar", "loaded_inner_jar") else name.encode())
+        path = Path("provenance") / (name + ".bin")
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        provenance_files[name] = {"path": str(path), "sha256": sha(payload)}
     return {
         "provenance": {
             "source_sha": "a" * 40,
-            "built_inner_jar_sha256": "b" * 64,
-            "loaded_inner_jar_sha256": "b" * 64,
+            "built_inner_jar_sha256": provenance_files["built_inner_jar"]["sha256"],
+            "loaded_inner_jar_sha256": provenance_files["loaded_inner_jar"]["sha256"],
             "java_major": 25,
             "paper_version": "26.2",
+            "paper_build": 1,
             "world_uuid": "11111111-1111-1111-1111-111111111111",
+            **provenance_files,
         },
         "cases": cases,
         "merged": False,
@@ -93,6 +105,36 @@ class DoubleChestEvidenceValidatorTest(unittest.TestCase):
     def test_different_loaded_jar_hash_blocks_gate(self):
         self.report["provenance"]["loaded_inner_jar_sha256"] = "c" * 64
         self.assert_rejected("loaded inner JAR differs")
+
+    def test_missing_built_jar_file_blocks_gate(self):
+        path = self.root / self.report["provenance"]["built_inner_jar"]["path"]
+        path.unlink()
+        self.assert_rejected("provenance.built_inner_jar: unavailable evidence file")
+
+    def test_tampered_loaded_jar_bytes_block_gate(self):
+        path = self.root / self.report["provenance"]["loaded_inner_jar"]["path"]
+        path.write_bytes(b"modified")
+        self.assert_rejected("provenance.loaded_inner_jar: SHA-256 mismatch")
+
+    def test_java_version_log_is_required(self):
+        del self.report["provenance"]["java_version_log"]
+        self.assert_rejected("provenance.java_version_log: missing evidence file")
+
+    def test_server_jar_hash_mismatch_blocks_gate(self):
+        self.report["provenance"]["paper_server_jar"]["sha256"] = "f" * 64
+        self.assert_rejected("provenance.paper_server_jar: SHA-256 mismatch")
+
+    def test_missing_exact_paper_build_blocks_gate(self):
+        self.report["provenance"].pop("paper_build")
+        self.assert_rejected("exact positive Paper build number required")
+
+    def test_invalid_world_uuid_blocks_gate(self):
+        self.report["provenance"]["world_uuid"] = "not-a-uuid"
+        self.assert_rejected("invalid world UUID")
+
+    def test_jar_paths_must_stay_within_evidence_root(self):
+        self.report["provenance"]["loaded_inner_jar"]["path"] = "../other.jar"
+        self.assert_rejected("provenance.loaded_inner_jar: unsafe evidence path")
 
     def test_live_server_change_blocks_gate(self):
         self.report["live_server_touched"] = True

@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from uuid import UUID
 
 REQUIRED = tuple(f"DC-{number:02d}" for number in range(1, 49))
 ASSERTIONS = (
@@ -53,12 +54,15 @@ def checked_file(root, record, label, errors):
         return
     if not target.stat().st_size:
         errors.append(f"{label}: empty evidence file")
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    if digest != record.get("sha256"):
+    digest = hashlib.sha256()
+    with target.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != record.get("sha256"):
         errors.append(f"{label}: SHA-256 mismatch")
 
 
-def verify_provenance(report, errors):
+def verify_provenance(report, root, errors):
     p = report.get("provenance")
     if not isinstance(p, dict):
         errors.append("provenance: missing")
@@ -70,8 +74,19 @@ def verify_provenance(report, errors):
         errors.append("provenance: loaded inner JAR differs from built inner JAR")
     if p.get("java_major") != 25 or p.get("paper_version") != "26.2":
         errors.append("provenance: requires verified Java 25 / Paper 26.2")
-    if not isinstance(p.get("world_uuid"), str):
-        errors.append("provenance: world UUID missing")
+    if type(p.get("paper_build")) is not int or p["paper_build"] <= 0:
+        errors.append("provenance: exact positive Paper build number required")
+    try:
+        UUID(str(p.get("world_uuid")))
+    except (TypeError, ValueError, AttributeError):
+        errors.append("provenance: invalid world UUID")
+    for name in ("paper_server_jar", "built_inner_jar", "loaded_inner_jar",
+                 "java_version_log"):
+        record = p.get(name)
+        checked_file(root, record, f"provenance.{name}", errors)
+        if name in ("built_inner_jar", "loaded_inner_jar") and isinstance(record, dict):
+            if record.get("sha256") != p.get(name + "_sha256"):
+                errors.append(f"provenance: {name} file does not match declared JAR")
 
 
 def verify_case(identifier, case, root, errors):
@@ -102,7 +117,7 @@ def verify(report, evidence_root):
     errors = []
     if not isinstance(report, dict):
         return ["manifest must contain an object"]
-    verify_provenance(report, errors)
+    verify_provenance(report, evidence_root, errors)
     cases = report.get("cases")
     if not isinstance(cases, dict):
         cases = {}
