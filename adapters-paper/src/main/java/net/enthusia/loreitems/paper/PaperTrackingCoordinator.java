@@ -13,7 +13,6 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -344,7 +343,10 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                     "tracking.persistence_nanos", System.nanoTime() - startedAt);
             if (failure != null || result == null) {
                 Throwable cause = failure != null
-                        ? unwrap(failure) : new IllegalStateException("Null persistence result");
+                        ? (failure instanceof java.util.concurrent.CompletionException completion
+                                && completion.getCause() != null
+                                ? completion.getCause() : failure)
+                        : new IllegalStateException("Null persistence result");
                 fail(observation.request(), observation.sequence(),
                         observation.acknowledgement(), cause);
             } else {
@@ -488,13 +490,6 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private void updateGauges() {
         metrics.setGauge("tracking.queued", queued.size());
         metrics.setGauge("tracking.in_flight", inFlight);
-    }
-
-    private static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof CompletionException exception && exception.getCause() != null) {
-            return exception.getCause();
-        }
-        return throwable;
     }
 
     @Override

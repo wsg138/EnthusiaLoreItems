@@ -10,20 +10,20 @@ import net.enthusia.loreitems.application.TrackingObservationUseCase;
  * caller completion of its toCompletableFuture() copy cannot forge an underlying DB result.
  */
 public final class PaperTrackingAcknowledgement {
-    private final boolean admitted;
-    private final CompletionStage<Settlement> settlement;
-    private final TrackingObservationUseCase.Request request;
-    private final long sequence;
-    private final Object issuer;
+    private final boolean admissionAccepted;
+    private final CompletionStage<Settlement> settlementView;
+    private final TrackingObservationUseCase.Request observation;
+    private final long observationSequence;
+    private final Object issuingCoordinator;
 
     private PaperTrackingAcknowledgement(
             boolean admitted, CompletableFuture<Settlement> future,
             TrackingObservationUseCase.Request request, long sequence, Object issuer) {
-        this.admitted = admitted;
-        this.settlement = Objects.requireNonNull(future, "future").minimalCompletionStage();
-        this.request = Objects.requireNonNull(request, "request");
-        this.issuer = Objects.requireNonNull(issuer, "issuer");
-        this.sequence = sequence;
+        this.admissionAccepted = admitted;
+        this.settlementView = Objects.requireNonNull(future, "future").minimalCompletionStage();
+        this.observation = Objects.requireNonNull(request, "request");
+        this.issuingCoordinator = Objects.requireNonNull(issuer, "issuer");
+        this.observationSequence = sequence;
     }
 
     static PaperTrackingAcknowledgement issued(
@@ -33,23 +33,23 @@ public final class PaperTrackingAcknowledgement {
     }
 
     boolean belongsTo(Object expectedIssuer) {
-        return issuer == expectedIssuer;
+        return issuingCoordinator == expectedIssuer;
     }
 
     public boolean admitted() {
-        return admitted;
+        return admissionAccepted;
     }
 
     public CompletionStage<Settlement> settlement() {
-        return settlement;
+        return settlementView;
     }
 
     public TrackingObservationUseCase.Request request() {
-        return request;
+        return observation;
     }
 
     public long sequence() {
-        return sequence;
+        return observationSequence;
     }
 
     public enum Settlement {
