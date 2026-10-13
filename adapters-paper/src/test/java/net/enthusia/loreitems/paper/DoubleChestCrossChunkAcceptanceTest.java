@@ -94,6 +94,17 @@ class DoubleChestCrossChunkAcceptanceTest {
     }
 
     @Test
+    void sharedFiftyFourSlotInventoryHasOneCanonicalKeyAcrossSecondNegativeXBoundary() {
+        // (-17, -16) straddles chunks -2 and -1, unlike (-1, 0).
+        assertSharedBoundary(-17, 5, BlockFace.NORTH);
+    }
+
+    @Test
+    void sharedFiftyFourSlotInventoryHasOneCanonicalKeyAcrossSecondNegativeZBoundary() {
+        assertSharedBoundary(5, -17, BlockFace.EAST);
+    }
+
+    @Test
     void sameChunkDoubleChestOnlyScansOnePhysicalInventoryPerReconciliation() {
         PairFixture fixture = new PairFixture(5, 5, BlockFace.NORTH);
         fixture.items[53] = trackedItem();
