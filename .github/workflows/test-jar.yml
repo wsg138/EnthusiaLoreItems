@@ -65,6 +65,8 @@ jobs:
       # release approval, or independent Paper migration/correctness gates.
       - name: Prepare Sentinel exact-SHA plugin artifact
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/enthusialoreitems-sentinel/build/libs
@@ -72,7 +74,7 @@ jobs:
             /tmp/enthusialoreitems-sentinel/build/libs/EnthusiaLoreItems.jar
           cmp -s /tmp/enthusialoreitems-test/EnthusiaLoreItems.jar \
             /tmp/enthusialoreitems-sentinel/build/libs/EnthusiaLoreItems.jar
-          test "$(cat /tmp/enthusialoreitems-test/SOURCE_SHA)" = "$GITHUB_SHA"
+          test "$(cat /tmp/enthusialoreitems-test/SOURCE_SHA)" = "${EXPECTED_SHA}"
 
       - name: Upload Sentinel exact-head plugin artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
