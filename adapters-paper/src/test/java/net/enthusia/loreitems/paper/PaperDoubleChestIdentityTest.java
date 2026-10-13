@@ -170,7 +170,7 @@ class PaperDoubleChestIdentityTest {
         fixture.leftType = Chest.Type.SINGLE;
         fixture.rightType = Chest.Type.SINGLE;
         var single = PaperPhysicalInventorySnapshot.capture(fixture.left).orElseThrow();
-        assertEquals("minecraft:overworld:15:70:0", single.key());
+        assertEquals("block-v2:" + WORLD_ID + ":15:70:0", single.key());
         assertSame(fixture.left, single.resolve(fixture.plugin).orElseThrow());
         fixture.leftType = Chest.Type.LEFT;
         fixture.rightType = Chest.Type.RIGHT;
