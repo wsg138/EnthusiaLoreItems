@@ -106,18 +106,23 @@ class PaperDoubleChestIdentityTest {
                 ItemStack.of(Material.NETHER_STAR), identity);
         fixture.left.getContents()[0] = tagged;
         fixture.right.getContents()[0] = tagged.clone();
-        for (Inventory input : List.of(fixture.left, fixture.right, fixture.combined)) {
-            var view = PaperPhysicalInventorySnapshot.captureResolved(input, fixture.plugin)
-                    .orElseThrow();
-            assertSame(fixture.combined, view.inventory());
-            assertEquals(54, view.inventory().getSize());
-            Map<LoreItemIdentity, List<LocationDescriptor>> observed = new ConcurrentHashMap<>();
-            new PaperTrackedItemCollector().collectArray(
-                    view.inventory().getContents(), view.snapshot().type(),
-                    view.snapshot().key(), "slot:", observed, new PaperScanLimit(256));
-            assertEquals(List.of("slot:0", "slot:27"),
-                    observed.get(identity).stream().map(LocationDescriptor::containerPath).toList());
-        }
+        assertHalfZeroCopies(fixture, fixture.left, identity);
+        assertHalfZeroCopies(fixture, fixture.right, identity);
+        assertHalfZeroCopies(fixture, fixture.combined, identity);
+    }
+
+    private void assertHalfZeroCopies(
+            Fixture fixture, Inventory source, LoreItemIdentity identity) {
+        var view = PaperPhysicalInventorySnapshot.captureResolved(source, fixture.plugin)
+                .orElseThrow();
+        assertSame(fixture.combined, view.inventory());
+        assertEquals(54, view.inventory().getSize());
+        Map<LoreItemIdentity, List<LocationDescriptor>> observed = new ConcurrentHashMap<>();
+        new PaperTrackedItemCollector().collectArray(
+                view.inventory().getContents(), view.snapshot().type(),
+                view.snapshot().key(), "slot:", observed, new PaperScanLimit(256));
+        assertEquals(List.of("slot:0", "slot:27"),
+                observed.get(identity).stream().map(LocationDescriptor::containerPath).toList());
     }
 
     @ParameterizedTest
