@@ -38,6 +38,16 @@ these categories proves a safe world-name-to-UUID mapping**: tracked items
 can move between worlds, and repeated observations do not imply copies.
 Every category remains `REVIEW_ONLY_NO_WORLD_MAPPING` until independent
 physical evidence and migration review exist.
+The `projection_link_consistency` section checks that each current SQLite
+projection points to an observation for **the same instance**, that the
+observation's confidence matches the current state, and that its exact
+location type/key/nested path agree. It counts dangling links, links to
+another instance, mismatched states/locations, and malformed unresolved
+rows **without exporting item/player IDs**. If the supplied database lacks
+required columns, it reports `REVIEW_REQUIRED_SCHEMA_INCOMPLETE` rather
+than silently declaring consistency. Even a `CONSISTENT_LINKS_ONLY` result
+does **not** prove that the physical item currently exists or authorize
+migration; reports remain `safe_to_deploy: false`.
 The audit **does not** inspect physical container contents, map world names
 to UUIDs, infer unloaded chest halves, rewrite `instance_current_state`,
 change `instance_observations`, resolve duplicate-item anomalies, run a
