@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from legacy_block_key_audit import audit, classify
+from legacy_block_key_audit import audit, classify, inspect_projection_links
 
 
 class KeyFormatTests(unittest.TestCase):
@@ -159,6 +159,77 @@ class OfflineSQLiteTests(unittest.TestCase):
             pass
         with self.assertRaises(ValueError):
             audit(empty)
+
+
+class ProjectionLinkPreflightTests(unittest.TestCase):
+    def test_inconsistent_current_states_do_not_mutate_offline_sqlite(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / 'links.sqlite'
+            with sqlite3.connect(database) as source:
+                source.executescript("""
+                    CREATE TABLE instance_observations(
+                        observation_id INTEGER PRIMARY KEY,
+                        instance_id TEXT NOT NULL,
+                        confidence TEXT NOT NULL,
+                        location_type TEXT NOT NULL,
+                        location_key TEXT NOT NULL,
+                        container_path TEXT
+                    );
+                    CREATE TABLE instance_current_state(
+                        instance_id TEXT PRIMARY KEY,
+                        state TEXT, location_type TEXT, location_key TEXT,
+                        container_path TEXT, last_observation_id INTEGER
+                    );
+                    INSERT INTO instance_observations VALUES
+                       (1,'a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0'),
+                       (2,'b','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1'),
+                       (3,'d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','copy1=old;copy2=new');
+                    INSERT INTO instance_current_state VALUES
+                       ('a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1),
+                       ('b','LAST_CONFIRMED','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2),
+                       ('c','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:3:2:3','slot:1',99),
+                       ('d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','wrong-location',3),
+                       ('e','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2),
+                       ('f','MISSING_UNRESOLVED',NULL,NULL,NULL,NULL),
+                       ('g','MISSING_UNRESOLVED',NULL,'invalid',NULL,NULL),
+                       ('h','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:4:2:3','slot:1',NULL),
+                       ('i','UNKNOWN','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1);
+                """)
+            before = database.read_bytes()
+            with sqlite3.connect(database) as source:
+                findings = inspect_projection_links(source)
+            self.assertEqual(before, database.read_bytes())
+            self.assertEqual('REVIEW_REQUIRED', findings['assessment'])
+            self.assertEqual(7, findings['inconsistent_rows'])
+            self.assertEqual({
+                'linked_projection_valid': 1, 'state_confidence_mismatch': 1,
+                'dangling_observation_pointer': 1, 'projection_location_mismatch': 1,
+                'cross_instance_observation_pointer': 1, 'valid_unresolved': 1,
+                'invalid_unresolved': 1, 'missing_observation_pointer': 1,
+                'unknown_projection_state': 1,
+            }, findings['counts'])
+
+    def test_minimal_schema_is_reported_incompatible_not_assumed_healthy(self):
+        with sqlite3.connect(':memory:') as source:
+            source.execute('CREATE TABLE instance_current_state (location_type TEXT)')
+            source.execute('CREATE TABLE instance_observations (location_type TEXT)')
+            findings = inspect_projection_links(source)
+        self.assertFalse(findings['schema_compatible'])
+        self.assertEqual('REVIEW_REQUIRED_SCHEMA_INCOMPLETE', findings['assessment'])
+
+    def test_projection_link_report_never_contains_instance_ids(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / 'snapshot.sqlite'
+            with sqlite3.connect(database) as source:
+                source.executescript("""
+                    CREATE TABLE instance_current_state (location_type TEXT, location_key TEXT, state TEXT);
+                    CREATE TABLE instance_observations (instance_id TEXT, location_type TEXT, location_key TEXT);
+                    INSERT INTO instance_observations VALUES ('private-person', 'BLOCK_CONTAINER', 'minecraft:world:1:2:3');
+                """)
+            report = audit(database)
+            self.assertNotIn('private-person', json.dumps(report))
+            self.assertEqual('REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
+                             report['projection_link_consistency']['assessment'])
 
 
 if __name__ == "__main__":
