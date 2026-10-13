@@ -46,9 +46,14 @@ sealed interface PaperInventoryReference
         return PaperDoubleChestIdentity.capture(inventory, holder);
     }
 
+    /**
+     * Versioned physical identity: world names can collide across restored/copied
+     * worlds. Old world-name keys remain in existing histories and require an
+     * explicit compatibility/migration gate before any production deployment.
+     */
     static String blockKey(Location location) {
-        return Objects.requireNonNull(location.getWorld(), "location world")
-                        .getKey().toString()
+        World world = Objects.requireNonNull(location.getWorld(), "location world");
+        return "block-v2:" + world.getUID()
                 + ':' + location.getBlockX()
                 + ':' + location.getBlockY()
                 + ':' + location.getBlockZ();
