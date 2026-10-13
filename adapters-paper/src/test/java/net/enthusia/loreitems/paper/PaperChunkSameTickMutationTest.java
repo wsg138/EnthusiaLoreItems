@@ -29,24 +29,9 @@ class PaperChunkSameTickMutationTest {
             var plugin = MockBukkit.createMockPlugin();
             World world = server.addSimpleWorld("mutation");
             Location location = new Location(world, 15, 64, 15);
-            Inventory inventory = proxy(Inventory.class, (method, args) -> switch (method) {
-                case "getHolder" -> null;
-                case "getLocation" -> resolved ? location : null;
-                case "getContents" -> new ItemStack[9];
-                case "getSize" -> 9;
-                default -> null;
-            });
-            Container container = proxy(Container.class, (method, args) -> switch (method) {
-                case "getInventory" -> inventory;
-                case "getLocation" -> location;
-                case "getWorld" -> world;
-                default -> null;
-            });
-            Chunk chunk = proxy(Chunk.class, (method, args) -> switch (method) {
-                case "getEntities" -> new Entity[0];
-                case "getTileEntities" -> new BlockState[] {container};
-                default -> null;
-            });
+            Inventory inventory = inventory(location);
+            Container container = container(inventory, location, world);
+            Chunk chunk = chunk(container);
             var coordinator = new PaperTrackingCoordinator(plugin,
                     () -> request -> CompletableFuture.completedFuture(
                             TrackingObservationUseCase.Result.of(
@@ -71,6 +56,34 @@ class PaperChunkSameTickMutationTest {
         } finally {
             MockBukkit.unmock();
         }
+    }
+
+    private Inventory inventory(Location location) {
+        return proxy(Inventory.class, (method, args) -> switch (method) {
+            case "getHolder" -> null;
+            case "getLocation" -> resolved ? location : null;
+            case "getContents" -> new ItemStack[9];
+            case "getItem" -> null;
+            case "getSize" -> 9;
+            default -> null;
+        });
+    }
+
+    private static Container container(Inventory inventory, Location location, World world) {
+        return proxy(Container.class, (method, args) -> switch (method) {
+            case "getInventory" -> inventory;
+            case "getLocation" -> location;
+            case "getWorld" -> world;
+            default -> null;
+        });
+    }
+
+    private static Chunk chunk(Container container) {
+        return proxy(Chunk.class, (method, args) -> switch (method) {
+            case "getEntities" -> new Entity[0];
+            case "getTileEntities" -> new BlockState[] {container};
+            default -> null;
+        });
     }
 
     private static boolean scan(PaperPhysicalChunkScanner scanner, Chunk chunk) {
