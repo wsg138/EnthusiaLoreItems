@@ -339,43 +339,68 @@ class DoubleChestCrossChunkAcceptanceTest {
 
         private org.bukkit.block.Chest chest(boolean left, BlockFace facing) {
             org.bukkit.block.data.type.Chest data =
-                    proxy(org.bukkit.block.data.type.Chest.class, (method, args) ->
-                            switch (method) {
-                                case "getType" -> left
-                                        ? org.bukkit.block.data.type.Chest.Type.LEFT
-                                        : org.bukkit.block.data.type.Chest.Type.RIGHT;
-                                case "getFacing" -> facing;
-                                default -> null;
-                            });
-            return proxy(org.bukkit.block.Chest.class, (method, args) ->
-                    switch (method) {
-                        case "getType" -> Material.CHEST;
-                        case "getBlockData" -> data;
-                        case "getLocation" -> new Location(world,
-                                left ? x : otherX, 64, left ? z : otherZ);
-                        case "getWorld" -> world;
-                        case "getInventory" -> combined;
-                        case "getBlockInventory" -> half(left);
-                        default -> null;
-                    });
+                    proxy(org.bukkit.block.data.type.Chest.class,
+                            (method, args) -> chestDataMethod(left, facing, method));
+            return proxy(org.bukkit.block.Chest.class,
+                    (method, args) -> chestStateMethod(left, data, method));
+        }
+
+        private static Object chestDataMethod(
+                boolean left, BlockFace facing, String method) {
+            return switch (method) {
+                case "getType" -> left
+                        ? org.bukkit.block.data.type.Chest.Type.LEFT
+                        : org.bukkit.block.data.type.Chest.Type.RIGHT;
+                case "getFacing" -> facing;
+                default -> null;
+            };
+        }
+
+        private Object chestStateMethod(
+                boolean left, org.bukkit.block.data.type.Chest data, String method) {
+            return switch (method) {
+                case "getType" -> Material.CHEST;
+                case "getBlockData" -> data;
+                case "getLocation" -> sideLocation(left);
+                case "getWorld" -> world;
+                case "getInventory" -> combined;
+                case "getBlockInventory" -> half(left);
+                default -> null;
+            };
         }
 
         private Inventory half(boolean left) {
-            return proxy(Inventory.class, (method, args) -> switch (method) {
+            return proxy(Inventory.class,
+                    (method, args) -> halfMethod(left, method, args));
+        }
+
+        private Object halfMethod(boolean left, String method, Object[] args) {
+            return switch (method) {
                 case "getSize" -> 27;
                 case "getType" -> InventoryType.CHEST;
-                case "getContents" -> Arrays.copyOfRange(items, left ? 0 : 27,
-                        left ? 27 : 54);
-                case "getItem" -> items[(left ? 0 : 27) + (int) args[0]];
-                case "getLocation" -> new Location(world,
-                        left ? x : otherX, 64, left ? z : otherZ);
-                case "getHolder" -> {
-                    assertEquals(false, args[0]);
-                    yield left ? leftState : rightState;
-                }
+                case "getContents" -> Arrays.copyOfRange(
+                        items, halfOffset(left), halfOffset(left) + 27);
+                case "getItem" -> items[halfOffset(left) + (int) args[0]];
+                case "getLocation" -> sideLocation(left);
+                case "getHolder" -> halfHolder(left, args);
                 default -> null;
-            });
+            };
         }
+
+        private Object halfHolder(boolean left, Object[] args) {
+            assertEquals(false, args[0]);
+            return left ? leftState : rightState;
+        }
+
+        private int halfOffset(boolean left) {
+            return left ? 0 : 27;
+        }
+
+        private Location sideLocation(boolean left) {
+            return new Location(world,
+                    left ? x : otherX, 64, left ? z : otherZ);
+        }
+
     }
 
     @SuppressWarnings("unchecked")
