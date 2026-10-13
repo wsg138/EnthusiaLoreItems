@@ -44,7 +44,13 @@ python3 -m unittest discover -s tools -p 'test_legacy_block_key_audit.py' -v
 ```
 
 The tests use only synthetic temporary SQLite databases. A separate exact-head
-GitHub Actions workflow runs them when these files are changed.
+GitHub Actions workflow runs them when these files are changed. One test
+creates a committed WAL-mode transaction, captures a complete separate
+snapshot through SQLite's `Connection.backup()` API, and demonstrates that
+later source writes do not change the snapshot. This is a **backup protocol
+rehearsal**, not a proof that any live server files are safely backed up or
+restorable; actual stopped-server backup + journal recovery/restore still needs
+explicit independent approval and testing.
 
 **Required later gates:** prove cross-world collisions and world recreation,
 naturally loaded block/chest half proof, bounded idempotent migration, ambiguous
