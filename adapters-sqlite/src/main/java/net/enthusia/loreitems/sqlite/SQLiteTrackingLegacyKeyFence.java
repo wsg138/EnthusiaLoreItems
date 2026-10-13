@@ -42,7 +42,15 @@ final class SQLiteTrackingLegacyKeyFence {
 
     /** The world *name* is diagnostic only, never a trustworthy UUID mapping. */
     static String legacyWorldName(String locationKey) {
-        Matcher matcher = LEGACY_WORLD_BLOCK.matcher(rootKey(locationKey));
+        String key = rootKey(locationKey);
+        // "block-v2:<UUID>:x:y:z" also matches the legacy
+        // "namespace:world:x:y:z" regex. It is NOT a world-name key:
+        // allowing that match falsely fences genuine moves between two
+        // independently verified UUID-based block locations.
+        if (isVersionedRoot(key)) {
+            return null;
+        }
+        Matcher matcher = LEGACY_WORLD_BLOCK.matcher(key);
         return matcher.matches() ? matcher.group(1) : null;
     }
 }
