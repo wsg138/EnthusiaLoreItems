@@ -63,12 +63,21 @@ final class PaperPhysicalItemEvents {
 
     void onDrop(PlayerDropItemEvent event) {
         Item item = event.getItemDrop();
-        scanner.scanItemTree(
-                item.getItemStack(),
-                PaperPhysicalEntityScanner.droppedLocation(item),
+        ItemStack stack = item.getItemStack();
+        var location = PaperPhysicalEntityScanner.droppedLocation(item);
+        // A noncancelled PlayerDropItemEvent is direct evidence that the
+        // root ItemStack left the player's inventory. scanItemTree intentionally
+        // downgrades its mode to RECONCILIATION for nested contents; submit the
+        // root's authoritative transition first, preserving that safety policy.
+        scanner.submitItem(stack, location,
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
-                "player-drop",
+                "player-drop");
+        scanner.scanItemTree(
+                stack, location,
+                TrackingObservationUseCase.Presence.PRESENT,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                "player-drop-tree",
                 new PaperScanLimit(MAX_ITEMS_PER_SCAN));
         schedulePlayerUnique(event.getPlayer().getUniqueId(), "player-drop-player");
     }
