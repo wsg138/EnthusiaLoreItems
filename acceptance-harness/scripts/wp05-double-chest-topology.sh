@@ -76,17 +76,25 @@ done
 sleep 1
 
 : > "$EVIDENCE/topology-results.txt"
+: > "$EVIDENCE/production-results.txt"
 for case_name in same xplus zplus xminus zminus; do
   marker="WP05_DOUBLE_CHEST_TOPOLOGY_OK case=$case_name"
+  production="WP05_DOUBLE_CHEST_PRODUCTION_OK case=$case_name"
   before=$(grep -Fc "$marker" "$LOG" 2>/dev/null || true)
+  previous_production=$(grep -Fc "$production" "$LOG" 2>/dev/null || true)
   printf 'wp05accept doublechest setup %s\n' "$case_name" >&3
   wait_for "$marker" "$((before+1))"
   printf 'wp05accept doublechest inspect %s\n' "$case_name" >&3
   wait_for "$marker" "$((before+2))"
+  wait_for "$production" "$((previous_production+2))"
   grep -F "$marker" "$LOG" | tail -1 >>"$EVIDENCE/topology-results.txt"
+  grep -F "$production" "$LOG" | tail -1 >>"$EVIDENCE/production-results.txt"
 done
 
 [[ "$(wc -l < "$EVIDENCE/topology-results.txt")" -eq 5 ]]
+[[ "$(wc -l < "$EVIDENCE/production-results.txt")" -eq 5 ]]
+grep -q 'case=xplus.*key=double-chest:.*:15:70:8|16:70:8:left=' "$EVIDENCE/production-results.txt"
+grep -q 'case=zminus.*key=double-chest:.*:8:70:-1|8:70:0:left=' "$EVIDENCE/production-results.txt"
 grep -q 'case=xminus.*chunks=-1,0;0,0' "$EVIDENCE/topology-results.txt"
 grep -q 'case=zminus.*chunks=0,-1;0,0' "$EVIDENCE/topology-results.txt"
 grep -q 'case=xplus.*chunks=0,0;1,0' "$EVIDENCE/topology-results.txt"
@@ -95,4 +103,4 @@ if grep -Eq 'WP05_ACCEPT FAIL|WP05_DOUBLE_CHEST_UNRESOLVED' "$LOG"; then
   echo 'topology setup or inspection failed closed' >&2
   exit 1
 fi
-echo "PASS: five real Paper double-chest topologies and 54-slot mapping"
+echo "PASS: five real Paper topologies AND production capture/resolve of all physical halves"
