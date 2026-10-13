@@ -64,6 +64,16 @@ wait_for 'Physical lore-item tracking and natural-access reconciliation are acti
 # plugin-induced chunk loading. A separate release gate tests unloaded halves.
 printf 'forceload add -16 -16 16 16\n' >&3
 sleep 2
+# The disposable *host* prepares exactly ten known blocks as empty fixture
+# coordinates. The test helper itself is deliberately forbidden to overwrite
+# any non-air block; the production plugin is never given this capability.
+for coordinates in \
+  '8 8' '9 8' '15 8' '16 8' '8 15' '8 16' \
+  '-1 8' '0 8' '8 -1' '8 0'; do
+  read -r x z <<< "$coordinates"
+  printf 'setblock %s 70 %s minecraft:air replace\n' "$x" "$z" >&3
+done
+sleep 1
 
 : > "$EVIDENCE/topology-results.txt"
 for case_name in same xplus zplus xminus zminus; do
