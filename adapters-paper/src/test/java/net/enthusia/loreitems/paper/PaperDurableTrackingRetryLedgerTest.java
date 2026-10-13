@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 class PaperDurableTrackingRetryLedgerTest {
     private static final String FIRST_PLAYER = "player:one";
     private static final String ROOT_SLOT = "slot:0";
+    private static final String FIRST_SLOT = "slot:1";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
@@ -24,7 +25,7 @@ class PaperDurableTrackingRetryLedgerTest {
     @Test
     void onlyNewerConfirmedReconciliationClearsFailedHolder() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
-        var request = request(FIRST_PLAYER, "slot:1",
+        var request = request(FIRST_PLAYER, FIRST_SLOT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
         var authoritative = request(FIRST_PLAYER, "slot:2",
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION);
@@ -40,9 +41,9 @@ class PaperDurableTrackingRetryLedgerTest {
     @Test
     void locationSlotChangesShareHolderButDifferentPlayersDoNot() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
-        var one = request(FIRST_PLAYER, "slot:1",
+        var one = request(FIRST_PLAYER, FIRST_SLOT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
-        var two = request("player:two", "slot:1",
+        var two = request("player:two", FIRST_SLOT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
         ledger.markUnresolved(one, 1);
 
@@ -76,7 +77,7 @@ class PaperDurableTrackingRetryLedgerTest {
                         "test:chest", "slot:53"),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION, "ledger-test");
-        var attemptedDestination = request(FIRST_PLAYER, "slot:1",
+        var attemptedDestination = request(FIRST_PLAYER, FIRST_SLOT,
                 TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION);
         ledger.markUnresolved(attemptedDestination, 2);
         assertTrue(ledger.needsReconciliation(originalChest));
