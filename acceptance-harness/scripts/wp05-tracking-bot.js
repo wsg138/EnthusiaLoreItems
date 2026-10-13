@@ -15,6 +15,9 @@ const log = message => {
 async function waitFile(name) {
   for (let i = 0; i < 2400; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
+    if (name !== 'bot.stop' && fs.existsSync(`${root}/bot.stop`)) {
+      throw new Error(`acceptance host aborted before marker ${name}`)
+    }
     await sleep(100)
   }
   throw new Error(`missing marker ${name}`)
@@ -343,16 +346,69 @@ async function phaseTwo() {
 
   await waitFile('go-track2-shulker')
   await teleport(bot, 13, 71, 0, 'TRACK2 shulker-area')
+  // A real GUI movement into a placed shulker, then a normal block break,
+  // natural item pickup and GUI deposit into the final chest. No PDC clones
+  // or server-side inventory teleportation are used.
+  bot.chat('/setblock 14 71 0 minecraft:air')
+  bot.chat('/setblock 14 70 0 minecraft:shulker_box')
+  block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'placed shulker')
+  item = tracked(bot)
+  container = await bot.openContainer(block)
+  await container.deposit(item.type, null, 1); await sleep(700)
+  container.close(); await sleep(400)
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('shulker deposit did not remove tracked sword from player inventory')
+  }
+  block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'filled shulker')
+  await bot.dig(block)
+  let shulker = null
+  for (let attempt = 0; attempt < 100; attempt++) {
+    shulker = bot.inventory.items().find(entry => entry.name.endsWith('shulker_box'))
+    if (shulker) break
+    const drop = nearestDroppedItem(bot)
+    if (drop && attempt % 5 === 0) {
+      const pos = drop.position
+      bot.chat(`/tp Wp05TrackBot ${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`)
+    }
+    await sleep(250)
+  }
+  if (!shulker) throw new Error('mined shulker contents item was not naturally picked up')
+  log('TRACK2 shulker-natural-pickup item=' + shulker.name + ' slot=' + shulker.slot)
+  // Pickup may pull the bot down into natural caves. Return to the known
+  // supported test platform before trying to interact with the chest.
+  await teleport(bot, 13, 71, 0, 'TRACK2 shulker-return-to-chest')
+  bot.chat('/setblock 14 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 14, 70, 0, 'chest', 'nested shulker chest')
-  container = await bot.openContainer(block); await sleep(700); container.close(); await sleep(700)
-  log('TRACK2 shulker-access')
+  container = await bot.openContainer(block)
+  await container.deposit(shulker.type, null, 1)
+  await sleep(850); container.close(); await sleep(700)
+  log('TRACK2 shulker-real-client-move-complete')
   fs.writeFileSync(`${root}/track2-shulker-done`, 'ok\n')
 
   await waitFile('go-track2-bundle')
   await teleport(bot, 15, 71, 0, 'TRACK2 bundle-area')
+  // A real Minecraft 1.21 bundle click moves the tracked item from the
+  // player's cursor into a vanilla bundle; no synthetic server setItem.
+  item = tracked(bot)
+  bot.chat('/give Wp05TrackBot minecraft:bundle 1')
+  const bundle = await waitFixtureItem(bot, 'bundle', 'TRACK2 empty bundle')
+  await bot.clickWindow(item.slot, 0, 0)
+  await sleep(300)
+  await bot.clickWindow(bundle.slot, 0, 0)
+  await sleep(600)
+  log('TRACK2 bundle-client-insertion inventory='
+    + bot.inventory.items().map(entry => entry.name + ':' + entry.slot).join(','))
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('real bundle click did not remove the tracked sword from a player slot')
+  }
+  const filledBundle = bot.inventory.items().find(entry => entry.name === 'bundle')
+  if (!filledBundle) throw new Error('bundle missing after real click insertion')
+  bot.chat('/setblock 16 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 16, 70, 0, 'chest', 'nested bundle chest')
-  container = await bot.openContainer(block); await sleep(700); container.close(); await sleep(700)
-  log('TRACK2 bundle-access')
+  container = await bot.openContainer(block)
+  await container.deposit(filledBundle.type, null, 1)
+  await sleep(850); container.close(); await sleep(700)
+  log('TRACK2 bundle-real-client-move-complete')
   fs.writeFileSync(`${root}/track2-bundle-done`, 'ok\n')
 
   await waitFile('go-track2-away')
