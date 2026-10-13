@@ -161,6 +161,23 @@ final class PaperPhysicalItemEvents {
     }
 
 
+    boolean scanPlayer(UUID playerId, boolean unique, String source) {
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player == null) {
+            return false;
+        }
+        if (unique) {
+            scanner.scanPlayerUnique(player, source);
+        } else {
+            scanner.scanPlayer(
+                    player,
+                    TrackingObservationUseCase.Presence.PRESENT,
+                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                    source);
+        }
+        return true;
+    }
+
     private void schedulePlayerUnique(UUID playerId, String source) {
         schedulePlayer.accept(playerId, source);
     }

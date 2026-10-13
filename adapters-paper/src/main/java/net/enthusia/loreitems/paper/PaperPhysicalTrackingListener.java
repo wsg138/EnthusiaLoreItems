@@ -494,21 +494,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     boolean scanPlayer(UUID playerId, boolean unique, String source) {
-        Player player = plugin.getServer().getPlayer(playerId);
-        if (player == null) {
-            return false;
-        }
-        if (unique) {
-            scanner.scanPlayerUnique(player, source);
-        } else {
-            scanner.scanPlayer(
-                    player,
-                    TrackingObservationUseCase.Presence.PRESENT,
-                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                    source);
-        }
-        return true;
+        return itemEvents.scanPlayer(playerId, unique, source);
     }
+
 
     boolean scanChunk(
             Chunk chunk,
