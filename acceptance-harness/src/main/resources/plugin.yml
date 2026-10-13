@@ -7,7 +7,7 @@ depend:
 commands:
   wp05accept:
     description: Deterministic WP-05 acceptance helper. Never ship with production.
-    usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump ...
+    usage: /wp05accept source|perform|place|doublechest|duplicate|malform|damage|api|dump ...
 permissions:
   wp05.acceptance:
     default: op
