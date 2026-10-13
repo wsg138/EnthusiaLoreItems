@@ -24,6 +24,8 @@ DOUBLE_CHEST = re.compile(rf"double-chest:{UUID}:-?\d+:-?\d+:-?\d+\|-?\d+:-?\d+:
 NESTED_PREFIX = "root:BLOCK_CONTAINER:"
 MAX_NAMES, REPORT_NAMES, BATCH_SIZE = 1024, 50, 2048
 TABLES = ("instance_current_state", "instance_observations")
+KNOWN_STATES = frozenset(("CONFIRMED_NOW", "LAST_CONFIRMED", "CONFLICTING",
+                          "TERMINAL_VOID", "MISSING_UNRESOLVED"))
 
 
 def classify(location_type: str | None, key: str | None) -> tuple[str, str | None]:
@@ -50,16 +52,23 @@ def classify(location_type: str | None, key: str | None) -> tuple[str, str | Non
 def inspect_table(connection: sqlite3.Connection, table: str) -> dict:
     categories: Counter[str] = Counter()
     names: Counter[str] = Counter()
+    legacy_states: Counter[str] = Counter()
     dropped_groups = 0
     rows = 0
     # The table identifier comes only from the constant TABLES above.
-    cursor = connection.execute(f"SELECT location_type,location_key FROM {table}")
+    columns = "location_type,location_key,state" if table == "instance_current_state" \
+        else "location_type,location_key"
+    cursor = connection.execute(f"SELECT {columns} FROM {table}")
     while batch := cursor.fetchmany(BATCH_SIZE):
-        for location_type, key in batch:
+        for record in batch:
+            location_type, key = record[:2]
             rows += 1
             category, world_name = classify(location_type, key)
             categories[category] += 1
             if world_name is not None:
+                if table == "instance_current_state":
+                    state = record[2]
+                    legacy_states[state if state in KNOWN_STATES else "OTHER_STATE"] += 1
                 if world_name in names or len(names) < MAX_NAMES:
                     names[world_name] += 1
                 else:
@@ -68,6 +77,7 @@ def inspect_table(connection: sqlite3.Connection, table: str) -> dict:
     return {
         "rows": rows,
         "categories": dict(sorted(categories.items())),
+        "legacy_current_state_counts": dict(sorted(legacy_states.items())),
         "legacy_world_name_groups": [
             {"world_name": name, "rows": count, "classification": "UNRESOLVED"}
             for name, count in top
