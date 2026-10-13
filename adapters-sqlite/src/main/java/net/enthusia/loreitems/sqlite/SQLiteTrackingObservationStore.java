@@ -163,6 +163,10 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         if (CONFLICTING.equals(current.state())) {
             return appendConflictEvidence(connection, request, observedAt);
         }
+        if (SQLiteTrackingLegacyKeyFence.needsReview(
+                current.location(), request.location())) {
+            return fenceLegacyKeyAmbiguity(connection, request, current, observedAt);
+        }
         if (request.location().equals(current.location())) {
             if (CONFIRMED_NOW.equals(current.state())) {
                 return result(
@@ -294,6 +298,31 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                 InstanceCurrentState.State.CONFIRMED_NOW.equals(state)
                         ? "The physical location is now confirmed."
                         : "The physical location is retained as last confirmed.");
+    }
+
+    /**
+     * Legacy world-name and UUID-based block/nested locations cannot be equated:
+     * dimension names are not injective, and unloaded chest halves may be inaccessible.
+     * Preserve both observations, fence the projection, and do not manufacture a
+     * duplicate-instance anomaly for a copy that may be the exact same physical item.
+     */
+    private static TrackingObservationUseCase.Result fenceLegacyKeyAmbiguity(
+            Connection connection,
+            TrackingObservationUseCase.Request request,
+            CurrentRow current,
+            long observedAt) throws SQLException, StaleTrackingObservationException {
+        insertObservation(connection, request, current.location(),
+                InstanceObservation.Confidence.CONFLICTING, observedAt);
+        insertObservation(connection, request, request.location(),
+                InstanceObservation.Confidence.CONFLICTING, observedAt);
+        LocationDescriptor fence = conflictLocation(request, current.location());
+        long observationId = insertObservation(connection, request, fence,
+                InstanceObservation.Confidence.CONFLICTING, observedAt);
+        requireCurrentUpdate(connection, request, current, fence,
+                InstanceCurrentState.State.CONFLICTING, observationId, observedAt);
+        appendAudit(connection, request, "tracking_legacy_world_key_review", observedAt, fence);
+        return result(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                "Historical world-name and current UUID container keys require review.");
     }
 
     private static TrackingObservationUseCase.Result recordConflict(

@@ -329,6 +329,66 @@ class PaperTrackingAcknowledgementTest {
     }
 
     @Test
+    void everyNonCommittedResultRetainsDirtyHolderUntilFreshReceipt() {
+        BlockingUseCase store = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
+                MetricsPort.noOp());
+        var holder = request(11, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        var statuses = List.of(
+                TrackingObservationUseCase.Status.STALE,
+                TrackingObservationUseCase.Status.UNKNOWN_INSTANCE,
+                TrackingObservationUseCase.Status.IDENTITY_MISMATCH,
+                TrackingObservationUseCase.Status.INACTIVE_INSTANCE,
+                TrackingObservationUseCase.Status.BLOCKED_ANOMALY,
+                TrackingObservationUseCase.Status.SERVICE_UNAVAILABLE);
+        for (int index = 0; index < statuses.size(); index++) {
+            var receipt = coordinator.submitAcknowledged(holder);
+            store.complete(index, statuses.get(index));
+            assertEquals(PaperTrackingAcknowledgement.Settlement.NOT_RECORDED, status(receipt));
+            assertTrue(coordinator.needsReconciliation(holder), statuses.get(index).name());
+        }
+        var fresh = coordinator.submitAcknowledged(holder);
+        store.complete(statuses.size(), TrackingObservationUseCase.Status.RECORDED);
+        assertTrue(coordinator.needsReconciliation(holder));
+        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+                holder, true, List.of(fresh)).toCompletableFuture().join());
+        assertFalse(coordinator.needsReconciliation(holder));
+    }
+
+    @Test
+    void throwingTelemetryCannotLoseConfirmedOrFailedDatabaseReceipt() {
+        BlockingUseCase store = new BlockingUseCase();
+        MetricsPort crashingMetrics = new MetricsPort() {
+            @Override
+            public void setGauge(String name, long value) {
+                throw new IllegalStateException("gauge failure");
+            }
+
+            @Override
+            public void increment(String name) {
+                throw new IllegalStateException("counter failure");
+            }
+
+            @Override
+            public void recordDurationNanos(String name, long value) {
+                throw new IllegalStateException("timer failure");
+            }
+        };
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
+                crashingMetrics);
+        var confirmed = coordinator.submitAcknowledged(
+                request(11, TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        store.complete(0, TrackingObservationUseCase.Status.RECORDED);
+        assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(confirmed));
+
+        var failedRequest = request(12, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        var failed = coordinator.submitAcknowledged(failedRequest);
+        store.fail(1, "SQLITE_BUSY");
+        assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(failed));
+        assertTrue(coordinator.needsReconciliation(failedRequest));
+    }
+
+    @Test
     void shutdownDrainsInflightEvenIfStoreFailsAndLeavesUncertaintyVisible() {
         BlockingUseCase store = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,

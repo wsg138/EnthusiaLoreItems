@@ -78,7 +78,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         this.useCaseSupplier = Objects.requireNonNull(useCaseSupplier, "useCaseSupplier");
         this.maxInFlightSupplier = Objects.requireNonNull(
                 maxInFlightSupplier, "maxInFlightSupplier");
-        this.metrics = Objects.requireNonNull(metrics, "metrics");
+        this.metrics = new PaperTrackingBestEffortMetrics(
+                Objects.requireNonNull(metrics, "metrics"), plugin.getLogger());
         this.naturalAccessDebounce = Objects.requireNonNull(
                 naturalAccessDebounce, "naturalAccessDebounce");
         currentMaxInFlight();
@@ -368,9 +369,12 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                         PaperTrackingAcknowledgement.Settlement.CONFLICT_RECORDED);
             }
             default -> {
-                if (result.status() == TrackingObservationUseCase.Status.SERVICE_UNAVAILABLE) {
-                    markUnresolved(observation.request(), observation.sequence());
-                }
+                // A result other than a confirmed stored state is not a durability
+                // receipt, including stale, identity mismatch and blocked anomaly.
+                // Some statuses may have recorded review evidence, but none establishes
+                // that this requested physical state is durably resolved.
+                markUnresolved(observation.request(), observation.sequence());
+                naturalAccessDebounce.clear();
                 metrics.increment("tracking.persistence_not_recorded");
                 settle(observation.acknowledgement(),
                         PaperTrackingAcknowledgement.Settlement.NOT_RECORDED);
