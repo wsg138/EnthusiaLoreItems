@@ -153,6 +153,24 @@ class OfflineSQLiteTests(unittest.TestCase):
         denied = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertNotEqual(0, denied.returncode)
 
+    def test_report_output_refuses_overwriting_existing_backup_or_report(self):
+        original = self.path.with_name('existing-backup.sqlite')
+        original.write_bytes(b'preexisting critical backup')
+        command = [sys.executable, str(Path(__file__).with_name(
+                   'legacy_block_key_audit.py')), str(self.path),
+                   '--confirm-offline-copy', '--output', str(original)]
+        refused = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn('Audit report refused:', refused.stderr)
+        self.assertEqual(b'preexisting critical backup', original.read_bytes())
+        new_report = self.path.with_name('new-report.json')
+        allowed = subprocess.run(command[:-1] + [str(new_report)],
+                                 capture_output=True, text=True, check=False)
+        self.assertEqual(0, allowed.returncode, allowed.stderr)
+        self.assertIn('projection_link_consistency', json.loads(new_report.read_text()))
+        refused_again = subprocess.run(command[:-1] + [str(new_report)],
+                                       capture_output=True, text=True, check=False)
+        self.assertNotEqual(0, refused_again.returncode)
     def test_invalid_schema_is_not_a_successful_report(self):
         empty = self.path.with_name("not-loreitems.sqlite")
         with sqlite3.connect(empty):
