@@ -12,6 +12,7 @@ import org.bukkit.block.Chest;
 import org.bukkit.command.CommandSender;
 import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
 
 /**
  * Test-only, fixed-coordinate double-chest fixture for an isolated Paper world.
@@ -72,10 +73,26 @@ final class DoubleChestPaperFixture {
         second.setType(Material.CHEST, false);
         configure(first, pair.facing, org.bukkit.block.data.type.Chest.Type.LEFT);
         configure(second, pair.facing, org.bukkit.block.data.type.Chest.Type.RIGHT);
+        if (!(first.getState(false) instanceof Chest firstChest)
+                || !(firstChest.getInventory() instanceof DoubleChestInventory combined)) {
+            throw new IllegalStateException("fixture chest halves did not join on real Paper");
+        }
+        Inventory left = combined.getLeftSide();
+        Inventory right = combined.getRightSide();
+        if (left == null || right == null || left.getSize() != 27
+                || right.getSize() != 27 || combined.getSize() != 54) {
+            throw new IllegalStateException("invalid test chest half inventory topology");
+        }
+        // Nontracked unique markers give a meaningful physical 26->27 boundary
+        // check. These never carry LoreItems PDC data or simulate item movement.
+        left.setItem(0, new ItemStack(Material.COBBLESTONE));
+        left.setItem(26, new ItemStack(Material.GRANITE));
+        right.setItem(0, new ItemStack(Material.DIORITE));
+        right.setItem(26, new ItemStack(Material.ANDESITE));
     }
 
     private static boolean isSafeFixtureBlock(Block block) {
-        return block.getType().isAir() || block.getType() == Material.CHEST;
+        return block.getType().isAir();
     }
 
     private static void configure(
