@@ -53,6 +53,21 @@ class PaperDurableTrackingRetryLedgerTest {
     }
 
     @Test
+    void stickyOverflowCannotClaimEvenPreviouslyEnumeratedHolderWasRecovered() {
+        PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
+        var first = request(FIRST_PLAYER, "slot:0",
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        ledger.markUnresolved(first, 1);
+        for (int index = 1; index <= PaperDurableTrackingRetryLedger.MAX_UNRESOLVED; index++) {
+            ledger.markUnresolved(request("player:" + index, "slot:0",
+                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION), index + 1L);
+        }
+        assertTrue(ledger.snapshot().overflow());
+        assertFalse(ledger.reconcile(first, 9_999));
+        assertTrue(ledger.needsReconciliation(first));
+    }
+
+    @Test
     void overflowIsStickyAndConservativelyCoversUntrackedHolders() {
         PaperDurableTrackingRetryLedger ledger = new PaperDurableTrackingRetryLedger();
         for (int index = 0; index < PaperDurableTrackingRetryLedger.MAX_UNRESOLVED; index++) {

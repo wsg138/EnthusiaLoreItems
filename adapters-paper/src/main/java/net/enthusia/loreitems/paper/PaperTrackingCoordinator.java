@@ -46,6 +46,7 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
     private final CompletableFuture<Void> quiesced = new CompletableFuture<>();
     private final PaperDurableTrackingRetryLedger unresolved = new PaperDurableTrackingRetryLedger();
     private final AtomicLong submissionOrder = new AtomicLong();
+    private final Object acknowledgementIssuer = new Object();
 
     private int inFlight;
     private boolean saturated;
@@ -147,7 +148,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
         CompletableFuture<PaperTrackingAcknowledgement.Settlement> future =
                 new CompletableFuture<>();
         boolean accepted = submitInternal(request, sequence, future);
-        return new PaperTrackingAcknowledgement(accepted, future, request, sequence);
+        return PaperTrackingAcknowledgement.issued(
+                accepted, future, request, sequence, acknowledgementIssuer);
     }
 
     /** Dirty holders require NEW naturally observed evidence; stale transitions are never replayed. */
@@ -170,7 +172,8 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
             boolean completeCoverage,
             List<PaperTrackingAcknowledgement> observations) {
         return PaperTrackingAcknowledgementVerifier.confirm(
-                unresolved, holder, completeCoverage, observations).thenApply(recovered -> {
+                unresolved, holder, completeCoverage, observations, acknowledgementIssuer)
+                .thenApply(recovered -> {
                     if (recovered) {
                         metrics.increment("tracking.persistence_recovered");
                         updateDurabilityGauges();
@@ -277,8 +280,9 @@ public final class PaperTrackingCoordinator implements AutoCloseable {
                 metrics.increment("tracking.rejected");
                 return Submission.REJECTED;
             }
-            int maxInFlight = currentMaxInFlight();
-            int maxQueued = Math.multiplyExact(maxInFlight, QUEUE_MULTIPLIER);
+            int maxInFlight = completionMaxInFlight();
+            int maxQueued = maxInFlight > Integer.MAX_VALUE / QUEUE_MULTIPLIER
+                    ? Integer.MAX_VALUE : maxInFlight * QUEUE_MULTIPLIER;
             if (inFlight < maxInFlight) {
                 inFlight++;
                 accept();

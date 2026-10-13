@@ -63,6 +63,9 @@ final class PaperDurableTrackingRetryLedger {
         }
         Holder holder = Holder.from(request);
         synchronized (lock) {
+            if (overflow) {
+                return false;
+            }
             Long failedSequence = unresolved.get(holder);
             if (failedSequence == null || sequence <= failedSequence) {
                 return false;

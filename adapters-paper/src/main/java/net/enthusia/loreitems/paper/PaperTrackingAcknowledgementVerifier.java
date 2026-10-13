@@ -17,27 +17,33 @@ final class PaperTrackingAcknowledgementVerifier {
             PaperDurableTrackingRetryLedger unresolved,
             TrackingObservationUseCase.Request holder,
             boolean completeCoverage,
-            List<PaperTrackingAcknowledgement> observations) {
+            List<PaperTrackingAcknowledgement> observations,
+            Object acknowledgementIssuer) {
+        Objects.requireNonNull(acknowledgementIssuer, "acknowledgementIssuer");
         Objects.requireNonNull(unresolved, "unresolved");
         Objects.requireNonNull(holder, "holder");
         Objects.requireNonNull(observations, "observations");
-        if (!completeCoverage || observations.isEmpty()) {
+        List<PaperTrackingAcknowledgement> receipts = List.copyOf(observations);
+        if (!completeCoverage || receipts.isEmpty()) {
             return CompletableFuture.completedFuture(false);
         }
-        CompletableFuture<?>[] stages = observations.stream()
+        CompletableFuture<?>[] stages = receipts.stream()
                 .map(observation -> observation.settlement().toCompletableFuture())
                 .toArray(CompletableFuture[]::new);
         return CompletableFuture.allOf(stages).handle((ignored, failure) ->
-                failure == null && confirmReceipts(unresolved, holder, observations));
+                failure == null && confirmReceipts(
+                        unresolved, holder, receipts, acknowledgementIssuer));
     }
 
     private static boolean confirmReceipts(
             PaperDurableTrackingRetryLedger unresolved,
             TrackingObservationUseCase.Request holder,
-            List<PaperTrackingAcknowledgement> observations) {
+            List<PaperTrackingAcknowledgement> observations,
+            Object acknowledgementIssuer) {
         long earliest = Long.MAX_VALUE;
         for (PaperTrackingAcknowledgement observation : observations) {
-            if (!verifiedHolderReceipt(unresolved, holder, observation)) {
+            if (!verifiedHolderReceipt(
+                    unresolved, holder, observation, acknowledgementIssuer)) {
                 return false;
             }
             earliest = Math.min(earliest, observation.sequence());
@@ -48,9 +54,10 @@ final class PaperTrackingAcknowledgementVerifier {
     private static boolean verifiedHolderReceipt(
             PaperDurableTrackingRetryLedger unresolved,
             TrackingObservationUseCase.Request holder,
-            PaperTrackingAcknowledgement observation) {
+            PaperTrackingAcknowledgement observation, Object acknowledgementIssuer) {
         TrackingObservationUseCase.Request request = observation.request();
-        return observation.admitted()
+        return observation.belongsTo(acknowledgementIssuer)
+                && observation.admitted()
                 && request.presence() == TrackingObservationUseCase.Presence.PRESENT
                 && request.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION
                 && unresolved.sameHolder(holder, request)

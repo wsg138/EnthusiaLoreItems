@@ -222,6 +222,88 @@ class PaperTrackingAcknowledgementTest {
     }
 
     @Test
+    void callerCannotForgeTheDatabaseResultByCompletingTheExposedStage() {
+        BlockingUseCase store = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
+                MetricsPort.noOp());
+        var request = request(7, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        var acknowledgement = coordinator.submitAcknowledged(request);
+
+        assertTrue(acknowledgement.settlement().toCompletableFuture()
+                .complete(PaperTrackingAcknowledgement.Settlement.CONFIRMED));
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                request, true, List.of(acknowledgement)).toCompletableFuture().isDone());
+        store.fail(0, "WAL rollback");
+        assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(acknowledgement));
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                request, true, List.of(acknowledgement)).toCompletableFuture().join());
+        assertTrue(coordinator.needsReconciliation(request));
+    }
+
+    @Test
+    void foreignCoordinatorReceiptsCannotSettleLocalDirtyWork() {
+        BlockingUseCase first = new BlockingUseCase();
+        BlockingUseCase second = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> first, () -> 1,
+                MetricsPort.noOp());
+        PaperTrackingCoordinator foreign = new PaperTrackingCoordinator(
+                plugin, () -> second, () -> 1, MetricsPort.noOp());
+        try {
+            var holder = request(3, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+            var failed = coordinator.submitAcknowledged(holder);
+            first.fail(0, "disk full");
+            assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(failed));
+            var foreignReceipt = foreign.submitAcknowledged(holder);
+            second.complete(0, TrackingObservationUseCase.Status.RECORDED);
+            assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                    holder, true, List.of(foreignReceipt)).toCompletableFuture().join());
+            assertTrue(coordinator.needsReconciliation(holder));
+        } finally {
+            foreign.close();
+        }
+    }
+
+    @Test
+    void completeEmptyChestAndOldReceiptsCannotForgeRecoveredAbsence() {
+        BlockingUseCase store = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
+                MetricsPort.noOp());
+        var holder = request(53, TrackingObservationUseCase.EvidenceMode.RECONCILIATION);
+        var old = coordinator.submitAcknowledged(holder);
+        store.complete(0, TrackingObservationUseCase.Status.RECORDED);
+        var failedMove = coordinator.submitAcknowledged(request(52,
+                TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION));
+        store.fail(1, "disk full after chest emptied");
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                holder, true, List.of(old)).toCompletableFuture().join());
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
+                holder, true, List.of()).toCompletableFuture().join());
+        assertTrue(coordinator.needsReconciliation(holder));
+        assertEquals(1, coordinator.durabilitySnapshot().unresolvedHolders());
+        assertEquals(PaperTrackingAcknowledgement.Settlement.FAILED, status(failedMove));
+    }
+
+    @Test
+    void invalidReloadedBudgetDoesNotThrowOrOrphanReceipt() {
+        AtomicInteger budget = new AtomicInteger(1);
+        BlockingUseCase store = new BlockingUseCase();
+        coordinator = new PaperTrackingCoordinator(plugin, () -> store, budget::get,
+                MetricsPort.noOp());
+        budget.set(0);
+        var first = coordinator.submitAcknowledged(request(1,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        budget.set(1);
+        store.complete(0, TrackingObservationUseCase.Status.RECORDED);
+        assertTrue(first.admitted());
+        assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(first));
+        budget.set(0);
+        var next = coordinator.submitAcknowledged(request(2,
+                TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
+        store.complete(1, TrackingObservationUseCase.Status.UNCHANGED);
+        assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(next));
+    }
+
+    @Test
     void nonCommittingAndConflictResultsNeverPretendToBeUniqueCommit() {
         BlockingUseCase store = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 1,
