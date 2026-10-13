@@ -21,7 +21,12 @@ The script opens the supplied database with SQLite `mode=ro` and
 and streams the two tracking tables with bounded memory. The output gives
 counts for modern `block-v2:<UUID>`, canonical `double-chest:<UUID>`,
 old `namespace:world-name:x:y:z`, nested block roots, malformed keys,
-and unrecognized roots. Legacy world-name groups are marked
+and unrecognized roots. It separately summarizes legacy current-state counts
+(`CONFIRMED_NOW`, `LAST_CONFIRMED`, `CONFLICTING`, and other states)
+without exporting player or item instance identifiers. A
+`LAST_CONFIRMED` key is not proof that the item still exists at that
+physical location, and a `CONFLICTING` key must never be auto-resolved.
+Legacy world-name groups are marked
 **UNRESOLVED**, even when the name is unique in this report. A world-name
 group can correspond to more than one actual world UUID.
 
