@@ -387,9 +387,28 @@ async function phaseTwo() {
 
   await waitFile('go-track2-bundle')
   await teleport(bot, 15, 71, 0, 'TRACK2 bundle-area')
+  // A real Minecraft 1.21 bundle click moves the tracked item from the
+  // player's cursor into a vanilla bundle; no synthetic server setItem.
+  item = tracked(bot)
+  bot.chat('/give Wp05TrackBot minecraft:bundle 1')
+  const bundle = await waitFixtureItem(bot, 'bundle', 'TRACK2 empty bundle')
+  await bot.clickWindow(item.slot, 0, 0)
+  await sleep(300)
+  await bot.clickWindow(bundle.slot, 0, 0)
+  await sleep(600)
+  log('TRACK2 bundle-client-insertion inventory='
+    + bot.inventory.items().map(entry => entry.name + ':' + entry.slot).join(','))
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('real bundle click did not remove the tracked sword from a player slot')
+  }
+  const filledBundle = bot.inventory.items().find(entry => entry.name === 'bundle')
+  if (!filledBundle) throw new Error('bundle missing after real click insertion')
+  bot.chat('/setblock 16 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 16, 70, 0, 'chest', 'nested bundle chest')
-  container = await bot.openContainer(block); await sleep(700); container.close(); await sleep(700)
-  log('TRACK2 bundle-access')
+  container = await bot.openContainer(block)
+  await container.deposit(filledBundle.type, null, 1)
+  await sleep(850); container.close(); await sleep(700)
+  log('TRACK2 bundle-real-client-move-complete')
   fs.writeFileSync(`${root}/track2-bundle-done`, 'ok\n')
 
   await waitFile('go-track2-away')
