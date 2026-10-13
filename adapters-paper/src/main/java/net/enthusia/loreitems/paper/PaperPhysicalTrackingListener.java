@@ -100,7 +100,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
         this.entityScanner = new PaperPhysicalEntityScanner(scanner);
         this.chunkScanner = new PaperPhysicalChunkScanner(
-                scanner, entityScanner, metrics, plugin.getLogger(), trackedContainers);
+                scanner, entityScanner, metrics, plugin.getLogger(), trackedContainers,
+                coordinator);
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
@@ -172,11 +173,17 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     public void onContainerClose(InventoryCloseEvent event) {
         PaperPhysicalChunkScanner.anchor(event.getView().getTopInventory())
                 .filter(trackedContainers::containsBlock)
-                .ifPresent(pendingBlockRefresh::add);
+                .ifPresent(key -> {
+                    chunkScanner.invalidateContents(key);
+                    pendingBlockRefresh.add(key);
+                });
     }
 
     private void trackInventoryChange(org.bukkit.inventory.Inventory inventory) {
-        PaperPhysicalChunkScanner.anchor(inventory).ifPresent(pendingBlockRefresh::add);
+        PaperPhysicalChunkScanner.anchor(inventory).ifPresent(key -> {
+            chunkScanner.invalidateContents(key);
+            pendingBlockRefresh.add(key);
+        });
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -285,6 +292,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private void invalidateBlock(org.bukkit.block.Block block) {
         var key = new PaperLoadedTrackedContainerIndex.BlockKey(
                 block.getWorld().getUID(), block.getX(), block.getY(), block.getZ());
+        chunkScanner.invalidateContents(key);
         pendingBlockRefresh.addAll(trackedContainers.blockChanged(key));
         pendingBlockRefresh.add(key);
     }
@@ -309,7 +317,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         chunkScanner.invalidateLifecycleCache();
         trackedContainers.chunkUnloaded(key);
         // Do not traverse tile entities or the adjacent chest half while unloading.
-        // Persisted exact evidence stays last-confirmed until a natural reload.
+        // Immutable, ACK-fenced slot obligations drain later; no unload-time inventory reads.
         metrics.increment("tracking.scan_unload_deferred");
     }
 
@@ -362,6 +370,11 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         tick++;
         seedLoadedChunks();
         restoreRejectedScans();
+        if (System.nanoTime() - start < MAX_DRAIN_NANOS) {
+            if (trackedContainers.drainUnloaded(1, coordinator::submitAcknowledged) > 0) {
+                metrics.increment("tracking.scan_last_confirmed_submitted");
+            }
+        }
         drainQueued(start, drainTrackedWork(start));
         if (tick % METRICS_UPDATE_TICKS == ON_INTERVAL) updateIndexMetrics();
         scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
@@ -393,6 +406,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         metrics.setGauge("tracking.scan_index_pending", trackedContainers.pendingCount());
         metrics.setGauge("tracking.scan_index_peak_pending", trackedContainers.peakPending());
         metrics.setGauge("tracking.scan_block_refresh_pending", pendingBlockRefresh.size());
+        metrics.setGauge("tracking.scan_last_confirmed_pending", trackedContainers.pendingUnloadCount());
+        metrics.setGauge("tracking.scan_last_confirmed_failed", trackedContainers.failedTransitions());
     }
 
     private int drainTrackedWork(long start) {
