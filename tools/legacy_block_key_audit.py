@@ -254,7 +254,14 @@ def main() -> int:
         return 2
     report = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
-        args.output.write_text(report, encoding="utf-8")
+        try:
+            # Exclusive creation: even a separate existing WAL sidecar, backup
+            # or report must never be overwritten by an offline preflight.
+            with args.output.open("x", encoding="utf-8") as destination:
+                destination.write(report)
+        except OSError as error:
+            print(f"Audit report refused: {error}", file=sys.stderr)
+            return 2
     else:
         print(report, end="")
     return 0
