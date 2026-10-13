@@ -24,12 +24,18 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.mockbukkit.mockbukkit.MockBukkit;
 
 class PaperDoubleChestIdentityTest {
     private static final UUID WORLD_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static final String HOLDER_METHOD = "getHolder";
+    private static final String LOCATION_METHOD = "getLocation";
+    private static final String SIZE_METHOD = "getSize";
+    private static final String TYPE_METHOD = "getType";
 
     @BeforeEach
     void setUp() {
@@ -65,19 +71,18 @@ class PaperDoubleChestIdentityTest {
                 .orElseThrow().getContents()[0].getType());
     }
 
-    @Test
-    void crossingPositiveAndNegativeXAndZChunkBoundariesIsStable() {
-        int[][] layouts = {{15, 0, 0}, {-1, 0, 0}, {-17, 0, 0},
-                {0, 15, 1}, {0, -1, 1}, {0, -17, 1}, {0, 16, 2}};
-        for (int[] layout : layouts) {
-            Fixture f = new Fixture(WORLD_ID, layout[0], layout[1],
-                    layout[2] == 0 ? BlockFace.NORTH
-                            : layout[2] == 1 ? BlockFace.EAST : BlockFace.WEST);
-            assertEquals(PaperPhysicalInventorySnapshot.capture(f.left).orElseThrow(),
-                    PaperPhysicalInventorySnapshot.capture(f.right).orElseThrow());
-            assertEquals(54, PaperPhysicalInventorySnapshot.capture(f.combined)
-                    .orElseThrow().resolve(f.plugin).orElseThrow().getSize());
-        }
+    @ParameterizedTest
+    @CsvSource({
+        "15,0,NORTH", "-1,0,NORTH", "-17,0,NORTH",
+        "0,15,EAST", "0,-1,EAST", "0,-17,EAST", "0,16,WEST"
+    })
+    void crossingPositiveAndNegativeXAndZChunkBoundariesIsStable(
+            int x, int z, BlockFace facing) {
+        Fixture f = new Fixture(WORLD_ID, x, z, facing);
+        assertEquals(PaperPhysicalInventorySnapshot.capture(f.left).orElseThrow(),
+                PaperPhysicalInventorySnapshot.capture(f.right).orElseThrow());
+        assertEquals(54, PaperPhysicalInventorySnapshot.capture(f.combined)
+                .orElseThrow().resolve(f.plugin).orElseThrow().getSize());
     }
 
     @Test
@@ -140,12 +145,12 @@ class PaperDoubleChestIdentityTest {
     void ambiguousNullHolderHalfCannotBeSavedAsSingleChest() {
         Fixture f = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
         Inventory unknown = proxy(Inventory.class, (method, args) -> switch (method) {
-            case "getHolder" -> {
+            case HOLDER_METHOD -> {
                 assertEquals(false, args[0]);
                 yield null;
             }
-            case "getLocation" -> new Location(f.world, 15, 70, 0);
-            case "getSize" -> 27;
+            case LOCATION_METHOD -> new Location(f.world, 15, 70, 0);
+            case SIZE_METHOD -> 27;
             default -> null;
         });
         assertTrue(PaperPhysicalInventorySnapshot.capture(unknown).isEmpty());
@@ -158,9 +163,9 @@ class PaperDoubleChestIdentityTest {
         Inventory unknownSide = proxy(Inventory.class, (method, args) -> null);
         DoubleChestInventory view = proxy(DoubleChestInventory.class, (method, args) ->
                 switch (method) {
-                    case "getSize" -> 54;
+                    case SIZE_METHOD -> 54;
                     case "getLeftSide", "getRightSide" -> unknownSide;
-                    case "getHolder" -> {
+                    case HOLDER_METHOD -> {
                         assertEquals(false, args[0]);
                         yield owner;
                     }
@@ -227,12 +232,12 @@ class PaperDoubleChestIdentityTest {
 
         private Object doubleCall(String method, Object[] args) {
             return switch (method) {
-                case "getSize" -> size;
-                case "getType" -> InventoryType.CHEST;
+                case SIZE_METHOD -> size;
+                case TYPE_METHOD -> InventoryType.CHEST;
                 case "getLeftSide" -> left;
                 case "getRightSide" -> right;
-                case "getHolder" -> holderWithoutSnapshot(args);
-                case "getLocation" -> new Location(world, (x + partnerX) / 2.0,
+                case HOLDER_METHOD -> holderWithoutSnapshot(args);
+                case LOCATION_METHOD -> new Location(world, (x + partnerX) / 2.0,
                         70, (z + partnerZ) / 2.0);
                 case "getContents" -> combinedContents();
                 default -> null;
@@ -280,7 +285,7 @@ class PaperDoubleChestIdentityTest {
 
         private org.bukkit.block.Chest state(boolean first) {
             Chest data = proxy(Chest.class, (method, args) -> switch (method) {
-                case "getType" -> first ? leftType : rightType;
+                case TYPE_METHOD -> first ? leftType : rightType;
                 case "getFacing" -> first ? leftFacing : rightFacing;
                 default -> null;
             });
@@ -290,9 +295,9 @@ class PaperDoubleChestIdentityTest {
 
         private Object chestCall(boolean first, Chest data, String method) {
             return switch (method) {
-                case "getType" -> Material.CHEST;
+                case TYPE_METHOD -> Material.CHEST;
                 case "getBlockData" -> data;
-                case "getLocation" -> stateLocation(first);
+                case LOCATION_METHOD -> stateLocation(first);
                 case "getInventory" -> stateInventory(first);
                 default -> null;
             };
@@ -314,10 +319,10 @@ class PaperDoubleChestIdentityTest {
             ItemStack[] items = new ItemStack[27];
             items[first ? 0 : 26] = new ItemStack(item);
             return proxy(Inventory.class, (method, args) -> switch (method) {
-                case "getSize" -> 27;
-                case "getType" -> InventoryType.CHEST;
-                case "getLocation" -> new Location(world, x, 70, z);
-                case "getHolder" -> {
+                case SIZE_METHOD -> 27;
+                case TYPE_METHOD -> InventoryType.CHEST;
+                case LOCATION_METHOD -> new Location(world, x, 70, z);
+                case HOLDER_METHOD -> {
                     assertEquals(false, args[0]);
                     yield state(first);
                 }
