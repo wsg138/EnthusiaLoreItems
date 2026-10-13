@@ -444,6 +444,99 @@ class SQLiteTrackingObservationStoreTest {
         }
     }
 
+    @Test
+    void historicalWorldNameMoveIsFencedWithoutClaimingDuplicateAndSurvivesRestart() {
+        Path database = temporaryDirectory.resolve("historical-key-review.db");
+        LocationDescriptor legacy = new LocationDescriptor(
+                LocationDescriptor.Type.BLOCK_CONTAINER, "minecraft:world:20:70:0", "slot:0");
+        LocationDescriptor modern = new LocationDescriptor(
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "block-v2:11111111-2222-3333-4444-555555555555:20:70:0", "slot:0");
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(legacy, reconciliation()), 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, present(modern, authoritative()), 1_100L).status());
+            InstanceCurrentState current = currentState(runtime);
+            assertEquals(InstanceCurrentState.State.CONFLICTING, current.state());
+            assertEquals(LocationDescriptor.Type.DUPLICATE_CONFLICT, current.location().type());
+            var observations = new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                    .toCompletableFuture().join().items();
+            assertTrue(observations.stream().anyMatch(observation ->
+                    legacy.equals(observation.location())));
+            assertTrue(observations.stream().anyMatch(observation ->
+                    modern.equals(observation.location())));
+            // Old world names are ambiguous, not evidence of a second physical copy.
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+        runtime = start(database);
+        try {
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            assertEquals(LocationDescriptor.Type.DUPLICATE_CONFLICT,
+                    currentState(runtime).location().type());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void modernUuidWorldMovesStayAuthoritativeWithoutLegacyConflict() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("modern-worlds.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor first = new LocationDescriptor(
+                    LocationDescriptor.Type.BLOCK_CONTAINER,
+                    "block-v2:11111111-2222-3333-4444-555555555555:20:70:0", "slot:0");
+            LocationDescriptor second = new LocationDescriptor(
+                    LocationDescriptor.Type.BLOCK_CONTAINER,
+                    "block-v2:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:20:70:0", "slot:0");
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(first, reconciliation()), 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(second, authoritative()), 1_100L).status());
+            assertEquals(InstanceCurrentState.State.CONFIRMED_NOW, currentState(runtime).state());
+            assertEquals(second, currentState(runtime).location());
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void historicalNestedContainerNeverAutoMapsToModernUuidRoot() {
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("nested-legacy-review.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor legacy = new LocationDescriptor(
+                    LocationDescriptor.Type.NESTED_CONTAINER,
+                    "root:BLOCK_CONTAINER:minecraft:world:14:70:0", "slot:0/shulker:0");
+            LocationDescriptor modern = new LocationDescriptor(
+                    LocationDescriptor.Type.NESTED_CONTAINER,
+                    "root:BLOCK_CONTAINER:block-v2:11111111-2222-3333-4444-555555555555:14:70:0",
+                    "slot:0/shulker:0");
+            record(store, present(legacy, reconciliation()), 1_000L);
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, present(modern, authoritative()), 1_100L).status());
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
     private static void assertLastConfirmedDropped(SQLiteStorageRuntime runtime) {
         InstanceCurrentState current = currentState(runtime);
         assertEquals(InstanceCurrentState.State.LAST_CONFIRMED, current.state());
