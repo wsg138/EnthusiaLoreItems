@@ -261,8 +261,9 @@ PY
 
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
 wait_player_copy acc_track_nested
-echo 'wp05accept place Wp05TrackBot shulker' >&3
-sleep 1
+# No test-helper direct inventory setItem for the shulker. Let the real
+# client move the sword into a placed shulker, mine/pick up that shulker
+# naturally, then deposit its contents-bearing item into a chest.
 touch "$ROOT/go-track2-shulker"
 wait_marker track2-shulker-done 180
 
