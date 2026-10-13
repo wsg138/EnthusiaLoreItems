@@ -32,6 +32,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -147,6 +148,20 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Lis
             getLogger().info("WP05_ACCEPT CHUNK_UNLOAD world=" + event.getWorld().getName()
                     + " chunk_x=" + x + " chunk_z=0");
         }
+    }
+
+    /** Diagnostic only: the actual Paper event source/destination for a real hopper move. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTrackedHopperMove(InventoryMoveItemEvent event) {
+        if (!hasIdentity(event.getItem())) {
+            return;
+        }
+        getLogger().info("WP05_ACCEPT HOPPER_EVENT source="
+                + event.getSource().getLocation()
+                + " destination=" + event.getDestination().getLocation()
+                + " moving=" + event.getItem().getType()
+                + " source_size=" + event.getSource().getSize()
+                + " destination_size=" + event.getDestination().getSize());
     }
 
     private void source(CommandSender sender, String[] arguments) {
