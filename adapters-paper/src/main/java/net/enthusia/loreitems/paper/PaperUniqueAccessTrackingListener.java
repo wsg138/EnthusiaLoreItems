@@ -1,6 +1,8 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -16,7 +18,6 @@ import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
-import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemFrame;
@@ -32,21 +33,25 @@ import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.Plugin;
 
 /** Resolves natural-access moves only when one physical location is observed for an identity. */
 public final class PaperUniqueAccessTrackingListener implements Listener, AutoCloseable {
     private static final int UNIQUE_LOCATION_COUNT = 1;
     private static final int MAX_ITEMS_PER_SCAN = 256;
+    private static final int MAX_PENDING_CONTAINERS = 8;
+    private static final String ACCESS_SOURCE = "inventory-access-unique";
     private static final String ITEM_FRAME_PATH = "item";
     private static final String SLOT_PREFIX = "slot:";
     private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
     private final Plugin plugin;
     private final PaperTrackedItemCollector collector = new PaperTrackedItemCollector();
+    private final PaperUniquePlayerCollector playerCollector = new PaperUniquePlayerCollector(collector);
+    private final PaperInventoryEventHint eventHint = new PaperInventoryEventHint(collector);
+    private final MetricsPort metrics;
+    private final Map<UUID, PendingAccess> pendingAccess = new HashMap<>();
     private final PaperTrackingCoordinator coordinator;
     private final PaperDeferredMainThreadActions deferredActions;
     private final Set<UUID> quittingPlayers = new HashSet<>();
@@ -58,6 +63,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             IntSupplier budgetSupplier,
             MetricsPort metrics) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
         this.coordinator = new PaperTrackingCoordinator(
                 plugin,
                 Objects.requireNonNull(useCaseSupplier, "useCaseSupplier"),
@@ -75,49 +81,154 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) {
-            return;
+        long started = System.nanoTime();
+        try {
+            if (event.getWhoClicked() instanceof Player player) {
+                if (eventHint.relevant(event, player)) {
+                    queueAccess(player, event.getView().getTopInventory());
+                } else {
+                    metrics.increment("tracking.unique.plain_click_skipped");
+                }
+            }
+        } finally {
+            metrics.recordDurationNanos("tracking.unique.click_event_nanos",
+                    System.nanoTime() - started);
         }
-        UUID playerId = player.getUniqueId();
-        Optional<InventorySnapshot> top = InventorySnapshot.capture(
-                event.getView().getTopInventory());
-        scheduleNextTick(() -> submitAccess(playerId, top, "inventory-click-unique"));
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) {
+        long started = System.nanoTime();
+        try {
+            if (event.getWhoClicked() instanceof Player player) {
+                if (eventHint.relevant(event)) {
+                    queueAccess(player, event.getView().getTopInventory());
+                } else {
+                    metrics.increment("tracking.unique.plain_drag_skipped");
+                }
+            }
+        } finally {
+            metrics.recordDurationNanos("tracking.unique.drag_event_nanos",
+                    System.nanoTime() - started);
+        }
+    }
+
+    private void queueAccess(Player player, Inventory top) {
+        UUID playerId = player.getUniqueId();
+        Optional<PaperPhysicalInventorySnapshot> snapshot = PaperPhysicalInventorySnapshot.capture(top);
+        PendingAccess pending = pendingAccess.get(playerId);
+        if (pending != null) {
+            if (!pending.add(snapshot)) {
+                metrics.increment("tracking.unique.capture_incomplete");
+            }
+            metrics.increment("tracking.unique.access_coalesced");
             return;
         }
-        UUID playerId = player.getUniqueId();
-        Optional<InventorySnapshot> top = InventorySnapshot.capture(
-                event.getView().getTopInventory());
-        scheduleNextTick(() -> submitAccess(playerId, top, "inventory-drag-unique"));
+        PendingAccess access = new PendingAccess();
+        if (!access.add(snapshot)) {
+            metrics.increment("tracking.unique.capture_incomplete");
+        }
+        pendingAccess.put(playerId, access);
+        if (!deferredActions.schedule(() -> drainAccess(playerId))) {
+            pendingAccess.remove(playerId);
+            metrics.increment("tracking.unique.schedule_rejected");
+            plugin.getLogger().warning(
+                    "Lore-item inventory movement unresolved: post-event scheduling failed.");
+            return;
+        }
+        metrics.increment("tracking.unique.access_scheduled");
+    }
+
+    private void drainAccess(UUID playerId) {
+        drainAccess(playerId, false);
+    }
+
+    private void drainAccess(UUID playerId, boolean beforeLogoutOrClose) {
+        PendingAccess pending = pendingAccess.remove(playerId);
+        if (pending == null || quittingPlayers.contains(playerId)) {
+            return;
+        }
+        long started = System.nanoTime();
+        try {
+            Player player = plugin.getServer().getPlayer(playerId);
+            PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+            Map<LoreItemIdentity, List<LocationDescriptor>> observed = new HashMap<>();
+            // Close/quit is a lifecycle boundary, not proof of a completed click.
+            boolean complete = pending.complete && !beforeLogoutOrClose;
+            if (player != null) {
+                collectPlayer(player, observed, limit);
+            } else {
+                complete = false;
+            }
+            complete &= collectPendingContainers(player, pending, observed, limit);
+            if (!limit.hasRemaining() || !complete) {
+                metrics.increment("tracking.unique.incomplete_reconciliation");
+            }
+            submitUnique(observed, false, complete && limit.hasRemaining(), ACCESS_SOURCE);
+        } finally {
+            metrics.recordDurationNanos("tracking.unique.access_deferred_nanos",
+                    System.nanoTime() - started);
+        }
+    }
+
+    /** Report missing inventory coverage without discarding already observed evidence. */
+    private boolean collectPendingContainers(
+            Player player,
+            PendingAccess pending,
+            Map<LoreItemIdentity, List<LocationDescriptor>> observed,
+            PaperScanLimit limit) {
+        boolean complete = true;
+        for (PaperPhysicalInventorySnapshot reference : pending.containers) {
+            if (player != null && coveredByPlayer(player, reference.type(), reference.key())) {
+                continue;
+            }
+            Optional<Inventory> inventory = reference.resolve(plugin);
+            if (inventory.isEmpty()) {
+                complete = false;
+                metrics.increment("tracking.unique.inventory_unresolved");
+                continue;
+            }
+            collector.collectArray(contentsOrEmpty(inventory.orElseThrow().getContents()),
+                    reference.type(), reference.key(), SLOT_PREFIX, observed, limit);
+        }
+        return complete;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player player)) {
+        if (!(event.getPlayer() instanceof Player player)
+                || quittingPlayers.contains(player.getUniqueId())) {
             return;
         }
-        if (quittingPlayers.contains(player.getUniqueId())) {
+        UUID playerId = player.getUniqueId();
+        PendingAccess pending = pendingAccess.get(playerId);
+        if (pending != null) {
+            // The click's next-tick job will re-resolve the chest.
+            // Closing is not proof that the click committed.
+            pending.complete = false;
+            metrics.increment("tracking.unique.access_close_deferred");
             return;
         }
-        Inventory top = event.getView().getTopInventory();
-        Optional<InventorySnapshot> snapshot = InventorySnapshot.capture(top);
-        if (snapshot.isPresent()) {
-            InventorySnapshot target = snapshot.orElseThrow();
-            submitPlayerAndInventory(
-                    player,
-                    top,
-                    target.type(),
-                    target.key(),
-                    "inventory-close-unique");
-        } else {
-            submitPlayer(player, false, "inventory-close-unique");
+        Optional<PaperPhysicalInventorySnapshot> reference =
+                PaperPhysicalInventorySnapshot.capture(event.getView().getTopInventory());
+        // Only reconciliation evidence is safe at this lifecycle boundary.
+        submitPlayerReconciliation(player, "inventory-close-unique");
+        reference.ifPresent(snapshot -> scheduleNextTick(() -> collectClosedContainer(snapshot)));
+    }
+
+    private void collectClosedContainer(PaperPhysicalInventorySnapshot snapshot) {
+        Optional<Inventory> resolved = snapshot.resolve(plugin);
+        if (resolved.isEmpty()) {
+            metrics.increment("tracking.unique.inventory_unresolved");
+            return;
         }
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observed = new HashMap<>();
+        collector.collectArray(contentsOrEmpty(resolved.orElseThrow().getContents()),
+                snapshot.type(), snapshot.key(), SLOT_PREFIX, observed, limit);
+        submitUnique(observed, false, false, "inventory-close-unique");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -146,6 +257,10 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
+        if (pendingAccess.containsKey(playerId)) {
+            drainAccess(playerId, true);
+            metrics.increment("tracking.unique.access_drained_on_quit");
+        }
         quittingPlayers.add(playerId);
         submitPlayer(event.getPlayer(), true, "player-quit-unique");
         scheduleNextTick(() -> quittingPlayers.remove(playerId));
@@ -177,7 +292,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             return;
         }
         if (display == null) {
-            submitPlayer(player, false, source);
+            submitPlayerReconciliation(player, source);
             return;
         }
         submitPlayerAndDisplay(
@@ -199,7 +314,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collectItem(item, PaperDisplayEntityScanner.location(display, type, path), observations, limit);
-        submitUnique(observations, false, limit.hasRemaining(), source);
+        submitUnique(observations, false, false, source);
     }
 
     private static ItemStack displayItem(
@@ -215,30 +330,11 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         return null;
     }
 
-    private void submitAccess(
-            UUID playerId, Optional<InventorySnapshot> snapshot, String source) {
-        Player player = plugin.getServer().getPlayer(playerId);
-        if (player == null) {
-            submitReference(snapshot, source + "-container");
-            return;
-        }
-        if (snapshot.isEmpty()) {
-            submitPlayer(player, false, source);
-            return;
-        }
-        InventorySnapshot target = snapshot.orElseThrow();
-        Optional<Inventory> inventory = target.resolve(plugin);
-        if (inventory.isEmpty()) {
-            submitPlayer(player, false, source);
-            return;
-        }
-        submitPlayerAndInventory(
-                player, inventory.orElseThrow(), target.type(), target.key(), source);
-    }
-
-    private void submitReference(Optional<InventorySnapshot> snapshot, String source) {
-        snapshot.flatMap(reference -> reference.resolve(plugin))
-                .ifPresent(inventory -> submitInventory(inventory, source));
+    private void submitPlayerReconciliation(Player player, String source) {
+        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        collectPlayer(player, observations, limit);
+        submitUnique(observations, false, false, source);
     }
 
     void submitPlayer(Player player, boolean lastConfirmed, String source) {
@@ -300,63 +396,7 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
             Player player,
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             PaperScanLimit limit) {
-        String key = "player:" + player.getUniqueId();
-        PlayerInventory inventory = player.getInventory();
-        collector.collectArray(
-                contentsOrEmpty(inventory.getStorageContents()),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                SLOT_PREFIX,
-                observations,
-                limit);
-        collector.collectArray(
-                contentsOrEmpty(inventory.getArmorContents()),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "armor:",
-                observations,
-                limit);
-        collector.collectItem(
-                inventory.getItemInOffHand(),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "offhand",
-                observations,
-                0,
-                limit);
-        collector.collectItem(
-                player.getItemOnCursor(),
-                LocationDescriptor.Type.PLAYER_INVENTORY,
-                key,
-                "cursor",
-                observations,
-                0,
-                limit);
-        collector.collectArray(
-                contentsOrEmpty(player.getEnderChest().getContents()),
-                LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                key,
-                SLOT_PREFIX,
-                observations,
-                limit);
-    }
-
-    private void submitInventory(Inventory inventory, String source) {
-        Optional<InventorySnapshot> snapshot = InventorySnapshot.capture(inventory);
-        if (snapshot.isEmpty()) {
-            return;
-        }
-        InventorySnapshot target = snapshot.orElseThrow();
-        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
-        collector.collectArray(
-                contentsOrEmpty(inventory.getContents()),
-                target.type(),
-                target.key(),
-                SLOT_PREFIX,
-                observations,
-                limit);
-        submitUnique(observations, false, limit.hasRemaining(), source);
+        playerCollector.collectPlayer(player, observations, limit);
     }
 
     private void submitUnique(
@@ -411,46 +451,31 @@ public final class PaperUniqueAccessTrackingListener implements Listener, AutoCl
         closed = true;
         HandlerList.unregisterAll(this);
         deferredActions.close();
+        pendingAccess.clear();
         quittingPlayers.clear();
         coordinator.close();
     }
 
-    private record InventorySnapshot(
-            PaperInventoryReference reference,
-            LocationDescriptor.Type type,
-            String key) {
-        private static Optional<InventorySnapshot> capture(Inventory inventory) {
-            Optional<PaperInventoryReference> reference = PaperInventoryReference.capture(inventory);
-            if (reference.isEmpty()) {
-                return Optional.empty();
-            }
-            InventoryHolder holder = inventory.getHolder();
-            if (holder instanceof Player player) {
-                boolean main = inventory instanceof PlayerInventory;
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        main ? LocationDescriptor.Type.PLAYER_INVENTORY
-                                : LocationDescriptor.Type.PLAYER_ENDER_CHEST,
-                        "player:" + player.getUniqueId()));
-            }
-            if (holder instanceof Entity entity) {
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        LocationDescriptor.Type.BLOCK_CONTAINER,
-                        entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
-            }
-            Location location = inventory.getLocation();
-            if (location != null && location.getWorld() != null) {
-                return Optional.of(new InventorySnapshot(
-                        reference.orElseThrow(),
-                        LocationDescriptor.Type.BLOCK_CONTAINER,
-                        PaperInventoryReference.blockKey(location)));
-            }
-            return Optional.empty();
-        }
+    private static final class PendingAccess {
+        private final List<PaperPhysicalInventorySnapshot> containers = new ArrayList<>();
+        private boolean complete = true;
 
-        private Optional<Inventory> resolve(Plugin plugin) {
-            return reference.resolve(plugin);
+        private boolean add(Optional<PaperPhysicalInventorySnapshot> snapshot) {
+            if (snapshot.isEmpty()) {
+                complete = false;
+                return false;
+            }
+            PaperPhysicalInventorySnapshot reference = snapshot.orElseThrow();
+            if (containers.contains(reference)) {
+                return true;
+            }
+            if (containers.size() == MAX_PENDING_CONTAINERS) {
+                complete = false;
+                return false;
+            }
+            containers.add(reference);
+            return true;
         }
     }
+
 }

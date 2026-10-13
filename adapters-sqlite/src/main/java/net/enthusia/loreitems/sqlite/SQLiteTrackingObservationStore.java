@@ -163,19 +163,11 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         if (CONFLICTING.equals(current.state())) {
             return appendConflictEvidence(connection, request, observedAt);
         }
-        if (request.location().equals(current.location())
-                || (request.mode() == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
-                        && sameHolder(request.location(), current.location()))) {
+        if (request.location().equals(current.location())) {
             if (CONFIRMED_NOW.equals(current.state())) {
-                if (!request.location().equals(current.location())) {
-                    if (!SQLiteTrackingSlotMoves.updateSlot(
-                            connection, request, current.stateRevision(), observedAt)) {
-                        throw new StaleTrackingObservationException();
-                    }
-                }
                 return result(
                         TrackingObservationUseCase.Status.UNCHANGED,
-                        "The item remains inside the same inventory.");
+                        "The item remains at the confirmed location.");
             }
             return advance(
                     connection,
@@ -185,6 +177,19 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     InstanceCurrentState.State.CONFIRMED_NOW,
                     observedAt,
                     "tracking_location_confirmed");
+        }
+        if (request.mode() == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
+                && sameHolder(request.location(), current.location())) {
+            // A slot change is a real movement: the current projection must point at
+            // immutable history describing that exact slot, not the previous one.
+            return advance(
+                    connection,
+                    request,
+                    current,
+                    InstanceObservation.Confidence.CONFIRMED_NOW,
+                    InstanceCurrentState.State.CONFIRMED_NOW,
+                    observedAt,
+                    "tracking_slot_moved");
         }
         if (mayReplaceCurrent(request, current)) {
             return advance(
@@ -199,6 +204,13 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
         return recordConflict(connection, request, current, observedAt);
     }
 
+    private static boolean matchesLastConfirmedLocation(
+            TrackingObservationUseCase.Request request, CurrentRow current) {
+        return request.location().equals(current.location())
+                || sameHolder(request.location(), current.location())
+                || samePhysicalEntity(request.location(), current.location());
+    }
+
     private static TrackingObservationUseCase.Result recordLastConfirmed(
             Connection connection,
             TrackingObservationUseCase.Request request,
@@ -209,16 +221,12 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.BLOCKED_ANOMALY,
                     "Conflicting state was preserved while the location became inaccessible.");
         }
-        if (!request.location().equals(current.location())
-                && !sameHolder(request.location(), current.location())
-                && !samePhysicalEntity(request.location(), current.location())) {
+        if (!matchesLastConfirmedLocation(request, current)) {
             return result(
                     TrackingObservationUseCase.Status.STALE,
                     "Last-confirmed evidence no longer matches the durable current location.");
         }
-        if (LAST_CONFIRMED.equals(current.state())
-                && (request.location().equals(current.location())
-                        || sameHolder(request.location(), current.location()))) {
+        if (LAST_CONFIRMED.equals(current.state())) {
             return result(
                     TrackingObservationUseCase.Status.UNCHANGED,
                     "The location is already retained as last confirmed.");
@@ -229,9 +237,17 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
                     TrackingObservationUseCase.Status.STALE,
                     "Only a confirmed location can become last confirmed.");
         }
+        // The unload signal identifies a holder or entity, not necessarily the
+        // final slot/coordinates. Preserve the latest defensible exact location.
+        TrackingObservationUseCase.Request lastKnown = new TrackingObservationUseCase.Request(
+                request.identity(),
+                current.location(),
+                request.presence(),
+                request.mode(),
+                request.source());
         return advance(
                 connection,
-                request,
+                lastKnown,
                 current,
                 InstanceObservation.Confidence.LAST_CONFIRMED,
                 InstanceCurrentState.State.LAST_CONFIRMED,
