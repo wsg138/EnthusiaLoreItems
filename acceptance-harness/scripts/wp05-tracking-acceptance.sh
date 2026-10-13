@@ -164,13 +164,14 @@ with sqlite3.connect(path) as c:
     obs=c.execute('select location_type,container_path,confidence,source from instance_observations where instance_id=? order by observation_id',(iid,)).fetchall()
     paths={(kind,slot) for kind,slot,_,_ in obs}
     print('TRACK1 observations',obs)
-    # One inventory can have many slots; only holder transitions belong in
-    # durable user-facing history, not offhand/armor/cursor rearrangements.
+    # Exact movement is now a required durable feature: cursor, armor,
+    # offhand and individual slots must be recorded, not deliberately hidden.
+    # Each is a real observed location over time, not proof of duplicates.
     assert any(kind=='PLAYER_INVENTORY' for kind,slot in paths),paths
     assert any(kind=='PLAYER_ENDER_CHEST' for kind,slot in paths),paths
-    assert not any(kind=='PLAYER_INVENTORY' and slot=='offhand' for kind,slot in paths),paths
-    assert not any(kind=='PLAYER_INVENTORY' and slot and slot.startswith('armor:') for kind,slot in paths),paths
-    assert not any(kind=='PLAYER_INVENTORY' and slot=='cursor' for kind,slot in paths),paths
+    assert any(kind=='PLAYER_INVENTORY' and slot=='offhand' for kind,slot in paths),paths
+    assert any(kind=='PLAYER_INVENTORY' and slot and slot.startswith('armor:') for kind,slot in paths),paths
+    assert any(kind=='PLAYER_INVENTORY' and slot=='cursor' for kind,slot in paths),paths
     state=c.execute('select state,location_type from instance_current_state where instance_id=?',(iid,)).fetchone()
     assert state and state[0]=='LAST_CONFIRMED',state
 PY
@@ -255,6 +256,31 @@ for _ in range(120):
             break
     time.sleep(.25)
 else:
+    # Preserve the actual disposable SQLite evidence on failure. Previously
+    # a shell EXIT trap waited for the blocked bot and the resulting Actions
+    # artifact omitted why the LAST_CONFIRMED assertion failed.
+    with sqlite3.connect(path) as c:
+        events=c.execute("""
+          select observation_id,instance_id,location_type,location_key,
+                 container_path,confidence,source
+          from instance_observations
+          where definition_id=?
+          order by observation_id desc limit 80
+        """,(did,)).fetchall()
+        states=c.execute("""
+          select i.instance_id,s.state,s.location_type,
+                 s.location_key,s.container_path
+          from lore_instances i left join instance_current_state s
+          on s.instance_id=i.instance_id where i.definition_id=?
+        """,(did,)).fetchall()
+        integrity=c.execute('pragma integrity_check').fetchone()
+    proof='/tmp/wp05-tracking-contract/evidence/track2-unload-failure.txt'
+    with open(proof,'w') as f:
+        f.write('expected: >=3 retained identities all LAST_CONFIRMED\n')
+        f.write('current states: '+repr(states)+'\n')
+        f.write('last 80 observations: '+repr(events)+'\n')
+        f.write('SQLite integrity: '+repr(integrity)+'\n')
+    print('TRACK2_UNLOAD_DIAGNOSTIC',proof,states,events[-10:],flush=True)
     raise SystemExit(f'TRACK2 did not converge to LAST_CONFIRMED after natural unload: {rows}')
 PY
 
