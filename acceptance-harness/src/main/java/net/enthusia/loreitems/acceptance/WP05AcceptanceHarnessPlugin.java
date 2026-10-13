@@ -83,7 +83,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Lis
             return true;
         }
         if (arguments.length == 0) {
-            sender.sendMessage("Usage: /wp05accept source|perform|place|duplicate|malform|damage|api|dump|view|cleanup ...");
+            sender.sendMessage("Usage: /wp05accept source|perform|place|doublechest|duplicate|malform|damage|api|dump|view|cleanup ...");
             return true;
         }
         AcceptanceAction action = commandActions().get(arguments[0].toLowerCase(Locale.ROOT));
@@ -111,6 +111,7 @@ public final class WP05AcceptanceHarnessPlugin extends JavaPlugin implements Lis
                 Map.entry("api", this::api),
                 Map.entry("dump", this::dump),
                 Map.entry("chunkstatus", this::chunkStatus),
+                Map.entry("doublechest", DoubleChestPaperFixture::command),
                 Map.entry("shulkerprobe", (sender, ignored) -> ShulkerDiscoveryProbe.start(this)),
                 Map.entry("view", this::view),
                 Map.entry("cleanup", (sender, ignored) -> cleanup(sender)));
