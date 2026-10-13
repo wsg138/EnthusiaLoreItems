@@ -1,9 +1,9 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 import net.enthusia.loreitems.application.MetricsPort;
@@ -26,8 +26,8 @@ final class PaperPhysicalChunkScanner {
     private final MetricsPort metrics;
     private final Logger logger;
     private final PaperLoadedTrackedContainerIndex index;
-    private final Set<PaperLoadedTrackedContainerIndex.ContainerKey> scannedThisTick =
-            new HashSet<>();
+    private final Map<PaperLoadedTrackedContainerIndex.ContainerKey, Boolean> scannedThisTick =
+            new HashMap<>();
     private long lastTick = Long.MIN_VALUE;
 
     PaperPhysicalChunkScanner(
@@ -130,14 +130,23 @@ final class PaperPhysicalChunkScanner {
         if (maybe.isEmpty()) return !(state instanceof InventoryHolder);
         ContainerRead read = maybe.orElseThrow();
         var key = read.key();
-        if (!scannedThisTick.add(key)) return true;
+        // Replaying an incomplete scan must never upgrade it to a complete scan.
+        // Only reuse an actual prior complete/failed result for the same tick.
+        Boolean cached = scannedThisTick.get(key);
+        if (cached != null) return cached;
         if (key.second() != null && read.inventory().getSize() != 54) {
+            scannedThisTick.put(key, false);
             return unresolved(key, tick);
         }
         Optional<PaperPhysicalInventorySnapshot> reference =
                 PaperPhysicalInventorySnapshot.capture(read.inventory());
-        if (reference.isEmpty() || !limit.tryConsume()) return unresolved(key, tick);
-        return scanCaptured(read, reference.orElseThrow(), presence, source, limit, tick);
+        if (reference.isEmpty() || !limit.tryConsume()) {
+            scannedThisTick.put(key, false);
+            return unresolved(key, tick);
+        }
+        boolean complete = scanCaptured(read, reference.orElseThrow(), presence, source, limit, tick);
+        scannedThisTick.put(key, complete);
+        return complete;
     }
 
     private Optional<ContainerRead> resolveContainer(BlockState state) {
