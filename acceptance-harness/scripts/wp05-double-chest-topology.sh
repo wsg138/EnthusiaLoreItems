@@ -108,3 +108,53 @@ if grep -Eq 'WP05_ACCEPT FAIL|WP05_DOUBLE_CHEST_UNRESOLVED' "$LOG"; then
   exit 1
 fi
 echo "PASS: seven real Paper topologies AND production capture/resolve of all physical halves"
+
+# Dedicated remote cross-chunk fixture: host tickets may prepare the two halves,
+# but after setup the test host removes one half's ticket, and the PRODUCTION
+# listener/helper must refuse full 54-slot authority until BOTH chunks load.
+# This is a *real* Paper unloaded-half test, not a MockBukkit mock of isChunkLoaded.
+printf 'forceload add 255 8 256 8\n' >&3
+sleep 3
+printf 'setblock 255 70 8 minecraft:air replace\n' >&3
+printf 'setblock 256 70 8 minecraft:air replace\n' >&3
+sleep 1
+before=$(grep -Fc 'WP05_DOUBLE_CHEST_TOPOLOGY_OK case=xremote' "$LOG" 2>/dev/null || true)
+printf 'wp05accept doublechest setup xremote\n' >&3
+wait_for 'WP05_DOUBLE_CHEST_TOPOLOGY_OK case=xremote' "$((before+1))"
+printf 'wp05accept doublechest inspect xremote\n' >&3
+wait_for 'WP05_DOUBLE_CHEST_TOPOLOGY_OK case=xremote' "$((before+2))"
+
+# Await an actual natural server unload: merely removing a forceload ticket is
+# NOT enough, and we must not claim PASS while the neighbor remains accessible.
+await_half_unloaded() {
+  local half="$1" count_before="$2" count=0
+  for _ in $(seq 1 120); do
+    printf 'wp05accept doublechest inspect xremote\n' >&3
+    sleep .5
+    count=$(grep -Fc 'WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED' "$LOG" 2>/dev/null || true)
+    if [[ "$count" -gt "$count_before" ]]; then
+      echo "PASS: remote Paper double-chest refuses 54-slot authority with $half unloaded" \
+        | tee -a "$EVIDENCE/missing-half-results.txt"
+      return 0
+    fi
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then break; fi
+  done
+  echo "FAIL: remote Paper chunk $half did not become naturally inaccessible" >&2
+  tail -120 "$LOG" >&2
+  return 1
+}
+: > "$EVIDENCE/missing-half-results.txt"
+printf 'forceload remove 256 8\n' >&3
+sleep 4
+count_before=$(grep -Fc 'WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED' "$LOG" 2>/dev/null || true)
+await_half_unloaded 'second' "$count_before"
+
+# Reload second through a disposable host ticket; then unload first and repeat
+# the *inverse* physically-loaded/physically-unloaded half arrangement.
+printf 'forceload add 256 8\n' >&3
+sleep 3
+printf 'forceload remove 255 8\n' >&3
+sleep 4
+count_before=$(grep -Fc 'WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED' "$LOG" 2>/dev/null || true)
+await_half_unloaded 'first' "$count_before"
+[[ "$(wc -l < "$EVIDENCE/missing-half-results.txt")" -eq 2 ]]
