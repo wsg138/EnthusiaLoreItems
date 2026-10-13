@@ -36,19 +36,40 @@ final class WP05HopperEventProbe implements Listener {
                 + " destination=" + destination.getLocation()
                 + " moving=" + event.getItem().getType()
                 + " source_size=" + source.getSize()
-                + " destination_size=" + destination.getSize());
+                + " destination_size=" + destination.getSize()
+                + " event_codec=" + codecStatus(event.getItem()));
         // Query actual Bukkit inventories on the next primary-thread tick, after
         // the vanilla transfer commits. The event itself is not proof of arrival.
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             List<Integer> sourceSlots = matchingSlots(source, identity);
             List<Integer> destinationSlots = matchingSlots(destination, identity);
+            String settledCodec = destinationSlots.isEmpty()
+                    ? "ABSENT" : codecStatus(destination.getItem(destinationSlots.getFirst()));
             plugin.getLogger().info("WP05_ACCEPT HOPPER_SETTLED"
+                    + " destination_codec=" + settledCodec
                     + " source=" + source.getLocation()
                     + " destination=" + destination.getLocation()
                     + " source_slots=" + sourceSlots
                     + " destination_slots=" + destinationSlots
                     + " total_matching=" + (sourceSlots.size() + destinationSlots.size()));
         });
+    }
+
+    /** Consult the actual loaded production codec, not a test reimplementation. */
+    private String codecStatus(ItemStack item) {
+        try {
+            org.bukkit.plugin.Plugin production = Objects.requireNonNull(
+                    plugin.getServer().getPluginManager().getPlugin("EnthusiaLoreItems"));
+            Class<?> codec = Class.forName(
+                    "net.enthusia.loreitems.paper.PaperItemIdentityCodec",
+                    true, production.getClass().getClassLoader());
+            Object instance = codec.getConstructor().newInstance();
+            Object result = codec.getMethod("readIdentity", ItemStack.class)
+                    .invoke(instance, item);
+            return result.getClass().getSimpleName();
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("production codec diagnostic failed", exception);
+        }
     }
 
     private static byte[] identity(ItemStack stack) {
