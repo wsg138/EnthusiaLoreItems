@@ -22,6 +22,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
@@ -50,6 +53,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
     private static final long MAX_DRAIN_NANOS = 2_000_000L;
     private static final long METRICS_UPDATE_TICKS = 20L;
+    private static final long BLOCK_REFRESH_INTERVAL_TICKS = 2L;
+    private static final long ON_INTERVAL = 0L;
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -66,6 +71,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperPhysicalScanAdmission scanAdmission;
     private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
     private final PaperChunkLoadLedger chunkLedger = new PaperChunkLoadLedger();
+    private final PaperLoadedTrackedContainerIndex trackedContainers =
+            new PaperLoadedTrackedContainerIndex();
+    private final Set<PaperLoadedTrackedContainerIndex.BlockKey> pendingBlockRefresh =
+            new LinkedHashSet<>();
     private final ArrayDeque<PaperTrackingScanRequest.ChunkReference> startupChunks = new ArrayDeque<>();
     private final Set<UUID> deferredOnlinePlayers = new LinkedHashSet<>();
     private final Set<UUID> deathDrops = new HashSet<>();
@@ -91,7 +100,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
         this.entityScanner = new PaperPhysicalEntityScanner(scanner);
         this.chunkScanner = new PaperPhysicalChunkScanner(
-                scanner, entityScanner, metrics, plugin.getLogger());
+                scanner, entityScanner, metrics, plugin.getLogger(), trackedContainers);
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
@@ -137,6 +146,37 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMove(InventoryMoveItemEvent event) {
         hopperMoves.observe(event);
+        if (scanner.hasIdentityEvidence(event.getItem())) {
+            trackInventoryChange(event.getSource());
+            trackInventoryChange(event.getDestination());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onContainerClick(InventoryClickEvent event) {
+        if (scanner.hasIdentityEvidence(event.getCurrentItem())
+                || scanner.hasIdentityEvidence(event.getCursor())) {
+            trackInventoryChange(event.getView().getTopInventory());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onContainerDrag(InventoryDragEvent event) {
+        if (scanner.hasIdentityEvidence(event.getOldCursor())
+                || event.getNewItems().values().stream().anyMatch(scanner::hasIdentityEvidence)) {
+            trackInventoryChange(event.getView().getTopInventory());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onContainerClose(InventoryCloseEvent event) {
+        PaperPhysicalChunkScanner.anchor(event.getView().getTopInventory())
+                .filter(trackedContainers::containsBlock)
+                .ifPresent(pendingBlockRefresh::add);
+    }
+
+    private void trackInventoryChange(org.bukkit.inventory.Inventory inventory) {
+        PaperPhysicalChunkScanner.anchor(inventory).ifPresent(pendingBlockRefresh::add);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -233,11 +273,20 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         blockInventoryTracking.onBlockBreak(event);
+        invalidateBlock(event.getBlock());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         blockInventoryTracking.onBlockPlace(event);
+        invalidateBlock(event.getBlock());
+    }
+
+    private void invalidateBlock(org.bukkit.block.Block block) {
+        var key = new PaperLoadedTrackedContainerIndex.BlockKey(
+                block.getWorld().getUID(), block.getX(), block.getY(), block.getZ());
+        pendingBlockRefresh.addAll(trackedContainers.blockChanged(key));
+        pendingBlockRefresh.add(key);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -247,16 +296,26 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChunkLoad(ChunkLoadEvent event) {
-        observeNaturalChunkLoad(PaperTrackingScanRequest.ChunkReference.capture(event.getChunk()), "chunk-load");
+        var key = PaperTrackingScanRequest.ChunkReference.capture(event.getChunk());
+        chunkScanner.invalidateLifecycleCache();
+        observeNaturalChunkLoad(key, "chunk-load");
+        trackedContainers.chunkLoaded(key, this::naturallyLoaded);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChunkUnload(ChunkUnloadEvent event) {
-        chunkLedger.unload(PaperTrackingScanRequest.ChunkReference.capture(event.getChunk()));
-        scanChunk(
-                event.getChunk(),
-                TrackingObservationUseCase.Presence.LAST_CONFIRMED,
-                "chunk-unload");
+        var key = PaperTrackingScanRequest.ChunkReference.capture(event.getChunk());
+        chunkLedger.unload(key);
+        chunkScanner.invalidateLifecycleCache();
+        trackedContainers.chunkUnloaded(key);
+        // Do not traverse tile entities or the adjacent chest half while unloading.
+        // Persisted exact evidence stays last-confirmed until a natural reload.
+        metrics.increment("tracking.scan_unload_deferred");
+    }
+
+    private boolean naturallyLoaded(PaperTrackingScanRequest.ChunkReference key) {
+        World world = plugin.getServer().getWorld(key.worldId());
+        return world != null && world.isChunkLoaded(key.x(), key.z());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -303,30 +362,58 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         tick++;
         seedLoadedChunks();
         restoreRejectedScans();
-        for (int n = 0, budget = currentBudget(); n < budget; n++) {
+        drainQueued(start, drainTrackedWork(start));
+        if (tick % METRICS_UPDATE_TICKS == ON_INTERVAL) updateIndexMetrics();
+        scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
+        scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
+        metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - start);
+    }
+
+    private void drainQueued(long start, int reserved) {
+        for (int n = reserved, budget = currentBudget(); n < budget; n++) {
             PaperTrackingScanRequest request = scans.poll();
             if (request == null) break;
             periodicChunkKeys.release(request);
             PaperChunkLoadLedger.Pending pending = token(request);
             if (pending != null && !chunkLedger.begin(pending)) continue;
             boolean complete = scanTelemetry.execute(request, plugin, this);
-            if (pending != null) {
-                World world = plugin.getServer().getWorld(pending.key().worldId());
-                boolean accessible = world != null && world.isChunkLoaded(pending.key().x(), pending.key().z());
-                chunkLedger.complete(pending, complete, accessible, tick);
-            }
+            if (pending != null) settleScan(pending, complete);
             if (System.nanoTime() - start >= MAX_DRAIN_NANOS) break;
         }
-        if (tick % METRICS_UPDATE_TICKS == 0L) {
-            PaperChunkLoadLedger.Pending due = chunkLedger.nextTrackedDue(
-                    tick, TRACKED_RECONCILIATION_TICKS);
-            if (due != null) enqueueNatural(due, "tracked-loaded-chunk");
-            metrics.setGauge("tracking.scan_dirty_locations", chunkLedger.dirtyCount());
-            metrics.setGauge("tracking.scan_known_loaded", chunkLedger.loadedCount());
+    }
+
+    private void settleScan(PaperChunkLoadLedger.Pending pending, boolean complete) {
+        chunkLedger.complete(pending, complete, naturallyLoaded(pending.key()), tick);
+    }
+
+    private void updateIndexMetrics() {
+        metrics.setGauge("tracking.scan_dirty_locations", chunkLedger.dirtyCount());
+        metrics.setGauge("tracking.scan_known_loaded", trackedContainers.size());
+        metrics.setGauge("tracking.scan_index_unresolved", trackedContainers.unresolvedCount());
+        metrics.setGauge("tracking.scan_index_pending", trackedContainers.pendingCount());
+        metrics.setGauge("tracking.scan_index_peak_pending", trackedContainers.peakPending());
+        metrics.setGauge("tracking.scan_block_refresh_pending", pendingBlockRefresh.size());
+    }
+
+    private int drainTrackedWork(long start) {
+        if (System.nanoTime() - start >= MAX_DRAIN_NANOS) return 0;
+        if (tick % BLOCK_REFRESH_INTERVAL_TICKS == ON_INTERVAL && !pendingBlockRefresh.isEmpty()) {
+            var iterator = pendingBlockRefresh.iterator();
+            var key = iterator.next();
+            iterator.remove();
+            chunkScanner.scanBlock(plugin, key, tick);
+            metrics.increment("tracking.scan_block_refresh");
+            return 1;
         }
-        scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
-        scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
-        metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - start);
+        if (tick % METRICS_UPDATE_TICKS != ON_INTERVAL) return 0;
+        var next = trackedContainers.nextWork(
+                tick, TRACKED_RECONCILIATION_TICKS, this::naturallyLoaded);
+        if (next == null) return 0;
+        if (!chunkScanner.scanTracked(plugin, next, tick)) {
+            metrics.increment("tracking.scan_index_unresolved_work");
+        }
+        metrics.increment("tracking.scan_index_work");
+        return 1;
     }
 
     private void captureStartupChunks() {
@@ -504,7 +591,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             Chunk chunk,
             TrackingObservationUseCase.Presence presence,
             String source) {
-        return chunkScanner.scanChunk(chunk, presence, source);
+        return chunkScanner.scanChunk(chunk, presence, source, tick);
     }
 
     private void scheduleNextTick(Runnable action) {
@@ -535,6 +622,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         startupChunks.clear();
         chunkLedger.clear();
+        trackedContainers.clear();
+        pendingBlockRefresh.clear();
         deferredOnlinePlayers.clear();
         deferredActions.close();
         pendingPlayerScans.clear();

@@ -42,14 +42,25 @@ record PaperPhysicalInventorySnapshot(
                     net.enthusia.loreitems.domain.LocationDescriptor.Type.BLOCK_CONTAINER,
                     entity.getWorld().getKey() + ":entity:" + entity.getUniqueId()));
         }
-        Location location = inventory.getLocation();
-        if (location != null && location.getWorld() != null) {
+        return captureBlock(inventory, reference.orElseThrow());
+    }
+
+    private static Optional<PaperPhysicalInventorySnapshot> captureBlock(
+            Inventory inventory, PaperInventoryReference reference) {
+        if (reference instanceof PaperInventoryReference.DoubleChestBlock pair) {
             return Optional.of(new PaperPhysicalInventorySnapshot(
-                    reference.orElseThrow(),
+                    pair,
                     net.enthusia.loreitems.domain.LocationDescriptor.Type.BLOCK_CONTAINER,
-                    PaperInventoryReference.blockKey(location)));
+                    pair.stableKey()));
         }
-        return Optional.empty();
+        Location location = inventory.getLocation();
+        if (location == null || location.getWorld() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new PaperPhysicalInventorySnapshot(
+                reference,
+                net.enthusia.loreitems.domain.LocationDescriptor.Type.BLOCK_CONTAINER,
+                PaperInventoryReference.blockKey(location)));
     }
 
     Optional<Inventory> resolve(Plugin plugin) {
