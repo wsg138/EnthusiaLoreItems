@@ -152,16 +152,53 @@ final class DoubleChestPaperFixture {
                 || second.getBlockInventory().getSize() != 27) {
             throw new IllegalStateException("physical block half slots are not 27 each");
         }
+        // Checking the composite against getLeftSide/getRightSide alone is not enough:
+        // it can pass even if an inventory half was attributed to the wrong block.
+        verifyPhysicalHalf(first, left, org.bukkit.block.data.type.Chest.Type.LEFT);
+        verifyPhysicalHalf(second, right, org.bukkit.block.data.type.Chest.Type.RIGHT);
         verifyBoundaryItems(combined, left, right);
+    }
+
+    private static void verifyPhysicalHalf(
+            Chest physical, Inventory side, org.bukkit.block.data.type.Chest.Type expectedType) {
+        if (!(physical.getBlockData() instanceof org.bukkit.block.data.type.Chest data)
+                || data.getType() != expectedType) {
+            throw new IllegalStateException("physical chest left/right blockdata mismatch");
+        }
+        org.bukkit.Location block = physical.getLocation();
+        org.bukkit.Location inventory = side.getLocation();
+        if (block == null || block.getWorld() == null || inventory == null
+                || inventory.getWorld() == null
+                || !block.getWorld().getUID().equals(inventory.getWorld().getUID())
+                || block.getBlockX() != inventory.getBlockX()
+                || block.getBlockY() != inventory.getBlockY()
+                || block.getBlockZ() != inventory.getBlockZ()) {
+            throw new IllegalStateException("chest half inventory assigned to wrong physical block");
+        }
+        Inventory actualHalf = physical.getBlockInventory();
+        if (!Objects.equals(actualHalf.getItem(0), side.getItem(0))
+                || !Objects.equals(actualHalf.getItem(26), side.getItem(26))) {
+            throw new IllegalStateException("physical chest block and half slots disagree");
+        }
     }
 
     private static void verifyBoundaryItems(
             DoubleChestInventory combined, Inventory left, Inventory right) {
+        requireMaterial(left.getItem(0), Material.COBBLESTONE);
+        requireMaterial(left.getItem(26), Material.GRANITE);
+        requireMaterial(right.getItem(0), Material.DIORITE);
+        requireMaterial(right.getItem(26), Material.ANDESITE);
         if (!Objects.equals(combined.getItem(0), left.getItem(0))
                 || !Objects.equals(combined.getItem(26), left.getItem(26))
                 || !Objects.equals(combined.getItem(27), right.getItem(0))
                 || !Objects.equals(combined.getItem(53), right.getItem(26))) {
             throw new IllegalStateException("double chest composite/half slot mapping disagrees");
+        }
+    }
+
+    private static void requireMaterial(ItemStack actual, Material expected) {
+        if (actual == null || actual.getType() != expected) {
+            throw new IllegalStateException("double chest boundary marker missing or wrong: " + expected);
         }
     }
 
