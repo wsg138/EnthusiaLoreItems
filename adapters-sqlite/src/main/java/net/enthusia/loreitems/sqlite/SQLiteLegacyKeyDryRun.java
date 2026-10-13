@@ -1,9 +1,9 @@
 package net.enthusia.loreitems.sqlite;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
@@ -27,16 +27,20 @@ public final class SQLiteLegacyKeyDryRun {
             throws SQLException {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(knownWorlds, "knownWorlds");
-        return new Report(scan(connection, CURRENT, knownWorlds, true),
-                scan(connection, HISTORY, knownWorlds, false));
+        return new Report(scan(connection, knownWorlds, true),
+                scan(connection, knownWorlds, false));
     }
 
-    private static Counts scan(Connection connection, String sql,
+    private static Counts scan(Connection connection,
             Map<String, ? extends Collection<UUID>> worlds, boolean current)
             throws SQLException {
         MutableCounts counts = new MutableCounts();
-        try (Statement statement = connection.createStatement();
-                ResultSet rows = statement.executeQuery(sql)) {
+        // These are the two fixed audit statements: callers cannot supply SQL.
+        // A prepared statement also prevents an accidental future caller from
+        // interpolating user-controlled world names into the SQL itself.
+        try (PreparedStatement statement =
+                     connection.prepareStatement(current ? CURRENT : HISTORY);
+                ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
                 String key = rows.getString(1);
                 String state = rows.getString(2);
