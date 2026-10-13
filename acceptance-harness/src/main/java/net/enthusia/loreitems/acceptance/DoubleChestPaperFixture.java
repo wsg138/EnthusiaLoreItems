@@ -111,6 +111,18 @@ final class DoubleChestPaperFixture {
                     + " reason=HALF_UNLOADED_DURING_INSPECT");
             return;
         }
+        DoubleChestInventory combined = resolvedInventory(world, pair);
+        verifyHalfMapping(combined, world, pair);
+        sender.sendMessage("WP05_DOUBLE_CHEST_TOPOLOGY_OK case=" + caseName
+                + " world_uuid=" + world.getUID()
+                + " first=" + pair.x1 + ",70," + pair.z1
+                + " second=" + pair.x2 + ",70," + pair.z2
+                + " chunks=" + pair.chunkX1() + "," + pair.chunkZ1()
+                + ";" + pair.chunkX2() + "," + pair.chunkZ2()
+                + " slots=54 half_slots=27,27");
+    }
+
+    private static DoubleChestInventory resolvedInventory(World world, Pair pair) {
         Block firstBlock = world.getBlockAt(pair.x1, 70, pair.z1);
         Block secondBlock = world.getBlockAt(pair.x2, 70, pair.z2);
         if (!(firstBlock.getState(false) instanceof Chest first)
@@ -121,28 +133,36 @@ final class DoubleChestPaperFixture {
                 || second.getInventory().getSize() != 54) {
             throw new IllegalStateException("the pair does not expose a real 54-slot double chest");
         }
+        return combined;
+    }
+
+    private static void verifyHalfMapping(
+            DoubleChestInventory combined, World world, Pair pair) {
         Inventory left = combined.getLeftSide();
         Inventory right = combined.getRightSide();
-        if (left == null || right == null || left.getSize() != 27
-                || right.getSize() != 27
-                || first.getBlockInventory().getSize() != 27
-                || second.getBlockInventory().getSize() != 27) {
-            throw new IllegalStateException("double chest does not expose separate 27-slot halves");
+        if (left == null || right == null || combined.getSize() != 54) {
+            throw new IllegalStateException("double chest has no canonical 54-slot halves");
         }
-        if (combined.getSize() != 54
-                || !Objects.equals(combined.getItem(0), left.getItem(0))
+        if (left.getSize() != 27 || right.getSize() != 27) {
+            throw new IllegalStateException("the left/right inventories are not 27 slots each");
+        }
+        Chest first = (Chest) world.getBlockAt(pair.x1, 70, pair.z1).getState(false);
+        Chest second = (Chest) world.getBlockAt(pair.x2, 70, pair.z2).getState(false);
+        if (first.getBlockInventory().getSize() != 27
+                || second.getBlockInventory().getSize() != 27) {
+            throw new IllegalStateException("physical block half slots are not 27 each");
+        }
+        verifyBoundaryItems(combined, left, right);
+    }
+
+    private static void verifyBoundaryItems(
+            DoubleChestInventory combined, Inventory left, Inventory right) {
+        if (!Objects.equals(combined.getItem(0), left.getItem(0))
                 || !Objects.equals(combined.getItem(26), left.getItem(26))
                 || !Objects.equals(combined.getItem(27), right.getItem(0))
                 || !Objects.equals(combined.getItem(53), right.getItem(26))) {
             throw new IllegalStateException("double chest composite/half slot mapping disagrees");
         }
-        sender.sendMessage("WP05_DOUBLE_CHEST_TOPOLOGY_OK case=" + caseName
-                + " world_uuid=" + world.getUID()
-                + " first=" + pair.x1 + ",70," + pair.z1
-                + " second=" + pair.x2 + ",70," + pair.z2
-                + " chunks=" + pair.chunkX1() + "," + pair.chunkZ1()
-                + ";" + pair.chunkX2() + "," + pair.chunkZ2()
-                + " slots=54 half_slots=27,27");
     }
 
     record Pair(int x1, int z1, int x2, int z2, BlockFace facing) {
