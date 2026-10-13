@@ -16,9 +16,9 @@ import java.util.UUID;
  */
 public final class SQLiteLegacyKeyDryRun {
     private static final String CURRENT = "SELECT location_key, state "
-            + "FROM instance_current_state WHERE location_type = 'BLOCK_CONTAINER'";
+            + "FROM instance_current_state WHERE location_type IN ('BLOCK_CONTAINER', 'NESTED_CONTAINER')";
     private static final String HISTORY = "SELECT location_key, confidence "
-            + "FROM instance_observations WHERE location_type = 'BLOCK_CONTAINER'";
+            + "FROM instance_observations WHERE location_type IN ('BLOCK_CONTAINER', 'NESTED_CONTAINER')";
 
     private SQLiteLegacyKeyDryRun() {}
 
@@ -72,11 +72,13 @@ public final class SQLiteLegacyKeyDryRun {
                 other++;
                 return;
             }
-            if (key.startsWith("block-v2:")) {
+            String root = key.startsWith("root:BLOCK_CONTAINER:")
+                    ? key.substring("root:BLOCK_CONTAINER:".length()) : key;
+            if (root.startsWith("block-v2:")) {
                 blocks++;
                 return;
             }
-            if (key.startsWith("double-chest:")) {
+            if (root.startsWith("double-chest:")) {
                 doubles++;
                 return;
             }

@@ -609,6 +609,38 @@ class SQLiteTrackingObservationStoreTest {
         }
     }
 
+    @Test
+    void nestedBlockRootKeyMigrationCannotPromoteUnknownWorldIdentity() {
+        var oldNested = new LocationDescriptor(LocationDescriptor.Type.NESTED_CONTAINER,
+                "root:BLOCK_CONTAINER:minecraft:overworld:-1:64:16",
+                "slot:7/shulker:5/bundle:1");
+        var uuidNested = new LocationDescriptor(LocationDescriptor.Type.NESTED_CONTAINER,
+                "root:BLOCK_CONTAINER:block-v2:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:-1:64:16",
+                "slot:7/shulker:5/bundle:1");
+        SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("nested-legacy.db"));
+        try {
+            seedActiveInstance(runtime);
+            var store = new SQLiteTrackingObservationStore(runtime);
+            record(store, present(oldNested, reconciliation()), 1_000L);
+            record(store, lastConfirmed(oldNested), 1_050L);
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, present(uuidNested, reconciliation()), 1_100L).status());
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            var report = runtime.execute(connection -> SQLiteLegacyKeyDryRun.inspect(
+                    connection, java.util.Map.of("minecraft:overworld",
+                            java.util.List.of(UUID.fromString(
+                                    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")))))
+                    .toCompletableFuture().join();
+            assertEquals(3L, report.history().legacyKnownName());
+            assertTrue(new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                    .toCompletableFuture().join().items().stream()
+                    .anyMatch(o -> oldNested.equals(o.location())));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
     private static void assertLastConfirmedDropped(SQLiteStorageRuntime runtime) {
         InstanceCurrentState current = currentState(runtime);
         assertEquals(InstanceCurrentState.State.LAST_CONFIRMED, current.state());

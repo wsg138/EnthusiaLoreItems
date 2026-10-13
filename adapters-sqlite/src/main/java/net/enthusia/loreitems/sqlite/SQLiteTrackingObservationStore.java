@@ -301,7 +301,7 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     }
 
     /**
-     * An old world-name and a new UUID location cannot be declared the same holder:
+     * Legacy world-name and UUID-based block/nested locations cannot be equated:
      * dimension names are not injective, and unloaded chest halves may be inaccessible.
      * Preserve both observations, fence the projection, and do not manufacture a
      * duplicate-instance anomaly for a copy that may be the exact same physical item.

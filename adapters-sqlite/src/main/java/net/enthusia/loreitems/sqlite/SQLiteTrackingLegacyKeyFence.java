@@ -13,19 +13,36 @@ final class SQLiteTrackingLegacyKeyFence {
 
     static boolean needsReview(LocationDescriptor previous, LocationDescriptor observed) {
         if (previous == null || observed == null
-                || previous.type() != LocationDescriptor.Type.BLOCK_CONTAINER
-                || observed.type() != LocationDescriptor.Type.BLOCK_CONTAINER) {
+                || previous.type() != observed.type()) {
             return false;
         }
-        return legacyWorldName(previous.locationKey()) != null
-                && (observed.locationKey().startsWith("block-v2:")
-                        || observed.locationKey().startsWith("double-chest:"))
+        return root(previous) != null && root(observed) != null
+                && legacyWorldName(previous.locationKey()) != null
+                && isVersionedRoot(root(observed))
                 && !previous.locationKey().equals(observed.locationKey());
+    }
+
+    private static boolean isVersionedRoot(String key) {
+        return key.startsWith("block-v2:") || key.startsWith("double-chest:");
+    }
+
+    private static String root(LocationDescriptor location) {
+        return switch (location.type()) {
+            case BLOCK_CONTAINER -> location.locationKey();
+            case NESTED_CONTAINER -> location.locationKey().startsWith("root:BLOCK_CONTAINER:")
+                    ? rootKey(location.locationKey()) : null;
+            default -> null;
+        };
+    }
+
+    private static String rootKey(String key) {
+        return key.startsWith("root:BLOCK_CONTAINER:")
+                ? key.substring("root:BLOCK_CONTAINER:".length()) : key;
     }
 
     /** The world *name* is diagnostic only, never a trustworthy UUID mapping. */
     static String legacyWorldName(String locationKey) {
-        Matcher matcher = LEGACY_WORLD_BLOCK.matcher(locationKey);
+        Matcher matcher = LEGACY_WORLD_BLOCK.matcher(rootKey(locationKey));
         return matcher.matches() ? matcher.group(1) : null;
     }
 }
