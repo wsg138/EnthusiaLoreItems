@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
@@ -16,7 +17,9 @@ final class PaperDurableTrackingRetryLedger {
 
     private static final String ALL_HOLDERS = "<all-physical-holders>";
     private final Object lock = new Object();
-    private final ConcurrentHashMap<Holder, Long> unresolved = new ConcurrentHashMap<>();
+    // Every access is guarded by lock; no map reference escapes.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    private final Map<Holder, Long> unresolved = new HashMap<>();
     private boolean overflow;
     private long overflowedKeys;
 
