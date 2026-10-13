@@ -524,15 +524,11 @@ public final class SQLiteTrackingObservationStore implements TrackingObservation
     }
 
     private record InstanceRow(
-            String definitionId,
-            long appliedRevision,
-            long desiredRevision,
-            String lifecycleState) {}
+            String definitionId, long appliedRevision,
+            long desiredRevision, String lifecycleState) {}
 
     private record CurrentRow(
-            String state,
-            LocationDescriptor location,
-            long stateRevision) {}
+            String state, LocationDescriptor location, long stateRevision) {}
 
     private static final class StaleTrackingObservationException extends Exception {
         private static final long serialVersionUID = 1L;
