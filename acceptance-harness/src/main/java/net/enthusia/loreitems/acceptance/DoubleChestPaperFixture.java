@@ -173,13 +173,25 @@ final class DoubleChestPaperFixture {
                 || block.getBlockX() != inventory.getBlockX()
                 || block.getBlockY() != inventory.getBlockY()
                 || block.getBlockZ() != inventory.getBlockZ()) {
-            throw new IllegalStateException("chest half inventory assigned to wrong physical block");
+            throw new IllegalStateException("chest half inventory assigned to wrong physical block:"
+                    + " side=" + expectedType
+                    + " expected=" + coordinates(block)
+                    + " inventory=" + coordinates(inventory));
         }
         Inventory actualHalf = physical.getBlockInventory();
         if (!Objects.equals(actualHalf.getItem(0), side.getItem(0))
                 || !Objects.equals(actualHalf.getItem(26), side.getItem(26))) {
             throw new IllegalStateException("physical chest block and half slots disagree");
         }
+    }
+
+    private static String coordinates(org.bukkit.Location location) {
+        if (location == null) {
+            return "null";
+        }
+        return (location.getWorld() == null ? "world-null" : location.getWorld().getUID())
+                + ":" + location.getBlockX() + ":" + location.getBlockY() + ":"
+                + location.getBlockZ();
     }
 
     private static void verifyBoundaryItems(
