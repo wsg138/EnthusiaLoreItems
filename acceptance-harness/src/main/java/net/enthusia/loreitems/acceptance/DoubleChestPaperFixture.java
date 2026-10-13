@@ -37,13 +37,23 @@ final class DoubleChestPaperFixture {
     static void command(CommandSender sender, String[] arguments) {
         Objects.requireNonNull(sender, "sender");
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length != 3) {
+        if (arguments.length < 3 || arguments.length > 4) {
             throw new IllegalArgumentException(
-                    "doublechest <setup|inspect> <case-name>");
+                    "doublechest <setup|inspect> <case-name> or evict xremote <first|second>");
         }
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
         World world = Objects.requireNonNull(Bukkit.getWorld("world"), "isolated test world");
+        if ("evict".equals(action)) {
+            if (arguments.length != 4 || !"xremote".equals(arguments[2])) {
+                throw new IllegalArgumentException("evict is only allowed on disposable xremote");
+            }
+            evictRemoteHalf(world, pair, arguments[3], sender);
+            return;
+        }
+        if (arguments.length != 3) {
+            throw new IllegalArgumentException("setup/inspect needs exactly one case name");
+        }
         if (!pair.loaded(world)) {
             sender.sendMessage("WP05_DOUBLE_CHEST_UNRESOLVED case=" + arguments[2]
                     + " reason=HALF_CHUNK_NOT_LOADED");
@@ -55,6 +65,39 @@ final class DoubleChestPaperFixture {
             throw new IllegalArgumentException("doublechest action must be setup or inspect");
         }
         inspect(world, pair, sender, arguments[2]);
+    }
+
+    /**
+     * Fixture-only request for actual Paper chunk eviction after the TEST HOST
+     * removes its force-load ticket. An unload is not simulated by a Boolean.
+     * Do not read the remote block or double-chest inventory during eviction.
+     */
+    private static void evictRemoteHalf(
+            World world, Pair pair, String half, CommandSender sender) {
+        boolean first = "first".equals(half);
+        if (!first && !"second".equals(half)) {
+            throw new IllegalArgumentException("evict half must be first or second");
+        }
+        int x = first ? pair.chunkX1() : pair.chunkX2();
+        int z = first ? pair.chunkZ1() : pair.chunkZ2();
+        if (world.isChunkForceLoaded(x, z)) {
+            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_BLOCKED half=" + half
+                    + " reason=FORCELOAD_TICKET_ACTIVE");
+            return;
+        }
+        if (!world.isChunkLoaded(x, z)) {
+            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_OK half=" + half
+                    + " reason=ALREADY_UNLOADED");
+            return;
+        }
+        boolean unloaded = world.unloadChunk(x, z, true);
+        if (unloaded && !world.isChunkLoaded(x, z)) {
+            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_OK half=" + half
+                    + " reason=REAL_PAPER_UNLOAD");
+        } else {
+            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_FAILED half=" + half
+                    + " reason=CHUNK_STILL_LOADED");
+        }
     }
 
     static Pair caseFor(String name) {
