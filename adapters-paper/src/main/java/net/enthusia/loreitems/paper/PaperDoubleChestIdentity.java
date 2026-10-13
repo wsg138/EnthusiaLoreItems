@@ -121,7 +121,7 @@ final class PaperDoubleChestIdentity {
         InventoryHolder holder = doubleInventory.getHolder(false);
         Location left = sideLocation(doubleInventory.getLeftSide(), holder, true);
         Location right = sideLocation(doubleInventory.getRightSide(), holder, false);
-        Position physicalLeft = leftForPair(first, second, pair);
+        Position physicalLeft = leftForPair(first, pair);
         return pair(left, right)
                 .filter(pair::equals)
                 .filter(ref -> ref.leftSide().equals(physicalLeft))
@@ -129,8 +129,7 @@ final class PaperDoubleChestIdentity {
     }
 
     private static Position leftForPair(
-            BlockState first, BlockState second,
-            PaperInventoryReference.DoubleChestBlock pair) {
+            BlockState first, PaperInventoryReference.DoubleChestBlock pair) {
         Chest firstData = (Chest) first.getBlockData();
         return firstData.getType() == Chest.Type.LEFT ? pair.first() : pair.second();
     }
