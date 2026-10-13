@@ -111,6 +111,27 @@ async function waitBlockAt(bot, x, y, z, name, label) {
   throw new Error(`${label} block not loaded at ${x},${y},${z}; observed=${seen && seen.name}`)
 }
 
+// Retry only untouched GUI opens; never replay a deposit/withdraw after uncertain commit.
+async function openFixtureContainer(bot, x, y, z, kind, label) {
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (bot.currentWindow) { bot.closeWindow(bot.currentWindow); await sleep(350) }
+    await bot.waitForChunksToLoad()
+    const block = await waitBlockAt(bot, x, y, z, kind, label)
+    try {
+      const container = await bot.openContainer(block)
+      log(`${label} open-confirmed attempt=${attempt} at=${x},${y},${z}`)
+      return container
+    } catch (error) {
+      lastError = error
+      log(`${label} open-retry attempt=${attempt} error=${error.message}`)
+      if (bot.currentWindow) bot.closeWindow(bot.currentWindow)
+      await sleep(500 * attempt)
+    }
+  }
+  throw new Error(`${label} GUI did not open after 3 safe attempts: ${lastError?.message}`)
+}
+
 function trackedInventoryItems(bot) {
   return bot.inventory.items().filter(item => TRACKED_MATERIALS.has(item.name))
 }
@@ -358,7 +379,7 @@ async function phaseTwo() {
   bot.chat('/setblock 14 70 0 minecraft:shulker_box')
   block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'placed shulker')
   item = tracked(bot)
-  container = await bot.openContainer(block)
+  container = await openFixtureContainer(bot, 14, 70, 0, 'shulker_box', 'filled-shulker')
   await container.deposit(item.type, null, 1); await sleep(700)
   container.close(); await sleep(400)
   if (trackedInventoryItems(bot).length !== 0) {
@@ -384,7 +405,7 @@ async function phaseTwo() {
   await teleport(bot, 13, 71, 0, 'TRACK2 shulker-return-to-chest')
   bot.chat('/setblock 14 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 14, 70, 0, 'chest', 'nested shulker chest')
-  container = await bot.openContainer(block)
+  container = await openFixtureContainer(bot, 14, 70, 0, 'chest', 'shulker-destination')
   await container.deposit(shulker.type, null, 1)
   await sleep(850); container.close(); await sleep(700)
   log('TRACK2 shulker-real-client-move-complete')
@@ -410,7 +431,7 @@ async function phaseTwo() {
   if (!filledBundle) throw new Error('bundle missing after real click insertion')
   bot.chat('/setblock 16 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 16, 70, 0, 'chest', 'nested bundle chest')
-  container = await bot.openContainer(block)
+  container = await openFixtureContainer(bot, 16, 70, 0, 'chest', 'bundle-destination')
   await container.deposit(filledBundle.type, null, 1)
   await sleep(850); container.close(); await sleep(700)
   log('TRACK2 bundle-real-client-move-complete')
@@ -423,7 +444,7 @@ async function phaseTwo() {
   await teleport(bot, 15, 71, 0, 'TRACK2 reload-area')
   for (const [x, label] of [[14, 'shulker'], [16, 'bundle']]) {
     block = await waitBlockAt(bot, x, 70, 0, 'chest', `reloaded ${label} chest`)
-    container = await bot.openContainer(block); await sleep(500); container.close(); await sleep(500)
+    container = await openFixtureContainer(bot, x, 70, 0, 'chest', `reloaded-${label}`); await sleep(500); container.close(); await sleep(500)
   }
   log('TRACK2 reloaded-and-reopened')
   fs.writeFileSync(`${root}/track2-return-done`, 'ok\n')
