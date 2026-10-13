@@ -87,6 +87,65 @@ def inspect_table(connection: sqlite3.Connection, table: str) -> dict:
     }
 
 
+def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
+    """Count per-instance risk without emitting identities or guessing a migration.
+
+    The actual schema has an instance/time index; ordering by instance_id
+    lets us stream one instance at a time without retaining the full history.
+    Even a single observed modern UUID is NOT proof of a legacy world mapping.
+    """
+    counts: Counter[str] = Counter()
+    previous_id = None
+    legacy = False
+    modern_world = None
+    multiple_modern_worlds = False
+    seen_modern = False
+
+    def finish() -> None:
+        if legacy and multiple_modern_worlds:
+            counts['legacy_with_multiple_observed_modern_worlds'] += 1
+        elif legacy and seen_modern:
+            counts['legacy_with_one_observed_modern_world'] += 1
+        elif legacy:
+            counts['legacy_without_modern_history'] += 1
+        elif seen_modern:
+            counts['modern_without_legacy_history'] += 1
+        else:
+            counts['neither_legacy_nor_modern_block_history'] += 1
+
+    cursor = connection.execute(
+        'SELECT instance_id, location_type, location_key '
+        'FROM instance_observations ORDER BY instance_id')
+    )
+    for batch in iter(lambda: cursor.fetchmany(BATCH_SIZE), []):
+        for instance_id, location_type, key in batch:
+            if previous_id is not None and instance_id != previous_id:
+                finish()
+                legacy = False
+                modern_world = None
+                multiple_modern_worlds = False
+                seen_modern = False
+            previous_id = instance_id
+            category, _ = classify(location_type, key)
+            if category == 'legacy_world_name':
+                legacy = True
+            elif category in ('modern_block_v2', 'modern_double_chest'):
+                root = key[len(NESTED_PREFIX):] if key.startswith(NESTED_PREFIX) else key
+                observed_world = root.split(':', 2)[1]
+                if seen_modern and observed_world != modern_world:
+                    multiple_modern_worlds = True
+                else:
+                    modern_world = observed_world
+                seen_modern = True
+    if previous_id is not None:
+        finish()
+    return {
+        'risk_counts': dict(sorted(counts.items())),
+        'resolution': 'REVIEW_ONLY_NO_WORLD_MAPPING',
+        'warning': ('A modern UUID observed for one item does not identify '
+                    'its historical world-name location.'),
+    }
+
 def audit(database: Path) -> dict:
     if not database.is_file():
         raise ValueError("Offline SQLite copy does not exist")
@@ -101,12 +160,14 @@ def audit(database: Path) -> dict:
         if quick_check != "ok":
             raise ValueError("SQLite quick_check failed; report cannot be trusted")
         results = {table: inspect_table(connection, table) for table in TABLES}
+        history_overlap = inspect_history_overlap(connection)
     return {
         "report_version": 1,
         "read_only": True,
         "source": "user-supplied offline SQLite copy; never production",
         "quick_check": quick_check,
         "tables": results,
+        "historical_instance_overlap": history_overlap,
         "assessment": {
             "legacy_mapping_applied": False,
             "world_uuid_inferred": False,
