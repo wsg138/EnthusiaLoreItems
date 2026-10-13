@@ -30,6 +30,14 @@ Legacy world-name groups are marked
 **UNRESOLVED**, even when the name is unique in this report. A world-name
 group can correspond to more than one actual world UUID.
 
+The `historical_instance_overlap` aggregate groups immutable observation
+histories by instance without revealing any instance IDs. It distinguishes
+legacy-only histories, legacy histories with one observed modern UUID, and
+legacy histories with multiple distinct observed modern UUIDs. **None of
+these categories proves a safe world-name-to-UUID mapping**: tracked items
+can move between worlds, and repeated observations do not imply copies.
+Every category remains `REVIEW_ONLY_NO_WORLD_MAPPING` until independent
+physical evidence and migration review exist.
 The audit **does not** inspect physical container contents, map world names
 to UUIDs, infer unloaded chest halves, rewrite `instance_current_state`,
 change `instance_observations`, resolve duplicate-item anomalies, run a
