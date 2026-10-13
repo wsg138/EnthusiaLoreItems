@@ -15,6 +15,9 @@ const log = message => {
 async function waitFile(name) {
   for (let i = 0; i < 2400; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
+    if (name !== 'bot.stop' && fs.existsSync(`${root}/bot.stop`)) {
+      throw new Error(`acceptance host aborted before marker ${name}`)
+    }
     await sleep(100)
   }
   throw new Error(`missing marker ${name}`)

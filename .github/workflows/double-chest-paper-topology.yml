@@ -1,0 +1,92 @@
+name: Double Chest Paper Topology (Fixture Only)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: double-chest-paper-topology-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  topology:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build test-only helper and exact-head LoreItems JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Stage pinned disposable Paper 26.2 server and artifact proof
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/wp05-double-chest-topology
+          mkdir -p "$ROOT/server/plugins" "$ROOT/evidence"
+          RELEASE_VERSION="$(sed -n 's/^releaseVersion=//p' gradle.properties)"
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          cp "plugin/build/libs/plugin-${RELEASE_VERSION}.jar" \
+             "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "acceptance-harness/build/libs/acceptance-harness-${RELEASE_VERSION}.jar" \
+             "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          printf '%s\n' "$SOURCE_HEAD" > "$ROOT/evidence/source-head.txt"
+          sha256sum "$ROOT/server/plugins/"*.jar > "$ROOT/evidence/plugin-jar-sha256.txt"
+          java -version 2> "$ROOT/evidence/java-version.txt"
+
+          cd "$ROOT/server"
+          curl -fsSL \
+            https://fill-data.papermc.io/v1/objects/b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083/paper-26.2-129.jar \
+            -o paper.jar
+          echo 'b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083  paper.jar' \
+            | sha256sum -c -
+          sha256sum paper.jar > "$ROOT/evidence/paper-jar-sha256.txt"
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          server-ip=127.0.0.1
+          server-port=25587
+          online-mode=false
+          spawn-protection=0
+          view-distance=2
+          simulation-distance=2
+          generate-structures=false
+          max-players=1
+          EOF
+
+      - name: Exercise actual Paper 54-slot topology and loaded-only guards
+        shell: bash
+        run: bash acceptance-harness/scripts/wp05-double-chest-topology.sh
+
+      - name: Preserve provenance and failure logs (not 48-case evidence)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: double-chest-topology-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/wp05-double-chest-topology/evidence
+          if-no-files-found: error
+          retention-days: 30
