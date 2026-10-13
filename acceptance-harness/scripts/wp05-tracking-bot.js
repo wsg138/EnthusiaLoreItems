@@ -374,6 +374,9 @@ async function phaseTwo() {
   }
   if (!shulker) throw new Error('mined shulker contents item was not naturally picked up')
   log('TRACK2 shulker-natural-pickup item=' + shulker.name + ' slot=' + shulker.slot)
+  // Pickup may pull the bot down into natural caves. Return to the known
+  // supported test platform before trying to interact with the chest.
+  await teleport(bot, 13, 71, 0, 'TRACK2 shulker-return-to-chest')
   bot.chat('/setblock 14 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 14, 70, 0, 'chest', 'nested shulker chest')
   container = await bot.openContainer(block)
