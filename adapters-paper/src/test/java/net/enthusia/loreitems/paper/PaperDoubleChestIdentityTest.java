@@ -7,9 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.enthusia.loreitems.application.LoreItemIdentity;
+import net.enthusia.loreitems.domain.LocationDescriptor;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -55,7 +63,7 @@ class PaperDoubleChestIdentityTest {
         var gui = PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
         assertEquals(left, right);
         assertEquals(left, gui);
-        assertEquals("double-chest:" + WORLD_ID + ":15:70:0|16:70:0", left.key());
+        assertEquals("double-chest:" + WORLD_ID + ":15:70:0|16:70:0:left=0", left.key());
         Inventory inventory = right.resolve(fixture.plugin).orElseThrow();
         assertEquals(54, inventory.getSize());
         assertEquals(Material.DIAMOND, inventory.getContents()[0].getType());
@@ -63,10 +71,35 @@ class PaperDoubleChestIdentityTest {
     }
 
     @Test
+    void trackedDuplicateCopiesKeepDistinctPhysicalSlotPathsAcrossBothHalves() {
+        Fixture fixture = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
+        LoreItemIdentity identity = new LoreItemIdentity(
+                new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
+                new TemplateRevision(1));
+        ItemStack tagged = new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.NETHER_STAR), identity);
+        fixture.left.getContents()[0] = tagged;
+        fixture.right.getContents()[26] = tagged.clone();
+
+        PaperPhysicalInventorySnapshot snapshot =
+                PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observed = new HashMap<>();
+        new PaperTrackedItemCollector().collectArray(
+                snapshot.resolve(fixture.plugin).orElseThrow().getContents(),
+                snapshot.type(), snapshot.key(), "slot:", observed, new PaperScanLimit(256));
+
+        assertEquals(List.of("slot:0", "slot:53"),
+                observed.get(identity).stream().map(LocationDescriptor::containerPath).toList());
+        assertEquals(snapshot.key(), observed.get(identity).get(0).locationKey());
+        assertEquals(snapshot.key(), observed.get(identity).get(1).locationKey());
+    }
+
+    @Test
     void actualApiLeftSideMayHaveTheHigherCoordinate() {
         Fixture fixture = new Fixture(WORLD_ID, 16, 0, BlockFace.SOUTH);
         var ref = PaperPhysicalInventorySnapshot.capture(fixture.left).orElseThrow();
-        assertEquals("double-chest:" + WORLD_ID + ":15:70:0|16:70:0", ref.key());
+        assertEquals("double-chest:" + WORLD_ID + ":15:70:0|16:70:0:left=1", ref.key());
         assertEquals(Material.DIAMOND, ref.resolve(fixture.plugin)
                 .orElseThrow().getContents()[0].getType());
     }
@@ -124,7 +157,8 @@ class PaperDoubleChestIdentityTest {
         assertTrue(ref.resolve(fixture.plugin).isEmpty(),
                 "An old reference must not reinterpret swapped 0..53 slots");
         var replacement = PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
-        assertEquals(ref.key(), replacement.key());
+        assertNotEquals(ref.key(), replacement.key(),
+                "Reoriented chest must not reuse persisted slot identities");
         assertNotEquals(ref.reference(), replacement.reference());
         assertEquals(Material.EMERALD,
                 replacement.resolve(fixture.plugin).orElseThrow().getContents()[26].getType());

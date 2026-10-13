@@ -209,9 +209,14 @@ final class PaperDoubleChestIdentity {
                 : new PaperInventoryReference.DoubleChestBlock(worldId, b, a, leftSide);
     }
 
+    /**
+     * The durable identity includes API left/right order. Rebuilding the same
+     * pair with reversed chest orientation must never reuse old slot paths.
+     */
     static String key(PaperInventoryReference.DoubleChestBlock ref) {
+        String orientation = ref.leftSide().equals(ref.first()) ? "0" : "1";
         return "double-chest:" + ref.worldId() + ':' + ref.first().key()
-                + '|' + ref.second().key();
+                + '|' + ref.second().key() + ":left=" + orientation;
     }
 
     record Position(int x, int y, int z) implements Comparable<Position> {
