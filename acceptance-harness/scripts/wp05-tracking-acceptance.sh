@@ -207,6 +207,47 @@ wait_marker track2-chest-done 180
 touch "$ROOT/go-track2-hopper"
 wait_marker track2-hopper-done 180
 
+# An actual Mineflayer GUI deposit followed by ordinary hopper mechanics is
+# different from the test helper's later direct Bukkit shulker/bundle insertion.
+# Verify the independent hopper transition *before* those synthetic fixtures
+# can confound the current-state projection.
+python3 - "$DB" "$EVIDENCE/track2-hopper-receipt.txt" <<'PY'
+import sqlite3,sys,time
+path,proof=sys.argv[1:3]
+states=[]
+for _ in range(120):
+    with sqlite3.connect(path) as c:
+        states=c.execute("""
+          select s.state,s.location_type,s.location_key,s.container_path,i.instance_id
+          from instance_current_state s join lore_instances i on i.instance_id=s.instance_id
+          join lore_definitions d on d.definition_id=i.definition_id
+          where d.lookup_key='acc_track_nested'
+        """).fetchall()
+        observations=c.execute("""
+          select o.observation_id,o.location_type,o.location_key,
+                 o.container_path,o.confidence,o.source
+          from instance_observations o join lore_definitions d
+          on d.definition_id=o.definition_id
+          where d.lookup_key='acc_track_nested'
+          order by o.observation_id
+        """).fetchall()
+        if len(states)==1 and states[0][0]=='CONFIRMED_NOW' and (
+            states[0][1]=='BLOCK_CONTAINER' and
+            states[0][2].endswith(':20:69:0')):
+            break
+        if any(row[0]=='CONFLICTING' for row in states):
+            break
+    time.sleep(.25)
+with open(proof,'w') as f:
+    f.write('real-client hopper-to-chest states='+repr(states)+'\n')
+    f.write('observations='+repr(observations)+'\n')
+print('TRACK2_REAL_HOPPER_RECEIPT',states,flush=True)
+assert len(states)==1 and states[0][0]=='CONFIRMED_NOW' \
+    and states[0][1]=='BLOCK_CONTAINER' \
+    and states[0][2].endswith(':20:69:0'), (
+    'real hopper-to-chest failed; see independent durable receipt '+proof)
+PY
+
 echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_nested' >&3
 wait_player_copy acc_track_nested
 echo 'wp05accept place Wp05TrackBot shulker' >&3
