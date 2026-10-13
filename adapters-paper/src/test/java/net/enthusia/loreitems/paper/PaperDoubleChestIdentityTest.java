@@ -96,6 +96,75 @@ class PaperDoubleChestIdentityTest {
     }
 
     @Test
+    void twoRealCopiesAtHalfLocalSlotZeroHaveDifferentCanonicalPaths() {
+        Fixture fixture = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
+        LoreItemIdentity identity = new LoreItemIdentity(
+                new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
+                new TemplateRevision(1));
+        ItemStack tagged = new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.NETHER_STAR), identity);
+        fixture.left.getContents()[0] = tagged;
+        fixture.right.getContents()[0] = tagged.clone();
+        for (Inventory input : List.of(fixture.left, fixture.right, fixture.combined)) {
+            var view = PaperPhysicalInventorySnapshot.captureResolved(input, fixture.plugin)
+                    .orElseThrow();
+            assertSame(fixture.combined, view.inventory());
+            assertEquals(54, view.inventory().getSize());
+            Map<LoreItemIdentity, List<LocationDescriptor>> observed = new ConcurrentHashMap<>();
+            new PaperTrackedItemCollector().collectArray(
+                    view.inventory().getContents(), view.snapshot().type(),
+                    view.snapshot().key(), "slot:", observed, new PaperScanLimit(256));
+            assertEquals(List.of("slot:0", "slot:27"),
+                    observed.get(identity).stream().map(LocationDescriptor::containerPath).toList());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"15,0,NORTH", "-1,0,NORTH", "-17,0,NORTH",
+            "0,15,EAST", "0,-1,EAST", "0,-17,EAST",
+            "16,0,SOUTH", "0,16,WEST"})
+    void everyCombinedSlotHasAnExactInverseForBothPhysicalHalves(
+            int x, int z, BlockFace facing) {
+        Fixture fixture = new Fixture(WORLD_ID, x, z, facing);
+        var pair = (PaperInventoryReference.DoubleChestBlock)
+                PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow().reference();
+        for (int full = 0; full < 54; full++) {
+            var local = PaperDoubleChestIdentity.physicalSlot(pair, full).orElseThrow();
+            assertEquals(full, PaperDoubleChestIdentity.combinedSlot(
+                    pair, WORLD_ID, local.half(), local.localSlot()).orElseThrow());
+        }
+        var physicalLeft = PaperDoubleChestIdentity.Position.at(
+                fixture.apiLeft().getLocation());
+        var physicalRight = PaperDoubleChestIdentity.Position.at(
+                fixture.apiRight().getLocation());
+        assertEquals(0, PaperDoubleChestIdentity.combinedSlot(
+                pair, WORLD_ID, physicalLeft, 0).orElseThrow());
+        assertEquals(26, PaperDoubleChestIdentity.combinedSlot(
+                pair, WORLD_ID, physicalLeft, 26).orElseThrow());
+        assertEquals(27, PaperDoubleChestIdentity.combinedSlot(
+                pair, WORLD_ID, physicalRight, 0).orElseThrow());
+        assertEquals(53, PaperDoubleChestIdentity.combinedSlot(
+                pair, WORLD_ID, physicalRight, 26).orElseThrow());
+        assertTrue(PaperDoubleChestIdentity.combinedSlot(
+                pair, UUID.randomUUID(), physicalLeft, 0).isEmpty());
+        assertTrue(PaperDoubleChestIdentity.combinedSlot(
+                pair, WORLD_ID, physicalLeft, 27).isEmpty());
+        assertTrue(PaperDoubleChestIdentity.physicalSlot(pair, 54).isEmpty());
+    }
+
+    @Test
+    void inaccessibleSecondChunkCannotProduceCanonicalScanView() {
+        Fixture fixture = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
+        fixture.unload(fixture.partnerX, fixture.partnerZ);
+        fixture.reads = 0;
+        assertTrue(PaperPhysicalInventorySnapshot.captureResolved(
+                fixture.left, fixture.plugin).isEmpty());
+        assertEquals(0, fixture.reads, "No block reads when one half is inaccessible");
+        assertFalse(fixture.forced);
+    }
+
+    @Test
     void actualApiLeftSideMayHaveTheHigherCoordinate() {
         Fixture fixture = new Fixture(WORLD_ID, 16, 0, BlockFace.SOUTH);
         var ref = PaperPhysicalInventorySnapshot.capture(fixture.left).orElseThrow();
@@ -200,6 +269,18 @@ class PaperDoubleChestIdentityTest {
             default -> null;
         });
         assertTrue(PaperPhysicalInventorySnapshot.capture(unknown).isEmpty());
+    }
+
+    @Test
+    void mismatchedHalfHolderCannotLaunderItsSlotsIntoOtherHalf() {
+        Fixture f = new Fixture(WORLD_ID, 15, 0, BlockFace.NORTH);
+        Inventory mismatch = proxy(Inventory.class, (method, args) -> switch (method) {
+            case HOLDER_METHOD -> f.state(true);
+            case LOCATION_METHOD -> new Location(f.world, f.partnerX, 70, f.partnerZ);
+            case SIZE_METHOD -> 27;
+            default -> null;
+        });
+        assertTrue(PaperPhysicalInventorySnapshot.capture(mismatch).isEmpty());
     }
 
     @Test
