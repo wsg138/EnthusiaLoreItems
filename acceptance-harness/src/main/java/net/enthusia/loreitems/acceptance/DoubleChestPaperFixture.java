@@ -154,10 +154,8 @@ final class DoubleChestPaperFixture {
         }
         Chest first = (Chest) world.getBlockAt(pair.x1, 70, pair.z1).getState(false);
         Chest second = (Chest) world.getBlockAt(pair.x2, 70, pair.z2).getState(false);
-        if (first.getBlockInventory().getSize() != 27
-                || second.getBlockInventory().getSize() != 27) {
-            throw new IllegalStateException("physical block half slots are not 27 each");
-        }
+        requireHalfSize(first);
+        requireHalfSize(second);
         // Bukkit Chest.Type and DoubleChestInventory left/right are independent
         // API concepts. Prove the physical block for EACH side from the real
         // Inventory.getLocation(), rather than assuming their names align.
@@ -177,6 +175,12 @@ final class DoubleChestPaperFixture {
         return firstIsLeft;
     }
 
+    private static void requireHalfSize(Chest block) {
+        if (block.getBlockInventory().getSize() != 27) {
+            throw new IllegalStateException("physical block half slots are not 27 each");
+        }
+    }
+
     private static boolean sameBlock(org.bukkit.Location one, org.bukkit.Location two) {
         return one != null && two != null && one.getWorld() != null
                 && two.getWorld() != null
@@ -190,12 +194,7 @@ final class DoubleChestPaperFixture {
             Chest physical, Inventory side, String sideName) {
         org.bukkit.Location block = physical.getLocation();
         org.bukkit.Location inventory = side.getLocation();
-        if (block == null || block.getWorld() == null || inventory == null
-                || inventory.getWorld() == null
-                || !block.getWorld().getUID().equals(inventory.getWorld().getUID())
-                || block.getBlockX() != inventory.getBlockX()
-                || block.getBlockY() != inventory.getBlockY()
-                || block.getBlockZ() != inventory.getBlockZ()) {
+        if (!sameBlock(block, inventory)) {
             throw new IllegalStateException("chest half inventory assigned to wrong physical block:"
                     + " side=" + sideName
                     + " expected=" + coordinates(block)
