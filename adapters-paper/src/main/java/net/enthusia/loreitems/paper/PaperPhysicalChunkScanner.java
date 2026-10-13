@@ -1,13 +1,16 @@
 package net.enthusia.loreitems.paper;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Logger;
 import java.util.logging.Level;
+import java.util.logging.Logger;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
+import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Chunk;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
@@ -22,6 +25,7 @@ import org.bukkit.plugin.Plugin;
 final class PaperPhysicalChunkScanner {
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private final PaperPhysicalInventoryScanner scanner;
+    private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalEntityScanner entityScanner;
     private final MetricsPort metrics;
     private final Logger logger;
@@ -36,6 +40,15 @@ final class PaperPhysicalChunkScanner {
             MetricsPort metrics,
             Logger logger,
             PaperLoadedTrackedContainerIndex index) {
+        this(scanner, entityScanner, metrics, logger, index, null);
+    }
+
+    PaperPhysicalChunkScanner(
+            PaperPhysicalInventoryScanner scanner,
+            PaperPhysicalEntityScanner entityScanner,
+            MetricsPort metrics, Logger logger,
+            PaperLoadedTrackedContainerIndex index, PaperTrackingCoordinator coordinator) {
+        this.coordinator = coordinator;
         this.scanner = scanner;
         this.entityScanner = entityScanner;
         this.metrics = metrics;
@@ -46,6 +59,11 @@ final class PaperPhysicalChunkScanner {
     void invalidateLifecycleCache() {
         scannedThisTick.clear();
         lastTick = Long.MIN_VALUE;
+    }
+
+    void invalidateContents(PaperLoadedTrackedContainerIndex.BlockKey block) {
+        index.markDirty(block);
+        scannedThisTick.keySet().removeIf(key -> key.contains(block));
     }
 
     boolean scanChunk(
@@ -161,6 +179,10 @@ final class PaperPhysicalChunkScanner {
             ContainerRead read, PaperPhysicalInventorySnapshot reference,
             TrackingObservationUseCase.Presence presence, String source,
             PaperScanLimit limit, long tick) {
+        if (coordinator != null
+                && presence == TrackingObservationUseCase.Presence.PRESENT) {
+            return scanPage(read, reference, source, limit, tick);
+        }
         Optional<ItemStack[]> contents = Optional.ofNullable(read.inventory().getContents());
         if (contents.isEmpty()) return unresolved(read.key(), tick);
         ItemStack[] items = contents.orElseThrow();
@@ -176,6 +198,53 @@ final class PaperPhysicalChunkScanner {
         if (!complete) metrics.increment("tracking.scan_container_unresolved");
         return complete;
     }
+
+    /** Continue exact immutable slot evidence without re-reading completed DFS pages. */
+    private boolean scanPage(ContainerRead read, PaperPhysicalInventorySnapshot reference,
+                             String source, PaperScanLimit limit, long tick) {
+        var key = read.key();
+        var page = scanner.scanBounded(
+                read.inventory(), reference.type(), reference.key(),
+                index.generation(key), reference.key(), index.cursor(key), limit);
+        if (page.state() == PaperBoundedInventoryContinuation.State.INVALIDATED) {
+            unresolved(key, tick);
+            index.markDirty(key.first());
+            return false;
+        }
+        var receipts = new ArrayList<PaperTrackingAcknowledgement>();
+        page.observations().forEach((identity, locations) -> locations.forEach(location -> {
+            var request = new TrackingObservationUseCase.Request(
+                    identity, location, TrackingObservationUseCase.Presence.PRESENT,
+                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                    source + "-container");
+            receipts.add(coordinator.submitAcknowledged(request));
+        }));
+        index.observedPage(key, page, receipts, tick);
+        if (page.complete() && page.authoritativeEligible()) {
+            confirmFreshHolderReceipts(key);
+        }
+        if (!page.complete()) metrics.increment("tracking.scan_container_unresolved");
+        return page.complete();
+    }
+
+    /** One-page, all-loaded proof is required before clearing W09 dirty-holder state. */
+    private void confirmFreshHolderReceipts(
+            PaperLoadedTrackedContainerIndex.ContainerKey key) {
+        Map<ReceiptHolder, List<PaperTrackingAcknowledgement>> groups = new HashMap<>();
+        for (var receipt : index.verifiedReceipts(key)) {
+            var request = receipt.request();
+            var holder = new ReceiptHolder(request.identity(), request.location().type(),
+                    request.location().locationKey());
+            groups.computeIfAbsent(holder, ignored -> new ArrayList<>()).add(receipt);
+        }
+        for (var sameHolder : groups.values()) {
+            coordinator.confirmCompleteHolderReconciliation(
+                    sameHolder.getFirst().request(), true, sameHolder);
+        }
+    }
+
+    private record ReceiptHolder(
+            LoreItemIdentity identity, LocationDescriptor.Type type, String locationKey) { }
 
     private boolean unresolved(PaperLoadedTrackedContainerIndex.ContainerKey key, long tick) {
         index.observed(key, true, false, tick);
