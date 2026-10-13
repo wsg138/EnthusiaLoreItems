@@ -53,7 +53,7 @@ final class DoubleChestPaperFixture {
         inspect(world, pair, sender, arguments[2]);
     }
 
-    private static Pair caseFor(String name) {
+    static Pair caseFor(String name) {
         Pair pair = CASES.get(name.toLowerCase(Locale.ROOT));
         if (pair == null) {
             throw new IllegalArgumentException("unknown doublechest case " + name);
@@ -113,10 +113,10 @@ final class DoubleChestPaperFixture {
             throw new IllegalStateException("double chest does not expose separate 27-slot halves");
         }
         if (combined.getSize() != 54
-                || combined.getItem(0) != left.getItem(0)
-                || combined.getItem(26) != left.getItem(26)
-                || combined.getItem(27) != right.getItem(0)
-                || combined.getItem(53) != right.getItem(26)) {
+                || !Objects.equals(combined.getItem(0), left.getItem(0))
+                || !Objects.equals(combined.getItem(26), left.getItem(26))
+                || !Objects.equals(combined.getItem(27), right.getItem(0))
+                || !Objects.equals(combined.getItem(53), right.getItem(26))) {
             throw new IllegalStateException("double chest composite/half slot mapping disagrees");
         }
         sender.sendMessage("WP05_DOUBLE_CHEST_TOPOLOGY_OK case=" + caseName
