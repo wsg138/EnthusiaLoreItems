@@ -1,0 +1,23 @@
+name: Worker 10 double-chest evidence schema tests
+
+on:
+  pull_request:
+    paths:
+      - "tools/verify_double_chest_acceptance.py"
+      - "tools/test_double_chest_acceptance.py"
+      - ".github/workflows/w10-double-chest-validator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify synthetic evidence-schema negative tests
+        run: python3 -m unittest discover -s tools -p 'test_double_chest_acceptance.py' -v
+      - name: Preserve distinction between schema and actual Paper
+        run: |
+          echo 'Only validator fixtures were tested. Actual Paper 26.2/Java 25 acceptance remains UNVERIFIED.'
