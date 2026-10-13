@@ -276,10 +276,10 @@ else:
         integrity=c.execute('pragma integrity_check').fetchone()
     proof='/tmp/wp05-tracking-contract/evidence/track2-unload-failure.txt'
     with open(proof,'w') as f:
-        f.write('expected: >=3 retained identities all LAST_CONFIRMED\\n')
-        f.write('current states: '+repr(states)+'\\n')
-        f.write('last 80 observations: '+repr(events)+'\\n')
-        f.write('SQLite integrity: '+repr(integrity)+'\\n')
+        f.write('expected: >=3 retained identities all LAST_CONFIRMED\n')
+        f.write('current states: '+repr(states)+'\n')
+        f.write('last 80 observations: '+repr(events)+'\n')
+        f.write('SQLite integrity: '+repr(integrity)+'\n')
     print('TRACK2_UNLOAD_DIAGNOSTIC',proof,states,events[-10:],flush=True)
     raise SystemExit(f'TRACK2 did not converge to LAST_CONFIRMED after natural unload: {rows}')
 PY
