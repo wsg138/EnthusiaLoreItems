@@ -70,6 +70,30 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertFalse(result["assessment"]["world_uuid_inferred"])
         self.assertFalse(result["assessment"]["safe_to_deploy"])
 
+    def test_consistent_sqlite_backup_includes_committed_wal_without_future_writes(self):
+        # Entirely synthetic source: a live server database is never touched.
+        with sqlite3.connect(self.path) as source:
+            self.assertEqual('wal', source.execute('PRAGMA journal_mode=WAL').fetchone()[0])
+            source.execute(
+                "INSERT INTO instance_current_state VALUES (?,?,?)",
+                ('BLOCK_CONTAINER', 'minecraft:world:7:70:8', 'LAST_CONFIRMED'))
+            source.commit()
+            snapshot = self.path.with_name('consistent-offline-copy.sqlite')
+            with sqlite3.connect(snapshot) as target:
+                source.backup(target)
+        frozen = audit(snapshot)
+        self.assertEqual(3, frozen['tables']['instance_current_state']
+                         ['categories']['legacy_world_name'])
+        self.assertEqual(2, frozen['tables']['instance_current_state']
+                         ['legacy_current_state_counts']['LAST_CONFIRMED'])
+        self.assertEqual('ok', frozen['quick_check'])
+        # Later changes to the source are never visible in the offline snapshot.
+        with sqlite3.connect(self.path) as source:
+            source.execute(
+                "INSERT INTO instance_current_state VALUES (?,?,?)",
+                ('BLOCK_CONTAINER', 'minecraft:world:9:70:8', 'CONFIRMED_NOW'))
+            source.commit()
+        self.assertEqual(frozen, audit(snapshot))
     def test_cli_explicit_offline_acknowledgement(self):
         command = [sys.executable, str(Path(__file__).with_name("legacy_block_key_audit.py")),
                    str(self.path)]
