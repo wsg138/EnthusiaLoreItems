@@ -141,7 +141,7 @@ class PaperTrackingAcknowledgementTest {
     }
 
     @Test
-    void laterFailedMoveCannotBeClearedByAlreadySettledNewerMove() {
+    void failedMoveRemainsIdentityWideUnresolvedAfterNewerRecordedLocation() {
         BlockingUseCase store = new BlockingUseCase();
         coordinator = new PaperTrackingCoordinator(plugin, () -> store, () -> 2,
                 MetricsPort.noOp());
@@ -163,11 +163,12 @@ class PaperTrackingAcknowledgementTest {
         assertEquals(PaperTrackingAcknowledgement.Settlement.CONFIRMED, status(fresh));
         assertTrue(coordinator.needsReconciliation(request(2,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
-        assertTrue(coordinator.confirmCompleteHolderReconciliation(
+        assertFalse(coordinator.confirmCompleteHolderReconciliation(
                 request(3, TrackingObservationUseCase.EvidenceMode.RECONCILIATION),
                 true, List.of(fresh)).toCompletableFuture().join());
-        assertFalse(coordinator.needsReconciliation(request(2,
+        assertTrue(coordinator.needsReconciliation(request(2,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION)));
+        assertEquals(1, coordinator.durabilitySnapshot().unresolvedHolders());
     }
 
     @Test
