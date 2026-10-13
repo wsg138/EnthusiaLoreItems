@@ -7,12 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import net.enthusia.loreitems.domain.LoreDefinitionId;
@@ -84,7 +84,7 @@ class PaperDoubleChestIdentityTest {
 
         PaperPhysicalInventorySnapshot snapshot =
                 PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
-        Map<LoreItemIdentity, List<LocationDescriptor>> observed = new HashMap<>();
+        Map<LoreItemIdentity, List<LocationDescriptor>> observed = new ConcurrentHashMap<>();
         new PaperTrackedItemCollector().collectArray(
                 snapshot.resolve(fixture.plugin).orElseThrow().getContents(),
                 snapshot.type(), snapshot.key(), "slot:", observed, new PaperScanLimit(256));
