@@ -75,10 +75,18 @@ final class DoubleChestPaperFixture {
         second.setType(Material.CHEST, false);
         configure(first, pair.facing, org.bukkit.block.data.type.Chest.Type.LEFT);
         configure(second, pair.facing, org.bukkit.block.data.type.Chest.Type.RIGHT);
+        markBoundaryItems(joinedInventory(first));
+    }
+
+    private static DoubleChestInventory joinedInventory(Block first) {
         if (!(first.getState(false) instanceof Chest firstChest)
                 || !(firstChest.getInventory() instanceof DoubleChestInventory combined)) {
             throw new IllegalStateException("fixture chest halves did not join on real Paper");
         }
+        return combined;
+    }
+
+    private static void markBoundaryItems(DoubleChestInventory combined) {
         Inventory left = combined.getLeftSide();
         Inventory right = combined.getRightSide();
         if (left == null || right == null || left.getSize() != 27
@@ -148,12 +156,7 @@ final class DoubleChestPaperFixture {
             DoubleChestInventory combined, World world, Pair pair) {
         Inventory left = combined.getLeftSide();
         Inventory right = combined.getRightSide();
-        if (left == null || right == null || combined.getSize() != 54) {
-            throw new IllegalStateException("double chest has no canonical 54-slot halves");
-        }
-        if (left.getSize() != 27 || right.getSize() != 27) {
-            throw new IllegalStateException("the left/right inventories are not 27 slots each");
-        }
+        requireCanonicalHalves(combined, left, right);
         Chest first = (Chest) world.getBlockAt(pair.x1, 70, pair.z1).getState(false);
         Chest second = (Chest) world.getBlockAt(pair.x2, 70, pair.z2).getState(false);
         requireHalfSize(first);
@@ -175,6 +178,16 @@ final class DoubleChestPaperFixture {
         verifyPhysicalHalf(physicalRight, right, "RIGHT_API_HALF");
         verifyBoundaryItems(combined, left, right);
         return firstIsLeft;
+    }
+
+    private static void requireCanonicalHalves(
+            DoubleChestInventory combined, Inventory left, Inventory right) {
+        if (left == null || right == null || combined.getSize() != 54) {
+            throw new IllegalStateException("double chest has no canonical 54-slot halves");
+        }
+        if (left.getSize() != 27 || right.getSize() != 27) {
+            throw new IllegalStateException("the left/right inventories are not 27 slots each");
+        }
     }
 
     private static void requireHalfSize(Chest block) {
