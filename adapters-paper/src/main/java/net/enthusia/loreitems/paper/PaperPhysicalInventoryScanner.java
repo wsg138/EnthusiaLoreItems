@@ -23,6 +23,7 @@ final class PaperPhysicalInventoryScanner {
     private static final int MAX_NESTING_DEPTH = 8;
     private final PaperBoundedInventoryContinuation continuation =
             new PaperBoundedInventoryContinuation();
+    private final PaperPagedInventoryAccess pagedAccess = new PaperPagedInventoryAccess();
     private static final String SLOT_PREFIX = "slot:";
     private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
@@ -105,7 +106,16 @@ final class PaperPhysicalInventoryScanner {
             Inventory inventory, LocationDescriptor.Type type, String key,
             long generation, String geometry,
             PaperBoundedInventoryContinuation.Cursor cursor, PaperScanLimit limit) {
-        return continuation.scan(inventory, type, key, generation, geometry, cursor, limit);
+        return scanBounded(inventory, type, key, generation, 0L, geometry, cursor, limit);
+    }
+
+    /** mutationFence must change on every known dirty event; never force-load. */
+    PaperBoundedInventoryContinuation.Page scanBounded(
+            Inventory inventory, LocationDescriptor.Type type, String key,
+            long generation, long mutationFence, String geometry,
+            PaperBoundedInventoryContinuation.Cursor cursor, PaperScanLimit limit) {
+        return continuation.scan(
+                inventory, type, key, generation, mutationFence, geometry, cursor, limit);
     }
 
     void scanItemTree(
@@ -196,17 +206,58 @@ final class PaperPhysicalInventoryScanner {
         return collector.hasIdentityEvidence(item);
     }
 
-    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
-        collector.collectItem(
-                item,
-                LocationDescriptor.Type.NESTED_CONTAINER,
-                "identity-tree",
-                "root",
-                observations,
-                0,
+    /** An empty identity set is NOT negative proof unless coverage is complete. */
+    record IdentityEvidence(Set<LoreItemIdentity> identities,
+                            PaperBoundedInventoryContinuation.State state) {
+        IdentityEvidence {
+            identities = Set.copyOf(identities);
+        }
+
+        boolean coverageComplete() {
+            return state == PaperBoundedInventoryContinuation.State.COMPLETE;
+        }
+    }
+
+    IdentityEvidence inspectIdentities(ItemStack item) {
+        PaperBoundedInventoryContinuation.Page page = continuation.scanSlots(
+                1, slot -> item, LocationDescriptor.Type.NESTED_CONTAINER,
+                "identity-tree", 0L, "single-item", null,
                 new PaperScanLimit(MAX_ITEMS_PER_SCAN));
-        return Set.copyOf(observations.keySet());
+        return new IdentityEvidence(page.observations().keySet(), page.state());
+    }
+
+    /** Legacy callers MUST NOT interpret an empty set as verified absence. */
+    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
+        return inspectIdentities(item).identities();
+    }
+
+    /** Emit every discovered copy as reconciliation, even across several pages. */
+    void submitPageObservations(PaperBoundedInventoryContinuation.Page page, String source) {
+        Objects.requireNonNull(page, "page");
+        submitReconciliation(page.observations(), source);
+    }
+
+    /** W06 player/cursor and container access call-site hook. */
+    PaperPagedInventoryAccess.Batch scanAccessSources(
+            List<PaperPagedInventoryAccess.Source> currentSources,
+            long generation, long mutationFence, PaperPagedInventoryAccess.Cursor cursor,
+            PaperScanLimit limit) {
+        return pagedAccess.scan(currentSources, generation, mutationFence, cursor, limit);
+    }
+
+    void submitAccessBatch(PaperPagedInventoryAccess.Batch batch, String source) {
+        Objects.requireNonNull(batch, "batch");
+        submitReconciliation(batch.observations(), source);
+    }
+
+    private void submitReconciliation(
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations, String source) {
+        observations.forEach((identity, locations) ->
+                locations.forEach(location -> coordinator.submit(
+                        new TrackingObservationUseCase.Request(identity, location,
+                                TrackingObservationUseCase.Presence.PRESENT,
+                                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                                source))));
     }
 
     private void collectPlayer(

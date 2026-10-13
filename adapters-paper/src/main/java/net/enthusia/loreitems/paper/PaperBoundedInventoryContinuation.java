@@ -1,7 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayList;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,7 +44,13 @@ final class PaperBoundedInventoryContinuation {
     }
 
     record Cursor(String sourceId, long generation, String geometry,
-                  int rootSize, List<Frame> path) {
+                  int rootSize, List<Frame> path, long mutationFence,
+                  boolean malformedEvidence) {
+        Cursor(String sourceId, long generation, String geometry,
+               int rootSize, List<Frame> path) {
+            this(sourceId, generation, geometry, rootSize, path, 0L, false);
+        }
+
         Cursor {
             Objects.requireNonNull(sourceId, "sourceId");
             Objects.requireNonNull(geometry, "geometry");
@@ -61,23 +67,39 @@ final class PaperBoundedInventoryContinuation {
     record Page(Map<LoreItemIdentity, List<LocationDescriptor>> observations,
                 State state, Cursor nextCursor, int visited, boolean authoritativeEligible) {
         Page {
-            Map<LoreItemIdentity, List<LocationDescriptor>> immutable = new ConcurrentHashMap<>();
+            Map<LoreItemIdentity, List<LocationDescriptor>> immutable = new LinkedHashMap<>();
             observations.forEach((id, locations) -> immutable.put(id, List.copyOf(locations)));
             observations = Map.copyOf(immutable);
         }
         boolean complete() {
             return state == State.COMPLETE;
         }
+
+        /** Partial, invalidated and malformed coverage never establish absence. */
+        boolean coverageComplete() {
+            return state == State.COMPLETE;
+        }
+
+        boolean malformedEvidence() {
+            return state == State.UNRESOLVED
+                    || (nextCursor != null && nextCursor.malformedEvidence());
+        }
     }
 
     Page scan(Inventory inventory, LocationDescriptor.Type type, String key,
               long generation, String geometry, Cursor cursor, PaperScanLimit limit) {
+        return scan(inventory, type, key, generation, 0L, geometry, cursor, limit);
+    }
+
+    Page scan(Inventory inventory, LocationDescriptor.Type type, String key,
+              long generation, long mutationFence, String geometry,
+              Cursor cursor, PaperScanLimit limit) {
         if (inventory == null) {
             return outcome(Map.of(), State.UNRESOLVED, null, 0, false);
         }
         try {
             return scanSlots(inventory.getSize(), inventory::getItem, type, key,
-                    generation, geometry, cursor, limit);
+                    generation, mutationFence, geometry, cursor, limit);
         } catch (RuntimeException inaccessible) {
             return outcome(Map.of(), State.UNRESOLVED, null, 0, false);
         }
@@ -86,6 +108,16 @@ final class PaperBoundedInventoryContinuation {
     Page scanSlots(int size, IntFunction<ItemStack> slots, LocationDescriptor.Type type,
                    String key, long generation, String geometry, Cursor cursor,
                    PaperScanLimit limit) {
+        return scanSlots(size, slots, type, key, generation, 0L, geometry, cursor, limit);
+    }
+
+    /**
+     * A caller that fences every mutation must advance mutationFence when the
+     * source changes. No cross-tick result is authoritative even with a fence.
+     */
+    Page scanSlots(int size, IntFunction<ItemStack> slots, LocationDescriptor.Type type,
+                   String key, long generation, long mutationFence, String geometry,
+                   Cursor cursor, PaperScanLimit limit) {
         Objects.requireNonNull(slots, "slots");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(type, "type");
@@ -95,7 +127,8 @@ final class PaperBoundedInventoryContinuation {
             return outcome(Map.of(), State.UNRESOLVED, null, 0, false);
         }
         String source = type.name() + ':' + key;
-        if (cursor != null && !sameSource(cursor, source, generation, geometry, size)) {
+        if (cursor != null && !sameSource(
+                cursor, source, generation, mutationFence, geometry, size)) {
             return outcome(Map.of(), State.INVALIDATED, null, 0, false);
         }
         if (size == 0) {
@@ -105,14 +138,16 @@ final class PaperBoundedInventoryContinuation {
                 ? new ArrayList<>(List.of(new Frame(ROOT, 0, size)))
                 : new ArrayList<>(cursor.path());
         Traversal traversal = new Traversal(slots, type, key, generation,
-                geometry, source, cursor == null);
+                mutationFence, geometry, source, cursor == null,
+                cursor != null && cursor.malformedEvidence());
         return traverse(traversal, path, limit);
     }
 
     private Page traverse(Traversal context, List<Frame> path, PaperScanLimit limit) {
         Map<LoreItemIdentity, List<LocationDescriptor>> observations =
-                new ConcurrentHashMap<>();
+                new LinkedHashMap<>();
         int visited = 0;
+        boolean malformed = context.malformedEvidence();
         // Page-local only: never keep Bukkit objects in the cursor.
         List<Resolved> cache = new ArrayList<>(MAX_DEPTH + 1);
         try {
@@ -120,7 +155,9 @@ final class PaperBoundedInventoryContinuation {
                 Resolved node = at(context.slots(), path, cache);
                 visited++;
                 if (!remember(context, node.item(), path, observations)) {
-                    return outcome(observations, State.UNRESOLVED, null, visited, false);
+                    // Preserve the malformed evidence and continue looking for
+                    // later valid duplicates within the same bounded traversal.
+                    malformed = true;
                 }
                 Children children = node.children();
                 if (children != null && children.size() > 0 && path.size() > MAX_DEPTH) {
@@ -134,10 +171,13 @@ final class PaperBoundedInventoryContinuation {
         }
         if (!path.isEmpty()) {
             Cursor next = new Cursor(context.source(), context.generation(),
-                    context.geometry(), path.getFirst().width(), path);
+                    context.geometry(), path.getFirst().width(), path,
+                    context.mutationFence(), malformed);
             return outcome(observations, State.PARTIAL, next, visited, false);
         }
-        return outcome(observations, State.COMPLETE, null, visited, context.firstPage());
+        return outcome(observations,
+                malformed ? State.UNRESOLVED : State.COMPLETE, null, visited,
+                context.firstPage() && !malformed);
     }
 
     /** Invalid PDC is unresolved evidence, never proof that an inventory is clean. */
@@ -167,12 +207,14 @@ final class PaperBoundedInventoryContinuation {
     }
 
     private record Traversal(IntFunction<ItemStack> slots, LocationDescriptor.Type type,
-                             String key, long generation, String geometry, String source,
-                             boolean firstPage) {}
+                             String key, long generation, long mutationFence,
+                             String geometry, String source, boolean firstPage,
+                             boolean malformedEvidence) {}
 
     private static boolean sameSource(Cursor cursor, String source, long generation,
-                                      String geometry, int size) {
+                                      long mutationFence, String geometry, int size) {
         return cursor.sourceId().equals(source) && cursor.generation() == generation
+                && cursor.mutationFence() == mutationFence
                 && cursor.geometry().equals(geometry) && cursor.rootSize() == size;
     }
 
