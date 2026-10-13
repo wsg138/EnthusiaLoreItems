@@ -95,11 +95,16 @@ sealed interface PaperInventoryReference
     record DoubleChestBlock(
             UUID worldId,
             PaperDoubleChestIdentity.Position first,
-            PaperDoubleChestIdentity.Position second) implements PaperInventoryReference {
+            PaperDoubleChestIdentity.Position second,
+            PaperDoubleChestIdentity.Position leftSide) implements PaperInventoryReference {
         public DoubleChestBlock {
             Objects.requireNonNull(worldId, "worldId");
             Objects.requireNonNull(first, "first");
             Objects.requireNonNull(second, "second");
+            Objects.requireNonNull(leftSide, "leftSide");
+            if (!leftSide.equals(first) && !leftSide.equals(second)) {
+                throw new IllegalArgumentException("Left half must be part of the pair");
+            }
             if (first.compareTo(second) >= 0 || !first.adjacent(second)) {
                 throw new IllegalArgumentException("Double chest halves must be ordered neighbors");
             }

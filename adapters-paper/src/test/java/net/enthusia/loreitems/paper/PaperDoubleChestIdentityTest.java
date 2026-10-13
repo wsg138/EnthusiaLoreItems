@@ -116,6 +116,18 @@ class PaperDoubleChestIdentityTest {
         fixture.broken = false;
         fixture.size = 27;
         assertTrue(ref.resolve(fixture.plugin).isEmpty());
+        fixture.size = 54;
+        fixture.leftType = Chest.Type.RIGHT;
+        fixture.rightType = Chest.Type.LEFT;
+        fixture.leftFacing = BlockFace.SOUTH;
+        fixture.rightFacing = BlockFace.SOUTH;
+        assertTrue(ref.resolve(fixture.plugin).isEmpty(),
+                "An old reference must not reinterpret swapped 0..53 slots");
+        var replacement = PaperPhysicalInventorySnapshot.capture(fixture.combined).orElseThrow();
+        assertEquals(ref.key(), replacement.key());
+        assertNotEquals(ref.reference(), replacement.reference());
+        assertEquals(Material.EMERALD,
+                replacement.resolve(fixture.plugin).orElseThrow().getContents()[26].getType());
     }
 
     @Test
@@ -234,8 +246,8 @@ class PaperDoubleChestIdentityTest {
             return switch (method) {
                 case SIZE_METHOD -> size;
                 case TYPE_METHOD -> InventoryType.CHEST;
-                case "getLeftSide" -> left;
-                case "getRightSide" -> right;
+                case "getLeftSide" -> apiLeft();
+                case "getRightSide" -> apiRight();
                 case HOLDER_METHOD -> holderWithoutSnapshot(args);
                 case LOCATION_METHOD -> new Location(world, (x + partnerX) / 2.0,
                         70, (z + partnerZ) / 2.0);
@@ -249,10 +261,18 @@ class PaperDoubleChestIdentityTest {
             return null;
         }
 
+        private Inventory apiLeft() {
+            return leftType == Chest.Type.LEFT ? left : right;
+        }
+
+        private Inventory apiRight() {
+            return leftType == Chest.Type.LEFT ? right : left;
+        }
+
         private ItemStack[] combinedContents() {
             ItemStack[] items = new ItemStack[54];
-            System.arraycopy(left.getContents(), 0, items, 0, 27);
-            System.arraycopy(right.getContents(), 0, items, 27, 27);
+            System.arraycopy(apiLeft().getContents(), 0, items, 0, 27);
+            System.arraycopy(apiRight().getContents(), 0, items, 27, 27);
             return items;
         }
 

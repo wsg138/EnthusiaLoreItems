@@ -96,8 +96,9 @@ final class PaperDoubleChestIdentity {
         if (neighbor == null || !loaded(world, origin) || !loaded(world, neighbor)) {
             return Optional.empty();
         }
+        Position leftSide = data.getType() == Chest.Type.LEFT ? origin : neighbor;
         PaperInventoryReference.DoubleChestBlock ref =
-                sortedPair(world.getUID(), origin, neighbor);
+                sortedPair(world.getUID(), origin, neighbor, leftSide);
         return resolve(world, ref).map(ignored -> ref);
     }
 
@@ -120,7 +121,18 @@ final class PaperDoubleChestIdentity {
         InventoryHolder holder = doubleInventory.getHolder(false);
         Location left = sideLocation(doubleInventory.getLeftSide(), holder, true);
         Location right = sideLocation(doubleInventory.getRightSide(), holder, false);
-        return pair(left, right).filter(pair::equals).map(ignored -> combined);
+        Position physicalLeft = leftForPair(first, second, pair);
+        return pair(left, right)
+                .filter(pair::equals)
+                .filter(ref -> ref.leftSide().equals(physicalLeft))
+                .map(ignored -> combined);
+    }
+
+    private static Position leftForPair(
+            BlockState first, BlockState second,
+            PaperInventoryReference.DoubleChestBlock pair) {
+        Chest firstData = (Chest) first.getBlockData();
+        return firstData.getType() == Chest.Type.LEFT ? pair.first() : pair.second();
     }
 
     private static boolean validPair(
@@ -187,15 +199,15 @@ final class PaperDoubleChestIdentity {
         Position a = Position.at(left);
         Position b = Position.at(right);
         return a.adjacent(b)
-                ? Optional.of(sortedPair(left.getWorld().getUID(), a, b))
+                ? Optional.of(sortedPair(left.getWorld().getUID(), a, b, a))
                 : Optional.empty();
     }
 
     private static PaperInventoryReference.DoubleChestBlock sortedPair(
-            UUID worldId, Position a, Position b) {
+            UUID worldId, Position a, Position b, Position leftSide) {
         return a.compareTo(b) < 0
-                ? new PaperInventoryReference.DoubleChestBlock(worldId, a, b)
-                : new PaperInventoryReference.DoubleChestBlock(worldId, b, a);
+                ? new PaperInventoryReference.DoubleChestBlock(worldId, a, b, leftSide)
+                : new PaperInventoryReference.DoubleChestBlock(worldId, b, a, leftSide);
     }
 
     static String key(PaperInventoryReference.DoubleChestBlock ref) {
