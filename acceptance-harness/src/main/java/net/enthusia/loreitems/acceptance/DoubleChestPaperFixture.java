@@ -29,7 +29,8 @@ final class DoubleChestPaperFixture {
             "xminus", new Pair(-1, 8, 0, 8, BlockFace.NORTH),
             "zminus", new Pair(8, -1, 8, 0, BlockFace.EAST),
             "xminus2", new Pair(-17, 8, -16, 8, BlockFace.NORTH),
-            "zminus2", new Pair(8, -17, 8, -16, BlockFace.EAST));
+            "zminus2", new Pair(8, -17, 8, -16, BlockFace.EAST),
+            "xremote", new Pair(255, 8, 256, 8, BlockFace.NORTH));
 
     private DoubleChestPaperFixture() {}
 
