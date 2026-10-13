@@ -113,6 +113,10 @@ final class DoubleChestPaperFixture {
         }
         DoubleChestInventory combined = resolvedInventory(world, pair);
         boolean firstIsPaperLeft = verifyHalfMapping(combined, world, pair);
+        String productionKey = ProductionDoubleChestProbe.verify(
+                world, pair, combined, firstIsPaperLeft);
+        sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_OK case=" + caseName
+                + " key=" + productionKey + " checked=combined,left,right,first,second");
         sender.sendMessage("WP05_DOUBLE_CHEST_TOPOLOGY_OK case=" + caseName
                 + " world_uuid=" + world.getUID()
                 + " first=" + pair.x1 + ",70," + pair.z1
