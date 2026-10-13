@@ -27,7 +27,9 @@ final class DoubleChestPaperFixture {
             "xplus", new Pair(15, 8, 16, 8, BlockFace.NORTH),
             "zplus", new Pair(8, 15, 8, 16, BlockFace.EAST),
             "xminus", new Pair(-1, 8, 0, 8, BlockFace.NORTH),
-            "zminus", new Pair(8, -1, 8, 0, BlockFace.EAST));
+            "zminus", new Pair(8, -1, 8, 0, BlockFace.EAST),
+            "xminus2", new Pair(-17, 8, -16, 8, BlockFace.NORTH),
+            "zminus2", new Pair(8, -17, 8, -16, BlockFace.EAST));
 
     private DoubleChestPaperFixture() {}
 
@@ -36,7 +38,7 @@ final class DoubleChestPaperFixture {
         Objects.requireNonNull(arguments, "arguments");
         if (arguments.length != 3) {
             throw new IllegalArgumentException(
-                    "doublechest <setup|inspect> <same|xplus|zplus|xminus|zminus>");
+                    "doublechest <setup|inspect> <case-name>");
         }
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
