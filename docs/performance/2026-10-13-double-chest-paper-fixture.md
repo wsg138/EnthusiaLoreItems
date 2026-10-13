@@ -31,10 +31,11 @@ The command **checks both chunks are already loaded** using
 state, or inventory call. If either chunk is inaccessible, it reports
 `WP05_DOUBLE_CHEST_UNRESOLVED` and must not try to load the missing half.
 It never calls `getChunkAt`, `loadChunk`, or `setChunkForceLoaded`.
-The fixture refuses to replace unrelated blocks. It creates a real pair
-with explicit `LEFT` and `RIGHT` Chest block data and checks that Paper
-exposes `DoubleChestInventory`, both 27-slot halves, a 54-slot composite,
-and consistent boundaries at indices 0,26,27,53. It emits the world UUID,
+The fixture **refuses to replace any existing block (including chests)**. It creates a real pair
+with explicit `LEFT` and `RIGHT` Chest block data, inserts four distinct
+**untracked** stone-type marker items into the physical halves (local slots 0 and 26),
+and checks that Paper exposes `DoubleChestInventory`, both 27-slot halves,
+a 54-slot composite, and matching markers at indices 0,26,27,53. It emits the world UUID,
 both block coordinates, and both chunk keys on success.
 
 **Execution prerequisite:** Use a real, disposable world with the relevant
@@ -64,3 +65,19 @@ proposed Sentinel Paper executor only after:
 Do not deploy the acceptance helper to the production SMP. No changes to
 Sentinel policy, live queue, main plugin JAR, SFTP, or SQLite are authorized
 by this fixture.
+
+## Disposable GitHub Actions runtime test
+
+`.github/workflows/double-chest-paper-topology.yml` runs the pinned
+`paper-26.2-129.jar` with Java 25 and the exact-head test helper. In the
+*fixture setup stage*, the GitHub-hosted console issues
+`forceload add -16 -16 16 16` to hold the relevant chunks available,
+then removes those test-owned tickets before shutdown. This **does not**
+assert that LoreItems avoids chunk loading; it is only a deterministic
+starting condition for the five topology checks. Later cases must
+independently test naturally inaccessible halves and must never leave
+force-load tickets installed.
+
+The workflow records exact-head source SHA, hashes of built JARs and
+Paper, Java version, server log and five per-case topology outcomes as a
+short-lived CI artifact. No externally reachable Paper port is opened.
