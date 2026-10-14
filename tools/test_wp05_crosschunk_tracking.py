@@ -56,12 +56,27 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
         verify(self.db, read_state(self.db), "move")
         verify(self.db, read_state(self.db), "restart")
 
+    def test_paper_may_prove_second_coordinate_is_physical_left(self):
+        canonical = KEY.replace("left=0", "left=1")
+        self.location("slot:53", key=canonical, revision=4)
+        self.receipt("slot:0", key=canonical)
+        self.receipt("slot:53", key=canonical)
+        verify(self.db, read_state(self.db), "move")
+        verify(self.db, read_state(self.db), "restart")
+
     def test_wrong_key_and_fake_53_receipt_are_rejected(self):
-        self.location(key=KEY.replace("left=0", "left=1"))
+        self.location(key=KEY.replace("16:70:8", "17:70:8"))
         self.receipt("slot:0")
         with self.assertRaises(AssertionError):
             verify(self.db, read_state(self.db), "deposit")
         self.location("slot:53", revision=4)
+        with self.assertRaises(AssertionError):
+            verify(self.db, read_state(self.db), "move")
+
+    def test_immutable_history_must_keep_same_canonical_side_mapping(self):
+        self.location("slot:53", key=KEY.replace("left=0", "left=1"), revision=4)
+        self.receipt("slot:0", key=KEY)
+        self.receipt("slot:53", key=KEY.replace("left=0", "left=1"))
         with self.assertRaises(AssertionError):
             verify(self.db, read_state(self.db), "move")
 
