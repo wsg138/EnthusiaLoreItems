@@ -58,8 +58,7 @@ final class ProductionDoubleChestProbe {
                     canonicalSnapshot = recorded;
                 }
             }
-            if ((pair.x1() == 2047 && pair.x2() == 2048)
-                    || (pair.z1() == 2047 && pair.z2() == 2048)) {
+            if (isRemoteFixture(pair)) {
                 remoteSnapshot = Objects.requireNonNull(canonicalSnapshot, "remote snapshot");
                 remoteSnapshotKey = expectedKey;
             }
@@ -67,6 +66,11 @@ final class ProductionDoubleChestProbe {
         } catch (ReflectiveOperationException | ClassCastException exception) {
             throw new IllegalStateException("production snapshot probe failed closed", exception);
         }
+    }
+
+    private static boolean isRemoteFixture(DoubleChestPaperFixture.Pair pair) {
+        return (pair.x1() == 2047 && pair.x2() == 2048)
+                || (pair.z1() == 2047 && pair.z2() == 2048);
     }
 
     private static Object captureAndVerify(
