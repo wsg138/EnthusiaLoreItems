@@ -1,10 +1,10 @@
 package net.enthusia.loreitems.paper;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
@@ -21,6 +21,9 @@ import org.bukkit.inventory.meta.BundleMeta;
 final class PaperPhysicalInventoryScanner {
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final int MAX_NESTING_DEPTH = 8;
+    private final PaperBoundedInventoryContinuation continuation =
+            new PaperBoundedInventoryContinuation();
+    private final PaperPagedInventoryAccess pagedAccess = new PaperPagedInventoryAccess();
     private static final String SLOT_PREFIX = "slot:";
     private static final ItemStack[] EMPTY_CONTENTS = new ItemStack[0];
 
@@ -32,8 +35,10 @@ final class PaperPhysicalInventoryScanner {
     }
 
     void scanPlayerUnique(Player player, String source) {
-        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
+        // Preserve bounded immediate-player regressions until W07 schedules
+        // continuation. A 256-unit partial scan never grants uniqueness.
+        PaperScanLimit limit = new PaperScanLimit(512);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
         collectPlayer(player, observations, limit);
         submitUnique(observations, limit.hasRemaining(), source);
     }
@@ -44,7 +49,7 @@ final class PaperPhysicalInventoryScanner {
             TrackingObservationUseCase.EvidenceMode mode,
             String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        ScanContext context = new ScanContext(presence, mode, source);
+        ScanContext context = new ScanContext(presence, reconciledMode(mode), source);
         scanPlayerInventory(player, context, limit);
         scanArray(
                 contentsOrEmpty(player.getEnderChest().getContents()),
@@ -88,8 +93,29 @@ final class PaperPhysicalInventoryScanner {
                 type,
                 key,
                 SLOT_PREFIX,
-                new ScanContext(presence, mode, source),
+                new ScanContext(presence, reconciledMode(mode), source),
                 limit);
+    }
+
+    /**
+     * Stateless page for Worker 07's loaded-only scheduler. Only an entire
+     * same-page complete result is eligible for uniqueness; multi-page
+     * observations must remain RECONCILIATION until independently fenced.
+     */
+    PaperBoundedInventoryContinuation.Page scanBounded(
+            Inventory inventory, LocationDescriptor.Type type, String key,
+            long generation, String geometry,
+            PaperBoundedInventoryContinuation.Cursor cursor, PaperScanLimit limit) {
+        return scanBounded(inventory, type, key, generation, 0L, geometry, cursor, limit);
+    }
+
+    /** mutationFence must change on every known dirty event; never force-load. */
+    PaperBoundedInventoryContinuation.Page scanBounded(
+            Inventory inventory, LocationDescriptor.Type type, String key,
+            long generation, long mutationFence, String geometry,
+            PaperBoundedInventoryContinuation.Cursor cursor, PaperScanLimit limit) {
+        return continuation.scan(
+                inventory, type, key, generation, mutationFence, geometry, cursor, limit);
     }
 
     void scanItemTree(
@@ -99,7 +125,10 @@ final class PaperPhysicalInventoryScanner {
             TrackingObservationUseCase.EvidenceMode mode,
             String source,
             PaperScanLimit limit) {
-        scanItem(item, location, new ScanContext(presence, mode, source), 0, limit);
+        // Entity/display callers have already charged their source visit to
+        // the shared limit. Do not charge the same root twice.
+        scanAcceptedItem(item, location,
+                new ScanContext(presence, reconciledMode(mode), source), 0, limit);
     }
 
     void submitMatchingIdentity(
@@ -128,6 +157,13 @@ final class PaperPhysicalInventoryScanner {
                 matching.observations().getOrDefault(identity, List.of()),
                 matching.scanWithinBudget(),
                 source));
+    }
+
+    /** Full evidence coverage is unknown until after traversal; never promote a partial scan. */
+    private static TrackingObservationUseCase.EvidenceMode reconciledMode(
+            TrackingObservationUseCase.EvidenceMode requested) {
+        return requested == TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION
+                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION : requested;
     }
 
     private void submitMatches(
@@ -165,17 +201,63 @@ final class PaperPhysicalInventoryScanner {
         return collector.trackedIdentity(item);
     }
 
-    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
-        collector.collectItem(
-                item,
-                LocationDescriptor.Type.NESTED_CONTAINER,
-                "identity-tree",
-                "root",
-                observations,
-                0,
+    /** True for tracked, partial/malformed or nested identity evidence. */
+    boolean hasIdentityEvidence(ItemStack item) {
+        return collector.hasIdentityEvidence(item);
+    }
+
+    /** An empty identity set is NOT negative proof unless coverage is complete. */
+    record IdentityEvidence(Set<LoreItemIdentity> identities,
+                            PaperBoundedInventoryContinuation.State state) {
+        IdentityEvidence {
+            identities = Set.copyOf(identities);
+        }
+
+        boolean coverageComplete() {
+            return state == PaperBoundedInventoryContinuation.State.COMPLETE;
+        }
+    }
+
+    IdentityEvidence inspectIdentities(ItemStack item) {
+        PaperBoundedInventoryContinuation.Page page = continuation.scanSlots(
+                1, slot -> item, LocationDescriptor.Type.NESTED_CONTAINER,
+                "identity-tree", 0L, "single-item", null,
                 new PaperScanLimit(MAX_ITEMS_PER_SCAN));
-        return Set.copyOf(observations.keySet());
+        return new IdentityEvidence(page.observations().keySet(), page.state());
+    }
+
+    /** Legacy callers MUST NOT interpret an empty set as verified absence. */
+    Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
+        return inspectIdentities(item).identities();
+    }
+
+    /** Emit every discovered copy as reconciliation, even across several pages. */
+    void submitPageObservations(PaperBoundedInventoryContinuation.Page page, String source) {
+        Objects.requireNonNull(page, "page");
+        submitReconciliation(page.observations(), source);
+    }
+
+    /** W06 player/cursor and container access call-site hook. */
+    PaperPagedInventoryAccess.Batch scanAccessSources(
+            List<PaperPagedInventoryAccess.Source> currentSources,
+            long generation, long mutationFence, PaperPagedInventoryAccess.Cursor cursor,
+            PaperScanLimit limit) {
+        return pagedAccess.scan(currentSources, generation, mutationFence, cursor, limit);
+    }
+
+    void submitAccessBatch(PaperPagedInventoryAccess.Batch batch, String source) {
+        Objects.requireNonNull(batch, "batch");
+        submitReconciliation(batch.observations(), source);
+    }
+
+    private void submitReconciliation(
+            Map<LoreItemIdentity, List<LocationDescriptor>> observations, String source) {
+        observations.forEach((identity, locations) ->
+                locations.forEach(location -> coordinator.submit(
+                        new TrackingObservationUseCase.Request(identity, location,
+                                TrackingObservationUseCase.Presence.PRESENT,
+                                TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
+                                source))));
     }
 
     private void collectPlayer(
@@ -293,6 +375,10 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             PaperScanLimit limit) {
         for (int slot = 0; slot < contents.length; slot++) {
+            if (!limit.canVisit()) {
+                limit.markTruncated();
+                return;
+            }
             scanSlot(contents[slot], type, key, prefix + slot, context, limit);
         }
     }
@@ -304,13 +390,25 @@ final class PaperPhysicalInventoryScanner {
             String path,
             ScanContext context,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        // Every top-level visit, including an empty slot, consumes work.
+        if (!limit.tryConsume() || !scannable(item)) {
             return;
         }
-        scanItem(item, new LocationDescriptor(type, key, path), context, 0, limit);
+        scanAcceptedItem(item, new LocationDescriptor(type, key, path), context, 0, limit);
     }
 
     private void scanItem(
+            ItemStack item,
+            LocationDescriptor location,
+            ScanContext context,
+            int depth,
+            PaperScanLimit limit) {
+        if (limit.tryConsume()) {
+            scanAcceptedItem(item, location, context, depth, limit);
+        }
+    }
+
+    private void scanAcceptedItem(
             ItemStack item,
             LocationDescriptor location,
             ScanContext context,
@@ -320,14 +418,17 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         submitItem(item, location, context.presence(), context.mode(), context.source());
-        if (depth >= MAX_NESTING_DEPTH) {
+        // Materialize the container metadata at most once, without recursively
+        // probing all leaves ahead of the work budget.
+        PaperTrackedItemCollector.NestedEvidence evidence = collector.nestedContents(item);
+        if (evidence == null) {
             return;
         }
-        PaperTrackedItemCollector.NestedEvidence evidence =
-                collector.nestedEvidenceWithIdentityEvidence(item);
-        if (evidence != null) {
-            scanNested(evidence, location, context, depth, limit);
+        if (depth >= MAX_NESTING_DEPTH) {
+            limit.markTruncated();
+            return;
         }
+        scanNested(evidence, location, context, depth, limit);
     }
 
     private void scanNested(
@@ -355,6 +456,10 @@ final class PaperPhysicalInventoryScanner {
         }
         ItemStack[] nested = contentsOrEmpty(shulker.getInventory().getContents());
         for (int slot = 0; slot < nested.length; slot++) {
+            if (!limit.canVisit()) {
+                limit.markTruncated();
+                return;
+            }
             scanItem(
                     nested[slot],
                     nestedLocation(parent, "shulker", slot),
@@ -375,6 +480,10 @@ final class PaperPhysicalInventoryScanner {
         }
         List<ItemStack> nested = bundle.getItems();
         for (int index = 0; index < nested.size(); index++) {
+            if (!limit.canVisit()) {
+                limit.markTruncated();
+                return;
+            }
             scanItem(
                     nested.get(index),
                     nestedLocation(parent, "bundle", index),
@@ -388,8 +497,11 @@ final class PaperPhysicalInventoryScanner {
             Inventory inventory,
             LocationDescriptor.Type type,
             String key) {
-        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
-        PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
+        Map<LoreItemIdentity, List<LocationDescriptor>> observations = new HashMap<>();
+        // Legacy immediate move reconciliation still reads one snapshot per
+        // event. Use a finite cap that covers the pre-existing 270-leaf
+        // nested regression; overflow remains non-authoritative.
+        PaperScanLimit limit = new PaperScanLimit(512);
         collector.collectArray(
                 contentsOrEmpty(inventory.getContents()),
                 type,
