@@ -54,9 +54,10 @@ Every category remains `REVIEW_ONLY_NO_WORLD_MAPPING` until independent
 physical evidence and migration review exist. The accompanying
 `mixed_key_arrival_order_counts` field separates mixed histories whose
 **first durable observation** used the legacy world name from those whose
-first observation already used a versioned UUID key. The audit orders each
-instance's records by immutable `observation_id` to make this deterministic;
-neither arrival direction proves location equivalence or physical duplication.
+first observation already used a versioned UUID key. The audit streams
+through the existing indexed `instance_id` grouping and identifies the earliest
+immutable `observation_id` per instance, **without an unindexed full-history
+sort**. Neither arrival direction proves location equivalence or physical duplication.
 Only aggregate counts appear, never individual instance IDs.
 The `projection_link_consistency` section checks that each current SQLite
 projection points to an observation for **the same instance**, that the
