@@ -503,6 +503,61 @@ async function phaseTwo() {
   log('TRACK3 reloaded')
   fs.writeFileSync(`${root}/track3-return-done`, 'ok\n')
 
+  // ACC-TRACK-004: a real tracked item moves across a genuine 54-slot
+  // double chest whose first/second physical blocks cross X chunk 0/1.
+  // Only ordinary Mineflayer GUI clicks are permitted; no server setItem.
+  await waitFile('go-track4-deposit')
+  await teleport(bot, 14, 71, 8, 'TRACK4 cross-chunk area')
+  bot.chat('/fill 13 69 7 18 69 9 minecraft:stone')
+  bot.chat('/setblock 15 71 8 minecraft:air')
+  bot.chat('/setblock 16 71 8 minecraft:air')
+  bot.chat('/setblock 15 70 8 minecraft:chest[facing=north,type=left]')
+  bot.chat('/setblock 16 70 8 minecraft:chest[facing=north,type=right]')
+  await sleep(1000)
+  item = tracked(bot)
+  block = await waitBlockAt(bot, 15, 70, 8, 'chest', 'TRACK4 left-half')
+  container = await openFixtureContainer(bot, 15, 70, 8, 'chest', 'TRACK4 pair deposit')
+  const chestSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (chestSlots !== 54) {
+    throw new Error(`TRACK4 real cross-chunk chest is not 54 slots: ${chestSlots}`)
+  }
+  await container.deposit(item.type, null, 1)
+  await sleep(900)
+  if (container.slots[0]?.name !== 'diamond_sword') {
+    throw new Error(`TRACK4 natural GUI deposit missing at chest slot 0: ${container.slots[0]?.name}`)
+  }
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('TRACK4 deposit left tracked sword in player inventory')
+  }
+  container.close()
+  await sleep(600)
+  fs.writeFileSync(`${root}/track4-deposited`, 'ok\n')
+  log('TRACK4 actual client cross-chunk chest slot:0')
+
+  // Move through ordinary server-acknowledged window clicks, not a Bukkit
+  // inventory mutation. Guard every stage; never replay an uncertain click.
+  await waitFile('go-track4-slot53')
+  block = await waitBlockAt(bot, 16, 70, 8, 'chest', 'TRACK4 right-half')
+  container = await openFixtureContainer(bot, 16, 70, 8, 'chest', 'TRACK4 pair movement')
+  const pairedSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (pairedSlots !== 54 || container.slots[0]?.name !== 'diamond_sword'
+      || container.slots[53]) {
+    throw new Error('TRACK4 pre-move physical 54-slot chest contents are not exact')
+  }
+  await bot.clickWindow(0, 0, 0)
+  await sleep(350)
+  await bot.clickWindow(53, 0, 0)
+  await sleep(1000)
+  if (container.slots[0] || container.slots[53]?.name !== 'diamond_sword') {
+    throw new Error(`TRACK4 GUI cross-half movement not accepted: slot0=${container.slots[0]?.name}, slot53=${container.slots[53]?.name}`)
+  }
+  container.close()
+  await sleep(700)
+  fs.writeFileSync(`${root}/track4-moved`, 'ok\n')
+  log('TRACK4 actual client cross-chunk chest slot:53')
+
   await waitFile('bot.stop')
   bot.quit('tracking acceptance complete')
 }
