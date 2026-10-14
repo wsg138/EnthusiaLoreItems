@@ -44,11 +44,11 @@ final class DoubleChestPaperFixture {
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
         World world = Objects.requireNonNull(Bukkit.getWorld("world"), "isolated test world");
-        if ("evict".equals(action)) {
+        if ("evict".equals(action) || "probe".equals(action)) {
             if (arguments.length != 4 || !"xremote".equals(arguments[2])) {
-                throw new IllegalArgumentException("evict is only allowed on disposable xremote");
+                throw new IllegalArgumentException("evict/probe only allowed on disposable xremote");
             }
-            evictRemoteHalf(world, pair, arguments[3], sender);
+            remoteChunkCheck(world, pair, arguments[3], action, sender);
             return;
         }
         if (arguments.length != 3) {
@@ -72,14 +72,27 @@ final class DoubleChestPaperFixture {
      * removes its force-load ticket. An unload is not simulated by a Boolean.
      * Do not read the remote block or double-chest inventory during eviction.
      */
-    private static void evictRemoteHalf(
-            World world, Pair pair, String half, CommandSender sender) {
-        boolean first = "first".equals(half);
-        if (!first && !"second".equals(half)) {
-            throw new IllegalArgumentException("evict half must be first or second");
+    private static void remoteChunkCheck(
+            World world, Pair pair, String half, String action, CommandSender sender) {
+        if (!"first".equals(half) && !"second".equals(half)
+                && !"control".equals(half)) {
+            throw new IllegalArgumentException("remote half must be first, second or control");
         }
-        int x = first ? pair.chunkX1() : pair.chunkX2();
-        int z = first ? pair.chunkZ1() : pair.chunkZ2();
+        // The control chunk is otherwise empty, remote from the test chest and spawn.
+        // It distinguishes an inability to unload *any* chunk from chest-specific
+        // tickets/neighbor access. Coordinates are chunk units, never read blocks.
+        int x = "control".equals(half) ? 150
+                : "first".equals(half) ? pair.chunkX1() : pair.chunkX2();
+        int z = "control".equals(half) ? 0
+                : "first".equals(half) ? pair.chunkZ1() : pair.chunkZ2();
+        if ("probe".equals(action)) {
+            sender.sendMessage("WP05_CHUNK_PROBE half=" + half
+                    + " loaded=" + world.isChunkLoaded(x, z)
+                    + " forced=" + world.isChunkForceLoaded(x, z)
+                    + " plugin_tickets=" + world.getPluginChunkTickets(x, z).stream()
+                            .map(plugin -> plugin.getName()).sorted().toList());
+            return;
+        }
         if (world.isChunkForceLoaded(x, z)) {
             sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_BLOCKED half=" + half
                     + " reason=FORCELOAD_TICKET_ACTIVE");
