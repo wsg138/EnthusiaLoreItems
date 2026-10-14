@@ -32,7 +32,9 @@ def read_state(connection):
 def assert_receipts(connection, rows, stage):
     assert len(rows) == 1, f"{stage}: expected exactly one instance, got {len(rows)}"
     iid, state, kind, key, slot, revision = rows[0]
-    assert state == "CONFIRMED_NOW", f"{stage}: invalid state {state}"
+    allowed_states = ("CONFIRMED_NOW", "LAST_CONFIRMED") if stage == "restart" \
+        else ("CONFIRMED_NOW",)
+    assert state in allowed_states, f"{stage}: invalid state {state}"
     assert kind == "BLOCK_CONTAINER", f"{stage}: invalid location {kind}"
     assert isinstance(key, str) and CANONICAL.fullmatch(key), (
         f"{stage}: missing canonical UUID/half-mapped identity: {key}")
@@ -54,12 +56,16 @@ def assert_receipts(connection, rows, stage):
     if stage != "deposit":
         assert any(k == key and p == "slot:53" and c == "CONFIRMED_NOW"
                    for k, p, c in history), f"{stage}: no actual slot-53 receipt"
+        if stage == "restart" and state == "LAST_CONFIRMED":
+            assert any(k == key and p == "slot:53" and c == "LAST_CONFIRMED"
+                       for k, p, c in history), (
+                "restart: unloaded chest lost durable LAST_CONFIRMED receipt")
         assert connection.execute(
             "PRAGMA integrity_check").fetchone()[0] == "ok", "SQLite integrity"
         assert connection.execute(
             "PRAGMA foreign_key_check").fetchall() == [], "SQLite foreign-key error"
     print(f"PASS ACC-TRACK-004 {stage}: one tracked UUID-key double chest, "
-          f"slot={slot}, observation receipts={len(history)}, anomalies=0",
+          f"state={state}, slot={slot}, observation receipts={len(history)}, anomalies=0",
           flush=True)
 
 
@@ -76,7 +82,9 @@ def main():
             latest = rows
             if len(rows) == 1 and rows[0][1] == "CONFLICTING":
                 raise SystemExit(f"ACC-TRACK-004 {stage}: conflict requires investigation")
-            if (len(rows) == 1 and rows[0][1] == "CONFIRMED_NOW"
+            states = ("CONFIRMED_NOW", "LAST_CONFIRMED") if stage == "restart" \
+                else ("CONFIRMED_NOW",)
+            if (len(rows) == 1 and rows[0][1] in states
                     and rows[0][4] == STAGES[stage]
                     and isinstance(rows[0][3], str)
                     and CANONICAL.fullmatch(rows[0][3])):
