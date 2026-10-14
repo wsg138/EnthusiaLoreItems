@@ -1,8 +1,11 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -19,6 +22,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 /** Paper event adapter for naturally accessible inventory-backed template updates. */
 final class PaperTemplateUpdateEvents implements Listener {
     private final PaperTemplateUpdateAccessController controller;
+    private final Set<PaperInventoryReference> pendingMoves = new LinkedHashSet<>();
+    private boolean moveFlushScheduled;
 
     PaperTemplateUpdateEvents(PaperTemplateUpdateAccessController controller) {
         this.controller = Objects.requireNonNull(controller, "controller");
@@ -72,12 +77,25 @@ final class PaperTemplateUpdateEvents implements Listener {
                 PaperInventoryReference.capture(event.getSource());
         Optional<PaperInventoryReference> destination =
                 PaperInventoryReference.capture(event.getDestination());
-        source.ifPresent(controller::invalidate);
-        destination.ifPresent(controller::invalidate);
-        controller.scheduleNextTick(() -> {
-            source.ifPresent(controller::enqueue);
-            destination.ifPresent(controller::enqueue);
-        });
+        source.ifPresent(this::invalidateAndQueue);
+        destination.ifPresent(this::invalidateAndQueue);
+        if (!moveFlushScheduled && !pendingMoves.isEmpty()) {
+            moveFlushScheduled = true;
+            controller.scheduleNextTick(this::flushMoves);
+        }
+    }
+
+    private void invalidateAndQueue(PaperInventoryReference reference) {
+        if (pendingMoves.add(reference)) {
+            controller.invalidate(reference);
+        }
+    }
+
+    private void flushMoves() {
+        moveFlushScheduled = false;
+        List<PaperInventoryReference> ready = List.copyOf(pendingMoves);
+        pendingMoves.clear();
+        ready.forEach(controller::enqueue);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
