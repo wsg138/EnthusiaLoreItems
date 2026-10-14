@@ -16,10 +16,16 @@ final class SQLiteTrackingLegacyKeyFence {
                 || previous.type() != observed.type()) {
             return false;
         }
-        return root(previous) != null && root(observed) != null
-                && legacyWorldName(previous.locationKey()) != null
-                && isVersionedRoot(root(observed))
-                && !previous.locationKey().equals(observed.locationKey());
+        String before = root(previous);
+        String after = root(observed);
+        if (before == null || after == null
+                || previous.locationKey().equals(observed.locationKey())) {
+            return false;
+        }
+        // Either arrival order is ambiguous: a stale world-name event after
+        // confirmed UUID evidence is no proof of a distinct second copy.
+        return (legacyWorldName(before) != null && isVersionedRoot(after))
+                || (isVersionedRoot(before) && legacyWorldName(after) != null);
     }
 
     private static boolean isVersionedRoot(String key) {
