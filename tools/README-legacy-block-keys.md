@@ -40,6 +40,17 @@ diagnostic only, and no entity identifier or UUID is emitted. It separately summ
 without exporting player or item instance identifiers. A
 `LAST_CONFIRMED` key is not proof that the item still exists at that
 physical location, and a `CONFLICTING` key must never be auto-resolved.
+
+The `legacy_evidence_scope` section distinguishes a current world-name
+block projection from immutable historical world-name observations. A
+current legacy block location needs explicit physical-identity review
+before reconciliation. If only historical observations use old block
+names, preserve them rather than rewriting audit history to make it
+appear clean. The aggregate report classifies this as
+`HISTORICAL_ONLY_PRESERVE_IMMUTABLE_EVIDENCE`, but never infers a world
+UUID or approves a migration or deployment. Even that result retains
+`deployment_approved: false` and overall `safe_to_deploy: false`.
+Recheck using a fresh transactionally consistent backup before release.
 Legacy world-name groups are marked
 **UNRESOLVED**, even when the name is unique in this report. A world-name
 group can correspond to more than one actual world UUID.
