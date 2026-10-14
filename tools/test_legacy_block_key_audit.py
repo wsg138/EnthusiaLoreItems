@@ -354,6 +354,10 @@ class ProjectionLinkPreflightTests(unittest.TestCase):
             self.assertNotIn('private-person', json.dumps(report))
             self.assertEqual('REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
                              report['projection_link_consistency']['assessment'])
+            self.assertEqual('REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
+                             report['historical_instance_overlap']['resolution'])
+            self.assertEqual({}, report['historical_instance_overlap']
+                             ['mixed_key_arrival_order_counts'])
 
 
 
