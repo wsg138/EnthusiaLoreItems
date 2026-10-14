@@ -5,12 +5,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Chest;
 import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 /**
@@ -133,18 +131,10 @@ final class ProductionDoubleChestProbe {
     }
 
     private static void verifyBoundary(Inventory resolved) {
-        if (!(resolved instanceof DoubleChestInventory) || resolved.getSize() != 54) {
-            throw new IllegalStateException("production resolved half as non-composite inventory");
+        if (!(resolved instanceof DoubleChestInventory)) {
+            throw new IllegalStateException("production resolved a non-composite chest inventory");
         }
-        requireMaterial(resolved.getItem(0), Material.COBBLESTONE);
-        requireMaterial(resolved.getItem(26), Material.GRANITE);
-        requireMaterial(resolved.getItem(27), Material.DIORITE);
-        requireMaterial(resolved.getItem(53), Material.ANDESITE);
-    }
-
-    private static void requireMaterial(ItemStack item, Material expected) {
-        if (item == null || item.getType() != expected) {
-            throw new IllegalStateException("production 54-slot physical boundary mismatch " + expected);
-        }
+        // Validate all 54 independent physical slot markers, not only edges.
+        DoubleChestSlotMarkers.verifyCombined(resolved);
     }
 }
