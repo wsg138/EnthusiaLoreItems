@@ -74,7 +74,13 @@ snapshot through SQLite's `Connection.backup()` API, and demonstrates that
 later source writes do not change the snapshot. This is a **backup protocol
 rehearsal**, not a proof that any live server files are safely backed up or
 restorable; actual stopped-server backup + journal recovery/restore still needs
-explicit independent approval and testing.
+explicit independent approval and testing. A separate synthetic regression
+takes a complete SQLite backup, commits later writes to its original WAL-mode
+source, performs `PRAGMA wal_checkpoint(TRUNCATE)`, and restores the backup to
+a **different** disposable filename. The restored audit must match the
+pre-write snapshot exactly, with SQLite `quick_check=ok` and no copied later
+history. This validates only a temporary SQLite recovery rehearsal, not
+LoreItems' actual live installation, data, or rollback procedure.
 
 **Required later gates:** prove cross-world collisions and world recreation,
 naturally loaded block/chest half proof, bounded idempotent migration, ambiguous
