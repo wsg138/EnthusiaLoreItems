@@ -30,7 +30,8 @@ final class DoubleChestPaperFixture {
             "zminus", new Pair(8, -1, 8, 0, BlockFace.EAST),
             "xminus2", new Pair(-17, 8, -16, 8, BlockFace.NORTH),
             "zminus2", new Pair(8, -17, 8, -16, BlockFace.EAST),
-            "xremote", new Pair(2047, 8, 2048, 8, BlockFace.NORTH));
+            "xremote", new Pair(2047, 8, 2048, 8, BlockFace.NORTH),
+            "zremote", new Pair(8, 2047, 8, 2048, BlockFace.EAST));
 
     private DoubleChestPaperFixture() {}
 
@@ -39,14 +40,14 @@ final class DoubleChestPaperFixture {
         Objects.requireNonNull(arguments, "arguments");
         if (arguments.length < 3 || arguments.length > 4) {
             throw new IllegalArgumentException(
-                    "doublechest <setup|inspect> <case-name> or evict xremote <first|second>");
+                    "doublechest <setup|inspect|probe|evict|prime> <case-name> [half]");
         }
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
         World world = Objects.requireNonNull(Bukkit.getWorld("world"), "isolated test world");
         if (arguments.length == 4) {
             requireRemoteFixture(arguments[2]);
-            remoteChunkCheck(world, pair, arguments[3], action, sender);
+            remoteChunkCheck(world, pair, arguments[2], arguments[3], action, sender);
             return;
         }
         if (arguments.length != 3) {
@@ -68,14 +69,14 @@ final class DoubleChestPaperFixture {
     }
 
     private static void requireRemoteFixture(String name) {
-        if (!"xremote".equals(name)) {
+        if (!"xremote".equals(name) && !"zremote".equals(name)) {
             throw new IllegalArgumentException("remote chunk actions are test-only");
         }
     }
 
     /** Only test-host-owned chunk lifecycle operations; never production logic. */
     private static void remoteChunkCheck(
-            World world, Pair pair, String half, String action, CommandSender sender) {
+            World world, Pair pair, String caseName, String half, String action, CommandSender sender) {
         if ("probe".equals(action)) {
             emitRemoteProbe(world, pair, half, sender);
             return;
@@ -85,7 +86,7 @@ final class DoubleChestPaperFixture {
             return;
         }
         if ("prime".equals(action)) {
-            primeOnlyOneHalf(world, pair, half, sender);
+            primeOnlyOneHalf(world, pair, caseName, half, sender);
             return;
         }
         throw new IllegalArgumentException("remote action must be probe, evict or prime");
@@ -153,7 +154,7 @@ final class DoubleChestPaperFixture {
      * No fake chunk flags and no world block or inventory reads.
      */
     private static void primeOnlyOneHalf(
-            World world, Pair pair, String half, CommandSender sender) {
+            World world, Pair pair, String caseName, String half, CommandSender sender) {
         if (!"first".equals(half) && !"second".equals(half)) {
             throw new IllegalArgumentException("prime requires a chest half");
         }
@@ -175,14 +176,15 @@ final class DoubleChestPaperFixture {
         if (world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                 != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
             ProductionDoubleChestProbe.verifyIncomplete(world, pair);
-            sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED first_loaded="
+            sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED case=" + caseName
+                    + " first_loaded="
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                     + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())
                     + " authority=NONE");
         }
         // Within the same server-thread operation, execute the ordinary loaded
         // guard after the explicit TEST HOST load. An unloaded half is never read.
-        command(sender, new String[]{"doublechest", "inspect", "xremote"});
+        command(sender, new String[]{"doublechest", "inspect", caseName});
     }
 
     static Pair caseFor(String name) {
