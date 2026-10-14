@@ -104,6 +104,7 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
     arrival_orders: Counter[str] = Counter()
     previous_id = None
     first_format = None
+    first_observation_id = None
     legacy = False
     modern_world = None
     multiple_modern_worlds = False
@@ -125,14 +126,18 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
             counts['neither_legacy_nor_modern_block_history'] += 1
 
     cursor = connection.execute(
-        'SELECT instance_id, location_type, location_key '
-        'FROM instance_observations ORDER BY instance_id, observation_id')
+        # Production has an index prefixed by instance_id. Do not force an
+        # expensive global sort on observation_id; track the earliest ID
+        # within each streaming group instead.
+        'SELECT observation_id, instance_id, location_type, location_key '
+        'FROM instance_observations ORDER BY instance_id')
     for batch in iter(lambda: cursor.fetchmany(BATCH_SIZE), []):
-        for instance_id, location_type, key in batch:
+        for observation_id, instance_id, location_type, key in batch:
             if previous_id is not None and instance_id != previous_id:
                 finish()
                 legacy = False
                 first_format = None
+                first_observation_id = None
                 modern_world = None
                 multiple_modern_worlds = False
                 seen_modern = False
@@ -140,11 +145,13 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
             category, _ = classify(location_type, key)
             if category == 'legacy_world_name':
                 legacy = True
-                if first_format is None:
+                if first_observation_id is None or observation_id < first_observation_id:
                     first_format = 'legacy'
+                    first_observation_id = observation_id
             elif category in ('modern_block_v2', 'modern_double_chest'):
-                if first_format is None:
+                if first_observation_id is None or observation_id < first_observation_id:
                     first_format = 'modern'
+                    first_observation_id = observation_id
                 root = key[len(NESTED_PREFIX):] if key.startswith(NESTED_PREFIX) else key
                 observed_world = root.split(':', 2)[1]
                 if seen_modern and observed_world != modern_world:
