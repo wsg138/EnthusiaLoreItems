@@ -109,6 +109,42 @@ if grep -Eq 'WP05_ACCEPT FAIL|WP05_DOUBLE_CHEST_UNRESOLVED' "$LOG"; then
 fi
 echo "PASS: seven real Paper topologies AND production capture/resolve of all physical halves"
 
+# CONTROL: independent Paper chunk without an attached chest. This is a real
+# loaded/unloaded world test; if even this chunk cannot unload, do not claim
+# any missing-half result. The host may hold it only during preparation.
+printf 'forceload add 2400 8\n' >&3
+sleep 3
+printf 'forceload remove 2400 8\n' >&3
+sleep 3
+before=$(grep -Ec 'WP05_DOUBLE_CHEST_EVICT_(OK|REQUESTED) half=control' "$LOG" 2>/dev/null || true)
+printf 'wp05accept doublechest evict xremote control\n' >&3
+for _ in $(seq 1 30); do
+  count=$(grep -Ec 'WP05_DOUBLE_CHEST_EVICT_(OK|REQUESTED) half=control' "$LOG" 2>/dev/null || true)
+  if [[ "$count" -gt "$before" ]]; then break; fi
+  if grep -Eq 'WP05_DOUBLE_CHEST_EVICT_(BLOCKED|FAILED) half=control' "$LOG"; then
+    echo 'FAIL: control chunk cannot request actual Paper unload' >&2
+    tail -100 "$LOG" >&2
+    exit 1
+  fi
+  sleep .5
+done
+[[ "$count" -gt "$before" ]] || { echo 'FAIL: no control chunk unload acknowledgement' >&2; exit 1; }
+: > "$EVIDENCE/unload-control-results.txt"
+for _ in $(seq 1 120); do
+  printf 'wp05accept doublechest probe xremote control\n' >&3
+  sleep .5
+  if grep -q 'WP05_CHUNK_PROBE half=control loaded=false' "$LOG"; then
+    grep 'WP05_CHUNK_PROBE half=control loaded=false' "$LOG" | tail -1 > "$EVIDENCE/unload-control-results.txt"
+    echo 'PASS: isolated Paper control chunk actually unloaded' 
+    break
+  fi
+done
+if [[ ! -s "$EVIDENCE/unload-control-results.txt" ]]; then
+  echo 'FAIL: Paper cannot unload a remote control chunk; check retained tickets/ticking before chest tests' >&2
+  grep 'WP05_CHUNK_PROBE half=control' "$LOG" | tail -12 >&2 || true
+  exit 1
+fi
+
 # Dedicated remote cross-chunk fixture: host tickets may prepare the two halves,
 # but after setup the test host removes one half's ticket, and the PRODUCTION
 # listener/helper must refuse full 54-slot authority until BOTH chunks load.
@@ -161,6 +197,9 @@ await_half_unloaded() {
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then return 1; fi
   done
   echo "FAIL: xremote $half never actually unloaded after Paper unload request" >&2
+  printf 'wp05accept doublechest probe xremote %s\n' "$half" >&3
+  sleep 1
+  grep "WP05_CHUNK_PROBE half=$half" "$LOG" | tail -5 >&2 || true
   tail -60 "$LOG" >&2
   return 1
 }
