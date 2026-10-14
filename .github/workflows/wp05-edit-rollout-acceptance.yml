@@ -98,11 +98,20 @@ jobs:
             let picked=false
             for(let i=0;i<100;i++){
               if(bot.inventory.items().some(it=>it.name.endsWith('shulker_box'))){picked=true;break}
-              const drop=bot.nearestEntity(e=>e&&(e.name==='item'||e.displayName==='Item'))
+              // Follow only the genuine nearby vanilla drop from THIS
+              // mined shulker. An old/unrelated drop cannot redirect the bot.
+              const origin=new Vec3(x+0.5,y+0.5,z+0.5)
+              const drop=bot.nearestEntity(e=>e&&e.position
+                &&(e.name==='item'||e.displayName==='Item')
+                &&e.position.distanceTo(origin)<=4)
+              if(i%20===0){
+                const now=bot.blockAt(new Vec3(x,y,z))
+                log(`SHULKER_PICKUP ${marker} attempt=${i} block=${now?.name||'unloaded'} nearby_drop=${drop?.name||'missing'} player=${bot.entity.position} inventory=${bot.inventory.items().map(it=>it.name).join(',')}`)
+              }
               if(drop&&i%5===0)bot.chat(`/tp ${name} ${drop.position.x.toFixed(3)} ${drop.position.y.toFixed(3)} ${drop.position.z.toFixed(3)}`)
               await sleep(250)
             }
-            if(!picked)throw Error(`${marker} vanilla shulker pickup failed`)
+            if(!picked)throw Error(`${marker} vanilla shulker pickup failed; block=${bot.blockAt(new Vec3(x,y,z))?.name||'unloaded'}; inventory=${bot.inventory.items().map(it=>it.name).join(',')}`)
             await teleport(x-1,y+1,z,marker+'-return')
             await depositNamedChest(x,y,z,'shulker_box',marker)
             fs.writeFileSync(`${root}/${marker}.done`,'ok\n');log(`${marker} genuine shulker nested move`)
