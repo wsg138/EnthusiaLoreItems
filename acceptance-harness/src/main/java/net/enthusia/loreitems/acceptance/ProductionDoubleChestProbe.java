@@ -20,6 +20,7 @@ final class ProductionDoubleChestProbe {
     // Never store a Bukkit holder, inventory, block or live chunk across ticks.
     private static Object remoteSnapshot;
     private static String remoteSnapshotKey;
+    private static final String BLOCK_Y = ":70:";
 
     private ProductionDoubleChestProbe() {}
 
@@ -37,8 +38,8 @@ final class ProductionDoubleChestProbe {
         Chest first = chest(world, pair.x1(), pair.z1());
         Chest second = chest(world, pair.x2(), pair.z2());
         String expectedKey = "double-chest:" + world.getUID() + ':'
-                + pair.x1() + ":70:" + pair.z1() + '|'
-                + pair.x2() + ":70:" + pair.z2()
+                + pair.x1() + BLOCK_Y + pair.z1() + '|'
+                + pair.x2() + BLOCK_Y + pair.z2()
                 + ":left=" + (firstIsPaperLeft ? "0" : "1");
         try {
             Class<?> snapshotType = Class.forName(
@@ -105,14 +106,7 @@ final class ProductionDoubleChestProbe {
             World world, DoubleChestPaperFixture.Pair pair) {
         Object snapshot = Objects.requireNonNull(remoteSnapshot,
                 "remote production snapshot was never captured while both chunks were loaded");
-        String captured = Objects.requireNonNull(remoteSnapshotKey,
-                "remote production snapshot key missing");
-        String coordinates = ":" + pair.x1() + ":70:" + pair.z1()
-                + "|" + pair.x2() + ":70:" + pair.z2() + ":left=";
-        if (!captured.startsWith("double-chest:" + world.getUID() + ":")
-                || !captured.contains(coordinates)) {
-            throw new IllegalStateException("production negative probe captured the wrong remote pair");
-        }
+        requireMatchingCapturedPair(world, pair);
         boolean first = world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1());
         boolean second = world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2());
         if (first == second) {
@@ -120,6 +114,27 @@ final class ProductionDoubleChestProbe {
         }
         Plugin production = Objects.requireNonNull(
                 Bukkit.getPluginManager().getPlugin("EnthusiaLoreItems"), "production plugin");
+        assertProductionResolverEmpty(snapshot, production);
+        if (first != world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                || second != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
+            throw new IllegalStateException("production resolver loaded an absent chest chunk");
+        }
+    }
+
+    private static void requireMatchingCapturedPair(
+            World world, DoubleChestPaperFixture.Pair pair) {
+        String captured = Objects.requireNonNull(remoteSnapshotKey,
+                "remote production snapshot key missing");
+        String coordinates = ":" + pair.x1() + BLOCK_Y + pair.z1()
+                + "|" + pair.x2() + BLOCK_Y + pair.z2() + ":left=";
+        if (!captured.startsWith("double-chest:" + world.getUID() + ":")
+                || !captured.contains(coordinates)) {
+            throw new IllegalStateException(
+                    "production negative probe captured the wrong remote pair");
+        }
+    }
+
+    private static void assertProductionResolverEmpty(Object snapshot, Plugin production) {
         try {
             Method resolve = snapshot.getClass().getDeclaredMethod("resolve", Plugin.class);
             resolve.setAccessible(true);
@@ -129,12 +144,8 @@ final class ProductionDoubleChestProbe {
                         "production wrongly resolved a 54-slot inventory with one unloaded half");
             }
         } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("production incomplete resolver probe failed closed",
-                    exception);
-        }
-        if (first != world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
-                || second != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
-            throw new IllegalStateException("production resolver loaded an absent chest chunk");
+            throw new IllegalStateException(
+                    "production incomplete resolver probe failed closed", exception);
         }
     }
 
