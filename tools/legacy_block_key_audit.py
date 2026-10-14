@@ -100,6 +100,18 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
     lets us stream one instance at a time without retaining the full history.
     Even a single observed modern UUID is NOT proof of a legacy world mapping.
     """
+    required = {'observation_id', 'instance_id', 'location_type', 'location_key'}
+    present = {row[1] for row in connection.execute(
+        'PRAGMA table_info(instance_observations)')}
+    if not required.issubset(present):
+        return {
+            'risk_counts': {},
+            'mixed_key_arrival_order_counts': {},
+            'resolution': 'REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
+            'warning': ('Unable to classify ordered instance histories: '
+                        'required observation columns are missing. No zero-risk '
+                        'assessment or world-name mapping can be inferred.'),
+        }
     counts: Counter[str] = Counter()
     arrival_orders: Counter[str] = Counter()
     previous_id = None
