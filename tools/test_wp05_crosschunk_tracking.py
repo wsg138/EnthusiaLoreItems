@@ -66,6 +66,35 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             verify(self.db, zrows, "move", HELPERS["CANONICAL"])
 
+    def test_negative_axes_have_distinct_canonical_geometry_and_case_ids(self):
+        cases = (
+            ("xminus", "acc_track_double_xneg",
+             "double-chest:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:-1:70:8|0:70:8:left=1",
+             "ACC-TRACK-006"),
+            ("zminus", "acc_track_double_zneg",
+             "double-chest:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:8:70:-1|8:70:0:left=0",
+             "ACC-TRACK-007"),
+        )
+        for index, (axis, definition, key, label) in enumerate(cases):
+            did, iid = f"negative-definition-{index}", f"negative-instance-{index}"
+            self.db.execute("INSERT INTO lore_definitions VALUES (?,?)", (did, definition))
+            self.db.execute("INSERT INTO lore_instances VALUES (?,?)", (iid, did))
+            self.db.execute("INSERT INTO instance_current_state VALUES (?,?,?,?,?,?)",
+                            (iid, "CONFIRMED_NOW", "BLOCK_CONTAINER", key, "slot:53", 4))
+            for slot in ("slot:0", "slot:53"):
+                self.db.execute(
+                    "INSERT INTO instance_observations "
+                    "(instance_id,location_type,location_key,container_path,confidence) "
+                    "VALUES (?,?,?,?,?)",
+                    (iid, "BLOCK_CONTAINER", key, slot, "CONFIRMED_NOW"))
+            rows = read_state(self.db, definition)
+            proof = io.StringIO()
+            with redirect_stdout(proof):
+                verify(self.db, rows, "move", HELPERS["AXES"][axis][1], axis)
+            self.assertIn(f"PASS {label} move:", proof.getvalue())
+            with self.assertRaises(AssertionError):
+                verify(self.db, rows, "move", HELPERS["CANONICAL"])
+
     def test_real_slot_zero_receipt_is_accepted(self):
         self.location()
         self.receipt("slot:0")
