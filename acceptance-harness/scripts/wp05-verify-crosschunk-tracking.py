@@ -47,16 +47,22 @@ def allowed_states(stage):
         else ("CONFIRMED_NOW",)
 
 
+def require(condition, message):
+    """Never use Python 'assert' for release-evidence gates: -O removes it."""
+    if not condition:
+        raise AssertionError(message)
+
+
 def require_projection(rows, stage, canonical):
-    assert len(rows) == 1, f"{stage}: expected exactly one instance, got {len(rows)}"
+    require(len(rows) == 1, f"{stage}: expected exactly one instance, got {len(rows)}")
     iid, state, kind, key, slot, revision = rows[0]
-    assert state in allowed_states(stage), f"{stage}: invalid state {state}"
-    assert kind == "BLOCK_CONTAINER", f"{stage}: invalid location {kind}"
-    assert isinstance(key, str) and canonical.fullmatch(key), (
-        f"{stage}: missing canonical UUID/half-mapped identity: {key}")
-    assert slot == STAGES[stage], f"{stage}: expected {STAGES[stage]}, found {slot}"
-    assert revision >= (2 if stage == "deposit" else 3), (
-        f"{stage}: tracking revision did not advance: {revision}")
+    require(state in allowed_states(stage), f"{stage}: invalid state {state}")
+    require(kind == "BLOCK_CONTAINER", f"{stage}: invalid location {kind}")
+    require(isinstance(key, str) and canonical.fullmatch(key),
+            f"{stage}: missing canonical UUID/half-mapped identity: {key}")
+    require(slot == STAGES[stage], f"{stage}: expected {STAGES[stage]}, found {slot}")
+    require(revision >= (2 if stage == "deposit" else 3),
+            f"{stage}: tracking revision did not advance: {revision}")
     return iid, state, key, slot
 
 
@@ -75,27 +81,27 @@ def require_slot_receipts(history, key, state, stage):
         return any(k == key and p == slot and c == confidence
                    for k, p, c in history)
 
-    assert recorded("slot:0", "CONFIRMED_NOW"), f"{stage}: no actual slot-0 receipt"
+    require(recorded("slot:0", "CONFIRMED_NOW"), f"{stage}: no actual slot-0 receipt")
     if stage != "deposit":
-        assert recorded("slot:53", "CONFIRMED_NOW"), (
-            f"{stage}: no actual slot-53 receipt")
+        require(recorded("slot:53", "CONFIRMED_NOW"),
+                f"{stage}: no actual slot-53 receipt")
     if stage == "restart" and state == "LAST_CONFIRMED":
-        assert recorded("slot:53", "LAST_CONFIRMED"), (
-            "restart: unloaded chest lost durable LAST_CONFIRMED receipt")
+        require(recorded("slot:53", "LAST_CONFIRMED"),
+                "restart: unloaded chest lost durable LAST_CONFIRMED receipt")
 
 
 def require_integrity(connection):
-    assert connection.execute(
-        "PRAGMA integrity_check").fetchone()[0] == "ok", "SQLite integrity"
-    assert connection.execute(
-        "PRAGMA foreign_key_check").fetchall() == [], "SQLite foreign-key error"
+    require(connection.execute(
+        "PRAGMA integrity_check").fetchone()[0] == "ok", "SQLite integrity")
+    require(connection.execute(
+        "PRAGMA foreign_key_check").fetchall() == [], "SQLite foreign-key error")
 
 
 def assert_receipts(connection, rows, stage, canonical=CANONICAL, axis="x"):
     iid, state, key, slot = require_projection(rows, stage, canonical)
-    assert connection.execute(
+    require(connection.execute(
         "SELECT COUNT(*) FROM instance_anomalies WHERE instance_id=?",
-        (iid,)).fetchone()[0] == 0, f"{stage}: unexpected anomaly"
+        (iid,)).fetchone()[0] == 0, f"{stage}: unexpected anomaly")
     history = read_history(connection, iid)
     require_slot_receipts(history, key, state, stage)
     if stage != "deposit":
