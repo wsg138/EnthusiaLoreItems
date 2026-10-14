@@ -15,16 +15,12 @@ final class PaperScanLimit {
         remaining = maximum;
     }
 
-    /** True unless a scannable root or nested-container expansion was refused by the budget. */
+    /** Legacy completeness marker. Not a cursor or a guarantee of full traversal. */
     boolean hasRemaining() {
         return !truncated;
     }
 
-    /**
-     * Reserves one bounded work unit. Root items/entities and nested-container expansions spend
-     * units; ordinary nested leaf stacks do not, so dense container contents cannot starve later
-     * root locations while pathological root/entity counts and recursive nesting remain bounded.
-     */
+    /** Reserve one work unit. Every inspected slot (including air) must charge a unit. */
     boolean tryConsume() {
         if (remaining <= EXHAUSTED) {
             truncated = true;
@@ -32,6 +28,14 @@ final class PaperScanLimit {
         }
         remaining--;
         return true;
+    }
+
+    boolean canVisit() {
+        return remaining > EXHAUSTED;
+    }
+
+    void markTruncated() {
+        truncated = true;
     }
 
     void consume() {
