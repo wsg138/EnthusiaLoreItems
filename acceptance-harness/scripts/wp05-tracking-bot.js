@@ -302,6 +302,62 @@ async function placeTrackedIntoDisplay(bot, kind, x, y, z, label) {
   throw new Error(`${label} real client interaction did not move lore test item into ${kind}; inventory=${bot.inventory.items().map(candidate => candidate.name).join(',')}`)
 }
 
+// Disposable TEST WORLD only. Each negative-boundary case uses a NEW tracked
+// lore sword delivered by the production plugin. Real player GUI clicks move
+// the exact item across the physical double-chest halves; no Bukkit setItem.
+async function runNegativeBoundaryCase(bot, spec) {
+  const tag = `TRACK${spec.number}`
+  await waitFile(`go-track${spec.number}-deposit`)
+  await teleport(bot, spec.approachX, 71, spec.approachZ, `${tag} area`)
+  bot.chat(`/fill ${spec.floor} minecraft:stone`)
+  for (const half of [spec.first, spec.second]) {
+    bot.chat(`/setblock ${half.x} 71 ${half.z} minecraft:air`)
+  }
+  bot.chat(`/setblock ${spec.first.x} 70 ${spec.first.z} minecraft:chest[facing=${spec.facing},type=left]`)
+  bot.chat(`/setblock ${spec.second.x} 70 ${spec.second.z} minecraft:chest[facing=${spec.facing},type=right]`)
+  await sleep(1000)
+  const item = tracked(bot)
+  if (item.count !== 1) throw new Error(`${tag} source sword stack count=${item.count}`)
+  let block = await waitBlockAt(bot, spec.first.x, 70, spec.first.z, 'chest', `${tag} first half`)
+  let gui = await openFixtureContainer(bot, spec.first.x, 70, spec.first.z, 'chest', `${tag} deposit`)
+  const size = Number.isInteger(gui.inventoryStart) ? gui.inventoryStart : gui.slots.length - 36
+  if (size !== 54 || gui.slots[0]) {
+    throw new Error(`${tag} expected empty real 54-slot chest, found size=${size}`)
+  }
+  await gui.deposit(item.type, null, 1)
+  await sleep(850)
+  if (gui.slots[0]?.name !== 'diamond_sword') {
+    throw new Error(`${tag} real client deposit not acknowledged in slot 0`)
+  }
+  gui.close()
+  await sleep(900)
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error(`${tag} tracked sword remains in real player inventory after close`)
+  }
+  fs.writeFileSync(`${root}/track${spec.number}-deposited`, 'ok\n')
+  log(`${tag} real negative-boundary GUI deposit slot:0`)
+
+  await waitFile(`go-track${spec.number}-slot53`)
+  block = await waitBlockAt(bot, spec.second.x, 70, spec.second.z, 'chest', `${tag} second half`)
+  gui = await openFixtureContainer(bot, spec.second.x, 70, spec.second.z, 'chest', `${tag} movement`)
+  const movedSize = Number.isInteger(gui.inventoryStart)
+    ? gui.inventoryStart : gui.slots.length - 36
+  if (movedSize !== 54 || gui.slots[0]?.name !== 'diamond_sword' || gui.slots[53]) {
+    throw new Error(`${tag} cross-half source/target slots not valid in actual GUI`)
+  }
+  await bot.clickWindow(0, 0, 0)
+  await sleep(350)
+  await bot.clickWindow(53, 0, 0)
+  await sleep(1000)
+  if (gui.slots[0] || gui.slots[53]?.name !== 'diamond_sword') {
+    throw new Error(`${tag} slot 0→53 real GUI movement not acknowledged`)
+  }
+  gui.close()
+  await sleep(700)
+  fs.writeFileSync(`${root}/track${spec.number}-moved`, 'ok\n')
+  log(`${tag} real negative-boundary GUI movement slot:53`)
+}
+
 async function phaseOne() {
   const bot = mineflayer.createBot({
     host: '127.0.0.1', port: 25565, username: 'Wp05TrackBot', version: '1.21.11', auth: 'offline'
@@ -620,6 +676,15 @@ async function phaseTwo() {
   await sleep(700)
   fs.writeFileSync(`${root}/track5-moved`, 'ok\n')
   log('TRACK5 actual client cross-Z-chunk chest slot:53')
+
+  await runNegativeBoundaryCase(bot, {
+    number: 6, approachX: -2, approachZ: 8, floor: '-3 69 7 2 69 9',
+    first: {x: -1, z: 8}, second: {x: 0, z: 8}, facing: 'north'
+  })
+  await runNegativeBoundaryCase(bot, {
+    number: 7, approachX: 7, approachZ: -1, floor: '6 69 -3 10 69 2',
+    first: {x: 8, z: -1}, second: {x: 8, z: 0}, facing: 'east'
+  })
 
   await waitFile('bot.stop')
   bot.quit('tracking acceptance complete')
