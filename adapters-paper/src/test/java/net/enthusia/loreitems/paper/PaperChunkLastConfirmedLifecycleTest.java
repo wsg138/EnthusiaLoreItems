@@ -23,7 +23,9 @@ class PaperChunkLastConfirmedLifecycleTest {
             new LoreDefinitionId(WORLD),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
             new TemplateRevision(1));
-    private static final String PAIR = "double-chest:" + WORLD + ":15:64:0|16:64:0:left=0";
+    private static final String PAIR_LOCATION_KEY = "double-chest:" + WORLD + ":15:64:0|16:64:0:left=0";
+    private static final String SLOT_FIRST = "slot:0";
+    private static final String SLOT_LAST = "slot:53";
 
     private static PaperLoadedTrackedContainerIndex.ContainerKey pair() {
         return PaperLoadedTrackedContainerIndex.ContainerKey.paired(
@@ -33,7 +35,7 @@ class PaperChunkLastConfirmedLifecycleTest {
 
     private static TrackingObservationUseCase.Request present(String slot) {
         return new TrackingObservationUseCase.Request(ITEM,
-                new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER, PAIR, slot),
+                new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER, PAIR_LOCATION_KEY, slot),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION, "recheck");
     }
@@ -56,8 +58,8 @@ class PaperChunkLastConfirmedLifecycleTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var presentAck = new CompletableFuture<PaperTrackingAcknowledgement.Settlement>();
         var transitionAck = new CompletableFuture<PaperTrackingAcknowledgement.Settlement>();
-        index.observedPage(pair(), page("slot:53"),
-                List.of(ack(present("slot:53"), presentAck)), 10);
+        index.observedPage(pair(), page(SLOT_LAST),
+                List.of(ack(present(SLOT_LAST), presentAck)), 10);
         index.chunkUnloaded(pair().second().chunk());
         var requests = new ArrayList<TrackingObservationUseCase.Request>();
         java.util.function.Function<TrackingObservationUseCase.Request,
@@ -69,8 +71,8 @@ class PaperChunkLastConfirmedLifecycleTest {
         assertEquals(1, index.pendingUnloadCount());
         presentAck.complete(PaperTrackingAcknowledgement.Settlement.CONFIRMED);
         assertEquals(1, index.drainUnloaded(1, sink));
-        assertEquals("slot:53", requests.getFirst().location().containerPath());
-        assertEquals(PAIR, requests.getFirst().location().locationKey());
+        assertEquals(SLOT_LAST, requests.getFirst().location().containerPath());
+        assertEquals(PAIR_LOCATION_KEY, requests.getFirst().location().locationKey());
         assertEquals(TrackingObservationUseCase.Presence.LAST_CONFIRMED,
                 requests.getFirst().presence());
         assertEquals(0, index.drainUnloaded(1, sink));
@@ -85,7 +87,7 @@ class PaperChunkLastConfirmedLifecycleTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var failure = CompletableFuture.completedFuture(
                 PaperTrackingAcknowledgement.Settlement.FAILED);
-        index.observedPage(pair(), page("slot:0"), List.of(ack(present("slot:0"), failure)), 1);
+        index.observedPage(pair(), page(SLOT_FIRST), List.of(ack(present(SLOT_FIRST), failure)), 1);
         index.chunkUnloaded(pair().first().chunk());
         assertEquals(0, index.drainUnloaded(3, req -> {
             throw new AssertionError("cannot transition failed evidence");
@@ -99,8 +101,8 @@ class PaperChunkLastConfirmedLifecycleTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var crashed = new CompletableFuture<PaperTrackingAcknowledgement.Settlement>();
         crashed.completeExceptionally(new IllegalStateException("SQLITE_BUSY"));
-        index.observedPage(pair(), page("slot:53"),
-                List.of(ack(present("slot:53"), crashed)), 1);
+        index.observedPage(pair(), page(SLOT_LAST),
+                List.of(ack(present(SLOT_LAST), crashed)), 1);
         index.chunkUnloaded(pair().first().chunk());
         assertEquals(0, index.drainUnloaded(1, req -> {
             throw new AssertionError("cannot transition exceptional persistence");
@@ -113,8 +115,8 @@ class PaperChunkLastConfirmedLifecycleTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var settled = CompletableFuture.completedFuture(
                 PaperTrackingAcknowledgement.Settlement.CONFIRMED);
-        index.observedPage(pair(), page("slot:0", "slot:53"),
-                List.of(ack(present("slot:0"), settled), ack(present("slot:53"), settled)), 1);
+        index.observedPage(pair(), page(SLOT_FIRST, SLOT_LAST),
+                List.of(ack(present(SLOT_FIRST), settled), ack(present(SLOT_LAST), settled)), 1);
         index.chunkUnloaded(pair().second().chunk());
         var slots = new ArrayList<String>();
         for (int i = 0; i < 5; i++) index.drainUnloaded(1, req -> {
@@ -122,7 +124,7 @@ class PaperChunkLastConfirmedLifecycleTest {
             return ack(req, settled);
         });
         assertEquals(2, slots.size());
-        assertTrue(slots.containsAll(List.of("slot:0", "slot:53")));
+        assertTrue(slots.containsAll(List.of(SLOT_FIRST, SLOT_LAST)));
         assertEquals(0, index.pendingUnloadCount());
     }
 
@@ -131,8 +133,8 @@ class PaperChunkLastConfirmedLifecycleTest {
         var index = new PaperLoadedTrackedContainerIndex();
         var settled = CompletableFuture.completedFuture(
                 PaperTrackingAcknowledgement.Settlement.CONFIRMED);
-        index.observedPage(pair(), page("slot:53"),
-                List.of(ack(present("slot:53"), settled)), 1);
+        index.observedPage(pair(), page(SLOT_LAST),
+                List.of(ack(present(SLOT_LAST), settled)), 1);
         var empty = new PaperBoundedInventoryContinuation.Page(
                 Map.of(), PaperBoundedInventoryContinuation.State.COMPLETE, null, 54, true);
         index.observedPage(pair(), empty, List.of(), 2);
@@ -144,14 +146,14 @@ class PaperChunkLastConfirmedLifecycleTest {
             seen.add(req.location().containerPath());
             return ack(req, settled);
         }));
-        assertEquals(List.of("slot:53"), seen);
+        assertEquals(List.of(SLOT_LAST), seen);
     }
 
     @Test
     void incompletePageRetainsCursorUntilNextTrackedWorkAndInvalidatesOnMutation() {
         var index = new PaperLoadedTrackedContainerIndex();
         var cursor = new PaperBoundedInventoryContinuation.Cursor(
-                "BLOCK_CONTAINER:" + PAIR, 0, PAIR, 300,
+                "BLOCK_CONTAINER:" + PAIR_LOCATION_KEY, 0, PAIR_LOCATION_KEY, 300,
                 List.of(new PaperBoundedInventoryContinuation.Frame("slot", 256, 300)));
         var partial = new PaperBoundedInventoryContinuation.Page(
                 Map.of(), PaperBoundedInventoryContinuation.State.PARTIAL, cursor, 256, false);
