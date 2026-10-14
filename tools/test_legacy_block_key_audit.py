@@ -147,6 +147,28 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertNotIn('mixed-two', json.dumps(risk))
         self.assertFalse(result['assessment']['world_uuid_inferred'])
 
+    def test_arrival_order_uses_durable_ids_not_index_iteration_order(self):
+        from legacy_block_key_audit import inspect_history_overlap
+        first = '11111111-2222-3333-4444-555555555555'
+        with sqlite3.connect(self.path) as connection:
+            connection.executemany(
+                'INSERT INTO instance_observations(instance_id,location_type,location_key) '
+                'VALUES (?,?,?)', [
+                    ('reverse-index-case', 'BLOCK_CONTAINER', f'block-v2:{first}:3:70:8'),
+                    ('reverse-index-case', 'BLOCK_CONTAINER', 'minecraft:world:3:70:8'),
+                ])
+            # A descending index can deliver a newer row before its older
+            # counterpart; the earliest observation_id still wins.
+            connection.execute(
+                'CREATE INDEX idx_reverse_arrival '
+                'ON instance_observations(instance_id, observation_id DESC)')
+            expected = inspect_history_overlap(connection)
+            connection.execute('PRAGMA reverse_unordered_selects=ON')
+            actual = inspect_history_overlap(connection)
+        self.assertEqual(expected, actual)
+        self.assertEqual(1, actual['mixed_key_arrival_order_counts']['modern_first'])
+        self.assertNotIn('reverse-index-case', json.dumps(actual))
+
     def test_duplicate_legacy_events_are_one_instance_not_two(self):
         overlap = audit(self.path)['historical_instance_overlap']['risk_counts']
         self.assertEqual(1, overlap['legacy_without_modern_history'])
