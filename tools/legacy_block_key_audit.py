@@ -239,6 +239,19 @@ def audit(database: Path) -> dict:
         "tables": results,
         "historical_instance_overlap": history_overlap,
         "projection_link_consistency": projection_links,
+        "empty_tracking_snapshot": {
+            "no_current_states": results["instance_current_state"]["rows"] == 0,
+            "no_observations": results["instance_observations"]["rows"] == 0,
+            "eligible_for_empty_database_path": (
+                results["instance_current_state"]["rows"] == 0
+                and results["instance_observations"]["rows"] == 0
+                and projection_links["schema_compatible"]
+                and projection_links["assessment"] == "CONSISTENT_LINKS_ONLY"
+            ),
+            "warning": ("This only identifies an empty, compatible offline "
+                        "tracking snapshot; it does not verify the SMP filesystem "
+                        "or approve a JAR deployment."),
+        },
         "assessment": {
             "legacy_mapping_applied": False,
             "world_uuid_inferred": False,
@@ -258,6 +271,9 @@ def main() -> int:
                         help="required acknowledgement input is NOT the live WAL database")
     parser.add_argument("--output", type=Path,
                         help="optional JSON output outside SQLite; stdout otherwise")
+    parser.add_argument("--require-empty-tracking", action="store_true",
+                        help="fail closed unless both tracking tables are empty "
+                             "and projection schema is compatible; does not approve deployment")
     args = parser.parse_args()
     if not args.confirm_offline_copy:
         parser.error("Refusing SQLite access without --confirm-offline-copy")
@@ -268,6 +284,11 @@ def main() -> int:
     except (sqlite3.Error, OSError, ValueError) as error:
         print(f"Audit refused: {error}", file=sys.stderr)
         return 2
+    if args.require_empty_tracking and not result["empty_tracking_snapshot"][
+            "eligible_for_empty_database_path"]:
+        print("Audit refused: tracking snapshot is not verified empty/compatible; "
+              "legacy migration review is still required.", file=sys.stderr)
+        return 3
     report = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         try:
