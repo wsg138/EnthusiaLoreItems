@@ -121,6 +121,38 @@ final class ProductionDoubleChestProbe {
         }
     }
 
+    /**
+     * Verify a captured 54-slot paired reference loses authority when a real
+     * loaded Paper chest breaks into a single surviving 27-slot inventory.
+     * This reads only test-host-loaded blocks; it does not move tracked items.
+     */
+    static void verifySplit(World world, DoubleChestPaperFixture.Pair pair) {
+        Object snapshot = Objects.requireNonNull(remoteSnapshot,
+                "remote production snapshot was never captured while both halves were joined");
+        requireMatchingCapturedPair(world, pair);
+        if (!pair.loaded(world)) {
+            throw new IllegalStateException("split proof requires both existing chunks loaded");
+        }
+        boolean firstChest = world.getBlockAt(pair.x1(), 70, pair.z1())
+                .getState(false) instanceof Chest;
+        boolean secondChest = world.getBlockAt(pair.x2(), 70, pair.z2())
+                .getState(false) instanceof Chest;
+        if (!firstChest || secondChest) {
+            throw new IllegalStateException(
+                    "split proof requires first physical chest retained, second half broken");
+        }
+        Chest survivor = chest(world, pair.x1(), pair.z1());
+        if (survivor.getInventory().getSize() != 27) {
+            throw new IllegalStateException("split survivor did not become a 27-slot chest");
+        }
+        Plugin production = Objects.requireNonNull(
+                Bukkit.getPluginManager().getPlugin("EnthusiaLoreItems"), "production plugin");
+        assertProductionResolverEmpty(snapshot, production);
+        if (!pair.loaded(world)) {
+            throw new IllegalStateException("production resolver unloaded a split chest chunk");
+        }
+    }
+
     private static void requireMatchingCapturedPair(
             World world, DoubleChestPaperFixture.Pair pair) {
         String captured = Objects.requireNonNull(remoteSnapshotKey,
@@ -141,11 +173,11 @@ final class ProductionDoubleChestProbe {
             Object result = resolve.invoke(snapshot, production);
             if (!(result instanceof Optional<?> contents) || contents.isPresent()) {
                 throw new IllegalStateException(
-                        "production wrongly resolved a 54-slot inventory with one unloaded half");
+                        "production resolved stale 54-slot authority for an incomplete pair");
             }
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException(
-                    "production incomplete resolver probe failed closed", exception);
+                    "production incomplete/split resolver probe failed closed", exception);
         }
     }
 
