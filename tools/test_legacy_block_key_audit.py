@@ -101,7 +101,8 @@ class OfflineSQLiteTests(unittest.TestCase):
         with sqlite3.connect(self.path) as source:
             source.execute(
                 "DELETE FROM instance_current_state "
-                "WHERE location_key LIKE 'minecraft:world:%'")
+                "WHERE location_key LIKE 'minecraft:world:%' "
+                "OR location_key LIKE 'root:BLOCK_CONTAINER:minecraft:world:%'")
         before = self.path.read_bytes()
         result = audit(self.path)
         self.assertEqual(before, self.path.read_bytes())
@@ -119,7 +120,8 @@ class OfflineSQLiteTests(unittest.TestCase):
         with sqlite3.connect(self.path) as source:
             source.execute(
                 "DELETE FROM instance_current_state "
-                "WHERE location_key LIKE 'minecraft:world:%'")
+                "WHERE location_key LIKE 'minecraft:world:%' "
+                "OR location_key LIKE 'root:BLOCK_CONTAINER:minecraft:world:%'")
             source.execute(
                 "DELETE FROM instance_observations "
                 "WHERE location_key LIKE 'minecraft:world:%'")
