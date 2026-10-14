@@ -44,10 +44,8 @@ final class DoubleChestPaperFixture {
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
         World world = Objects.requireNonNull(Bukkit.getWorld("world"), "isolated test world");
-        if ("evict".equals(action) || "probe".equals(action)) {
-            if (arguments.length != 4 || !"xremote".equals(arguments[2])) {
-                throw new IllegalArgumentException("evict/probe only allowed on disposable xremote");
-            }
+        if (arguments.length == 4) {
+            requireRemoteFixture(arguments[2]);
             remoteChunkCheck(world, pair, arguments[3], action, sender);
             return;
         }
@@ -69,40 +67,70 @@ final class DoubleChestPaperFixture {
         inspect(world, pair, sender, arguments[2]);
     }
 
-    /**
-     * Fixture-only request for actual Paper chunk eviction after the TEST HOST
-     * removes its force-load ticket. An unload is not simulated by a Boolean.
-     * Do not read the remote block or double-chest inventory during eviction.
-     */
+    private static void requireRemoteFixture(String name) {
+        if (!"xremote".equals(name)) {
+            throw new IllegalArgumentException("remote chunk actions are test-only");
+        }
+    }
+
+    /** Only test-host-owned chunk lifecycle operations; never production logic. */
     private static void remoteChunkCheck(
             World world, Pair pair, String half, String action, CommandSender sender) {
-        if ("probe".equals(action) && "pair".equals(half)) {
-            // Read both loaded states in ONE server-thread command. Never
-            // dereference a block, ticket or inventory for an unloaded half.
+        if ("probe".equals(action)) {
+            emitRemoteProbe(world, pair, half, sender);
+            return;
+        }
+        if ("evict".equals(action)) {
+            requestRemoteEviction(world, pair, half, sender);
+            return;
+        }
+        if ("prime".equals(action)) {
+            primeOnlyOneHalf(world, pair, half, sender);
+            return;
+        }
+        throw new IllegalArgumentException("remote action must be probe, evict or prime");
+    }
+
+    private static void emitRemoteProbe(
+            World world, Pair pair, String half, CommandSender sender) {
+        if ("pair".equals(half)) {
             sender.sendMessage("WP05_CHUNK_PAIR_PROBE first_loaded="
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                     + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
         }
-        if (!"first".equals(half) && !"second".equals(half)
-                && !"control".equals(half)) {
-            throw new IllegalArgumentException("remote half must be first, second or control");
-        }
-        // The control chunk is otherwise empty, remote from the test chest and spawn.
-        // It distinguishes an inability to unload *any* chunk from chest-specific
-        // tickets/neighbor access. Coordinates are chunk units, never read blocks.
-        int x = "control".equals(half) ? 150
-                : "first".equals(half) ? pair.chunkX1() : pair.chunkX2();
-        int z = "control".equals(half) ? 0
-                : "first".equals(half) ? pair.chunkZ1() : pair.chunkZ2();
-        if ("probe".equals(action)) {
-            sender.sendMessage("WP05_CHUNK_PROBE half=" + half
-                    + " loaded=" + world.isChunkLoaded(x, z)
-                    + " forced=" + world.isChunkForceLoaded(x, z)
-                    + " plugin_tickets=" + world.getPluginChunkTickets(x, z).stream()
-                            .map(plugin -> plugin.getName()).sorted().toList());
-            return;
-        }
+        int x = chunkX(pair, half);
+        int z = chunkZ(pair, half);
+        sender.sendMessage("WP05_CHUNK_PROBE half=" + half
+                + " loaded=" + world.isChunkLoaded(x, z)
+                + " forced=" + world.isChunkForceLoaded(x, z)
+                + " plugin_tickets=" + world.getPluginChunkTickets(x, z).stream()
+                        .map(plugin -> plugin.getName()).sorted().toList());
+    }
+
+    private static int chunkX(Pair pair, String half) {
+        return switch (half) {
+            case "first" -> pair.chunkX1();
+            case "second" -> pair.chunkX2();
+            case "control" -> 150;
+            default -> throw new IllegalArgumentException("remote half must be first, second or control");
+        };
+    }
+
+    private static int chunkZ(Pair pair, String half) {
+        return switch (half) {
+            case "first" -> pair.chunkZ1();
+            case "second" -> pair.chunkZ2();
+            case "control" -> 0;
+            default -> throw new IllegalArgumentException("remote half must be first, second or control");
+        };
+    }
+
+    /** The scheduled unload must be confirmed by later real Paper state checks. */
+    private static void requestRemoteEviction(
+            World world, Pair pair, String half, CommandSender sender) {
+        int x = chunkX(pair, half);
+        int z = chunkZ(pair, half);
         if (world.isChunkForceLoaded(x, z)) {
             sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_BLOCKED half=" + half
                     + " reason=FORCELOAD_TICKET_ACTIVE");
@@ -113,17 +141,38 @@ final class DoubleChestPaperFixture {
                     + " reason=ALREADY_UNLOADED");
             return;
         }
-        // Paper is allowed to delay unloading after a forceload ticket is
-        // removed. Request a real server-side unload, then let the shell wait
-        // for World.isChunkLoaded to actually turn false in ordinary inspect.
         boolean accepted = world.unloadChunkRequest(x, z);
-        if (accepted) {
-            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_REQUESTED half=" + half
-                    + " reason=PAPER_UNLOAD_SCHEDULED");
-        } else {
-            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_FAILED half=" + half
-                    + " reason=UNLOAD_REQUEST_REJECTED");
+        sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_"
+                + (accepted ? "REQUESTED" : "FAILED") + " half=" + half
+                + " reason=" + (accepted ? "PAPER_UNLOAD_SCHEDULED" : "UNLOAD_REQUEST_REJECTED"));
+    }
+
+    /**
+     * Disposable host primes one real generated chunk after BOTH were
+     * confirmed unloaded. The neighboring half must remain unloaded.
+     * No fake chunk flags and no world block or inventory reads.
+     */
+    private static void primeOnlyOneHalf(
+            World world, Pair pair, String half, CommandSender sender) {
+        if (!"first".equals(half) && !"second".equals(half)) {
+            throw new IllegalArgumentException("prime requires a chest half");
         }
+        if (world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                || world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
+            sender.sendMessage("WP05_DOUBLE_CHEST_PRIME_FAILED half=" + half
+                    + " reason=PAIR_NOT_FULLY_UNLOADED");
+            return;
+        }
+        int x = chunkX(pair, half);
+        int z = chunkZ(pair, half);
+        boolean loaded = world.loadChunk(x, z, false);
+        sender.sendMessage("WP05_DOUBLE_CHEST_PRIME_" + (loaded ? "REQUESTED" : "FAILED")
+                + " half=" + half
+                + " first_loaded=" + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+        // Within the same server-thread operation, execute the ordinary loaded
+        // guard after the explicit TEST HOST load. An unloaded half is never read.
+        command(sender, new String[]{"doublechest", "inspect", "xremote"});
     }
 
     static Pair caseFor(String name) {
