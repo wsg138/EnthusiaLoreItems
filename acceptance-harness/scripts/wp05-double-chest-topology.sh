@@ -261,3 +261,33 @@ run_remote_case() {
 run_remote_case xremote 2047 8 2048 8
 run_remote_case zremote 8 2047 8 2048
 [[ "$(wc -l < "$EVIDENCE/missing-half-results.txt")" -eq 4 ]]
+
+# Genuine split test: test host restores both real chunks and first captures a
+# complete 54-slot immutable production reference, then breaks only the second
+# block. The original immutable reference MUST stop resolving, despite both
+# chunks remaining loaded; no tracked PDC item is cloned or destroyed.
+prove_split_invalidates_saved_pair() {
+  local case_name="$1" x1="$2" z1="$3" x2="$4" z2="$5"
+  local full="WP05_DOUBLE_CHEST_PRODUCTION_OK case=$case_name"
+  local missing="WP05_DOUBLE_CHEST_PRODUCTION_SPLIT_UNRESOLVED case=$case_name authority=NONE first_slots=27 second_block=AIR"
+  local before current
+  printf 'forceload add %s %s %s %s\n' "$x1" "$z1" "$x2" "$z2" >&3
+  sleep 3
+  before=$(grep -Fc "$full" "$LOG" 2>/dev/null || true)
+  printf 'wp05accept doublechest inspect %s\n' "$case_name" >&3
+  wait_remote_marker "$full" "$((before+1))"
+
+  # Only a disposable untracked marker fixture is split, never a player item.
+  printf 'setblock %s 70 %s minecraft:air replace\n' "$x2" "$z2" >&3
+  sleep 2
+  before=$(grep -Fc "$missing" "$LOG" 2>/dev/null || true)
+  printf 'wp05accept doublechest splitcheck %s\n' "$case_name" >&3
+  wait_remote_marker "$missing" "$((before+1))"
+  echo "PASS: production saved $case_name paired reference rejects real 27-slot split" \
+    | tee -a "$EVIDENCE/split-results.txt"
+}
+: > "$EVIDENCE/split-results.txt"
+prove_split_invalidates_saved_pair xremote 2047 8 2048 8
+prove_split_invalidates_saved_pair zremote 8 2047 8 2048
+[[ "$(wc -l < "$EVIDENCE/split-results.txt")" -eq 2 ]]
+
