@@ -19,6 +19,7 @@ final class ProductionDoubleChestProbe {
     // Production record holds only immutable UUID + block-coordinate reference.
     // Never store a Bukkit holder, inventory, block or live chunk across ticks.
     private static Object remoteSnapshot;
+    private static String remoteSnapshotKey;
 
     private ProductionDoubleChestProbe() {}
 
@@ -57,8 +58,10 @@ final class ProductionDoubleChestProbe {
                     canonicalSnapshot = recorded;
                 }
             }
-            if (pair.x1() == 2047 && pair.x2() == 2048) {
+            if ((pair.x1() == 2047 && pair.x2() == 2048)
+                    || (pair.z1() == 2047 && pair.z2() == 2048)) {
                 remoteSnapshot = Objects.requireNonNull(canonicalSnapshot, "remote snapshot");
+                remoteSnapshotKey = expectedKey;
             }
             return expectedKey;
         } catch (ReflectiveOperationException | ClassCastException exception) {
@@ -98,6 +101,14 @@ final class ProductionDoubleChestProbe {
             World world, DoubleChestPaperFixture.Pair pair) {
         Object snapshot = Objects.requireNonNull(remoteSnapshot,
                 "remote production snapshot was never captured while both chunks were loaded");
+        String captured = Objects.requireNonNull(remoteSnapshotKey,
+                "remote production snapshot key missing");
+        String coordinates = ":" + pair.x1() + ":70:" + pair.z1()
+                + "|" + pair.x2() + ":70:" + pair.z2() + ":left=";
+        if (!captured.startsWith("double-chest:" + world.getUID() + ":")
+                || !captured.contains(coordinates)) {
+            throw new IllegalStateException("production negative probe captured the wrong remote pair");
+        }
         boolean first = world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1());
         boolean second = world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2());
         if (first == second) {
