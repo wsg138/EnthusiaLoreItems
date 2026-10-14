@@ -170,6 +170,16 @@ final class DoubleChestPaperFixture {
                 + " half=" + half
                 + " first_loaded=" + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                 + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+        // The actual production resolver must return no inventory and must
+        // not load the neighbor while exactly one real Paper half is present.
+        if (world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
+            ProductionDoubleChestProbe.verifyIncomplete(world, pair);
+            sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED first_loaded="
+                    + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())
+                    + " authority=NONE");
+        }
         // Within the same server-thread operation, execute the ordinary loaded
         // guard after the explicit TEST HOST load. An unloaded half is never read.
         command(sender, new String[]{"doublechest", "inspect", "xremote"});
