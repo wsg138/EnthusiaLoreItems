@@ -87,6 +87,50 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertFalse(result["assessment"]["safe_to_deploy"])
         self.assertFalse(result["empty_tracking_snapshot"]["eligible_for_empty_database_path"])
 
+    def test_current_legacy_projections_remain_review_required(self):
+        scope = audit(self.path)["legacy_evidence_scope"]
+        self.assertEqual("CURRENT_LEGACY_PROJECTION_REQUIRES_REVIEW",
+                         scope["disposition"])
+        self.assertEqual(2, scope["current_legacy_world_name_rows"])
+        self.assertEqual(2, scope["historical_legacy_world_name_rows"])
+        self.assertTrue(scope["requires_review_before_world_key_reconciliation"])
+        self.assertFalse(scope["immutable_history_rewrite_authorized"])
+        self.assertFalse(scope["deployment_approved"])
+
+    def test_historical_legacy_evidence_only_is_not_rewritten_or_deploy_approved(self):
+        with sqlite3.connect(self.path) as source:
+            source.execute(
+                "DELETE FROM instance_current_state "
+                "WHERE location_key LIKE 'minecraft:world:%'")
+        before = self.path.read_bytes()
+        result = audit(self.path)
+        self.assertEqual(before, self.path.read_bytes())
+        scope = result["legacy_evidence_scope"]
+        self.assertEqual("HISTORICAL_ONLY_PRESERVE_IMMUTABLE_EVIDENCE",
+                         scope["disposition"])
+        self.assertEqual(0, scope["current_legacy_world_name_rows"])
+        self.assertEqual(2, scope["historical_legacy_world_name_rows"])
+        self.assertFalse(scope["requires_review_before_world_key_reconciliation"])
+        self.assertFalse(scope["immutable_history_rewrite_authorized"])
+        self.assertFalse(scope["deployment_approved"])
+        self.assertFalse(result["assessment"]["safe_to_deploy"])
+
+    def test_no_legacy_rows_is_still_not_a_deployment_approval(self):
+        with sqlite3.connect(self.path) as source:
+            source.execute(
+                "DELETE FROM instance_current_state "
+                "WHERE location_key LIKE 'minecraft:world:%'")
+            source.execute(
+                "DELETE FROM instance_observations "
+                "WHERE location_key LIKE 'minecraft:world:%'")
+        report = audit(self.path)
+        scope = report["legacy_evidence_scope"]
+        self.assertEqual("NO_LEGACY_BLOCK_KEYS_IN_THIS_SNAPSHOT",
+                         scope["disposition"])
+        self.assertEqual(0, scope["historical_legacy_world_name_rows"])
+        self.assertFalse(scope["deployment_approved"])
+        self.assertFalse(report["assessment"]["safe_to_deploy"])
+
     def test_entity_world_named_keys_are_aggregated_without_entity_identifiers(self):
         entity = '11111111-2222-3333-4444-555555555555'
         with sqlite3.connect(self.path) as connection:
