@@ -21,6 +21,10 @@ LEGACY = re.compile(r"([a-z0-9_.-]+:[a-z0-9_./-]+):-?[0-9]+:-?[0-9]+:-?[0-9]+\Z"
 UUID = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
 BLOCK_V2 = re.compile(rf"block-v2:{UUID}:-?\d+:-?\d+:-?\d+\Z")
 DOUBLE_CHEST = re.compile(rf"double-chest:{UUID}:-?\d+:-?\d+:-?\d+\|-?\d+:-?\d+:-?\d+:left=[01]\Z")
+# PaperPhysicalInventorySnapshot.capture() currently names entity-holder worlds.
+# Report only a count; never export an entity UUID or infer a world mapping.
+WORLD_NAMED_ENTITY = re.compile(
+    rf"[a-z0-9_.-]+:[a-z0-9_./-]+:entity:{UUID}\Z")
 NESTED_PREFIX = "root:BLOCK_CONTAINER:"
 MAX_NAMES, REPORT_NAMES, BATCH_SIZE = 1024, 50, 2048
 TABLES = ("instance_current_state", "instance_observations")
@@ -37,6 +41,8 @@ def classify(location_type: str | None, key: str | None) -> tuple[str, str | Non
         if not key.startswith(NESTED_PREFIX):
             return "other_nested_root", None
         key = key[len(NESTED_PREFIX):]
+    if WORLD_NAMED_ENTITY.fullmatch(key):
+        return "world_named_entity_inventory", None
     if BLOCK_V2.fullmatch(key):
         return "modern_block_v2", None
     if DOUBLE_CHEST.fullmatch(key):
