@@ -50,7 +50,7 @@ final class DoubleChestPaperFixture {
         Objects.requireNonNull(arguments, "arguments");
         if (arguments.length < NORMAL_ARGUMENTS || arguments.length > REMOTE_ARGUMENTS) {
             throw new IllegalArgumentException(
-                    "doublechest <setup|inspect|probe|evict|prime> <case-name> [half]");
+                    "doublechest <setup|inspect|splitcheck|probe|evict|prime> <case-name> [half]");
         }
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
@@ -70,10 +70,17 @@ final class DoubleChestPaperFixture {
                     + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
         }
+        if ("splitcheck".equals(action)) {
+            requireRemoteFixture(arguments[2]);
+            ProductionDoubleChestProbe.verifySplit(world, pair);
+            sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_SPLIT_UNRESOLVED case="
+                    + arguments[2] + " authority=NONE first_slots=27 second_block=AIR");
+            return;
+        }
         if ("setup".equals(action)) {
             setup(world, pair);
         } else if (!ACTION_INSPECT.equals(action)) {
-            throw new IllegalArgumentException("doublechest action must be setup or inspect");
+            throw new IllegalArgumentException("doublechest action must be setup, inspect or splitcheck");
         }
         inspect(world, pair, sender, arguments[2]);
     }
