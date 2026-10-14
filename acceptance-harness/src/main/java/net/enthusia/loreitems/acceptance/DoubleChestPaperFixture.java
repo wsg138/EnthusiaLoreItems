@@ -104,7 +104,7 @@ final class DoubleChestPaperFixture {
     private static void emitRemoteProbe(
             World world, Pair pair, String caseName, String half, CommandSender sender) {
         if ("pair".equals(half)) {
-            sender.sendMessage("WP05_CHUNK_PAIR_PROBE case=" + caseName + " first_loaded="
+            sender.sendMessage("WP05_CHUNK_PAIR_PROBE case=" + caseName + FIRST_LOADED
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                     + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
@@ -186,7 +186,7 @@ final class DoubleChestPaperFixture {
                 != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
             ProductionDoubleChestProbe.verifyIncomplete(world, pair);
             sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED case=" + caseName
-                    + " first_loaded="
+                    + FIRST_LOADED
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                     + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())
                     + " authority=NONE");
