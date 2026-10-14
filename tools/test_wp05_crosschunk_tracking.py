@@ -10,6 +10,7 @@ HELPERS = runpy.run_path(str(SCRIPT))
 verify = HELPERS["assert_receipts"]
 read_state = HELPERS["read_state"]
 KEY = "double-chest:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:15:70:8|16:70:8:left=0"
+KEY_Z = "double-chest:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:8:70:15|8:70:16:left=1"
 
 
 class CrossChunkDurableVerifierTest(unittest.TestCase):
@@ -43,6 +44,22 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
             "(instance_id,location_type,location_key,container_path,confidence) "
             "VALUES (?,?,?,?,?)",
             (iid, "BLOCK_CONTAINER", key, slot, confidence))
+
+    def test_real_z_axis_receipts_have_independent_definition_and_geometry(self):
+        self.db.execute("INSERT INTO lore_definitions VALUES ('dz','acc_track_double_z')")
+        self.db.execute("INSERT INTO lore_instances VALUES ('iz','dz')")
+        self.db.execute("INSERT INTO instance_current_state VALUES (?,?,?,?,?,?)",
+                        ("iz", "CONFIRMED_NOW", "BLOCK_CONTAINER", KEY_Z, "slot:53", 4))
+        for slot in ("slot:0", "slot:53"):
+            self.db.execute(
+                "INSERT INTO instance_observations "
+                "(instance_id,location_type,location_key,container_path,confidence) "
+                "VALUES (?,?,?,?,?)",
+                ("iz", "BLOCK_CONTAINER", KEY_Z, slot, "CONFIRMED_NOW"))
+        zrows = read_state(self.db, "acc_track_double_z")
+        verify(self.db, zrows, "move", HELPERS["CANONICAL_Z"])
+        with self.assertRaises(AssertionError):
+            verify(self.db, zrows, "move", HELPERS["CANONICAL"])
 
     def test_real_slot_zero_receipt_is_accepted(self):
         self.location()
