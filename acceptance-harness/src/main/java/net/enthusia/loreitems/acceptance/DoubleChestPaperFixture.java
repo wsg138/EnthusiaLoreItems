@@ -30,7 +30,7 @@ final class DoubleChestPaperFixture {
             "zminus", new Pair(8, -1, 8, 0, BlockFace.EAST),
             "xminus2", new Pair(-17, 8, -16, 8, BlockFace.NORTH),
             "zminus2", new Pair(8, -17, 8, -16, BlockFace.EAST),
-            "xremote", new Pair(255, 8, 256, 8, BlockFace.NORTH));
+            "xremote", new Pair(2047, 8, 2048, 8, BlockFace.NORTH));
 
     private DoubleChestPaperFixture() {}
 
@@ -90,13 +90,16 @@ final class DoubleChestPaperFixture {
                     + " reason=ALREADY_UNLOADED");
             return;
         }
-        boolean unloaded = world.unloadChunk(x, z, true);
-        if (unloaded && !world.isChunkLoaded(x, z)) {
-            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_OK half=" + half
-                    + " reason=REAL_PAPER_UNLOAD");
+        // Paper is allowed to delay unloading after a forceload ticket is
+        // removed. Request a real server-side unload, then let the shell wait
+        // for World.isChunkLoaded to actually turn false in ordinary inspect.
+        boolean accepted = world.unloadChunkRequest(x, z);
+        if (accepted) {
+            sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_REQUESTED half=" + half
+                    + " reason=PAPER_UNLOAD_SCHEDULED");
         } else {
             sender.sendMessage("WP05_DOUBLE_CHEST_EVICT_FAILED half=" + half
-                    + " reason=CHUNK_STILL_LOADED");
+                    + " reason=UNLOAD_REQUEST_REJECTED");
         }
     }
 
