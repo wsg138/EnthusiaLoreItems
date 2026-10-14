@@ -145,15 +145,21 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
                     'its historical world-name location.'),
     }
 
+def confidence_matches(state: str, confidence: str | None) -> bool:
+    """Mirror SQLiteCurrentStateRepository.confidenceMatches exactly."""
+    return (confidence == state
+            or (state == 'LAST_CONFIRMED' and confidence == 'CONFIRMED_NOW'))
+
+
 def inspect_projection_links(connection: sqlite3.Connection) -> dict:
     """Read-only consistency gate: each live projection must match its evidence."""
     required = {
         'instance_current_state': {
             'instance_id', 'state', 'location_type', 'location_key',
-            'container_path', 'last_observation_id'},
+            'container_path', 'last_observation_id', 'updated_at'},
         'instance_observations': {
             'observation_id', 'instance_id', 'confidence',
-            'location_type', 'location_key', 'container_path'},
+            'location_type', 'location_key', 'container_path', 'observed_at'},
     }
     for table, columns in required.items():
         present = {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}
@@ -164,15 +170,15 @@ def inspect_projection_links(connection: sqlite3.Connection) -> dict:
     counts: Counter[str] = Counter()
     cursor = connection.execute(
         'SELECT c.instance_id, c.state, c.location_type, c.location_key, '
-        'c.container_path, c.last_observation_id, o.instance_id, '
-        'o.confidence, o.location_type, o.location_key, o.container_path '
+        'c.container_path, c.last_observation_id, c.updated_at, o.instance_id, '
+        'o.confidence, o.location_type, o.location_key, o.container_path, o.observed_at '
         'FROM instance_current_state c '
         'LEFT JOIN instance_observations o '
         'ON c.last_observation_id = o.observation_id')
     expected = {'CONFIRMED_NOW', 'LAST_CONFIRMED', 'CONFLICTING', 'TERMINAL_VOID'}
     while batch := cursor.fetchmany(BATCH_SIZE):
-        for (instance, state, kind, key, path, pointer, linked_instance,
-             confidence, observed_kind, observed_key, observed_path) in batch:
+        for (instance, state, kind, key, path, pointer, updated_at, linked_instance,
+             confidence, observed_kind, observed_key, observed_path, observed_at) in batch:
             if state == 'MISSING_UNRESOLVED':
                 label = ('valid_unresolved' if pointer is None and kind is None
                          and key is None and path is None
@@ -185,10 +191,14 @@ def inspect_projection_links(connection: sqlite3.Connection) -> dict:
                 label = 'dangling_observation_pointer'
             elif instance != linked_instance:
                 label = 'cross_instance_observation_pointer'
-            elif state != confidence:
+            elif not confidence_matches(state, confidence):
                 label = 'state_confidence_mismatch'
             elif (kind, key, path) != (observed_kind, observed_key, observed_path):
                 label = 'projection_location_mismatch'
+            elif updated_at is None or observed_at is None:
+                label = 'missing_projection_timestamp'
+            elif updated_at < observed_at:
+                label = 'projection_predates_observation'
             else:
                 label = 'linked_projection_valid'
             counts[label] += 1
