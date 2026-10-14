@@ -1,5 +1,6 @@
 """Safety regressions: python3 -m unittest discover -s tools -p 'test_legacy_block_key_audit.py' -v."""
 import json
+import shutil
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -167,6 +168,38 @@ class OfflineSQLiteTests(unittest.TestCase):
                 ('BLOCK_CONTAINER', 'minecraft:world:9:70:8', 'CONFIRMED_NOW'))
             source.commit()
         self.assertEqual(frozen, audit(snapshot))
+    def test_wal_checkpoint_backup_restore_rehearsal_keeps_exact_prior_history(self):
+        # This is a disposable restore, never a copy of a running SMP file.
+        snapshot = self.path.with_name('wal-consistent-recovery.sqlite')
+        restored = self.path.with_name('restored-separately.sqlite')
+        with sqlite3.connect(self.path) as source:
+            self.assertEqual('wal', source.execute('PRAGMA journal_mode=WAL').fetchone()[0])
+            source.execute(
+                "INSERT INTO instance_observations(instance_id, location_type, location_key) "
+                "VALUES (?,?,?)",
+                ('pre-checkpoint', 'BLOCK_CONTAINER', 'minecraft:world:-17:64:0'))
+            source.commit()
+            with sqlite3.connect(snapshot) as backup:
+                source.backup(backup)
+            expected = audit(snapshot)
+            before_bytes = snapshot.read_bytes()
+            # Mutate only the throwaway *source*, then force the WAL onto the
+            # main DB file. A subsequent restore must not inherit these writes.
+            source.execute(
+                "INSERT INTO instance_observations(instance_id, location_type, location_key) "
+                "VALUES (?,?,?)",
+                ('post-checkpoint', 'BLOCK_CONTAINER', 'minecraft:world:-16:64:0'))
+            source.commit()
+            checkpoint = source.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+            self.assertEqual(0, checkpoint[0])
+            self.assertNotEqual(expected['tables']['instance_observations']['rows'],
+                                audit(self.path)['tables']['instance_observations']['rows'])
+        shutil.copyfile(snapshot, restored)
+        self.assertEqual(expected, audit(restored))
+        self.assertEqual(before_bytes, snapshot.read_bytes())
+        self.assertEqual('ok', audit(restored)['quick_check'])
+        self.assertFalse(audit(restored)['assessment']['safe_to_deploy'])
+
     def test_cli_explicit_offline_acknowledgement(self):
         command = [sys.executable, str(Path(__file__).with_name("legacy_block_key_audit.py")),
                    str(self.path)]
