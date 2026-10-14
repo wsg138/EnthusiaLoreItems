@@ -223,6 +223,69 @@ class SQLiteLegacyLocationMigrationTest {
     }
 
     @Test
+    void crossChunkPairedSlotMoveRollsBackEntireLockedWalWriteAndReopensCleanly()
+            throws Exception {
+        Path database = temporaryDirectory.resolve("paired-cross-chunk-locked-wal.db");
+        var source = new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER,
+                "double-chest:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:"
+                        + "15:64:8|16:64:8:left=1", "slot:0");
+        var moved = new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER,
+                source.locationKey(), "slot:53");
+        MetricsPort metrics = MetricsPort.noOp();
+        SQLiteStorageRuntime runtime = new SQLiteStorageRuntime(
+                new SQLiteConnectionFactory(database, 100),
+                new MigrationRunner(),
+                new BoundedDatabaseExecutor("paired-wal-rollback-test", 32, metrics), metrics);
+        try {
+            runtime.start().toCompletableFuture().join();
+            seedActiveInstance(runtime);
+            var store = new SQLiteTrackingObservationStore(runtime);
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(source, reconciliation()), 1_000L).status());
+            try (var lock = java.sql.DriverManager.getConnection(
+                    "jdbc:sqlite:" + database.toAbsolutePath());
+                    var statement = lock.createStatement()) {
+                statement.execute("PRAGMA journal_mode = WAL");
+                statement.execute("BEGIN IMMEDIATE");
+                var failure = assertThrows(CompletionException.class, () ->
+                        record(store, present(moved, authoritative()), 1_100L));
+                assertInstanceOf(SQLException.class, failure.getCause());
+                statement.execute("ROLLBACK");
+            }
+            assertEquals(source, currentState(runtime).location());
+            assertEquals(1, observedCount(runtime));
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(moved, authoritative()), 1_200L).status());
+            assertEquals(InstanceCurrentState.State.CONFIRMED_NOW,
+                    currentState(runtime).state());
+            assertEquals(moved, currentState(runtime).location());
+            assertEquals(2, observedCount(runtime));
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+        SQLiteStorageRuntime reopened = start(database);
+        try {
+            assertEquals(moved, currentState(reopened).location());
+            assertEquals(2, observedCount(reopened));
+            reopened.execute(connection -> {
+                try (var statement = connection.createStatement()) {
+                    assertEquals("ok", statement.executeQuery(
+                            "PRAGMA integrity_check").getString(1));
+                }
+                return null;
+            }).toCompletableFuture().join();
+        } finally {
+            reopened.close(Duration.ofSeconds(5));
+        }
+    }
+
+    private static int observedCount(SQLiteStorageRuntime runtime) {
+        return new SQLiteObservationRepository(runtime)
+                .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                .toCompletableFuture().join().items().size();
+    }
+
+    @Test
     void nestedBlockRootKeyMigrationCannotPromoteUnknownWorldIdentity() {
         var oldNested = new LocationDescriptor(LocationDescriptor.Type.NESTED_CONTAINER,
                 "root:BLOCK_CONTAINER:minecraft:overworld:-1:64:16",
