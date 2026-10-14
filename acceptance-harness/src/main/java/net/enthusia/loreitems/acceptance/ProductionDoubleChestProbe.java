@@ -18,6 +18,10 @@ import org.bukkit.plugin.Plugin;
  * Does not create tracked item identities, modify plugin permissions or touch SQLite.
  */
 final class ProductionDoubleChestProbe {
+    // Production record holds only immutable UUID + block-coordinate reference.
+    // Never store a Bukkit holder, inventory, block or live chunk across ticks.
+    private static Object remoteSnapshot;
+
     private ProductionDoubleChestProbe() {}
 
     static String verify(
@@ -47,6 +51,7 @@ final class ProductionDoubleChestProbe {
             List<Inventory> sources = List.of(
                     combined, combined.getLeftSide(), combined.getRightSide(),
                     first.getBlockInventory(), second.getBlockInventory());
+            Object canonicalSnapshot = null;
             for (Inventory source : sources) {
                 Object view = ((Optional<?>) capture.invoke(null, source, production))
                         .orElseThrow(() -> new IllegalStateException(
@@ -54,6 +59,7 @@ final class ProductionDoubleChestProbe {
                 Method snapshot = view.getClass().getDeclaredMethod("snapshot");
                 snapshot.setAccessible(true);
                 Object recorded = snapshot.invoke(view);
+                if (canonicalSnapshot == null) canonicalSnapshot = recorded;
                 Method key = snapshotType.getDeclaredMethod("key");
                 key.setAccessible(true);
                 String actualKey = (String) key.invoke(recorded);
@@ -65,9 +71,47 @@ final class ProductionDoubleChestProbe {
                 inventory.setAccessible(true);
                 verifyBoundary((Inventory) inventory.invoke(view));
             }
+            if (pair.x1() == 2047 && pair.x2() == 2048) {
+                remoteSnapshot = Objects.requireNonNull(canonicalSnapshot, "remote snapshot");
+            }
             return expectedKey;
         } catch (ReflectiveOperationException | ClassCastException exception) {
             throw new IllegalStateException("production snapshot probe failed closed", exception);
+        }
+    }
+
+    /**
+     * Prove the ACTUAL production resolver cannot read the absent second half.
+     * The stored record was captured while the pair was fully loaded and
+     * retains UUIDs/coordinates only. The call must not change either chunk's
+     * natural loaded state or produce a 54-slot inventory.
+     */
+    static void verifyIncomplete(
+            World world, DoubleChestPaperFixture.Pair pair) {
+        Object snapshot = Objects.requireNonNull(remoteSnapshot,
+                "remote production snapshot was never captured while both chunks were loaded");
+        boolean first = world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1());
+        boolean second = world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2());
+        if (first == second) {
+            throw new IllegalStateException("production negative probe requires exactly one loaded half");
+        }
+        Plugin production = Objects.requireNonNull(
+                Bukkit.getPluginManager().getPlugin("EnthusiaLoreItems"), "production plugin");
+        try {
+            Method resolve = snapshot.getClass().getDeclaredMethod("resolve", Plugin.class);
+            resolve.setAccessible(true);
+            Object result = resolve.invoke(snapshot, production);
+            if (!(result instanceof Optional<?> contents) || contents.isPresent()) {
+                throw new IllegalStateException(
+                        "production wrongly resolved a 54-slot inventory with one unloaded half");
+            }
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("production incomplete resolver probe failed closed",
+                    exception);
+        }
+        if (first != world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                || second != world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())) {
+            throw new IllegalStateException("production resolver loaded an absent chest chunk");
         }
     }
 
