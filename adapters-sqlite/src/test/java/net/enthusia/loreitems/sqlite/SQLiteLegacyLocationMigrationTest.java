@@ -268,9 +268,10 @@ class SQLiteLegacyLocationMigrationTest {
             assertEquals(moved, currentState(reopened).location());
             assertEquals(2, observedCount(reopened));
             reopened.execute(connection -> {
-                try (var statement = connection.createStatement()) {
-                    assertEquals("ok", statement.executeQuery(
-                            "PRAGMA integrity_check").getString(1));
+                try (var statement = connection.createStatement();
+                        var result = statement.executeQuery("PRAGMA integrity_check")) {
+                    assertTrue(result.next());
+                    assertEquals("ok", result.getString(1));
                 }
                 return null;
             }).toCompletableFuture().join();
