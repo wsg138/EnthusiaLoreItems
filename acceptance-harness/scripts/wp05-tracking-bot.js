@@ -515,6 +515,9 @@ async function phaseTwo() {
   bot.chat('/setblock 16 70 8 minecraft:chest[facing=north,type=right]')
   await sleep(1000)
   item = tracked(bot)
+  if (item.count !== 1) {
+    throw new Error(`TRACK4 expected one genuine tracked sword, observed stack count=${item.count}`)
+  }
   block = await waitBlockAt(bot, 15, 70, 8, 'chest', 'TRACK4 left-half')
   container = await openFixtureContainer(bot, 15, 70, 8, 'chest', 'TRACK4 pair deposit')
   const chestSlots = Number.isInteger(container.inventoryStart)
@@ -527,11 +530,15 @@ async function phaseTwo() {
   if (container.slots[0]?.name !== 'diamond_sword') {
     throw new Error(`TRACK4 natural GUI deposit missing at chest slot 0: ${container.slots[0]?.name}`)
   }
-  if (trackedInventoryItems(bot).length !== 0) {
-    throw new Error('TRACK4 deposit left tracked sword in player inventory')
-  }
+  // Mineflayer's player inventory view may retain the old slot cache
+  // while a chest window is still open. Close the acknowledged window first,
+  // then demand the actual updated player inventory contains no sword.
   container.close()
-  await sleep(600)
+  await sleep(900)
+  const remaining = trackedInventoryItems(bot)
+  if (remaining.length !== 0) {
+    throw new Error(`TRACK4 deposit left tracked sword after window sync: ${remaining.map(it => `${it.name} count=${it.count} slot=${it.slot}`).join(',')}`)
+  }
   fs.writeFileSync(`${root}/track4-deposited`, 'ok\n')
   log('TRACK4 actual client cross-chunk chest slot:0')
 
