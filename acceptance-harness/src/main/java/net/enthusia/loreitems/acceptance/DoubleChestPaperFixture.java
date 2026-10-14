@@ -56,7 +56,9 @@ final class DoubleChestPaperFixture {
         }
         if (!pair.loaded(world)) {
             sender.sendMessage("WP05_DOUBLE_CHEST_UNRESOLVED case=" + arguments[2]
-                    + " reason=HALF_CHUNK_NOT_LOADED");
+                    + " reason=HALF_CHUNK_NOT_LOADED"
+                    + " first_loaded=" + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
         }
         if ("setup".equals(action)) {
