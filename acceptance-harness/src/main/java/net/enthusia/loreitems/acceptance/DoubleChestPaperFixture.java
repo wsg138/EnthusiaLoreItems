@@ -26,6 +26,7 @@ final class DoubleChestPaperFixture {
     private static final int REMOTE_ARGUMENTS = 4;
     private static final int HALF_SLOTS = 27;
     private static final int COMBINED_SLOTS = 54;
+    private static final String ACTION_INSPECT = "inspect";
     private static final String HALF_FIRST = "first";
     private static final String HALF_SECOND = "second";
     private static final String FIRST_LOADED = " first_loaded=";
@@ -71,7 +72,7 @@ final class DoubleChestPaperFixture {
         }
         if ("setup".equals(action)) {
             setup(world, pair);
-        } else if (!"inspect".equals(action)) {
+        } else if (!ACTION_INSPECT.equals(action)) {
             throw new IllegalArgumentException("doublechest action must be setup or inspect");
         }
         inspect(world, pair, sender, arguments[2]);
