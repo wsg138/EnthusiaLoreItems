@@ -191,42 +191,54 @@ class ProjectionLinkPreflightTests(unittest.TestCase):
                         confidence TEXT NOT NULL,
                         location_type TEXT NOT NULL,
                         location_key TEXT NOT NULL,
-                        container_path TEXT
+                        container_path TEXT,
+                        observed_at INTEGER
                     );
                     CREATE TABLE instance_current_state(
                         instance_id TEXT PRIMARY KEY,
                         state TEXT, location_type TEXT, location_key TEXT,
-                        container_path TEXT, last_observation_id INTEGER
+                        container_path TEXT, last_observation_id INTEGER,
+                        updated_at INTEGER
                     );
                     INSERT INTO instance_observations VALUES
-                       (1,'a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0'),
-                       (2,'b','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1'),
-                       (3,'d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','copy1=old;copy2=new');
+                       (1,'a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',900),
+                       (2,'b','CONFLICTING','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',900),
+                       (3,'d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','copy1=old;copy2=new',900),
+                       (4,'j','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:5:2:3','slot:1',900),
+                       (5,'k','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:6:2:3','slot:1',1000);
                     INSERT INTO instance_current_state VALUES
-                       ('a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1),
-                       ('b','LAST_CONFIRMED','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2),
-                       ('c','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:3:2:3','slot:1',99),
-                       ('d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','wrong-location',3),
-                       ('e','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2),
-                       ('f','MISSING_UNRESOLVED',NULL,NULL,NULL,NULL),
-                       ('g','MISSING_UNRESOLVED',NULL,'invalid',NULL,NULL),
-                       ('h','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:4:2:3','slot:1',NULL),
-                       ('i','UNKNOWN','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1);
+                       ('a','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1,1000),
+                       ('b','LAST_CONFIRMED','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2,1000),
+                       ('c','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:3:2:3','slot:1',99,1000),
+                       ('d','CONFLICTING','DUPLICATE_CONFLICT','instance:d','wrong-location',3,1000),
+                       ('e','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:2:2:3','slot:1',2,1000),
+                       ('f','MISSING_UNRESOLVED',NULL,NULL,NULL,NULL,1000),
+                       ('g','MISSING_UNRESOLVED',NULL,'invalid',NULL,NULL,1000),
+                       ('h','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:4:2:3','slot:1',NULL,1000),
+                       ('i','UNKNOWN','BLOCK_CONTAINER','minecraft:world:1:2:3','slot:0',1,1000),
+                       ('j','LAST_CONFIRMED','BLOCK_CONTAINER','minecraft:world:5:2:3','slot:1',4,1000),
+                       ('k','CONFIRMED_NOW','BLOCK_CONTAINER','minecraft:world:6:2:3','slot:1',5,900);
                 """)
             before = database.read_bytes()
             with sqlite3.connect(database) as source:
                 findings = inspect_projection_links(source)
             self.assertEqual(before, database.read_bytes())
             self.assertEqual('REVIEW_REQUIRED', findings['assessment'])
-            self.assertEqual(7, findings['inconsistent_rows'])
+            self.assertEqual(8, findings['inconsistent_rows'])
             self.assertEqual({
-                'linked_projection_valid': 1, 'state_confidence_mismatch': 1,
+                'linked_projection_valid': 2, 'state_confidence_mismatch': 1,
                 'dangling_observation_pointer': 1, 'projection_location_mismatch': 1,
                 'cross_instance_observation_pointer': 1, 'valid_unresolved': 1,
                 'invalid_unresolved': 1, 'missing_observation_pointer': 1,
-                'unknown_projection_state': 1,
+                'unknown_projection_state': 1, 'projection_predates_observation': 1,
             }, findings['counts'])
 
+    def test_last_confirmed_can_reference_confirmed_now_without_failing(self):
+        from legacy_block_key_audit import confidence_matches
+        self.assertTrue(confidence_matches('LAST_CONFIRMED', 'CONFIRMED_NOW'))
+        self.assertTrue(confidence_matches('LAST_CONFIRMED', 'LAST_CONFIRMED'))
+        self.assertFalse(confidence_matches('CONFIRMED_NOW', 'LAST_CONFIRMED'))
+        self.assertFalse(confidence_matches('CONFLICTING', 'CONFIRMED_NOW'))
     def test_minimal_schema_is_reported_incompatible_not_assumed_healthy(self):
         with sqlite3.connect(':memory:') as source:
             source.execute('CREATE TABLE instance_current_state (location_type TEXT)')
