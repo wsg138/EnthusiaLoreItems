@@ -46,6 +46,10 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
  * Chest holders and opposite LEFT/RIGHT block data. A missing half fails closed.
  */
 class DoubleChestCrossChunkAcceptanceTest {
+    private static final String SLOT_FIRST = "slot:0";
+    private static final String SLOT_LAST = "slot:53";
+    private static final String GET_LOCATION = "getLocation";
+    private static final String GET_TYPE = "getType";
     private static final LoreItemIdentity IDENTITY = new LoreItemIdentity(
             new LoreDefinitionId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
             new LoreInstanceId(UUID.fromString("22222222-2222-2222-2222-222222222222")),
@@ -110,7 +114,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         fixture.items[53] = trackedItem();
         assertTrue(scan(chunk(fixture.leftState, fixture.rightState)));
         assertEquals(1, observations.size());
-        assertEquals("slot:53", observations.getFirst().location().containerPath());
+        assertEquals(SLOT_LAST, observations.getFirst().location().containerPath());
         assertEquals(fixture.key(), observations.getFirst().location().locationKey());
     }
 
@@ -124,7 +128,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         // A later scan is allowed to re-read; same-tick unchanged callbacks are coalesced.
         listener.drain();
         assertTrue(scan(chunk(fixture.rightState)));
-        assertEquals(List.of("slot:0", "slot:53"),
+        assertEquals(List.of(SLOT_FIRST, SLOT_LAST),
                 observations.stream().map(o -> o.location().containerPath()).toList());
         assertTrue(observations.stream().allMatch(o ->
                 fixture.key().equals(o.location().locationKey())));
@@ -136,7 +140,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         fixture.items[0] = trackedItem();
         fixture.items[53] = fixture.items[0].clone();
         assertTrue(scan(chunk(fixture.leftState)));
-        assertEquals(List.of("slot:0", "slot:53"),
+        assertEquals(List.of(SLOT_FIRST, SLOT_LAST),
                 observations.stream().map(o -> o.location().containerPath()).toList());
         assertTrue(observations.stream().allMatch(o ->
                 o.mode() == TrackingObservationUseCase.EvidenceMode.RECONCILIATION));
@@ -152,7 +156,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         fixture.items[0] = null;
         listener.onChunkLoad(new ChunkLoadEvent(loaded, false));
         assertTrue(scan(loaded));
-        assertEquals(List.of("slot:0", "slot:53"),
+        assertEquals(List.of(SLOT_FIRST, SLOT_LAST),
                 observations.stream().map(o -> o.location().containerPath()).toList());
     }
 
@@ -202,7 +206,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         LocationDescriptor location = observations.getFirst().location();
         assertEquals(LocationDescriptor.Type.BLOCK_CONTAINER, location.type());
         assertEquals(fixture.key(), location.locationKey());
-        assertEquals("slot:53", location.containerPath());
+        assertEquals(SLOT_LAST, location.containerPath());
     }
 
     private boolean scan(Chunk chunk) {
@@ -224,7 +228,7 @@ class DoubleChestCrossChunkAcceptanceTest {
     private static Inventory inventory(Location anchor, ItemStack[] contents) {
         return proxy(Inventory.class, (method, args) -> switch (method) {
             case "getHolder" -> null;
-            case "getLocation" -> anchor;
+            case GET_LOCATION -> anchor;
             case "getContents" -> contents.clone();
             case "getItem" -> contents[(int) args[0]];
             case "getSize" -> contents.length;
@@ -235,7 +239,7 @@ class DoubleChestCrossChunkAcceptanceTest {
     private static BlockState state(Location position, Inventory contents) {
         return proxy(Container.class, (method, args) -> switch (method) {
             case "getInventory", "getBlockInventory" -> contents;
-            case "getLocation" -> position;
+            case GET_LOCATION -> position;
             case "getWorld" -> position.getWorld();
             default -> null;
         });
@@ -276,14 +280,13 @@ class DoubleChestCrossChunkAcceptanceTest {
             rightState = chest(false, facing);
             combined = proxy(DoubleChestInventory.class, (method, args) -> switch (method) {
                 case "getSize" -> 54;
-                case "getType" -> InventoryType.CHEST;
-                case "getLeftSide" -> half(true);
-                case "getRightSide" -> half(false);
+                case GET_TYPE -> InventoryType.CHEST;
+                case "getLeftSide", "getRightSide" -> half("getLeftSide".equals(method));
                 case "getHolder" -> {
                     assertEquals(false, args[0]);
                     yield null;
                 }
-                case "getLocation" -> new Location(world, (x + otherX) / 2.0,
+                case GET_LOCATION -> new Location(world, (x + otherX) / 2.0,
                         64, (z + otherZ) / 2.0);
                 case "getContents" -> items.clone();
                 case "getItem" -> items[(int) args[0]];
@@ -342,10 +345,14 @@ class DoubleChestCrossChunkAcceptanceTest {
             return proxy(Block.class, (method, args) -> {
                 if (!"getState".equals(method)) return null;
                 assertEquals(false, args[0]);
-                if (by == 64 && bx == x && bz == z) return leftState;
-                if (by == 64 && bx == otherX && bz == otherZ) return rightState;
-                return null;
+                return resolvedBlockState(bx, by, bz);
             });
+        }
+
+        private BlockState resolvedBlockState(int bx, int by, int bz) {
+            if (by == 64 && bx == x && bz == z) return leftState;
+            if (by == 64 && bx == otherX && bz == otherZ) return rightState;
+            return null;
         }
 
         private org.bukkit.block.Chest chest(boolean left, BlockFace facing) {
@@ -359,7 +366,7 @@ class DoubleChestCrossChunkAcceptanceTest {
         private static Object chestDataMethod(
                 boolean left, BlockFace facing, String method) {
             return switch (method) {
-                case "getType" -> left
+                case GET_TYPE -> left
                         ? org.bukkit.block.data.type.Chest.Type.LEFT
                         : org.bukkit.block.data.type.Chest.Type.RIGHT;
                 case "getFacing" -> facing;
@@ -370,9 +377,9 @@ class DoubleChestCrossChunkAcceptanceTest {
         private Object chestStateMethod(
                 boolean left, org.bukkit.block.data.type.Chest data, String method) {
             return switch (method) {
-                case "getType" -> Material.CHEST;
+                case GET_TYPE -> Material.CHEST;
                 case "getBlockData" -> data;
-                case "getLocation" -> sideLocation(left);
+                case GET_LOCATION -> sideLocation(left);
                 case "getWorld" -> world;
                 case "getInventory" -> combined;
                 case "getBlockInventory" -> half(left);
@@ -388,11 +395,11 @@ class DoubleChestCrossChunkAcceptanceTest {
         private Object halfMethod(boolean left, String method, Object[] args) {
             return switch (method) {
                 case "getSize" -> 27;
-                case "getType" -> InventoryType.CHEST;
+                case GET_TYPE -> InventoryType.CHEST;
                 case "getContents" -> Arrays.copyOfRange(
                         items, halfOffset(left), halfOffset(left) + 27);
                 case "getItem" -> items[halfOffset(left) + (int) args[0]];
-                case "getLocation" -> sideLocation(left);
+                case GET_LOCATION -> sideLocation(left);
                 case "getHolder" -> halfHolder(left, args);
                 default -> null;
             };
