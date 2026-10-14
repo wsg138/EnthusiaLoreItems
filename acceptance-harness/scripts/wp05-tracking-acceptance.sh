@@ -598,7 +598,30 @@ with sqlite3.connect(path) as c:
 print('PASS ACC-TRACK-003: drop/pickup + frame/glow-frame/armor-stand + death/drop + natural chunk unload/reload')
 PY
 
+# ACC-TRACK-004: one REAL lore item through the 54-slot cross-X-chunk
+# chest at 15|16. Every transfer below uses the Mineflayer player's GUI.
+# The verifier uses actual durable SQLite current state and immutable receipts.
 echo 'setworldspawn 0 70 0' >&3
+echo 'clear Wp05TrackBot' >&3
+echo 'wp05accept source Wp05TrackBot sword' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_double Track Double Chest' >&3
+sleep 1
+echo 'clear Wp05TrackBot' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_double' >&3
+wait_player_copy acc_track_double
+
+touch "$ROOT/go-track4-deposit"
+wait_marker track4-deposited 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" deposit | tee -a "$EVIDENCE/case-results.txt"
+
+touch "$ROOT/go-track4-slot53"
+wait_marker track4-moved 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" move | tee -a "$EVIDENCE/case-results.txt"
+
 touch "$ROOT/bot.stop"
 wait "$BOT_PID"
 BOT_PID=""
@@ -616,6 +639,8 @@ with sqlite3.connect(sys.argv[1]) as c:
     assert c.execute('select count(*) from instance_current_state').fetchone()[0]>0
 print('PASS tracking restart durability/integrity')
 PY
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" restart | tee -a "$EVIDENCE/case-results.txt"
 
 if grep -E 'Exception ticking world|Could not pass event|Server thread.*ERROR|java\.lang\.(NullPointerException|IllegalStateException)' \
   "$EVIDENCE/server.log" "$EVIDENCE/server-restart.log"; then
