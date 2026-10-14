@@ -95,6 +95,22 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 verify(self.db, rows, "move", HELPERS["CANONICAL"])
 
+    def test_verifier_rejects_unconfirmed_live_movement_before_database_probe(self):
+        rows = [("i", "LAST_CONFIRMED", "BLOCK_CONTAINER", KEY, "slot:53", 4)]
+        self.assertFalse(HELPERS["can_verify"](rows, "move", HELPERS["CANONICAL"]))
+        self.assertTrue(HELPERS["can_verify"](rows, "restart", HELPERS["CANONICAL"]))
+        self.assertFalse(HELPERS["can_verify"](
+            rows + rows, "restart", HELPERS["CANONICAL"]))
+
+    def test_parser_rejects_unknown_axis_and_invalid_stages(self):
+        parse = HELPERS["parse_args"]
+        self.assertEqual(("/tmp/disposable.sqlite", "move", "xminus"),
+                         parse(["verifier", "/tmp/disposable.sqlite", "move", "xminus"]))
+        with self.assertRaises(SystemExit):
+            parse(["verifier", "/tmp/disposable.sqlite", "move", "invalid-axis"])
+        with self.assertRaises(SystemExit):
+            parse(["verifier", "/tmp/disposable.sqlite", "unknown-stage"])
+
     def test_real_slot_zero_receipt_is_accepted(self):
         self.location()
         self.receipt("slot:0")
