@@ -1,4 +1,6 @@
 """Synthetic unit checks for real-Paper ACC-TRACK-004 SQLite receipt verifier."""
+import io
+from contextlib import redirect_stdout
 import runpy
 import sqlite3
 from pathlib import Path
@@ -57,7 +59,10 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
                 "VALUES (?,?,?,?,?)",
                 ("iz", "BLOCK_CONTAINER", KEY_Z, slot, "CONFIRMED_NOW"))
         zrows = read_state(self.db, "acc_track_double_z")
-        verify(self.db, zrows, "move", HELPERS["CANONICAL_Z"])
+        output = io.StringIO()
+        with redirect_stdout(output):
+            verify(self.db, zrows, "move", HELPERS["CANONICAL_Z"], "z")
+        self.assertIn("PASS ACC-TRACK-005 move:", output.getvalue())
         with self.assertRaises(AssertionError):
             verify(self.db, zrows, "move", HELPERS["CANONICAL"])
 
