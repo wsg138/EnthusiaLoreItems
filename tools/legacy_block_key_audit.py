@@ -246,6 +246,39 @@ def inspect_projection_links(connection: sqlite3.Connection) -> dict:
             'inconsistent_rows': failures,
             'counts': dict(sorted(counts.items()))}
 
+
+def inspect_legacy_scope(results: dict) -> dict:
+    """Distinguish active projection risk from immutable historical evidence.
+
+    A historical legacy key never authorizes world-name-to-UUID rewriting.
+    This classification is useful for *planning*, not deploying or deciding
+    that a stale physical item is unique.
+    """
+    current = results["instance_current_state"]
+    historical = results["instance_observations"]
+    active_old = current["categories"].get("legacy_world_name", 0)
+    historical_old = historical["categories"].get("legacy_world_name", 0)
+    if active_old:
+        disposition = "CURRENT_LEGACY_PROJECTION_REQUIRES_REVIEW"
+    elif historical_old:
+        disposition = "HISTORICAL_ONLY_PRESERVE_IMMUTABLE_EVIDENCE"
+    else:
+        disposition = "NO_LEGACY_BLOCK_KEYS_IN_THIS_SNAPSHOT"
+    return {
+        "disposition": disposition,
+        "current_legacy_world_name_rows": active_old,
+        "historical_legacy_world_name_rows": historical_old,
+        "current_legacy_states": current["legacy_current_state_counts"],
+        "requires_review_before_world_key_reconciliation": bool(active_old),
+        "immutable_history_rewrite_authorized": False,
+        "deployment_approved": False,
+        "warning": ("No current old-name projection on this offline copy does "
+                    "not prove historical world identity or authorize deployment. "
+                    "Use fresh, consistent snapshot and physical loaded-item "
+                    "evidence before any migration decision."),
+    }
+
+
 def audit(database: Path) -> dict:
     if not database.is_file():
         raise ValueError("Offline SQLite copy does not exist")
@@ -269,6 +302,7 @@ def audit(database: Path) -> dict:
         "quick_check": quick_check,
         "tables": results,
         "historical_instance_overlap": history_overlap,
+        "legacy_evidence_scope": inspect_legacy_scope(results),
         "projection_link_consistency": projection_links,
         "empty_tracking_snapshot": {
             "no_current_states": results["instance_current_state"]["rows"] == 0,
