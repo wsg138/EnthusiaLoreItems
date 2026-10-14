@@ -187,18 +187,20 @@ await_pair_fully_unloaded() {
 # LoreItems must never load a chunk on its own. Observe both real loaded flags
 # in the SAME Paper main-thread operation, before any neighbor load may occur.
 prove_one_half() {
-  local half="$1" expected before count
+  local half="$1" expected before before_production count production_count
   if [[ "$half" == 'first' ]]; then
     expected='first_loaded=true second_loaded=false'
   else
     expected='first_loaded=false second_loaded=true'
   fi
   before=$(grep -Fc "WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED $expected" "$LOG" 2>/dev/null || true)
+  before_production=$(grep -Fc "WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED $expected authority=NONE" "$LOG" 2>/dev/null || true)
   printf 'wp05accept doublechest prime xremote %s\n' "$half" >&3
   for _ in $(seq 1 30); do
     count=$(grep -Fc "WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED $expected" "$LOG" 2>/dev/null || true)
-    if [[ "$count" -gt "$before" ]]; then
-      echo "PASS: real Paper $half-only load refuses incomplete paired inventory" \
+    production_count=$(grep -Fc "WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED $expected authority=NONE" "$LOG" 2>/dev/null || true)
+    if [[ "$count" -gt "$before" && "$production_count" -gt "$before_production" ]]; then
+      echo "PASS: real Paper $half-only load, AND production LoreItems 54-slot resolver refused it" \
         | tee -a "$EVIDENCE/missing-half-results.txt"
       return 0
     fi
