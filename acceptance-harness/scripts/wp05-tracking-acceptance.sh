@@ -622,6 +622,27 @@ wait_marker track4-moved 180
 python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
     "$DB" move | tee -a "$EVIDENCE/case-results.txt"
 
+# Independently exercise the perpendicular real Z15|16 chunk boundary.
+# This is a second native lore instance; never reuse/forge the X-case item.
+echo 'clear Wp05TrackBot' >&3
+echo 'wp05accept source Wp05TrackBot sword' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_double_z Track Double Chest Z' >&3
+sleep 1
+echo 'clear Wp05TrackBot' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_double_z' >&3
+wait_player_copy acc_track_double_z
+
+touch "$ROOT/go-track5-deposit"
+wait_marker track5-deposited 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" deposit z | tee -a "$EVIDENCE/case-results.txt"
+touch "$ROOT/go-track5-slot53"
+wait_marker track5-moved 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" move z | tee -a "$EVIDENCE/case-results.txt"
+
 touch "$ROOT/bot.stop"
 wait "$BOT_PID"
 BOT_PID=""
@@ -641,6 +662,8 @@ print('PASS tracking restart durability/integrity')
 PY
 python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
     "$DB" restart | tee -a "$EVIDENCE/case-results.txt"
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" restart z | tee -a "$EVIDENCE/case-results.txt"
 
 if grep -E 'Exception ticking world|Could not pass event|Server thread.*ERROR|java\.lang\.(NullPointerException|IllegalStateException)' \
   "$EVIDENCE/server.log" "$EVIDENCE/server-restart.log"; then
