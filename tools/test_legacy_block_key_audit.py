@@ -123,6 +123,9 @@ class OfflineSQLiteTests(unittest.TestCase):
                     ('mixed-two', 'BLOCK_CONTAINER', 'minecraft:world:20:70:8'),
                     ('mixed-two', 'BLOCK_CONTAINER', f'block-v2:{first}:20:70:8'),
                     ('mixed-two', 'BLOCK_CONTAINER', f'block-v2:{second}:20:70:8'),
+                    ('mixed-reverse', 'BLOCK_CONTAINER', f'block-v2:{first}:5:70:8'),
+                    ('mixed-reverse', 'NESTED_CONTAINER',
+                     'root:BLOCK_CONTAINER:minecraft:world:5:70:8'),
                     ('modern-only', 'BLOCK_CONTAINER', f'block-v2:{first}:22:70:8'),
                 ])
             connection.commit()
@@ -133,11 +136,14 @@ class OfflineSQLiteTests(unittest.TestCase):
         self.assertEqual('REVIEW_ONLY_NO_WORLD_MAPPING', risk['resolution'])
         self.assertEqual({
             'legacy_without_modern_history': 1,
-            'legacy_with_one_observed_modern_world': 1,
+            'legacy_with_one_observed_modern_world': 2,
             'legacy_with_multiple_observed_modern_worlds': 1,
             'modern_without_legacy_history': 1,
             'neither_legacy_nor_modern_block_history': 1,
         }, risk['risk_counts'])
+        self.assertEqual({'legacy_first': 2, 'modern_first': 1},
+                         risk['mixed_key_arrival_order_counts'])
+        self.assertNotIn('mixed-reverse', json.dumps(risk))
         self.assertNotIn('mixed-two', json.dumps(risk))
         self.assertFalse(result['assessment']['world_uuid_inferred'])
 
