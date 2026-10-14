@@ -643,6 +643,47 @@ wait_marker track5-moved 180
 python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
     "$DB" move z | tee -a "$EVIDENCE/case-results.txt"
 
+# ACC-TRACK-006/007: genuinely tracked swords across -1|0 chunk boundaries.
+# Each item is independently created by LoreItems, delivered to the player,
+# moved through a real 54-slot chest, and durably checked before and after restart.
+echo 'clear Wp05TrackBot' >&3
+echo 'wp05accept source Wp05TrackBot sword' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_double_xneg Track Double Chest X Negative' >&3
+sleep 1
+echo 'clear Wp05TrackBot' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_double_xneg' >&3
+wait_player_copy acc_track_double_xneg
+
+touch "$ROOT/go-track6-deposit"
+wait_marker track6-deposited 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" deposit xminus | tee -a "$EVIDENCE/case-results.txt"
+touch "$ROOT/go-track6-slot53"
+wait_marker track6-moved 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" move xminus | tee -a "$EVIDENCE/case-results.txt"
+
+echo 'clear Wp05TrackBot' >&3
+echo 'wp05accept source Wp05TrackBot sword' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems create acc_track_double_zneg Track Double Chest Z Negative' >&3
+sleep 1
+echo 'clear Wp05TrackBot' >&3
+sleep .5
+echo 'wp05accept perform Wp05TrackBot loreitems give acc_track_double_zneg' >&3
+wait_player_copy acc_track_double_zneg
+
+touch "$ROOT/go-track7-deposit"
+wait_marker track7-deposited 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" deposit zminus | tee -a "$EVIDENCE/case-results.txt"
+touch "$ROOT/go-track7-slot53"
+wait_marker track7-moved 180
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" move zminus | tee -a "$EVIDENCE/case-results.txt"
+
 touch "$ROOT/bot.stop"
 wait "$BOT_PID"
 BOT_PID=""
@@ -664,6 +705,10 @@ python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tra
     "$DB" restart | tee -a "$EVIDENCE/case-results.txt"
 python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
     "$DB" restart z | tee -a "$EVIDENCE/case-results.txt"
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" restart xminus | tee -a "$EVIDENCE/case-results.txt"
+python3 "$GITHUB_WORKSPACE/acceptance-harness/scripts/wp05-verify-crosschunk-tracking.py" \
+    "$DB" restart zminus | tee -a "$EVIDENCE/case-results.txt"
 
 if grep -E 'Exception ticking world|Could not pass event|Server thread.*ERROR|java\.lang\.(NullPointerException|IllegalStateException)' \
   "$EVIDENCE/server.log" "$EVIDENCE/server-restart.log"; then
