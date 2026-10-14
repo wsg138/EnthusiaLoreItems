@@ -22,6 +22,15 @@ import org.bukkit.inventory.ItemStack;
  * proves the actual Paper chest geometry that later movement tests depend on.
  */
 final class DoubleChestPaperFixture {
+    private static final int NORMAL_ARGUMENTS = 3;
+    private static final int REMOTE_ARGUMENTS = 4;
+    private static final int HALF_SLOTS = 27;
+    private static final int COMBINED_SLOTS = 54;
+    private static final String HALF_FIRST = "first";
+    private static final String HALF_SECOND = "second";
+    private static final String FIRST_LOADED = " first_loaded=";
+    private static final String SECOND_LOADED = " second_loaded=";
+
     private static final Map<String, Pair> CASES = Map.of(
             "same", new Pair(8, 8, 9, 8, BlockFace.NORTH),
             "xplus", new Pair(15, 8, 16, 8, BlockFace.NORTH),
@@ -38,26 +47,26 @@ final class DoubleChestPaperFixture {
     static void command(CommandSender sender, String[] arguments) {
         Objects.requireNonNull(sender, "sender");
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length < 3 || arguments.length > 4) {
+        if (arguments.length < NORMAL_ARGUMENTS || arguments.length > REMOTE_ARGUMENTS) {
             throw new IllegalArgumentException(
                     "doublechest <setup|inspect|probe|evict|prime> <case-name> [half]");
         }
         String action = arguments[1].toLowerCase(Locale.ROOT);
         Pair pair = caseFor(arguments[2]);
         World world = Objects.requireNonNull(Bukkit.getWorld("world"), "isolated test world");
-        if (arguments.length == 4) {
+        if (arguments.length == REMOTE_ARGUMENTS) {
             requireRemoteFixture(arguments[2]);
             remoteChunkCheck(world, pair, arguments[2], arguments[3], action, sender);
             return;
         }
-        if (arguments.length != 3) {
+        if (arguments.length != NORMAL_ARGUMENTS) {
             throw new IllegalArgumentException("setup/inspect needs exactly one case name");
         }
         if (!pair.loaded(world)) {
             sender.sendMessage("WP05_DOUBLE_CHEST_UNRESOLVED case=" + arguments[2]
                     + " reason=HALF_CHUNK_NOT_LOADED"
-                    + " first_loaded=" + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
-                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+                    + FIRST_LOADED + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                    + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
         }
         if ("setup".equals(action)) {
@@ -97,7 +106,7 @@ final class DoubleChestPaperFixture {
         if ("pair".equals(half)) {
             sender.sendMessage("WP05_CHUNK_PAIR_PROBE case=" + caseName + " first_loaded="
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
-                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+                    + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
         }
         int x = chunkX(pair, half);
@@ -111,8 +120,8 @@ final class DoubleChestPaperFixture {
 
     private static int chunkX(Pair pair, String half) {
         return switch (half) {
-            case "first" -> pair.chunkX1();
-            case "second" -> pair.chunkX2();
+            case HALF_FIRST -> pair.chunkX1();
+            case HALF_SECOND -> pair.chunkX2();
             case "control" -> 150;
             default -> throw new IllegalArgumentException("remote half must be first, second or control");
         };
@@ -120,8 +129,8 @@ final class DoubleChestPaperFixture {
 
     private static int chunkZ(Pair pair, String half) {
         return switch (half) {
-            case "first" -> pair.chunkZ1();
-            case "second" -> pair.chunkZ2();
+            case HALF_FIRST -> pair.chunkZ1();
+            case HALF_SECOND -> pair.chunkZ2();
             case "control" -> 0;
             default -> throw new IllegalArgumentException("remote half must be first, second or control");
         };
@@ -155,7 +164,7 @@ final class DoubleChestPaperFixture {
      */
     private static void primeOnlyOneHalf(
             World world, Pair pair, String caseName, String half, CommandSender sender) {
-        if (!"first".equals(half) && !"second".equals(half)) {
+        if (!HALF_FIRST.equals(half) && !HALF_SECOND.equals(half)) {
             throw new IllegalArgumentException("prime requires a chest half");
         }
         if (world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
@@ -169,8 +178,8 @@ final class DoubleChestPaperFixture {
         boolean loaded = world.loadChunk(x, z, false);
         sender.sendMessage("WP05_DOUBLE_CHEST_PRIME_" + (loaded ? "REQUESTED" : "FAILED")
                 + " half=" + half
-                + " first_loaded=" + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
-                + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+                + FIRST_LOADED + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
         // The actual production resolver must return no inventory and must
         // not load the neighbor while exactly one real Paper half is present.
         if (world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
@@ -179,7 +188,7 @@ final class DoubleChestPaperFixture {
             sender.sendMessage("WP05_DOUBLE_CHEST_PRODUCTION_UNRESOLVED case=" + caseName
                     + " first_loaded="
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
-                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())
+                    + SECOND_LOADED + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2())
                     + " authority=NONE");
         }
         // Within the same server-thread operation, execute the ordinary loaded
@@ -220,8 +229,8 @@ final class DoubleChestPaperFixture {
     private static void markBoundaryItems(DoubleChestInventory combined) {
         Inventory left = combined.getLeftSide();
         Inventory right = combined.getRightSide();
-        if (left == null || right == null || left.getSize() != 27
-                || right.getSize() != 27 || combined.getSize() != 54) {
+        if (left == null || right == null || left.getSize() != HALF_SLOTS
+                || right.getSize() != HALF_SLOTS || combined.getSize() != COMBINED_SLOTS) {
             throw new IllegalStateException("invalid test chest half inventory topology");
         }
         // No LoreItems identity/PDC is created; every real 54-slot position
@@ -262,7 +271,7 @@ final class DoubleChestPaperFixture {
                 + " chunks=" + pair.chunkX1() + "," + pair.chunkZ1()
                 + ";" + pair.chunkX2() + "," + pair.chunkZ2()
                 + " slots=54 half_slots=27,27"
-                + " paper_left=" + (firstIsPaperLeft ? "first" : "second")
+                + " paper_left=" + (firstIsPaperLeft ? HALF_FIRST : HALF_SECOND)
                 + " first_block_type=LEFT second_block_type=RIGHT");
     }
 
@@ -274,7 +283,7 @@ final class DoubleChestPaperFixture {
             throw new IllegalStateException("doublechest requires two actual Chest block states");
         }
         if (!(first.getInventory() instanceof DoubleChestInventory combined)
-                || second.getInventory().getSize() != 54) {
+                || second.getInventory().getSize() != COMBINED_SLOTS) {
             throw new IllegalStateException("the pair does not expose a real 54-slot double chest");
         }
         return combined;
@@ -310,16 +319,16 @@ final class DoubleChestPaperFixture {
 
     private static void requireCanonicalHalves(
             DoubleChestInventory combined, Inventory left, Inventory right) {
-        if (left == null || right == null || combined.getSize() != 54) {
+        if (left == null || right == null || combined.getSize() != COMBINED_SLOTS) {
             throw new IllegalStateException("double chest has no canonical 54-slot halves");
         }
-        if (left.getSize() != 27 || right.getSize() != 27) {
+        if (left.getSize() != HALF_SLOTS || right.getSize() != HALF_SLOTS) {
             throw new IllegalStateException("the left/right inventories are not 27 slots each");
         }
     }
 
     private static void requireHalfSize(Chest block) {
-        if (block.getBlockInventory().getSize() != 27) {
+        if (block.getBlockInventory().getSize() != HALF_SLOTS) {
             throw new IllegalStateException("physical block half slots are not 27 each");
         }
     }
@@ -344,7 +353,7 @@ final class DoubleChestPaperFixture {
                     + " inventory=" + coordinates(inventory));
         }
         Inventory actualHalf = physical.getBlockInventory();
-        for (int slot = 0; slot < 27; slot++) {
+        for (int slot = 0; slot < HALF_SLOTS; slot++) {
             if (!Objects.equals(actualHalf.getItem(slot), side.getItem(slot))) {
                 throw new IllegalStateException("physical chest block/half mismatch side="
                         + sideName + " slot=" + slot);
