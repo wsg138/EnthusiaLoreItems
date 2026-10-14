@@ -565,6 +565,62 @@ async function phaseTwo() {
   fs.writeFileSync(`${root}/track4-moved`, 'ok\n')
   log('TRACK4 actual client cross-chunk chest slot:53')
 
+  // ACC-TRACK-005: independently prove the Z15|16 chunk boundary with
+  // a SECOND legitimate lore instance and full 0→53 cross-half GUI movement.
+  await waitFile('go-track5-deposit')
+  await teleport(bot, 7, 71, 15, 'TRACK5 cross-Z-chunk area')
+  bot.chat('/fill 6 69 13 10 69 18 minecraft:stone')
+  bot.chat('/setblock 8 71 15 minecraft:air')
+  bot.chat('/setblock 8 71 16 minecraft:air')
+  bot.chat('/setblock 8 70 15 minecraft:chest[facing=east,type=left]')
+  bot.chat('/setblock 8 70 16 minecraft:chest[facing=east,type=right]')
+  await sleep(1000)
+  item = tracked(bot)
+  if (item.count !== 1) {
+    throw new Error(`TRACK5 expected exactly one real sword stack, count=${item.count}`)
+  }
+  block = await waitBlockAt(bot, 8, 70, 15, 'chest', 'TRACK5 first-Z-half')
+  container = await openFixtureContainer(bot, 8, 70, 15, 'chest', 'TRACK5 Z deposit')
+  const zSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (zSlots !== 54 || container.slots[0]) {
+    throw new Error(`TRACK5 Z fixture not empty 54-slot composite: slots=${zSlots}`)
+  }
+  await container.deposit(item.type, null, 1)
+  await sleep(900)
+  if (container.slots[0]?.name !== 'diamond_sword') {
+    throw new Error('TRACK5 real GUI Z-boundary deposit did not reach slot 0')
+  }
+  container.close()
+  await sleep(900)
+  const zRemaining = trackedInventoryItems(bot)
+  if (zRemaining.length !== 0) {
+    throw new Error(`TRACK5 deposit left sword in player inventory: ${zRemaining.map(i=>i.name + ':' + i.count).join(',')}`)
+  }
+  fs.writeFileSync(`${root}/track5-deposited`, 'ok\n')
+  log('TRACK5 actual client cross-Z-chunk chest slot:0')
+
+  await waitFile('go-track5-slot53')
+  block = await waitBlockAt(bot, 8, 70, 16, 'chest', 'TRACK5 second-Z-half')
+  container = await openFixtureContainer(bot, 8, 70, 16, 'chest', 'TRACK5 Z movement')
+  const zPairedSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (zPairedSlots !== 54 || container.slots[0]?.name !== 'diamond_sword'
+      || container.slots[53]) {
+    throw new Error('TRACK5 wrong 54-slot pre-move Z orientation or chest contents')
+  }
+  await bot.clickWindow(0, 0, 0)
+  await sleep(350)
+  await bot.clickWindow(53, 0, 0)
+  await sleep(1000)
+  if (container.slots[0] || container.slots[53]?.name !== 'diamond_sword') {
+    throw new Error('TRACK5 real GUI cross-Z-half movement was not acknowledged')
+  }
+  container.close()
+  await sleep(700)
+  fs.writeFileSync(`${root}/track5-moved`, 'ok\n')
+  log('TRACK5 actual client cross-Z-chunk chest slot:53')
+
   await waitFile('bot.stop')
   bot.quit('tracking acceptance complete')
 }
