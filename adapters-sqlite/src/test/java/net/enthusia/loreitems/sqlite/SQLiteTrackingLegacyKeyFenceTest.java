@@ -53,7 +53,25 @@ class SQLiteTrackingLegacyKeyFenceTest {
 
         assertTrue(SQLiteTrackingLegacyKeyFence.needsReview(historical, current));
         assertNull(SQLiteTrackingLegacyKeyFence.legacyWorldName(current.locationKey()));
-        assertFalse(SQLiteTrackingLegacyKeyFence.needsReview(current, historical));
+        // Arrival order cannot establish equivalence. Modern-first followed
+        // by stale historical evidence is still unresolved identity overlap.
+        assertTrue(SQLiteTrackingLegacyKeyFence.needsReview(current, historical));
+    }
+
+    @Test
+    void modernFirstThenHistoricalBlockNameMustAlsoFence() {
+        LocationDescriptor modern = block(
+                "block-v2:" + WORLD + ":20:70:0", "slot:0");
+        LocationDescriptor legacy = block("minecraft:world:20:70:0", "slot:0");
+        assertTrue(SQLiteTrackingLegacyKeyFence.needsReview(modern, legacy));
+    }
+
+    @Test
+    void modernPairThenOldSingleBlockNameMustAlsoFence() {
+        LocationDescriptor modern = block(
+                "double-chest:" + WORLD + ":15:70:8|16:70:8:left=1", "slot:0");
+        LocationDescriptor legacy = block("minecraft:world:15:70:8", "slot:0");
+        assertTrue(SQLiteTrackingLegacyKeyFence.needsReview(modern, legacy));
     }
 
     @Test
