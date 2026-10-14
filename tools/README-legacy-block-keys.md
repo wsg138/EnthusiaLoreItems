@@ -16,6 +16,16 @@ python3 tools/legacy_block_key_audit.py \
   --output /tmp/loreitems-world-key-audit.json
 ```
 
+For a **fresh, empty tracking database on a separate TEST server only**, an
+optional `--require-empty-tracking` flag refuses to report success unless
+both durable tracking tables contain **zero rows** and the projection schema
+is compatible. A populated or schema-incompatible snapshot returns exit 3,
+without exporting any individual item ID. The JSON
+`empty_tracking_snapshot.eligible_for_empty_database_path` field is merely
+a conditional migration-scope diagnostic: it is **not** authorization to
+deploy a JAR, bypass CI, or treat an existing SMP's history as empty. The
+actual target server's files and data still need to be verified.
+
 The script opens the supplied database with SQLite `mode=ro` and
 `PRAGMA query_only=ON`, validates its tracking tables and quick integrity,
 and streams the two tracking tables with bounded memory. The output gives
