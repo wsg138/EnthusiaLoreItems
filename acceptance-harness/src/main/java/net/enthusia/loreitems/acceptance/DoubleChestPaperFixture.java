@@ -78,7 +78,7 @@ final class DoubleChestPaperFixture {
     private static void remoteChunkCheck(
             World world, Pair pair, String caseName, String half, String action, CommandSender sender) {
         if ("probe".equals(action)) {
-            emitRemoteProbe(world, pair, half, sender);
+            emitRemoteProbe(world, pair, caseName, half, sender);
             return;
         }
         if ("evict".equals(action)) {
@@ -93,9 +93,9 @@ final class DoubleChestPaperFixture {
     }
 
     private static void emitRemoteProbe(
-            World world, Pair pair, String half, CommandSender sender) {
+            World world, Pair pair, String caseName, String half, CommandSender sender) {
         if ("pair".equals(half)) {
-            sender.sendMessage("WP05_CHUNK_PAIR_PROBE first_loaded="
+            sender.sendMessage("WP05_CHUNK_PAIR_PROBE case=" + caseName + " first_loaded="
                     + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
                     + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
             return;
