@@ -1,0 +1,21 @@
+name: Offline Legacy World-Key Audit Tests
+
+on:
+  pull_request:
+    paths:
+      - "tools/legacy_block_key_audit.py"
+      - "tools/test_legacy_block_key_audit.py"
+      - ".github/workflows/offline-legacy-world-key-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-key-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify synthetic SQLite snapshots cannot be modified or auto-mapped
+        run: python3 -m unittest discover -s tools -p "test_legacy_block_key_audit.py" -v

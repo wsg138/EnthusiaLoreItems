@@ -15,6 +15,9 @@ const log = message => {
 async function waitFile(name) {
   for (let i = 0; i < 2400; i++) {
     if (fs.existsSync(`${root}/${name}`)) return
+    if (name !== 'bot.stop' && fs.existsSync(`${root}/bot.stop`)) {
+      throw new Error(`acceptance host aborted before marker ${name}`)
+    }
     await sleep(100)
   }
   throw new Error(`missing marker ${name}`)
@@ -108,6 +111,27 @@ async function waitBlockAt(bot, x, y, z, name, label) {
   throw new Error(`${label} block not loaded at ${x},${y},${z}; observed=${seen && seen.name}`)
 }
 
+// Retry only untouched GUI opens; never replay a deposit/withdraw after uncertain commit.
+async function openFixtureContainer(bot, x, y, z, kind, label) {
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (bot.currentWindow) { bot.closeWindow(bot.currentWindow); await sleep(350) }
+    await bot.waitForChunksToLoad()
+    const block = await waitBlockAt(bot, x, y, z, kind, label)
+    try {
+      const container = await bot.openContainer(block)
+      log(`${label} open-confirmed attempt=${attempt} at=${x},${y},${z}`)
+      return container
+    } catch (error) {
+      lastError = error
+      log(`${label} open-retry attempt=${attempt} error=${error.message}`)
+      if (bot.currentWindow) bot.closeWindow(bot.currentWindow)
+      await sleep(500 * attempt)
+    }
+  }
+  throw new Error(`${label} GUI did not open after 3 safe attempts: ${lastError?.message}`)
+}
+
 function trackedInventoryItems(bot) {
   return bot.inventory.items().filter(item => TRACKED_MATERIALS.has(item.name))
 }
@@ -124,6 +148,13 @@ function nearestDroppedItem(bot) {
   return bot.nearestEntity(entity => entity && (
     entity.name === 'item' || entity.displayName === 'Item'
   ))
+}
+
+function droppedItemNear(bot, x, y, z, radius = 4) {
+  const origin = new Vec3(x + 0.5, y + 0.5, z + 0.5)
+  return bot.nearestEntity(entity => entity && entity.position &&
+    (entity.name === 'item' || entity.displayName === 'Item') &&
+    entity.position.distanceTo(origin) <= radius)
 }
 
 async function waitForNaturalPickup(bot) {
@@ -343,16 +374,85 @@ async function phaseTwo() {
 
   await waitFile('go-track2-shulker')
   await teleport(bot, 13, 71, 0, 'TRACK2 shulker-area')
+  // A real GUI movement into a placed shulker, then a normal block break,
+  // natural item pickup and GUI deposit into the final chest. No PDC clones
+  // or server-side inventory teleportation are used.
+  // A disposable flat catch floor keeps the naturally mined shulker item
+  // from falling into random caves below terrain. The item still has to be
+  // dropped by vanilla mining and picked up through player proximity.
+  bot.chat('/fill 12 69 -2 16 69 2 minecraft:stone')
+  await sleep(500)
+  bot.chat('/setblock 14 71 0 minecraft:air')
+  bot.chat('/setblock 14 70 0 minecraft:shulker_box')
+  block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'placed shulker')
+  item = tracked(bot)
+  container = await openFixtureContainer(bot, 14, 70, 0, 'shulker_box', 'filled-shulker')
+  await container.deposit(item.type, null, 1); await sleep(700)
+  container.close(); await sleep(400)
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('shulker deposit did not remove tracked sword from player inventory')
+  }
+  block = await waitBlockAt(bot, 14, 70, 0, 'shulker_box', 'filled shulker')
+  await bot.dig(block)
+  let shulker = null
+  for (let attempt = 0; attempt < 100; attempt++) {
+    shulker = bot.inventory.items().find(entry => entry.name.endsWith('shulker_box'))
+    if (shulker) break
+    // Only follow a natural drop at the freshly mined block. Other dropped
+    // items from earlier acceptance phases must never be mistaken for the
+    // mined shulker or lead the bot away from the fixture.
+    const drop = droppedItemNear(bot, 14, 70, 0)
+    if (attempt % 20 === 0) {
+      const observed = bot.blockAt(new Vec3(14, 70, 0))
+      const pos = bot.entity.position
+      log(`TRACK2 shulker-pickup-evidence attempt=${attempt} block=${observed?.name || 'unloaded'} drop=${drop ? `${drop.name}@${drop.position.x.toFixed(2)},${drop.position.y.toFixed(2)},${drop.position.z.toFixed(2)}` : 'missing'} player=${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)} inventory=${bot.inventory.items().map(entry => entry.name).join(',')}`)
+    }
+    if (drop && attempt % 5 === 0) {
+      const pos = drop.position
+      bot.chat(`/tp Wp05TrackBot ${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`)
+    }
+    await sleep(250)
+  }
+  if (!shulker) {
+    const observed = bot.blockAt(new Vec3(14, 70, 0))
+    throw new Error(`mined shulker contents item was not naturally picked up; post-dig block=${observed?.name || 'unloaded'}; nearby_drop=${Boolean(droppedItemNear(bot, 14, 70, 0))}; inventory=${bot.inventory.items().map(entry => entry.name).join(',')}`)
+  }
+  log('TRACK2 shulker-natural-pickup item=' + shulker.name + ' slot=' + shulker.slot)
+  // Pickup may pull the bot down into natural caves. Return to the known
+  // supported test platform before trying to interact with the chest.
+  await teleport(bot, 13, 71, 0, 'TRACK2 shulker-return-to-chest')
+  bot.chat('/setblock 14 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 14, 70, 0, 'chest', 'nested shulker chest')
-  container = await bot.openContainer(block); await sleep(700); container.close(); await sleep(700)
-  log('TRACK2 shulker-access')
+  container = await openFixtureContainer(bot, 14, 70, 0, 'chest', 'shulker-destination')
+  await container.deposit(shulker.type, null, 1)
+  await sleep(850); container.close(); await sleep(700)
+  log('TRACK2 shulker-real-client-move-complete')
   fs.writeFileSync(`${root}/track2-shulker-done`, 'ok\n')
 
   await waitFile('go-track2-bundle')
   await teleport(bot, 15, 71, 0, 'TRACK2 bundle-area')
+  // A real Minecraft 1.21 bundle click moves the tracked item from the
+  // player's cursor into a vanilla bundle; no synthetic server setItem.
+  item = tracked(bot)
+  bot.chat('/give Wp05TrackBot minecraft:bundle 1')
+  const bundle = await waitFixtureItem(bot, 'bundle', 'TRACK2 empty bundle')
+  await bot.clickWindow(item.slot, 0, 0)
+  await sleep(300)
+  await bot.clickWindow(bundle.slot, 0, 0)
+  await sleep(600)
+  log('TRACK2 bundle-client-insertion inventory='
+    + bot.inventory.items().map(entry => entry.name + ':' + entry.slot).join(','))
+  if (trackedInventoryItems(bot).length !== 0) {
+    throw new Error('real bundle click did not remove the tracked sword from a player slot')
+  }
+  const filledBundle = bot.inventory.items().find(entry => entry.name === 'bundle')
+  if (!filledBundle) throw new Error('bundle missing after real click insertion')
+  bot.chat('/setblock 16 70 0 minecraft:chest')
   block = await waitBlockAt(bot, 16, 70, 0, 'chest', 'nested bundle chest')
-  container = await bot.openContainer(block); await sleep(700); container.close(); await sleep(700)
-  log('TRACK2 bundle-access')
+  container = await openFixtureContainer(bot, 16, 70, 0, 'chest', 'bundle-destination')
+  await container.deposit(filledBundle.type, null, 1)
+  await sleep(850); container.close(); await sleep(700)
+  log('TRACK2 bundle-real-client-move-complete')
   fs.writeFileSync(`${root}/track2-bundle-done`, 'ok\n')
 
   await waitFile('go-track2-away')
@@ -362,7 +462,7 @@ async function phaseTwo() {
   await teleport(bot, 15, 71, 0, 'TRACK2 reload-area')
   for (const [x, label] of [[14, 'shulker'], [16, 'bundle']]) {
     block = await waitBlockAt(bot, x, 70, 0, 'chest', `reloaded ${label} chest`)
-    container = await bot.openContainer(block); await sleep(500); container.close(); await sleep(500)
+    container = await openFixtureContainer(bot, x, 70, 0, 'chest', `reloaded-${label}`); await sleep(500); container.close(); await sleep(500)
   }
   log('TRACK2 reloaded-and-reopened')
   fs.writeFileSync(`${root}/track2-return-done`, 'ok\n')
@@ -402,6 +502,124 @@ async function phaseTwo() {
   await teleport(bot, 64, 71, 0, 'TRACK3 reload-area'); await sleep(1000)
   log('TRACK3 reloaded')
   fs.writeFileSync(`${root}/track3-return-done`, 'ok\n')
+
+  // ACC-TRACK-004: a real tracked item moves across a genuine 54-slot
+  // double chest whose first/second physical blocks cross X chunk 0/1.
+  // Only ordinary Mineflayer GUI clicks are permitted; no server setItem.
+  await waitFile('go-track4-deposit')
+  await teleport(bot, 14, 71, 8, 'TRACK4 cross-chunk area')
+  bot.chat('/fill 13 69 7 18 69 9 minecraft:stone')
+  bot.chat('/setblock 15 71 8 minecraft:air')
+  bot.chat('/setblock 16 71 8 minecraft:air')
+  bot.chat('/setblock 15 70 8 minecraft:chest[facing=north,type=left]')
+  bot.chat('/setblock 16 70 8 minecraft:chest[facing=north,type=right]')
+  await sleep(1000)
+  item = tracked(bot)
+  if (item.count !== 1) {
+    throw new Error(`TRACK4 expected one genuine tracked sword, observed stack count=${item.count}`)
+  }
+  block = await waitBlockAt(bot, 15, 70, 8, 'chest', 'TRACK4 left-half')
+  container = await openFixtureContainer(bot, 15, 70, 8, 'chest', 'TRACK4 pair deposit')
+  const chestSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (chestSlots !== 54) {
+    throw new Error(`TRACK4 real cross-chunk chest is not 54 slots: ${chestSlots}`)
+  }
+  await container.deposit(item.type, null, 1)
+  await sleep(900)
+  if (container.slots[0]?.name !== 'diamond_sword') {
+    throw new Error(`TRACK4 natural GUI deposit missing at chest slot 0: ${container.slots[0]?.name}`)
+  }
+  // Mineflayer's player inventory view may retain the old slot cache
+  // while a chest window is still open. Close the acknowledged window first,
+  // then demand the actual updated player inventory contains no sword.
+  container.close()
+  await sleep(900)
+  const remaining = trackedInventoryItems(bot)
+  if (remaining.length !== 0) {
+    throw new Error(`TRACK4 deposit left tracked sword after window sync: ${remaining.map(it => `${it.name} count=${it.count} slot=${it.slot}`).join(',')}`)
+  }
+  fs.writeFileSync(`${root}/track4-deposited`, 'ok\n')
+  log('TRACK4 actual client cross-chunk chest slot:0')
+
+  // Move through ordinary server-acknowledged window clicks, not a Bukkit
+  // inventory mutation. Guard every stage; never replay an uncertain click.
+  await waitFile('go-track4-slot53')
+  block = await waitBlockAt(bot, 16, 70, 8, 'chest', 'TRACK4 right-half')
+  container = await openFixtureContainer(bot, 16, 70, 8, 'chest', 'TRACK4 pair movement')
+  const pairedSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (pairedSlots !== 54 || container.slots[0]?.name !== 'diamond_sword'
+      || container.slots[53]) {
+    throw new Error('TRACK4 pre-move physical 54-slot chest contents are not exact')
+  }
+  await bot.clickWindow(0, 0, 0)
+  await sleep(350)
+  await bot.clickWindow(53, 0, 0)
+  await sleep(1000)
+  if (container.slots[0] || container.slots[53]?.name !== 'diamond_sword') {
+    throw new Error(`TRACK4 GUI cross-half movement not accepted: slot0=${container.slots[0]?.name}, slot53=${container.slots[53]?.name}`)
+  }
+  container.close()
+  await sleep(700)
+  fs.writeFileSync(`${root}/track4-moved`, 'ok\n')
+  log('TRACK4 actual client cross-chunk chest slot:53')
+
+  // ACC-TRACK-005: independently prove the Z15|16 chunk boundary with
+  // a SECOND legitimate lore instance and full 0→53 cross-half GUI movement.
+  await waitFile('go-track5-deposit')
+  await teleport(bot, 7, 71, 15, 'TRACK5 cross-Z-chunk area')
+  bot.chat('/fill 6 69 13 10 69 18 minecraft:stone')
+  bot.chat('/setblock 8 71 15 minecraft:air')
+  bot.chat('/setblock 8 71 16 minecraft:air')
+  bot.chat('/setblock 8 70 15 minecraft:chest[facing=east,type=left]')
+  bot.chat('/setblock 8 70 16 minecraft:chest[facing=east,type=right]')
+  await sleep(1000)
+  item = tracked(bot)
+  if (item.count !== 1) {
+    throw new Error(`TRACK5 expected exactly one real sword stack, count=${item.count}`)
+  }
+  block = await waitBlockAt(bot, 8, 70, 15, 'chest', 'TRACK5 first-Z-half')
+  container = await openFixtureContainer(bot, 8, 70, 15, 'chest', 'TRACK5 Z deposit')
+  const zSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (zSlots !== 54 || container.slots[0]) {
+    throw new Error(`TRACK5 Z fixture not empty 54-slot composite: slots=${zSlots}`)
+  }
+  await container.deposit(item.type, null, 1)
+  await sleep(900)
+  if (container.slots[0]?.name !== 'diamond_sword') {
+    throw new Error('TRACK5 real GUI Z-boundary deposit did not reach slot 0')
+  }
+  container.close()
+  await sleep(900)
+  const zRemaining = trackedInventoryItems(bot)
+  if (zRemaining.length !== 0) {
+    throw new Error(`TRACK5 deposit left sword in player inventory: ${zRemaining.map(i=>i.name + ':' + i.count).join(',')}`)
+  }
+  fs.writeFileSync(`${root}/track5-deposited`, 'ok\n')
+  log('TRACK5 actual client cross-Z-chunk chest slot:0')
+
+  await waitFile('go-track5-slot53')
+  block = await waitBlockAt(bot, 8, 70, 16, 'chest', 'TRACK5 second-Z-half')
+  container = await openFixtureContainer(bot, 8, 70, 16, 'chest', 'TRACK5 Z movement')
+  const zPairedSlots = Number.isInteger(container.inventoryStart)
+    ? container.inventoryStart : container.slots.length - 36
+  if (zPairedSlots !== 54 || container.slots[0]?.name !== 'diamond_sword'
+      || container.slots[53]) {
+    throw new Error('TRACK5 wrong 54-slot pre-move Z orientation or chest contents')
+  }
+  await bot.clickWindow(0, 0, 0)
+  await sleep(350)
+  await bot.clickWindow(53, 0, 0)
+  await sleep(1000)
+  if (container.slots[0] || container.slots[53]?.name !== 'diamond_sword') {
+    throw new Error('TRACK5 real GUI cross-Z-half movement was not acknowledged')
+  }
+  container.close()
+  await sleep(700)
+  fs.writeFileSync(`${root}/track5-moved`, 'ok\n')
+  log('TRACK5 actual client cross-Z-chunk chest slot:53')
 
   await waitFile('bot.stop')
   bot.quit('tracking acceptance complete')
