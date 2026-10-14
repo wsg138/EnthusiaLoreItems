@@ -4,6 +4,9 @@ from contextlib import redirect_stdout
 import runpy
 import sqlite3
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "acceptance-harness" / "scripts" \
@@ -101,6 +104,23 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
         self.assertTrue(HELPERS["can_verify"](rows, "restart", HELPERS["CANONICAL"]))
         self.assertFalse(HELPERS["can_verify"](
             rows + rows, "restart", HELPERS["CANONICAL"]))
+
+    def test_optimized_python_cannot_skip_missing_immutable_receipt(self):
+        # A CLI evidence check must fail even with python -O, which strips
+        # the built-in assert statement. A database projection alone is not proof.
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / "synthetic-offline.sqlite"
+            with sqlite3.connect(database) as disk:
+                self.db.backup(disk)
+                disk.execute(
+                    "INSERT INTO instance_current_state VALUES (?,?,?,?,?,?)",
+                    ("i", "CONFIRMED_NOW", "BLOCK_CONTAINER", KEY, "slot:0", 2))
+            result = subprocess.run(
+                [sys.executable, "-O", str(SCRIPT), str(database), "deposit"],
+                capture_output=True, text=True, check=False, timeout=10)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("no actual slot-0 receipt", result.stderr)
+        self.assertNotIn("PASS ACC-TRACK-004", result.stdout)
 
     def test_parser_rejects_unknown_axis_and_invalid_stages(self):
         parse = HELPERS["parse_args"]
