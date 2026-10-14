@@ -53,23 +53,11 @@ final class ProductionDoubleChestProbe {
                     first.getBlockInventory(), second.getBlockInventory());
             Object canonicalSnapshot = null;
             for (Inventory source : sources) {
-                Object view = ((Optional<?>) capture.invoke(null, source, production))
-                        .orElseThrow(() -> new IllegalStateException(
-                                "production failed to capture a loaded real-Paper chest half"));
-                Method snapshot = view.getClass().getDeclaredMethod("snapshot");
-                snapshot.setAccessible(true);
-                Object recorded = snapshot.invoke(view);
-                if (canonicalSnapshot == null) canonicalSnapshot = recorded;
-                Method key = snapshotType.getDeclaredMethod("key");
-                key.setAccessible(true);
-                String actualKey = (String) key.invoke(recorded);
-                if (!expectedKey.equals(actualKey)) {
-                    throw new IllegalStateException("production chest key mismatch: expected="
-                            + expectedKey + " actual=" + actualKey);
+                Object recorded = captureAndVerify(source, capture, snapshotType,
+                        production, expectedKey);
+                if (canonicalSnapshot == null) {
+                    canonicalSnapshot = recorded;
                 }
-                Method inventory = view.getClass().getDeclaredMethod("inventory");
-                inventory.setAccessible(true);
-                verifyBoundary((Inventory) inventory.invoke(view));
             }
             if (pair.x1() == 2047 && pair.x2() == 2048) {
                 remoteSnapshot = Objects.requireNonNull(canonicalSnapshot, "remote snapshot");
@@ -78,6 +66,28 @@ final class ProductionDoubleChestProbe {
         } catch (ReflectiveOperationException | ClassCastException exception) {
             throw new IllegalStateException("production snapshot probe failed closed", exception);
         }
+    }
+
+    private static Object captureAndVerify(
+            Inventory source, Method capture, Class<?> snapshotType,
+            Plugin production, String expectedKey) throws ReflectiveOperationException {
+        Object view = ((Optional<?>) capture.invoke(null, source, production))
+                .orElseThrow(() -> new IllegalStateException(
+                        "production failed to capture a loaded real-Paper chest half"));
+        Method snapshot = view.getClass().getDeclaredMethod("snapshot");
+        snapshot.setAccessible(true);
+        Object recorded = snapshot.invoke(view);
+        Method key = snapshotType.getDeclaredMethod("key");
+        key.setAccessible(true);
+        String actualKey = (String) key.invoke(recorded);
+        if (!expectedKey.equals(actualKey)) {
+            throw new IllegalStateException("production chest key mismatch: expected="
+                    + expectedKey + " actual=" + actualKey);
+        }
+        Method inventory = view.getClass().getDeclaredMethod("inventory");
+        inventory.setAccessible(true);
+        verifyBoundary((Inventory) inventory.invoke(view));
+        return recorded;
     }
 
     /**
