@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disposable Paper ACC-TRACK-004: prove durable cross-half real-client movement.
+"""Disposable Paper ACC-TRACK-004/005: prove X and Z cross-half real-client moves.
 
 Never run on live server databases. This is a READ-ONLY verifier of the
 separate GitHub-hosted acceptance server's actual SQLite tracking receipts.
@@ -33,7 +33,7 @@ def read_state(connection, definition=DEFINITION):
     """, (definition,)).fetchall()
 
 
-def assert_receipts(connection, rows, stage, canonical=CANONICAL):
+def assert_receipts(connection, rows, stage, canonical=CANONICAL, axis="x"):
     assert len(rows) == 1, f"{stage}: expected exactly one instance, got {len(rows)}"
     iid, state, kind, key, slot, revision = rows[0]
     allowed_states = ("CONFIRMED_NOW", "LAST_CONFIRMED") if stage == "restart" \
@@ -68,7 +68,8 @@ def assert_receipts(connection, rows, stage, canonical=CANONICAL):
             "PRAGMA integrity_check").fetchone()[0] == "ok", "SQLite integrity"
         assert connection.execute(
             "PRAGMA foreign_key_check").fetchall() == [], "SQLite foreign-key error"
-    print(f"PASS ACC-TRACK-004 {stage}: one tracked UUID-key double chest, "
+    case = "ACC-TRACK-004" if axis == "x" else "ACC-TRACK-005"
+    print(f"PASS {case} {stage}: one tracked UUID-key double chest, "
           f"state={state}, slot={slot}, observation receipts={len(history)}, anomalies=0",
           flush=True)
 
@@ -81,6 +82,7 @@ def main():
     if axis not in AXES:
         raise SystemExit("invalid boundary axis; expected x or z")
     definition, canonical = AXES[axis]
+    case = "ACC-TRACK-004" if axis == "x" else "ACC-TRACK-005"
     deadline = time.monotonic() + (4 if stage == "restart" else 40)
     latest = None
     while time.monotonic() < deadline:
@@ -89,17 +91,17 @@ def main():
             rows = read_state(db, definition)
             latest = rows
             if len(rows) == 1 and rows[0][1] == "CONFLICTING":
-                raise SystemExit(f"ACC-TRACK-004 {stage}: conflict requires investigation")
+                raise SystemExit(f"{case} {stage}: conflict requires investigation")
             states = ("CONFIRMED_NOW", "LAST_CONFIRMED") if stage == "restart" \
                 else ("CONFIRMED_NOW",)
             if (len(rows) == 1 and rows[0][1] in states
                     and rows[0][4] == STAGES[stage]
                     and isinstance(rows[0][3], str)
                     and canonical.fullmatch(rows[0][3])):
-                assert_receipts(db, rows, stage, canonical)
+                assert_receipts(db, rows, stage, canonical, axis)
                 return
         time.sleep(.25)
-    raise SystemExit(f"ACC-TRACK-004 {stage}: tracking did not converge: {latest}")
+    raise SystemExit(f"{case} {stage}: tracking did not converge: {latest}")
 
 
 if __name__ == "__main__":
