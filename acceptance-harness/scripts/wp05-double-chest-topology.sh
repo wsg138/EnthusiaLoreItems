@@ -184,13 +184,19 @@ await_half_unloaded() {
     tail -60 "$LOG" >&2
     return 1
   fi
-  previous=$(grep -Fc 'WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED' "$LOG" 2>/dev/null || true)
+  local status_marker="WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED"
+  if [[ "$half" == "second" ]]; then
+    status_marker+=" first_loaded=true second_loaded=false"
+  else
+    status_marker+=" first_loaded=false second_loaded=true"
+  fi
+  previous=$(grep -Fc "$status_marker" "$LOG" 2>/dev/null || true)
   for _ in $(seq 1 120); do
     printf 'wp05accept doublechest inspect xremote\n' >&3
     sleep .5
-    current=$(grep -Fc 'WP05_DOUBLE_CHEST_UNRESOLVED case=xremote reason=HALF_CHUNK_NOT_LOADED' "$LOG" 2>/dev/null || true)
+    current=$(grep -Fc "$status_marker" "$LOG" 2>/dev/null || true)
     if [[ "$current" -gt "$previous" ]]; then
-      echo "PASS: Paper physically unloaded xremote $half chunk; merged view unresolved" \
+      echo "PASS: Paper observed exactly $half unloaded and its partner loaded; 54-slot view unresolved" \
         | tee -a "$EVIDENCE/missing-half-results.txt"
       return 0
     fi
@@ -204,13 +210,17 @@ await_half_unloaded() {
   return 1
 }
 : > "$EVIDENCE/missing-half-results.txt"
+# A forced ticket spreads its load level to adjacent chunks. Leaving the
+# first chest half force-loaded would prevent a valid missing-second-half test.
+# Release BOTH host tickets, then observe actual Paper per-half states.
 printf 'forceload remove 2048 8\n' >&3
+printf 'forceload remove 2047 8\n' >&3
 sleep 4
 await_half_unloaded second
 
 # The test host reloads only the second fixture half, inspects it as full,
 # then removes the other ticket. This reverses the incomplete load condition.
-printf 'forceload add 2048 8\n' >&3
+printf 'forceload add 2047 8 2048 8\n' >&3
 sleep 3
 before=$(grep -Fc 'WP05_DOUBLE_CHEST_TOPOLOGY_OK case=xremote' "$LOG" 2>/dev/null || true)
 printf 'wp05accept doublechest inspect xremote\n' >&3
@@ -223,6 +233,7 @@ for _ in $(seq 1 30); do
 done
 [[ "$count" -gt "$before" ]] || { echo 'FAIL: remote pair did not reload' >&2; exit 1; }
 printf 'forceload remove 2047 8\n' >&3
+printf 'forceload remove 2048 8\n' >&3
 sleep 4
 await_half_unloaded first
 [[ "$(wc -l < "$EVIDENCE/missing-half-results.txt")" -eq 2 ]]
