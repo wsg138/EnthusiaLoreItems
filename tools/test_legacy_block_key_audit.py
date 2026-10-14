@@ -31,6 +31,16 @@ class KeyFormatTests(unittest.TestCase):
         self.assertEqual(("other_nested_root", None),
                          classify("NESTED_CONTAINER", "root:PLAYER_INVENTORY:minecraft:world:1:2:3"))
 
+    def test_world_named_entity_holder_is_counted_but_never_mapped(self):
+        entity = "11111111-2222-3333-4444-555555555555"
+        key = f"minecraft:overworld:entity:{entity}"
+        self.assertEqual(("world_named_entity_inventory", None),
+                         classify("BLOCK_CONTAINER", key))
+        self.assertEqual(("world_named_entity_inventory", None),
+                         classify("NESTED_CONTAINER", "root:BLOCK_CONTAINER:" + key))
+        self.assertEqual(("not_block_location", None),
+                         classify("DROPPED_ITEM", key))
+
     def test_dropped_item_key_is_not_a_block_location(self):
         self.assertEqual(("not_block_location", None),
                          classify("DROPPED_ITEM", "minecraft:overworld:1:2:3"))
@@ -74,6 +84,28 @@ class OfflineSQLiteTests(unittest.TestCase):
                          result["tables"]["instance_current_state"]["legacy_world_name_groups"][0]["classification"])
         self.assertFalse(result["assessment"]["world_uuid_inferred"])
         self.assertFalse(result["assessment"]["safe_to_deploy"])
+
+    def test_entity_world_named_keys_are_aggregated_without_entity_identifiers(self):
+        entity = '11111111-2222-3333-4444-555555555555'
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                'INSERT INTO instance_current_state VALUES (?,?,?)',
+                ('BLOCK_CONTAINER', f'minecraft:overworld:entity:{entity}',
+                 'CONFIRMED_NOW'))
+            connection.execute(
+                'INSERT INTO instance_observations(instance_id,location_type,location_key) '
+                'VALUES (?,?,?)',
+                ('private-entity-test', 'BLOCK_CONTAINER',
+                 f'minecraft:overworld:entity:{entity}'))
+            connection.commit()
+        report = audit(self.path)
+        self.assertEqual(1, report['tables']['instance_current_state']
+                         ['categories']['world_named_entity_inventory'])
+        self.assertEqual(1, report['tables']['instance_observations']
+                         ['categories']['world_named_entity_inventory'])
+        self.assertNotIn(entity, json.dumps(report))
+        self.assertNotIn('private-entity-test', json.dumps(report))
+        self.assertFalse(report['assessment']['safe_to_deploy'])
 
     def test_history_overlap_reports_one_and_multiple_observed_uuids_without_mapping(self):
         first = '11111111-2222-3333-4444-555555555555'
