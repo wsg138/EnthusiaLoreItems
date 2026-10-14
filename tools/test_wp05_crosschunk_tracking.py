@@ -64,6 +64,22 @@ class CrossChunkDurableVerifierTest(unittest.TestCase):
         verify(self.db, read_state(self.db), "move")
         verify(self.db, read_state(self.db), "restart")
 
+    def test_unloaded_chest_remains_last_confirmed_after_restart(self):
+        self.location("slot:53", state="LAST_CONFIRMED", revision=5)
+        self.receipt("slot:0")
+        self.receipt("slot:53")
+        self.receipt("slot:53", confidence="LAST_CONFIRMED")
+        verify(self.db, read_state(self.db), "restart")
+        with self.assertRaises(AssertionError):
+            verify(self.db, read_state(self.db), "move")
+
+    def test_unloaded_restart_requires_actual_last_confirmed_receipt(self):
+        self.location("slot:53", state="LAST_CONFIRMED", revision=5)
+        self.receipt("slot:0")
+        self.receipt("slot:53")
+        with self.assertRaises(AssertionError):
+            verify(self.db, read_state(self.db), "restart")
+
     def test_wrong_key_and_fake_53_receipt_are_rejected(self):
         self.location(key=KEY.replace("16:70:8", "17:70:8"))
         self.receipt("slot:0")
