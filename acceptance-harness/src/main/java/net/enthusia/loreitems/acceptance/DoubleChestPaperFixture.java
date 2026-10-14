@@ -74,6 +74,14 @@ final class DoubleChestPaperFixture {
      */
     private static void remoteChunkCheck(
             World world, Pair pair, String half, String action, CommandSender sender) {
+        if ("probe".equals(action) && "pair".equals(half)) {
+            // Read both loaded states in ONE server-thread command. Never
+            // dereference a block, ticket or inventory for an unloaded half.
+            sender.sendMessage("WP05_CHUNK_PAIR_PROBE first_loaded="
+                    + world.isChunkLoaded(pair.chunkX1(), pair.chunkZ1())
+                    + " second_loaded=" + world.isChunkLoaded(pair.chunkX2(), pair.chunkZ2()));
+            return;
+        }
         if (!"first".equals(half) && !"second".equals(half)
                 && !"control".equals(half)) {
             throw new IllegalArgumentException("remote half must be first, second or control");
