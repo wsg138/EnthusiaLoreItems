@@ -85,6 +85,7 @@ class OfflineSQLiteTests(unittest.TestCase):
                          result["tables"]["instance_current_state"]["legacy_world_name_groups"][0]["classification"])
         self.assertFalse(result["assessment"]["world_uuid_inferred"])
         self.assertFalse(result["assessment"]["safe_to_deploy"])
+        self.assertFalse(result["empty_tracking_snapshot"]["eligible_for_empty_database_path"])
 
     def test_entity_world_named_keys_are_aggregated_without_entity_identifiers(self):
         entity = '11111111-2222-3333-4444-555555555555'
@@ -326,6 +327,48 @@ class ProjectionLinkPreflightTests(unittest.TestCase):
             self.assertEqual('REVIEW_REQUIRED_SCHEMA_INCOMPLETE',
                              report['projection_link_consistency']['assessment'])
 
+
+
+class EmptyTrackingGateTests(unittest.TestCase):
+    def test_zero_row_snapshot_is_only_a_clean_test_path_not_release_approval(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder) / "empty.sqlite"
+            with sqlite3.connect(database) as connection:
+                connection.executescript("""
+                    CREATE TABLE instance_current_state (
+                        instance_id TEXT, state TEXT, location_type TEXT,
+                        location_key TEXT, container_path TEXT,
+                        last_observation_id INTEGER, updated_at INTEGER
+                    );
+                    CREATE TABLE instance_observations (
+                        observation_id INTEGER, instance_id TEXT, confidence TEXT,
+                        location_type TEXT, location_key TEXT, container_path TEXT,
+                        observed_at INTEGER
+                    );
+                """)
+            report = audit(database)
+            self.assertTrue(report["empty_tracking_snapshot"]
+                            ["eligible_for_empty_database_path"])
+            self.assertFalse(report["assessment"]["safe_to_deploy"])
+            command = [sys.executable, str(Path(__file__).with_name(
+                "legacy_block_key_audit.py")), str(database),
+                "--confirm-offline-copy", "--require-empty-tracking"]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["empty_tracking_snapshot"]
+                            ["eligible_for_empty_database_path"])
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    "INSERT INTO instance_observations "
+                    "(observation_id,instance_id,confidence,location_type,"
+                    "location_key,container_path,observed_at) VALUES "
+                    "(1,'historical-item','CONFIRMED_NOW','BLOCK_CONTAINER',"
+                    "'minecraft:world:1:70:8','slot:0',1000)")
+                connection.commit()
+            refused = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(3, refused.returncode)
+            self.assertIn("not verified empty/compatible", refused.stderr)
+            self.assertNotIn("historical-item", refused.stderr)
 
 if __name__ == "__main__":
     unittest.main()
