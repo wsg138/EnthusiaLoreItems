@@ -81,6 +81,73 @@ class SQLiteTrackingWorldKeyMigrationFenceTest {
     }
 
     @Test
+    void modernFirstLegacySecondMustNotCreateFalseDuplicateAcrossRestart() {
+        Path database = temporaryDirectory.resolve("stale-world-name-after-modern.db");
+        LocationDescriptor modern = new LocationDescriptor(
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "block-v2:11111111-2222-3333-4444-555555555555:20:70:0", "slot:0");
+        LocationDescriptor legacy = new LocationDescriptor(
+                LocationDescriptor.Type.BLOCK_CONTAINER,
+                "minecraft:world:20:70:0", "slot:0");
+        SQLiteStorageRuntime runtime = start(database);
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(modern, reconciliation()), 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, present(legacy, authoritative()), 1_100L).status());
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            var observed = new SQLiteObservationRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(20))
+                    .toCompletableFuture().join().items();
+            assertTrue(observed.stream().anyMatch(entry -> modern.equals(entry.location())));
+            assertTrue(observed.stream().anyMatch(entry -> legacy.equals(entry.location())));
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+        runtime = start(database);
+        try {
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void modernNestedFirstLegacyNestedLaterRemainsReviewOnly() {
+        SQLiteStorageRuntime runtime = start(
+                temporaryDirectory.resolve("reverse-nested-legacy-review.db"));
+        try {
+            seedActiveInstance(runtime);
+            SQLiteTrackingObservationStore store = new SQLiteTrackingObservationStore(runtime);
+            LocationDescriptor modern = new LocationDescriptor(
+                    LocationDescriptor.Type.NESTED_CONTAINER,
+                    "root:BLOCK_CONTAINER:block-v2:11111111-2222-3333-4444-555555555555:14:70:0",
+                    "slot:0/shulker:0");
+            LocationDescriptor legacy = new LocationDescriptor(
+                    LocationDescriptor.Type.NESTED_CONTAINER,
+                    "root:BLOCK_CONTAINER:minecraft:world:14:70:0", "slot:0/shulker:0");
+            assertEquals(TrackingObservationUseCase.Status.RECORDED,
+                    record(store, present(modern, reconciliation()), 1_000L).status());
+            assertEquals(TrackingObservationUseCase.Status.CONFLICT_RECORDED,
+                    record(store, present(legacy, authoritative()), 1_100L).status());
+            assertEquals(InstanceCurrentState.State.CONFLICTING, currentState(runtime).state());
+            assertTrue(new SQLiteAnomalyRepository(runtime)
+                    .listByInstance(INSTANCE_ID, PageRequest.first(10))
+                    .toCompletableFuture().join().items().isEmpty());
+        } finally {
+            runtime.close(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
     void modernUuidWorldMovesStayAuthoritativeWithoutLegacyConflict() {
         SQLiteStorageRuntime runtime = start(temporaryDirectory.resolve("modern-worlds.db"));
         try {
