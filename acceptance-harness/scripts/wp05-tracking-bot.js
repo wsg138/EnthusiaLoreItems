@@ -150,6 +150,13 @@ function nearestDroppedItem(bot) {
   ))
 }
 
+function droppedItemNear(bot, x, y, z, radius = 4) {
+  const origin = new Vec3(x + 0.5, y + 0.5, z + 0.5)
+  return bot.nearestEntity(entity => entity && entity.position &&
+    (entity.name === 'item' || entity.displayName === 'Item') &&
+    entity.position.distanceTo(origin) <= radius)
+}
+
 async function waitForNaturalPickup(bot) {
   for (let i = 0; i < 120; i++) {
     const items = trackedInventoryItems(bot)
@@ -391,14 +398,25 @@ async function phaseTwo() {
   for (let attempt = 0; attempt < 100; attempt++) {
     shulker = bot.inventory.items().find(entry => entry.name.endsWith('shulker_box'))
     if (shulker) break
-    const drop = nearestDroppedItem(bot)
+    // Only follow a natural drop at the freshly mined block. Other dropped
+    // items from earlier acceptance phases must never be mistaken for the
+    // mined shulker or lead the bot away from the fixture.
+    const drop = droppedItemNear(bot, 14, 70, 0)
+    if (attempt % 20 === 0) {
+      const observed = bot.blockAt(new Vec3(14, 70, 0))
+      const pos = bot.entity.position
+      log(`TRACK2 shulker-pickup-evidence attempt=${attempt} block=${observed?.name || 'unloaded'} drop=${drop ? `${drop.name}@${drop.position.x.toFixed(2)},${drop.position.y.toFixed(2)},${drop.position.z.toFixed(2)}` : 'missing'} player=${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)} inventory=${bot.inventory.items().map(entry => entry.name).join(',')}`)
+    }
     if (drop && attempt % 5 === 0) {
       const pos = drop.position
       bot.chat(`/tp Wp05TrackBot ${pos.x.toFixed(3)} ${pos.y.toFixed(3)} ${pos.z.toFixed(3)}`)
     }
     await sleep(250)
   }
-  if (!shulker) throw new Error('mined shulker contents item was not naturally picked up')
+  if (!shulker) {
+    const observed = bot.blockAt(new Vec3(14, 70, 0))
+    throw new Error(`mined shulker contents item was not naturally picked up; post-dig block=${observed?.name || 'unloaded'}; nearby_drop=${Boolean(droppedItemNear(bot, 14, 70, 0))}; inventory=${bot.inventory.items().map(entry => entry.name).join(',')}`)
+  }
   log('TRACK2 shulker-natural-pickup item=' + shulker.name + ' slot=' + shulker.slot)
   // Pickup may pull the bot down into natural caves. Return to the known
   // supported test platform before trying to interact with the chest.
