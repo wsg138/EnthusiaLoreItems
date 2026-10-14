@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Explicit, read-only offline audit. Counts rows, not unique physical inventories.
@@ -15,6 +16,14 @@ import java.util.UUID;
  * This utility never authorizes a rewrite, projection promotion or forced chunk load.
  */
 public final class SQLiteLegacyKeyDryRun {
+    private static final String UUID_TEXT = "[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}";
+    private static final Pattern BLOCK_V2 = Pattern.compile(
+            "block-v2:" + UUID_TEXT + ":-?[0-9]+:-?[0-9]+:-?[0-9]+");
+    private static final Pattern DOUBLE_CHEST = Pattern.compile(
+            "double-chest:" + UUID_TEXT
+                    + ":-?[0-9]+:-?[0-9]+:-?[0-9]+\\|-?[0-9]+:-?[0-9]+:-?[0-9]+:left=[01]");
+    private static final Pattern WORLD_NAMED_ENTITY = Pattern.compile(
+            "[a-z0-9_.-]+:[a-z0-9_./-]+:entity:" + UUID_TEXT);
     private static final String CURRENT = "SELECT location_key, state "
             + "FROM instance_current_state WHERE location_type IN ('BLOCK_CONTAINER', 'NESTED_CONTAINER')";
     private static final String HISTORY = "SELECT location_key, confidence "
@@ -55,7 +64,7 @@ public final class SQLiteLegacyKeyDryRun {
     public record Counts(
             long legacyKnownName, long legacyAmbiguousName, long legacyUnknownName,
             long versionedBlock, long versionedDoubleChest, long otherContainerKeys,
-            long lastConfirmedLegacy) {
+            long lastConfirmedLegacy, long worldNamedEntityInventory) {
         public long totalLegacy() {
             return legacyKnownName + legacyAmbiguousName + legacyUnknownName;
         }
@@ -69,6 +78,7 @@ public final class SQLiteLegacyKeyDryRun {
         private long doubles;
         private long other;
         private long lastConfirmed;
+        private long worldNamedEntity;
 
         void accept(String key, String state,
                 Map<String, ? extends Collection<UUID>> worlds, boolean current) {
@@ -78,12 +88,18 @@ public final class SQLiteLegacyKeyDryRun {
             }
             String root = key.startsWith("root:BLOCK_CONTAINER:")
                     ? key.substring("root:BLOCK_CONTAINER:".length()) : key;
-            if (root.startsWith("block-v2:")) {
+            if (BLOCK_V2.matcher(root).matches()) {
                 blocks++;
                 return;
             }
-            if (root.startsWith("double-chest:")) {
+            if (DOUBLE_CHEST.matcher(root).matches()) {
                 doubles++;
+                return;
+            }
+            if (WORLD_NAMED_ENTITY.matcher(root).matches()) {
+                // Existing production entity-holder keys embed world names.
+                // Report separately; they are not x:y:z block migration candidates.
+                worldNamedEntity++;
                 return;
             }
             String name = SQLiteTrackingLegacyKeyFence.legacyWorldName(key);
@@ -110,7 +126,8 @@ public final class SQLiteLegacyKeyDryRun {
         }
 
         Counts snapshot() {
-            return new Counts(known, ambiguous, unknown, blocks, doubles, other, lastConfirmed);
+            return new Counts(known, ambiguous, unknown, blocks, doubles, other,
+                    lastConfirmed, worldNamedEntity);
         }
     }
 }
