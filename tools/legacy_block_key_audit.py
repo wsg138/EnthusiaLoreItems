@@ -101,13 +101,18 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
     Even a single observed modern UUID is NOT proof of a legacy world mapping.
     """
     counts: Counter[str] = Counter()
+    arrival_orders: Counter[str] = Counter()
     previous_id = None
+    first_format = None
     legacy = False
     modern_world = None
     multiple_modern_worlds = False
     seen_modern = False
 
     def finish() -> None:
+        if legacy and seen_modern:
+            # Observation order, not assumed historical world ownership.
+            arrival_orders[first_format + '_first'] += 1
         if legacy and multiple_modern_worlds:
             counts['legacy_with_multiple_observed_modern_worlds'] += 1
         elif legacy and seen_modern:
@@ -121,12 +126,13 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
 
     cursor = connection.execute(
         'SELECT instance_id, location_type, location_key '
-        'FROM instance_observations ORDER BY instance_id')
+        'FROM instance_observations ORDER BY instance_id, observation_id')
     for batch in iter(lambda: cursor.fetchmany(BATCH_SIZE), []):
         for instance_id, location_type, key in batch:
             if previous_id is not None and instance_id != previous_id:
                 finish()
                 legacy = False
+                first_format = None
                 modern_world = None
                 multiple_modern_worlds = False
                 seen_modern = False
@@ -134,7 +140,11 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
             category, _ = classify(location_type, key)
             if category == 'legacy_world_name':
                 legacy = True
+                if first_format is None:
+                    first_format = 'legacy'
             elif category in ('modern_block_v2', 'modern_double_chest'):
+                if first_format is None:
+                    first_format = 'modern'
                 root = key[len(NESTED_PREFIX):] if key.startswith(NESTED_PREFIX) else key
                 observed_world = root.split(':', 2)[1]
                 if seen_modern and observed_world != modern_world:
@@ -146,9 +156,11 @@ def inspect_history_overlap(connection: sqlite3.Connection) -> dict:
         finish()
     return {
         'risk_counts': dict(sorted(counts.items())),
+        'mixed_key_arrival_order_counts': dict(sorted(arrival_orders.items())),
         'resolution': 'REVIEW_ONLY_NO_WORLD_MAPPING',
         'warning': ('A modern UUID observed for one item does not identify '
-                    'its historical world-name location.'),
+                    'its historical world-name location. Mixed-key arrival '
+                    'order is not proof of mapping or of multiple copies.'),
     }
 
 def confidence_matches(state: str, confidence: str | None) -> bool:
