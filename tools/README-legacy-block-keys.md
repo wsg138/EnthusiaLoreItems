@@ -21,7 +21,11 @@ The script opens the supplied database with SQLite `mode=ro` and
 and streams the two tracking tables with bounded memory. The output gives
 counts for modern `block-v2:<UUID>`, canonical `double-chest:<UUID>`,
 old `namespace:world-name:x:y:z`, nested block roots, malformed keys,
-and unrecognized roots. It separately summarizes legacy current-state counts
+and unrecognized roots. The audit also counts `world_named_entity_inventory`
+keys such as `minecraft:overworld:entity:<UUID>` separately: the production
+entity-holder snapshot code still embeds a world *name* in this key format.
+This extra category is **not** a block migration candidate; its count is
+diagnostic only, and no entity identifier or UUID is emitted. It separately summarizes legacy current-state counts
 (`CONFIRMED_NOW`, `LAST_CONFIRMED`, `CONFLICTING`, and other states)
 without exporting player or item instance identifiers. A
 `LAST_CONFIRMED` key is not proof that the item still exists at that
@@ -40,7 +44,9 @@ Every category remains `REVIEW_ONLY_NO_WORLD_MAPPING` until independent
 physical evidence and migration review exist.
 The `projection_link_consistency` section checks that each current SQLite
 projection points to an observation for **the same instance**, that the
-observation's confidence is allowed by the current state (including a\n`LAST_CONFIRMED` state referencing a prior `CONFIRMED_NOW` receipt), that\nits observation timestamp does not postdate the projection, and that its exact
+observation's confidence is allowed by the current state (including a
+`LAST_CONFIRMED` state referencing a prior `CONFIRMED_NOW` receipt), that
+its observation timestamp does not postdate the projection, and that its exact
 location type/key/nested path agree. It counts dangling links, links to
 another instance, mismatched states/locations, and malformed unresolved
 rows **without exporting item/player IDs**. If the supplied database lacks
