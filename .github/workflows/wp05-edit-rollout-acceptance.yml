@@ -88,6 +88,11 @@ jobs:
           }
           async function shulkerRealMove(x,y,z,marker){
             await teleport(x-1,y+1,z,marker)
+            // Disposable Paper world: a catch floor directly under the mined
+            // block prevents the vanilla drop from falling into empty terrain.
+            // This does NOT generate/move the shulker item or bypass pickup.
+            bot.chat(`/fill ${x-2} ${y-2} ${z-2} ${x+2} ${y-2} ${z+2} minecraft:stone`)
+            await sleep(500)
             const window=await openWindowBlock(x,y,z,'shulker_box',marker+'-placed',true)
             await bot.clickWindow(windowSwordSlot(window),0,0);await sleep(250)
             await bot.clickWindow(0,0,0);await sleep(700)
