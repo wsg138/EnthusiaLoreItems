@@ -40,7 +40,7 @@ Every category remains `REVIEW_ONLY_NO_WORLD_MAPPING` until independent
 physical evidence and migration review exist.
 The `projection_link_consistency` section checks that each current SQLite
 projection points to an observation for **the same instance**, that the
-observation's confidence matches the current state, and that its exact
+observation's confidence is allowed by the current state (including a\n`LAST_CONFIRMED` state referencing a prior `CONFIRMED_NOW` receipt), that\nits observation timestamp does not postdate the projection, and that its exact
 location type/key/nested path agree. It counts dangling links, links to
 another instance, mismatched states/locations, and malformed unresolved
 rows **without exporting item/player IDs**. If the supplied database lacks
