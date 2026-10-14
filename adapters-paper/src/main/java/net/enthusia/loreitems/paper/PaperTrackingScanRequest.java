@@ -12,7 +12,12 @@ record PaperTrackingScanRequest(
         boolean unique,
         ChunkReference chunk,
         TrackingObservationUseCase.Presence presence,
-        String source) {
+        String source, long generation) {
+
+    PaperTrackingScanRequest(UUID playerId, boolean unique, ChunkReference chunk,
+            TrackingObservationUseCase.Presence presence, String source) {
+        this(playerId, unique, chunk, presence, source, 0L);
+    }
 
     static PaperTrackingScanRequest player(UUID playerId, boolean unique, String source) {
         return new PaperTrackingScanRequest(
@@ -35,6 +40,12 @@ record PaperTrackingScanRequest(
                 source);
     }
 
+    static PaperTrackingScanRequest natural(
+            ChunkReference key, long generation, String source) {
+        return new PaperTrackingScanRequest(null, false, key,
+                TrackingObservationUseCase.Presence.PRESENT, source, generation);
+    }
+
     /**
      * Only periodic reconciliation may be coalesced. Lifecycle-triggered scans
      * have distinct evidence semantics and always retain their own queue slot.
@@ -45,22 +56,22 @@ record PaperTrackingScanRequest(
                 ? chunk : null;
     }
 
-    void run(Plugin plugin, PaperPhysicalTrackingListener listener) {
+    boolean run(Plugin plugin, PaperPhysicalTrackingListener listener) {
         if (playerId != null) {
-            listener.scanPlayer(playerId, unique, source);
-            return;
+            return listener.scanPlayer(playerId, unique, source);
         }
         World world = plugin.getServer().getWorld(chunk.worldId());
         if (world != null && world.isChunkLoaded(chunk.x(), chunk.z())) {
-            listener.scanChunk(
+            return listener.scanChunk(
                     world.getChunkAt(chunk.x(), chunk.z()),
                     presence,
                     source);
         }
+        return false;
     }
 
     record ChunkReference(UUID worldId, int x, int z) {
-        private static ChunkReference capture(Chunk chunk) {
+        static ChunkReference capture(Chunk chunk) {
             return new ChunkReference(
                     chunk.getWorld().getUID(), chunk.getX(), chunk.getZ());
         }
