@@ -222,12 +222,9 @@ final class DoubleChestPaperFixture {
                 || right.getSize() != 27 || combined.getSize() != 54) {
             throw new IllegalStateException("invalid test chest half inventory topology");
         }
-        // Nontracked unique markers give a meaningful physical 26->27 boundary
-        // check. These never carry LoreItems PDC data or simulate item movement.
-        left.setItem(0, new ItemStack(Material.COBBLESTONE));
-        left.setItem(26, new ItemStack(Material.GRANITE));
-        right.setItem(0, new ItemStack(Material.DIORITE));
-        right.setItem(26, new ItemStack(Material.ANDESITE));
+        // No LoreItems identity/PDC is created; every real 54-slot position
+        // carries a distinct marker so interior slot swaps also fail.
+        DoubleChestSlotMarkers.place(combined);
     }
 
     private static boolean isSafeFixtureBlock(Block block) {
@@ -345,9 +342,11 @@ final class DoubleChestPaperFixture {
                     + " inventory=" + coordinates(inventory));
         }
         Inventory actualHalf = physical.getBlockInventory();
-        if (!Objects.equals(actualHalf.getItem(0), side.getItem(0))
-                || !Objects.equals(actualHalf.getItem(26), side.getItem(26))) {
-            throw new IllegalStateException("physical chest block and half slots disagree");
+        for (int slot = 0; slot < 27; slot++) {
+            if (!Objects.equals(actualHalf.getItem(slot), side.getItem(slot))) {
+                throw new IllegalStateException("physical chest block/half mismatch side="
+                        + sideName + " slot=" + slot);
+            }
         }
     }
 
@@ -362,22 +361,8 @@ final class DoubleChestPaperFixture {
 
     private static void verifyBoundaryItems(
             DoubleChestInventory combined, Inventory left, Inventory right) {
-        requireMaterial(left.getItem(0), Material.COBBLESTONE);
-        requireMaterial(left.getItem(26), Material.GRANITE);
-        requireMaterial(right.getItem(0), Material.DIORITE);
-        requireMaterial(right.getItem(26), Material.ANDESITE);
-        if (!Objects.equals(combined.getItem(0), left.getItem(0))
-                || !Objects.equals(combined.getItem(26), left.getItem(26))
-                || !Objects.equals(combined.getItem(27), right.getItem(0))
-                || !Objects.equals(combined.getItem(53), right.getItem(26))) {
-            throw new IllegalStateException("double chest composite/half slot mapping disagrees");
-        }
-    }
-
-    private static void requireMaterial(ItemStack actual, Material expected) {
-        if (actual == null || actual.getType() != expected) {
-            throw new IllegalStateException("double chest boundary marker missing or wrong: " + expected);
-        }
+        DoubleChestSlotMarkers.verifyCombined(combined);
+        DoubleChestSlotMarkers.verifyHalves(left, right);
     }
 
     record Pair(int x1, int z1, int x2, int z2, BlockFace facing) {
