@@ -218,8 +218,8 @@ printf 'forceload remove 2047 8\n' >&3
 sleep 4
 await_half_unloaded second
 
-# The test host reloads only the second fixture half, inspects it as full,
-# then removes the other ticket. This reverses the incomplete load condition.
+# The test host reloads BOTH halves as a real 54-slot Paper chest, then
+# removes BOTH forced tickets again before testing the inverse one-half state.
 printf 'forceload add 2047 8 2048 8\n' >&3
 sleep 3
 before=$(grep -Fc 'WP05_DOUBLE_CHEST_TOPOLOGY_OK case=xremote' "$LOG" 2>/dev/null || true)
