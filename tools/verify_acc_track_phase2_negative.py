@@ -60,19 +60,28 @@ def validate_state(rows, stage, canonical):
     return iid, state, key, path, revision
 
 
-def validate_receipts(rows, key, stage, state):
-    require(len(rows) >= len(SEQUENCES[stage]), "insufficient immutable receipts")
-    confirmed = [path for _, location, path, confidence, _ in rows
-                 if location == key and confidence == "CONFIRMED_NOW"]
+def require_confirmed_sequence(rows, key, stage):
+    confirmed = [slot for _, loc, slot, conf, _ in rows
+                 if loc == key and conf == "CONFIRMED_NOW"]
     require(is_subsequence(confirmed, SEQUENCES[stage]),
             "no ordered canonical 0->53->0 immutable receipt chain")
-    require(not any(location != key and confidence == "CONFIRMED_NOW"
-                    for _, location, _, confidence, _ in rows),
+    require(not any(loc != key and conf == "CONFIRMED_NOW"
+                    for _, loc, _, conf, _ in rows),
             "second canonical location or side-map orientation detected")
-    if stage == "restart" and state == "LAST_CONFIRMED":
-        require(any(loc == key and slot == "slot:0" and conf == "LAST_CONFIRMED"
-                    for _, loc, slot, conf, _ in rows),
-                "unloaded chest lost actual LAST_CONFIRMED slot-0 receipt")
+
+
+def require_unloaded_receipt(rows, key, stage, state):
+    if stage != "restart" or state != "LAST_CONFIRMED":
+        return
+    require(any(loc == key and slot == "slot:0" and conf == "LAST_CONFIRMED"
+                for _, loc, slot, conf, _ in rows),
+            "unloaded chest lost actual LAST_CONFIRMED slot-0 receipt")
+
+
+def validate_receipts(rows, key, stage, state):
+    require(len(rows) >= len(SEQUENCES[stage]), "insufficient immutable receipts")
+    require_confirmed_sequence(rows, key, stage)
+    require_unloaded_receipt(rows, key, stage, state)
 
 
 def verify(db, stage, axis):

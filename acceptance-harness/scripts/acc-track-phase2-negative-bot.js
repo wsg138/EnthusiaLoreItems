@@ -2,8 +2,8 @@
 'use strict'
 const fs = require('fs')
 const ROOT = '/tmp/acc-track-phase2'
-const mineflayer = require(ROOT + '/bot/node_modules/mineflayer')
-const Vec3 = require(ROOT + '/bot/node_modules/vec3').Vec3
+const mineflayer = require('/tmp/acc-track-phase2/bot/node_modules/mineflayer')
+const Vec3 = require('/tmp/acc-track-phase2/bot/node_modules/vec3').Vec3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 function log(line) {
@@ -13,6 +13,9 @@ function log(line) {
 }
 
 async function waitFile(name) {
+  if (!/^(go-(xminus2|zminus2)(-move|-return)?|bot.stop)$/.test(name)) {
+    throw new Error('invalid acceptance host checkpoint')
+  }
   for (let count = 0; count < 2000; count++) {
     if (fs.existsSync(ROOT + '/' + name)) return
     if (fs.existsSync(ROOT + '/bot.stop')) throw new Error('host aborted ' + name)
@@ -22,6 +25,9 @@ async function waitFile(name) {
 }
 
 function mark(name) {
+  if (!/^(bot.ready|(xminus2|zminus2)-(deposited|moved|returned))$/.test(name)) {
+    throw new Error('invalid acceptance result checkpoint')
+  }
   fs.writeFileSync(ROOT + '/' + name, 'ok\n')
   log('MARK ' + name)
 }

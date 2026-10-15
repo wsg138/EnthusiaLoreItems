@@ -19,9 +19,17 @@ Test fixture: Paper 1.21.11 build 116 SHA-256
 e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8.
 Host builds on Java 21; runs Paper under Java 25. Paper 26.2 API conformity
 and no-force-load with only one half accessible are separate proof obligations.
-Cases 008/009 are UNVERIFIED until successful exact-head hosted genuine-Paper
-workflow execution. Local synthetic verifier tests do NOT count as physical
-cases; missing or fabricated SQLite evidence must fail.
+**ACC-TRACK-008 and ACC-TRACK-009 passed genuine disposable Paper + SQLite**
+on PR #154 commit `91b505058efa4e49c4d7a3cfbf8aa2b0be926c2c`:
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38691758607
+X: CONFIRMED_NOW slot 0 (revision 4), slot 53 (6), slot 0 (8);
+restart LAST_CONFIRMED slot 0 (9); 4 immutable receipts; 0 anomalies.
+Z: same transition sequence independently; distinct item UUID and key;
+4 receipts and 0 anomalies on restart. Source world UUID identical,
+physical X/Z canonical coordinates different. Original job log and artifact
+`11951509335` retain the evidence. **A later commit must re-run and pass
+before exact-final-head acceptance can be credited.** Local synthetic
+verifier tests are not physical cases.
 
 ## DC-01 through DC-48 case map
 
@@ -34,8 +42,8 @@ prior draft PRs #135, #137, #140, #142, #143, #145, #151–#153.
 | DC-01 | Same chunk | PARTIAL; real 54-slot marker geometry |
 | DC-02 | Positive X chunk | PARTIAL; real tracked GUI 0→53 receipts |
 | DC-03 | Positive Z chunk | PARTIAL; real tracked GUI 0→53 receipts |
-| DC-04 | Negative X chunk | PARTIAL; -1|0 tracked, -17|-16 pending 008 |
-| DC-05 | Negative Z chunk | PARTIAL; -1|0 tracked, -17|-16 pending 009 |
+| DC-04 | Negative X chunk | PARTIAL; -1|0 plus real -17|-16 tracked PASS at initial 91b head; other variants missing |
+| DC-05 | Negative Z chunk | PARTIAL; -1|0 plus real -17|-16 tracked PASS at initial 91b head; other variants missing |
 | DC-06 | All orientations | UNVERIFIED; limited chest facings |
 | DC-07 | Reverse placement order | UNVERIFIED; no independent tracked movement |
 | DC-08 | All 54 half slots | PARTIAL; vanilla markers, not 54 PDC UUIDs |
@@ -50,7 +58,7 @@ prior draft PRs #135, #137, #140, #142, #143, #145, #151–#153.
 | DC-17 | Double-to-single | PARTIAL; native physical tests, not tracked transition |
 | DC-18 | Break/replace while hopper pulls | UNVERIFIED |
 | DC-19 | No implicit load/ticket | PARTIAL; native missing-half refusal only |
-| DC-20 | GUI 0→53→0 | UNVERIFIED; cases 008/009 awaiting hosted real Paper |
+| DC-20 | GUI 0→53→0 | PARTIAL; real X/Z -17|-16 reverse GUI PASS at 91b, other orientations unverified |
 | DC-21 | Shift-click | UNVERIFIED; double-chest movement proof |
 | DC-22 | Double-click collect | UNVERIFIED |
 | DC-23 | Drag | UNVERIFIED |
@@ -96,3 +104,16 @@ https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38601437305
 Explicit exclusions: no live SMP or TEST install, no SFTP, no production
 Java/SQLite changes, no migration #103, no owner release authorization.
 Do not merge this stacked draft without independent review.
+
+## Hosted CI safety finding
+
+At original physical-PASS SHA 91b5050, hosted CI run
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38691758514
+failed at Codacy. The first 50 emitted annotations were on the NEW
+Mineflayer test-only JavaScript client. These include genuinely actionable
+non-literal `require` paths and filesystem marker validation, alongside
+Node builtin, ES2015 and async syntax findings that appear to use a
+non-Node parser/language profile. A follow-up change hardcodes module paths
+and bounds marker names to exact allowlisted formats. The final head must
+be rechecked. CI is **RED** until remaining findings are triaged
+individually; no broad exclusion or disablement is authorized.
