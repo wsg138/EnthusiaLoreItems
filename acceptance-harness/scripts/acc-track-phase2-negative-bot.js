@@ -13,7 +13,7 @@ function log(line) {
 }
 
 async function waitFile(name) {
-  if (!/^(go-(xminus2|zminus2)(-move|-return)?|bot.stop)$/.test(name)) {
+  if (!/^(go-(xminus2|zminus2)(-seam26|-seam27|-move|-return)?|bot.stop)$/.test(name)) {
     throw new Error('invalid acceptance host checkpoint')
   }
   for (let count = 0; count < 2000; count++) {
@@ -25,7 +25,7 @@ async function waitFile(name) {
 }
 
 function mark(name) {
-  if (!/^(bot.ready|(xminus2|zminus2)-(deposited|moved|returned))$/.test(name)) {
+  if (!/^(bot.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
   fs.writeFileSync(ROOT + '/' + name, 'ok\n')
@@ -141,8 +141,12 @@ async function runCase(bot, spec) {
   await waitFile('go-' + spec.name)
   await prepare(bot, spec)
   await deposit(bot, spec)
+  await waitFile('go-' + spec.name + '-seam26')
+  await clickMove(bot, spec, 0, 26, 'seam26')
+  await waitFile('go-' + spec.name + '-seam27')
+  await clickMove(bot, spec, 26, 27, 'seam27')
   await waitFile('go-' + spec.name + '-move')
-  await clickMove(bot, spec, 0, 53, 'moved')
+  await clickMove(bot, spec, 27, 53, 'moved')
   await waitFile('go-' + spec.name + '-return')
   await clickMove(bot, spec, 53, 0, 'returned')
 }

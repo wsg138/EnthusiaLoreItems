@@ -117,3 +117,32 @@ non-Node parser/language profile. A follow-up change hardcodes module paths
 and bounds marker names to exact allowlisted formats. The final head must
 be rechecked. CI is **RED** until remaining findings are triaged
 individually; no broad exclusion or disablement is authorized.
+
+
+## Worker I independent follow-up (unverified until hosted exact-head success)
+
+New stacked test-only worker branch test/acc-track-phase2-worker-i-20261015
+extends both negative-boundary tracked client scenarios from original
+0→53→0 to **0→26→27→53→0**. The two new bounded physical-proof
+subcases are named ACC-TRACK-010 (X -17|-16 26→27 seam) and
+ACC-TRACK-011 (Z -17|-16 26→27 seam). Their 54-slot real-client
+checkpoints at each step require new immutable canonical SQLite
+CONFIRMED_NOW receipts at 26 and 27 as well as 0 and 53, exact
+unmodified physical UUID/world/coordinated pair, one tracked
+instance, no anomaly and restart LAST_CONFIRMED at slot0 when natural
+unload occurs. Neither synthetic unit tests nor the old #154 physical
+run can validate these NEW intermediate movements.
+
+This extension covers only two specific boundary/orientation/half
+seams and does NOT prove DC-08 all 54 tracked slots, DC-06 all
+orientations, DC-09/10 unloaded-half load orders, or full DC-01..DC-48.
+The CI fixture explicitly holds both halves loaded during movement.
+The original #154 008/009 run remains historical evidence for
+0→53→0; its old artifacts must NOT be presented as proof of 010/011.
+The stacked child workflow now targets PRs into #154 as well as main
+and #153, but source HEAD, JAR and Paper SHA must still match for credit.
+
+Worker I independent Codacy per-annotation triage is documented in
+2026-10-15-worker-i-codacy-triage.md (50 exact findings on parent
+head). No broad Codacy exclusions are introduced. Re-run check on the
+new child head before any static-clean claim.

@@ -48,9 +48,11 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         """, (key, path, confidence))
 
     def full_chain(self):
+        self.receipt("slot:26")
+        self.receipt("slot:27")
         self.receipt("slot:53")
         self.receipt("slot:0")
-        self.projection("slot:0", 5)
+        self.projection("slot:0", 7)
 
     def test_deposit_and_real_ordered_return_structure(self):
         GATE.verify(self.db, "deposit", "x")
@@ -58,9 +60,26 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         GATE.verify(self.db, "return", "x")
         GATE.verify(self.db, "restart", "x")
 
+    def test_seam_slot_evidence_requires_both_halves(self):
+        self.receipt("slot:26")
+        self.projection("slot:26", 4)
+        GATE.verify(self.db, "seam26", "x")
+        self.receipt("slot:27")
+        self.projection("slot:27", 5)
+        GATE.verify(self.db, "seam27", "x")
+
+    def test_missing_seam_27_receipt_rejected(self):
+        self.receipt("slot:26")
+        self.receipt("slot:26")
+        self.receipt("slot:53")
+        self.receipt("slot:0")
+        self.projection("slot:0", 7)
+        with self.assertRaisesRegex(AssertionError, "ordered"):
+            GATE.verify(self.db, "return", "x")
+
     def test_missing_middle_receipt_rejected(self):
         self.receipt("slot:0")
-        self.projection("slot:0", 5)
+        self.projection("slot:0", 7)
         with self.assertRaisesRegex(AssertionError, "insufficient|ordered"):
             GATE.verify(self.db, "return", "x")
 
@@ -109,11 +128,10 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         GATE.verify(self.db, "return", "z")
 
     def test_exact_receipt_sequence_and_stage(self):
-        self.assertFalse(GATE.is_subsequence(["slot:0", "slot:0"], ("slot:0", "slot:53")))
-        self.assertTrue(GATE.is_subsequence(["slot:0", "slot:53", "slot:0"],
-                                            ("slot:0", "slot:53", "slot:0")))
-        self.assertEqual(("slot:0", "slot:53", "slot:0"),
-                         GATE.SEQUENCES["return"])
+        self.assertFalse(GATE.is_subsequence(["slot:0", "slot:0"], ("slot:0", "slot:26")))
+        expected = ("slot:0", "slot:26", "slot:27", "slot:53", "slot:0")
+        self.assertTrue(GATE.is_subsequence(expected, expected))
+        self.assertEqual(expected, GATE.SEQUENCES["return"])
 
 
 if __name__ == "__main__":

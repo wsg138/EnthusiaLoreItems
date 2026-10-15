@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - test/sqlite-crosschunk-wal-failure-reopen-20261014
+      - test/acc-track-phase2-negative-20261015
 
 permissions:
   contents: read

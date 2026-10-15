@@ -12,9 +12,13 @@ CASES = {
     "z": ("acc_phase2_zminus2", "ACC-TRACK-009",
           re.compile(rf"double-chest:{UUID}:8:70:-17\|8:70:-16:left=[01]\Z")),
 }
-SEQUENCES = {"deposit": ("slot:0",), "move": ("slot:0", "slot:53"),
-             "return": ("slot:0", "slot:53", "slot:0"),
-             "restart": ("slot:0", "slot:53", "slot:0")}
+SEAM_CASES = {"x": "ACC-TRACK-010", "z": "ACC-TRACK-011"}
+SEQUENCES = {"deposit": ("slot:0",),
+             "seam26": ("slot:0", "slot:26"),
+             "seam27": ("slot:0", "slot:26", "slot:27"),
+             "move": ("slot:0", "slot:26", "slot:27", "slot:53"),
+             "return": ("slot:0", "slot:26", "slot:27", "slot:53", "slot:0"),
+             "restart": ("slot:0", "slot:26", "slot:27", "slot:53", "slot:0")}
 
 
 def require(condition, message):
@@ -64,7 +68,7 @@ def require_confirmed_sequence(rows, key, stage):
     confirmed = [slot for _, loc, slot, conf, _ in rows
                  if loc == key and conf == "CONFIRMED_NOW"]
     require(is_subsequence(confirmed, SEQUENCES[stage]),
-            "no ordered canonical 0->53->0 immutable receipt chain")
+            "missing ordered canonical 0->26->27->53->0 immutable receipt chain")
     require(not any(loc != key and conf == "CONFIRMED_NOW"
                     for _, loc, _, conf, _ in rows),
             "second canonical location or side-map orientation detected")
@@ -86,6 +90,8 @@ def validate_receipts(rows, key, stage, state):
 
 def verify(db, stage, axis):
     lookup, label, canonical = CASES[axis]
+    if stage in ("seam26", "seam27"):
+        label = SEAM_CASES[axis]
     rows = read_projection(db, lookup)
     iid, state, key, path, revision = validate_state(rows, stage, canonical)
     count = db.execute("SELECT COUNT(*) FROM instance_anomalies WHERE instance_id=?",
@@ -119,7 +125,7 @@ def verify_poll(database, stage, axis):
 
 def main(args):
     if len(args) != 4 or args[2] not in SEQUENCES or args[3] not in CASES:
-        raise SystemExit("usage: verifier DISPOSABLE_DB deposit|move|return|restart x|z")
+        raise SystemExit("usage: verifier DISPOSABLE_DB deposit|seam26|seam27|move|return|restart x|z")
     verify_poll(*args[1:])
 
 

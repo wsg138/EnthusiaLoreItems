@@ -123,6 +123,12 @@ run_case() {
   touch "$ROOT/go-$axis"
   wait_marker "$axis-deposited" 240
   python3 "$VERIFIER" "$DB" deposit "$direction" | tee -a "$EVIDENCE/case-results.txt"
+  touch "$ROOT/go-$axis-seam26"
+  wait_marker "$axis-seam26" 240
+  python3 "$VERIFIER" "$DB" seam26 "$direction" | tee -a "$EVIDENCE/case-results.txt"
+  touch "$ROOT/go-$axis-seam27"
+  wait_marker "$axis-seam27" 240
+  python3 "$VERIFIER" "$DB" seam27 "$direction" | tee -a "$EVIDENCE/case-results.txt"
   touch "$ROOT/go-$axis-move"
   wait_marker "$axis-moved" 240
   python3 "$VERIFIER" "$DB" move "$direction" | tee -a "$EVIDENCE/case-results.txt"
