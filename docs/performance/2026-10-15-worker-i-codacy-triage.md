@@ -58,3 +58,16 @@ The `waitFile(name)` and `mark(name)` string arguments are not raw external path
 | 50 | 36 | warning | Function must end with a return statement, so that it doesn't return 'undefined' | Void side-effect/test waiter; no value-contract caller |
 
 **Review outcome:** none of these first 50 constitutes a demonstrated unsafe production operation. The two dynamic-file-path failures have explicit precondition guards rather than being ignored; they remain candidates for a stronger analyzer-specific flow review. Hosted Codacy itself is **RED**, and no false claim of passing static CI or zero total warnings is made. If a future exact-head run surfaces further uncapped findings, classify each individually. No production migration, permission, main merge, or release follows from this review.
+
+
+## Independent child-hosted scanner check
+
+On child SHA c42ab5f94c6d5efb568b7980ce47248c5616c22a,
+CI run https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614630
+completed SUCCESS and logged:
+Codacy Static Code Analysis passed on exact head c42ab5f94c6d5efb568b7980ce47248c5616c22a.
+The build and no-new/worsened Lizard gate also passed. This is a
+**new, explicitly verified hosted outcome**, superseding the **RED**
+parent head documented above; it does not mean parent SHA itself turned
+green, nor does it bypass any global Codacy rule. Later source changes
+require their own exact-head scanner verdict.

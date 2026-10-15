@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sqlite3
+import subprocess
 import unittest
 
 SCRIPT = Path(__file__).with_name("verify_acc_track_phase2_negative.py")
@@ -59,6 +60,31 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         self.full_chain()
         GATE.verify(self.db, "return", "x")
         GATE.verify(self.db, "restart", "x")
+
+    def test_checkpoint_names_are_literal_and_bounded(self):
+        script = Path(__file__).resolve().parents[1] / (
+            "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
+        javascript = r"""
+const fs = require('fs');
+const assert = require('assert/strict');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const expressions = [...source.matchAll(/if \(!\/\^(.+?)\$\/\.test\(name\)\)/g)];
+assert.equal(expressions.length, 2);
+const accepted = expressions.map(match => new RegExp('^' + match[1] + '$'));
+const samples = [
+  [accepted[0], ['go-xminus2', 'go-zminus2-seam26', 'bot.stop'],
+    ['botXstop', '../bot.stop', 'go-xminus2-move/evil']],
+  [accepted[1], ['bot.ready', 'xminus2-seam27', 'zminus2-returned'],
+    ['botXready', '../bot.ready', 'xminus2-seam27/evil']]
+];
+for (const [rule, valid, invalid] of samples) {
+  for (const name of valid) assert.equal(rule.test(name), true, name);
+  for (const name of invalid) assert.equal(rule.test(name), false, name);
+}
+"""
+        subprocess.run(
+            ["node", "--eval", javascript, str(script)],
+            check=True, capture_output=True, text=True)
 
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")

@@ -146,3 +146,38 @@ Worker I independent Codacy per-annotation triage is documented in
 2026-10-15-worker-i-codacy-triage.md (50 exact findings on parent
 head). No broad Codacy exclusions are introduced. Re-run check on the
 new child head before any static-clean claim.
+
+
+## Worker I hosted physical proof — exact first child head c42ab5f9
+
+The exact-head genuine disposable Paper 1.21.11 build 116 / Java 25
+workflow completed **SUCCESS** at
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614657,
+source SHA c42ab5f94c6d5efb568b7980ce47248c5616c22a.
+Original workflow evidence artifact:
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614657/artifacts/12005149427.
+
+Real non-mock 54-slot Mineflayer click + read-only SQLite receipts:
+
+- X (-17,70,8)|(-16,70,8), ACC-TRACK-008/010:
+  0 CONFIRMED_NOW revision 4, 26 revision 6, 27 revision 8,
+  53 revision 10, 0 revision 12; six immutable receipts at
+  LAST_CONFIRMED slot 0 revision 13 after disposable Paper restart.
+  Same instance and canonical world UUID/left marker throughout;
+  0 anomalies.
+- Z (8,70,-17)|(8,70,-16), ACC-TRACK-009/011:
+  independent issued instance, 0/26/27/53/0 revisions 4/6/8/10/12,
+  six receipts, LAST_CONFIRMED revision 13 at slot 0 after restart,
+  0 anomalies; canonical Z key and UUID verified independently.
+- Host run explicitly checked actual 54-slot GUI and restart persisted
+  the same disposable SQLite DB and server plugin JAR.
+- Source CI https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614630
+  **SUCCESS**, including the exact-head hosted Codacy check (passed)
+  and Codacy-Lizard threshold check; exact-head test JAR
+  https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614910
+  **SUCCESS**.
+
+A further targeted source-only regex literal-marker fix is being
+applied after this first green head. The first-head workflow is **not**
+evidence for any later SHA; new HEAD must independently rerun.
+No release approval or full DC-01..DC-48 PASS assertion.

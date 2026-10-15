@@ -13,7 +13,7 @@ function log(line) {
 }
 
 async function waitFile(name) {
-  if (!/^(go-(xminus2|zminus2)(-seam26|-seam27|-move|-return)?|bot.stop)$/.test(name)) {
+  if (!/^(go-(xminus2|zminus2)(-seam26|-seam27|-move|-return)?|bot\.stop)$/.test(name)) {
     throw new Error('invalid acceptance host checkpoint')
   }
   for (let count = 0; count < 2000; count++) {
@@ -25,7 +25,7 @@ async function waitFile(name) {
 }
 
 function mark(name) {
-  if (!/^(bot.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
+  if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
   fs.writeFileSync(ROOT + '/' + name, 'ok\n')
