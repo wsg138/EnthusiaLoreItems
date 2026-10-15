@@ -1,8 +1,8 @@
 """Fail-closed regression tests; mock schemas are NOT credited as real Paper cases."""
 import importlib.util
 from pathlib import Path
+import re
 import sqlite3
-import subprocess
 import unittest
 
 SCRIPT = Path(__file__).with_name("verify_acc_track_phase2_negative.py")
@@ -64,27 +64,21 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
     def test_checkpoint_names_are_literal_and_bounded(self):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
-        javascript = r"""
-const fs = require('fs');
-const assert = require('assert/strict');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const expressions = [...source.matchAll(/if \(!\/\^(.+?)\$\/\.test\(name\)\)/g)];
-assert.equal(expressions.length, 2);
-const accepted = expressions.map(match => new RegExp('^' + match[1] + '$'));
-const samples = [
-  [accepted[0], ['go-xminus2', 'go-zminus2-seam26', 'bot.stop'],
-    ['botXstop', '../bot.stop', 'go-xminus2-move/evil']],
-  [accepted[1], ['bot.ready', 'xminus2-seam27', 'zminus2-returned'],
-    ['botXready', '../bot.ready', 'xminus2-seam27/evil']]
-];
-for (const [rule, valid, invalid] of samples) {
-  for (const name of valid) assert.equal(rule.test(name), true, name);
-  for (const name of invalid) assert.equal(rule.test(name), false, name);
-}
-"""
-        subprocess.run(
-            ["node", "--eval", javascript, str(script)],
-            check=True, capture_output=True, text=True)
+        source = script.read_text(encoding="utf-8")
+        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)\)", source)
+        self.assertEqual(2, len(expressions))
+        wait, mark = (re.compile(expression) for expression in expressions)
+        samples = (
+            (wait, ("go-xminus2", "go-zminus2-seam26", "bot.stop"),
+             ("botXstop", "../bot.stop", "go-xminus2-move/evil")),
+            (mark, ("bot.ready", "xminus2-seam27", "zminus2-returned"),
+             ("botXready", "../bot.ready", "xminus2-seam27/evil")),
+        )
+        for pattern, valid, invalid in samples:
+            for name in valid:
+                self.assertIsNotNone(pattern.fullmatch(name), name)
+            for name in invalid:
+                self.assertIsNone(pattern.fullmatch(name), name)
 
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")

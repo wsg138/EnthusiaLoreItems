@@ -181,3 +181,22 @@ A further targeted source-only regex literal-marker fix is being
 applied after this first green head. The first-head workflow is **not**
 evidence for any later SHA; new HEAD must independently rerun.
 No release approval or full DC-01..DC-48 PASS assertion.
+
+
+## Intermediate child HEAD 52602696 evidence and follow-up
+
+At SHA 52602696bc9ce17136adc0cc194bf3e885a3624d, genuine
+disposable Paper/SQLite
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812299
+completed real X/Z 0→26→27→53→0 movement and restart successfully.
+Both original tracked instances have independent 6 immutable receipts,
+zero anomalies, LAST_CONFIRMED slot0 revision13; original artifact
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812299/artifacts/12006078444.
+Exact-head test JAR
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812277
+also passed. **General CI FAILED** at that SHA on six new Python
+subprocess-launch Codacy findings introduced by the checkpoint
+regression, despite existing production, core unit and real Paper tests
+passing. The following commit removes process launch entirely and
+keeps the regex name acceptance/rejection assertions in-process.
+No Codacy exemption or release approval is implied.

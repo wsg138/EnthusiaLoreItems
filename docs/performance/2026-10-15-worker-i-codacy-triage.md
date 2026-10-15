@@ -71,3 +71,26 @@ The build and no-new/worsened Lizard gate also passed. This is a
 parent head documented above; it does not mean parent SHA itself turned
 green, nor does it bypass any global Codacy rule. Later source changes
 require their own exact-head scanner verdict.
+
+
+## Intermediate follow-up 52602696 — six new test-launch findings, all addressed
+
+Hosted CI https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812215
+on intermediate HEAD 52602696bc9ce17136adc0cc194bf3e885a3624d
+FAILED due to **6 NEW** findings in the Python checkpoint regression:
+
+- line 5, subprocess module: one informational and one Bandit B404
+  import warning (two annotations).
+- line 85, launching a partial executable path: one generic and one
+  Bandit B607 warning (two annotations).
+- line 85, invoking process with an argument: one generic and one
+  Bandit B603 warning (two annotations).
+
+No global analyzer exclusions or security suppressions were added.
+The revised test extracts the two anchored JS checkpoint patterns from
+the source, compiles their common Python-compatible regex grammar
+and asserts acceptance/rejection of literal and path-like names **in
+process**. This removes the subprocess import, PATH resolution,
+process launch, and untrusted subprocess input concerns altogether.
+Local 11 tests and Node/Bash syntax pass; next exact-head Codacy run is
+required before the newly fixed changes are credited as green.
