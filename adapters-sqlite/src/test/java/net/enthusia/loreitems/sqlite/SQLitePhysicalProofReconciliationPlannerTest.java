@@ -308,7 +308,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         Holder holder = Holder.SINGLE_CHEST;
         Position first = new Position(15, 70, 8), second, left;
         String containerPath = SLOT_ZERO;
-        int slot, matches = 1, unresolvedWorlds = 0;
+        int slot, matches = 1, unresolvedWorlds;
         long revision = 4, receipt = 17, generation = 8, captured = 200;
         boolean firstLoaded = true, secondLoaded = true, geometryVerified = true;
         boolean coverage = true, lineage = true, settled = true, dirty, ack = true;
