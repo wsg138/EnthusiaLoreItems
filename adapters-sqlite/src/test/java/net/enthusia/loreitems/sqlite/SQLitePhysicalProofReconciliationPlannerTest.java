@@ -19,6 +19,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
     private static final UUID INSTANCE = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final UUID WORLD = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     private static final String OLD = "minecraft:world:15:70:8";
+    private static final String SLOT_ZERO = "slot:0";
     private static final String MODERN = "block-v2:" + WORLD + ":15:70:8";
 
     @Test
@@ -27,7 +28,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         assertEquals(Outcome.ELIGIBLE, decision.outcome());
         assertEquals(Reason.PHYSICAL_REOBSERVATION_ONLY, decision.reason());
         assertEquals(MODERN, decision.proposedLocationKey());
-        assertEquals("slot:0", decision.proposedContainerPath());
+        assertEquals(SLOT_ZERO, decision.proposedContainerPath());
         assertEquals(decision, plan(OLD, unused -> {})); // pure deterministic retry
     }
 
@@ -103,17 +104,21 @@ class SQLitePhysicalProofReconciliationPlannerTest {
 
     @Test
     void rejectsConflictAndTerminalProjectionsEvenWithRealPhysicalItem() {
-        CurrentEvidence conflict = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0",
+        CurrentEvidence conflict = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO,
                 InstanceCurrentState.State.CONFLICTING, true);
         assertResult(conflict, new Fixture(), Outcome.CONFLICT, Reason.ACTIVE_CONFLICT);
-        CurrentEvidence terminal = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0",
+        CurrentEvidence storedConflict = projection("conflict:unresolved",
+                LocationDescriptor.Type.DUPLICATE_CONFLICT, SLOT_ZERO,
+                InstanceCurrentState.State.CONFLICTING, true);
+        assertResult(storedConflict, new Fixture(), Outcome.CONFLICT, Reason.ACTIVE_CONFLICT);
+        CurrentEvidence terminal = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO,
                 InstanceCurrentState.State.TERMINAL_VOID, false);
         assertResult(terminal, new Fixture(), Outcome.CONFLICT, Reason.UNEXPECTED_CURRENT_STATE);
     }
 
     @Test
     void lastConfirmedIsNotAutomaticallyPromotedToConfirmedNow() {
-        CurrentEvidence last = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0",
+        CurrentEvidence last = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO,
                 InstanceCurrentState.State.LAST_CONFIRMED, false);
         Decision decision = SQLitePhysicalProofReconciliationPlanner.plan(last, new Fixture().build());
         assertEquals(Outcome.ELIGIBLE, decision.outcome());
@@ -146,12 +151,12 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         Position negA = new Position(-17, 70, 8), negB = new Position(-16, 70, 8);
         Position zA = new Position(8, 70, -1), zB = new Position(8, 70, 0);
         return Stream.of(
-                Arguments.of(a, b, a, "minecraft:world:15:70:8", 0, 0, paired(a, b, 0)),
-                Arguments.of(a, b, a, "minecraft:world:15:70:8", 26, 26, paired(a, b, 0)),
+                Arguments.of(a, b, a, OLD, 0, 0, paired(a, b, 0)),
+                Arguments.of(a, b, a, OLD, 26, 26, paired(a, b, 0)),
                 Arguments.of(a, b, a, "minecraft:world:16:70:8", 0, 27, paired(a, b, 0)),
                 Arguments.of(a, b, a, "minecraft:world:16:70:8", 26, 53, paired(a, b, 0)),
                 Arguments.of(a, b, b, "minecraft:world:16:70:8", 0, 0, paired(a, b, 1)),
-                Arguments.of(a, b, b, "minecraft:world:15:70:8", 26, 53, paired(a, b, 1)),
+                Arguments.of(a, b, b, OLD, 26, 53, paired(a, b, 1)),
                 Arguments.of(negA, negB, negB, "minecraft:world:-17:70:8",
                         26, 53, paired(negA, negB, 1)),
                 Arguments.of(zA, zB, zA, "minecraft:world:8:70:0",
@@ -174,7 +179,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         rejoined.containerPath = "slot:27";
         assertEquals(Outcome.ELIGIBLE,
                 SQLitePhysicalProofReconciliationPlanner.plan(
-                        projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0"),
+                        projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO),
                         rejoined.build()).outcome());
     }
 
@@ -188,7 +193,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
                 projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:4"),
                 hopper.build()).outcome());
         hopper.slot = 5;
-        assertResult(projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0"),
+        assertResult(projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO),
                 hopper, Outcome.CONFLICT, Reason.INVALID_HOLDER_SLOT);
     }
 
@@ -204,7 +209,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
 
     @Test
     void missingProofOrForgedSlotPathCannotPromoteLastKnownEvidence() {
-        CurrentEvidence evidence = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0");
+        CurrentEvidence evidence = projection(OLD, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO);
         Decision absent = SQLitePhysicalProofReconciliationPlanner.plan(evidence, null);
         assertEquals(Outcome.ABSENT, absent.outcome());
         assertEquals(Reason.NO_PHYSICAL_PROOF, absent.reason());
@@ -267,7 +272,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
             Outcome outcome, Reason reason) {
         Fixture f = new Fixture();
         mutate.accept(f);
-        assertResult(projection(key, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0"),
+        assertResult(projection(key, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO),
                 f, outcome, reason);
     }
 
@@ -284,7 +289,7 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         Fixture f = new Fixture();
         mutate.accept(f);
         return SQLitePhysicalProofReconciliationPlanner.plan(
-                projection(key, LocationDescriptor.Type.BLOCK_CONTAINER, "slot:0"), f.build());
+                projection(key, LocationDescriptor.Type.BLOCK_CONTAINER, SLOT_ZERO), f.build());
     }
 
     private static CurrentEvidence projection(String key, LocationDescriptor.Type type,
@@ -302,11 +307,11 @@ class SQLitePhysicalProofReconciliationPlannerTest {
         UUID instanceId = INSTANCE, worldId = WORLD;
         Holder holder = Holder.SINGLE_CHEST;
         Position first = new Position(15, 70, 8), second, left;
-        String containerPath = "slot:0";
-        int slot = 0, matches = 1, unresolvedWorlds = 0;
+        String containerPath = SLOT_ZERO;
+        int slot, matches = 1, unresolvedWorlds = 0;
         long revision = 4, receipt = 17, generation = 8, captured = 200;
         boolean firstLoaded = true, secondLoaded = true, geometryVerified = true;
-        boolean coverage = true, lineage = true, settled = true, dirty = false, ack = true;
+        boolean coverage = true, lineage = true, settled = true, dirty, ack = true;
 
         PhysicalProof build() {
             return new PhysicalProof(instanceId, worldId, holder,

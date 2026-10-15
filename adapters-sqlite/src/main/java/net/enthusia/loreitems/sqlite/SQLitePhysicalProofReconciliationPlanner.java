@@ -14,6 +14,8 @@ import net.enthusia.loreitems.domain.LocationDescriptor;
  */
 public final class SQLitePhysicalProofReconciliationPlanner {
     private static final String NESTED_ROOT = "root:BLOCK_CONTAINER:";
+    private static final int UNIQUE_PHYSICAL_ITEM = 1;
+    private static final int HALF_CHEST_SIZE = 27;
     private static final Pattern LEGACY_BLOCK = Pattern.compile(
             "([a-z0-9_.-]+:[a-z0-9_./-]+):(-?\\d+):(-?\\d+):(-?\\d+)");
 
@@ -162,12 +164,14 @@ public final class SQLitePhysicalProofReconciliationPlanner {
     }
 
     public static Decision plan(CurrentEvidence current, PhysicalProof proof) {
-        if (current == null || current.location() == null
-                || !isLegacyReference(current.location())) {
+        if (current == null) {
             return Decision.refuse(Outcome.ABSENT, Reason.NO_CURRENT_LEGACY_REFERENCE);
         }
         if (current.activeConflict() || current.state() == InstanceCurrentState.State.CONFLICTING) {
             return Decision.refuse(Outcome.CONFLICT, Reason.ACTIVE_CONFLICT);
+        }
+        if (current.location() == null || !isLegacyReference(current.location())) {
+            return Decision.refuse(Outcome.ABSENT, Reason.NO_CURRENT_LEGACY_REFERENCE);
         }
         if (current.state() != InstanceCurrentState.State.CONFIRMED_NOW
                 && current.state() != InstanceCurrentState.State.LAST_CONFIRMED) {
@@ -186,9 +190,13 @@ public final class SQLitePhysicalProofReconciliationPlanner {
         if (proof.matchingInstanceCount() == 0) {
             return Decision.refuse(Outcome.ABSENT, Reason.NO_MATCHING_ITEM);
         }
-        if (proof.matchingInstanceCount() != 1) {
+        if (proof.matchingInstanceCount() != UNIQUE_PHYSICAL_ITEM) {
             return Decision.refuse(Outcome.AMBIGUOUS, Reason.MULTIPLE_MATCHING_ITEMS);
         }
+        return inspectReceipt(current, proof);
+    }
+
+    private static Decision inspectReceipt(CurrentEvidence current, PhysicalProof proof) {
         if (proof.expectedRevision() != current.revision()
                 || proof.sourceObservationId() != current.lastObservationId()) {
             return Decision.refuse(Outcome.STALE, Reason.STALE_REVISION_OR_RECEIPT);
@@ -196,6 +204,10 @@ public final class SQLitePhysicalProofReconciliationPlanner {
         if (proof.eventGeneration() != current.settledGeneration()) {
             return Decision.refuse(Outcome.STALE, Reason.STALE_GENERATION);
         }
+        return inspectSettlement(current, proof);
+    }
+
+    private static Decision inspectSettlement(CurrentEvidence current, PhysicalProof proof) {
         if (proof.dirty() || !proof.mutationSettled()) {
             return Decision.refuse(Outcome.STALE, Reason.DIRTY_OR_UNSETTLED);
         }
@@ -257,28 +269,42 @@ public final class SQLitePhysicalProofReconciliationPlanner {
 
     private static String translatedPath(String oldPath, Position oldHalf,
             PhysicalProof proof) {
+        Integer localSlot = parseLocalSlot(oldPath);
+        if (localSlot == null) {
+            return null;
+        }
+        Integer canonicalSlot = canonicalSlot(localSlot, oldHalf, proof);
+        if (canonicalSlot == null || canonicalSlot != proof.physicalSlot()) {
+            return null;
+        }
+        int slash = oldPath.indexOf('/');
+        String suffix = slash < 0 ? "" : oldPath.substring(slash);
+        return "slot:" + canonicalSlot + suffix;
+    }
+
+    private static Integer parseLocalSlot(String oldPath) {
         if (oldPath == null || !oldPath.startsWith("slot:")) {
             return null;
         }
         int slash = oldPath.indexOf('/');
         String digits = oldPath.substring(5, slash < 0 ? oldPath.length() : slash);
-        int localSlot;
         try {
-            localSlot = Integer.parseInt(digits);
+            return Integer.parseInt(digits);
         } catch (NumberFormatException exception) {
             return null;
         }
-        int expectedSlot = localSlot;
-        if (proof.holder() == Holder.DOUBLE_CHEST) {
-            if (localSlot < 0 || localSlot >= 27) {
-                return null;
-            }
-            expectedSlot += oldHalf.equals(proof.geometry().apiLeft()) ? 0 : 27;
+    }
+
+    private static Integer canonicalSlot(int localSlot, Position oldHalf,
+            PhysicalProof proof) {
+        if (proof.holder() != Holder.DOUBLE_CHEST) {
+            return localSlot;
         }
-        if (expectedSlot != proof.physicalSlot()) {
+        if (localSlot < 0 || localSlot >= HALF_CHEST_SIZE) {
             return null;
         }
-        return "slot:" + expectedSlot + (slash < 0 ? "" : oldPath.substring(slash));
+        int offset = oldHalf.equals(proof.geometry().apiLeft()) ? 0 : HALF_CHEST_SIZE;
+        return localSlot + offset;
     }
 
     private static boolean isLegacyReference(LocationDescriptor location) {
