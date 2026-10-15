@@ -117,3 +117,86 @@ non-Node parser/language profile. A follow-up change hardcodes module paths
 and bounds marker names to exact allowlisted formats. The final head must
 be rechecked. CI is **RED** until remaining findings are triaged
 individually; no broad exclusion or disablement is authorized.
+
+
+## Worker I independent follow-up (unverified until hosted exact-head success)
+
+New stacked test-only worker branch test/acc-track-phase2-worker-i-20261015
+extends both negative-boundary tracked client scenarios from original
+0→53→0 to **0→26→27→53→0**. The two new bounded physical-proof
+subcases are named ACC-TRACK-010 (X -17|-16 26→27 seam) and
+ACC-TRACK-011 (Z -17|-16 26→27 seam). Their 54-slot real-client
+checkpoints at each step require new immutable canonical SQLite
+CONFIRMED_NOW receipts at 26 and 27 as well as 0 and 53, exact
+unmodified physical UUID/world/coordinated pair, one tracked
+instance, no anomaly and restart LAST_CONFIRMED at slot0 when natural
+unload occurs. Neither synthetic unit tests nor the old #154 physical
+run can validate these NEW intermediate movements.
+
+This extension covers only two specific boundary/orientation/half
+seams and does NOT prove DC-08 all 54 tracked slots, DC-06 all
+orientations, DC-09/10 unloaded-half load orders, or full DC-01..DC-48.
+The CI fixture explicitly holds both halves loaded during movement.
+The original #154 008/009 run remains historical evidence for
+0→53→0; its old artifacts must NOT be presented as proof of 010/011.
+The stacked child workflow now targets PRs into #154 as well as main
+and #153, but source HEAD, JAR and Paper SHA must still match for credit.
+
+Worker I independent Codacy per-annotation triage is documented in
+2026-10-15-worker-i-codacy-triage.md (50 exact findings on parent
+head). No broad Codacy exclusions are introduced. Re-run check on the
+new child head before any static-clean claim.
+
+
+## Worker I hosted physical proof — exact first child head c42ab5f9
+
+The exact-head genuine disposable Paper 1.21.11 build 116 / Java 25
+workflow completed **SUCCESS** at
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614657,
+source SHA c42ab5f94c6d5efb568b7980ce47248c5616c22a.
+Original workflow evidence artifact:
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614657/artifacts/12005149427.
+
+Real non-mock 54-slot Mineflayer click + read-only SQLite receipts:
+
+- X (-17,70,8)|(-16,70,8), ACC-TRACK-008/010:
+  0 CONFIRMED_NOW revision 4, 26 revision 6, 27 revision 8,
+  53 revision 10, 0 revision 12; six immutable receipts at
+  LAST_CONFIRMED slot 0 revision 13 after disposable Paper restart.
+  Same instance and canonical world UUID/left marker throughout;
+  0 anomalies.
+- Z (8,70,-17)|(8,70,-16), ACC-TRACK-009/011:
+  independent issued instance, 0/26/27/53/0 revisions 4/6/8/10/12,
+  six receipts, LAST_CONFIRMED revision 13 at slot 0 after restart,
+  0 anomalies; canonical Z key and UUID verified independently.
+- Host run explicitly checked actual 54-slot GUI and restart persisted
+  the same disposable SQLite DB and server plugin JAR.
+- Source CI https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614630
+  **SUCCESS**, including the exact-head hosted Codacy check (passed)
+  and Codacy-Lizard threshold check; exact-head test JAR
+  https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38805614910
+  **SUCCESS**.
+
+A further targeted source-only regex literal-marker fix is being
+applied after this first green head. The first-head workflow is **not**
+evidence for any later SHA; new HEAD must independently rerun.
+No release approval or full DC-01..DC-48 PASS assertion.
+
+
+## Intermediate child HEAD 52602696 evidence and follow-up
+
+At SHA 52602696bc9ce17136adc0cc194bf3e885a3624d, genuine
+disposable Paper/SQLite
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812299
+completed real X/Z 0→26→27→53→0 movement and restart successfully.
+Both original tracked instances have independent 6 immutable receipts,
+zero anomalies, LAST_CONFIRMED slot0 revision13; original artifact
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812299/artifacts/12006078444.
+Exact-head test JAR
+https://github.com/wsg138/EnthusiaLoreItems/actions/runs/38806812277
+also passed. **General CI FAILED** at that SHA on six new Python
+subprocess-launch Codacy findings introduced by the checkpoint
+regression, despite existing production, core unit and real Paper tests
+passing. The following commit removes process launch entirely and
+keeps the regex name acceptance/rejection assertions in-process.
+No Codacy exemption or release approval is implied.

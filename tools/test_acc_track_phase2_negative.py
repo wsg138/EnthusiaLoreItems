@@ -1,6 +1,7 @@
 """Fail-closed regression tests; mock schemas are NOT credited as real Paper cases."""
 import importlib.util
 from pathlib import Path
+import re
 import sqlite3
 import unittest
 
@@ -48,9 +49,11 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         """, (key, path, confidence))
 
     def full_chain(self):
+        self.receipt("slot:26")
+        self.receipt("slot:27")
         self.receipt("slot:53")
         self.receipt("slot:0")
-        self.projection("slot:0", 5)
+        self.projection("slot:0", 7)
 
     def test_deposit_and_real_ordered_return_structure(self):
         GATE.verify(self.db, "deposit", "x")
@@ -58,9 +61,45 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         GATE.verify(self.db, "return", "x")
         GATE.verify(self.db, "restart", "x")
 
+    def test_checkpoint_names_are_literal_and_bounded(self):
+        script = Path(__file__).resolve().parents[1] / (
+            "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
+        source = script.read_text(encoding="utf-8")
+        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)\)", source)
+        self.assertEqual(2, len(expressions))
+        wait, mark = (re.compile(expression) for expression in expressions)
+        samples = (
+            (wait, ("go-xminus2", "go-zminus2-seam26", "bot.stop"),
+             ("botXstop", "../bot.stop", "go-xminus2-move/evil")),
+            (mark, ("bot.ready", "xminus2-seam27", "zminus2-returned"),
+             ("botXready", "../bot.ready", "xminus2-seam27/evil")),
+        )
+        for pattern, valid, invalid in samples:
+            for name in valid:
+                self.assertIsNotNone(pattern.fullmatch(name), name)
+            for name in invalid:
+                self.assertIsNone(pattern.fullmatch(name), name)
+
+    def test_seam_slot_evidence_requires_both_halves(self):
+        self.receipt("slot:26")
+        self.projection("slot:26", 4)
+        GATE.verify(self.db, "seam26", "x")
+        self.receipt("slot:27")
+        self.projection("slot:27", 5)
+        GATE.verify(self.db, "seam27", "x")
+
+    def test_missing_seam_27_receipt_rejected(self):
+        self.receipt("slot:26")
+        self.receipt("slot:26")
+        self.receipt("slot:53")
+        self.receipt("slot:0")
+        self.projection("slot:0", 7)
+        with self.assertRaisesRegex(AssertionError, "ordered"):
+            GATE.verify(self.db, "return", "x")
+
     def test_missing_middle_receipt_rejected(self):
         self.receipt("slot:0")
-        self.projection("slot:0", 5)
+        self.projection("slot:0", 7)
         with self.assertRaisesRegex(AssertionError, "insufficient|ordered"):
             GATE.verify(self.db, "return", "x")
 
@@ -109,11 +148,10 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         GATE.verify(self.db, "return", "z")
 
     def test_exact_receipt_sequence_and_stage(self):
-        self.assertFalse(GATE.is_subsequence(["slot:0", "slot:0"], ("slot:0", "slot:53")))
-        self.assertTrue(GATE.is_subsequence(["slot:0", "slot:53", "slot:0"],
-                                            ("slot:0", "slot:53", "slot:0")))
-        self.assertEqual(("slot:0", "slot:53", "slot:0"),
-                         GATE.SEQUENCES["return"])
+        self.assertFalse(GATE.is_subsequence(["slot:0", "slot:0"], ("slot:0", "slot:26")))
+        expected = ("slot:0", "slot:26", "slot:27", "slot:53", "slot:0")
+        self.assertTrue(GATE.is_subsequence(expected, expected))
+        self.assertEqual(expected, GATE.SEQUENCES["return"])
 
 
 if __name__ == "__main__":
