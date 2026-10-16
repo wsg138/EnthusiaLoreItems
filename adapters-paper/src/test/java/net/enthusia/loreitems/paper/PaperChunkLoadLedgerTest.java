@@ -98,6 +98,58 @@ class PaperChunkLoadLedgerTest {
     }
 
     @Test
+    void inaccessibleGenerationRenewalsCannotMultiplyTrackedVerificationEntries() {
+        PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
+        var key = PaperChunkLoadLedger.key(FIRST, -17, -16);
+        long priorGeneration = 0L;
+        for (int i = 0; i < 3_000; i++) {
+            long tick = 7L + i * 1_201L;
+            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+            assertNotEquals(priorGeneration, pending.generation());
+            priorGeneration = pending.generation();
+            assertTrue(ledger.queued(pending));
+            assertTrue(ledger.begin(pending));
+            ledger.complete(pending, true, true, tick);
+            ledger.observeTracked(key);
+            ledger.observeTracked(key); // Duplicate evidence must not duplicate work.
+            assertEquals(1, ledger.pendingTrackedCount());
+
+            assertEquals(pending, ledger.nextTrackedDue(tick + 1_200L, 1_200L));
+            assertTrue(ledger.queued(pending));
+            assertTrue(ledger.begin(pending));
+            ledger.complete(pending, false, false, tick + 1_200L);
+            assertEquals(0, ledger.pendingTrackedCount(),
+                    "An inaccessible generation cannot stay in the tracked FIFO");
+            assertEquals(0, ledger.pendingRetryCount());
+            assertNull(ledger.nextTrackedDue(tick + 2_400L, 1_200L));
+        }
+        assertEquals(1, ledger.loadedCount());
+        assertEquals(0, ledger.pendingTrackedCount());
+    }
+
+    @Test
+    void inaccessibleWorldDoesNotRemoveOtherWorldsTrackedVerification() {
+        PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
+        var firstKey = PaperChunkLoadLedger.key(FIRST, 15, 16);
+        var secondKey = PaperChunkLoadLedger.key(SECOND, 15, 16);
+        var first = new PaperChunkLoadLedger.Pending(firstKey, ledger.observeLoad(firstKey));
+        var second = new PaperChunkLoadLedger.Pending(secondKey, ledger.observeLoad(secondKey));
+        for (var pending : java.util.List.of(first, second)) {
+            assertTrue(ledger.queued(pending));
+            assertTrue(ledger.begin(pending));
+            ledger.complete(pending, true, true, 8);
+            ledger.observeTracked(pending.key());
+        }
+        assertEquals(2, ledger.pendingTrackedCount());
+        ledger.complete(first, false, false, 9);
+        assertEquals(1, ledger.pendingTrackedCount());
+        assertEquals(second, ledger.nextTrackedDue(1_208, 1_200L));
+        assertNull(ledger.nextTrackedDue(1_209, 1_200L));
+        ledger.unload(secondKey);
+        assertEquals(0, ledger.pendingTrackedCount());
+    }
+
+    @Test
     void unloadedDirtyGenerationsNeverAccumulateStaleRetryTokens() {
         PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
         var key = PaperChunkLoadLedger.key(FIRST, -17, 16);
