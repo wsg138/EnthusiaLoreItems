@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.Objects;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.enthusia.loreitems.application.MetricsPort;
 import org.bukkit.plugin.Plugin;
@@ -9,6 +10,7 @@ import org.bukkit.plugin.Plugin;
 final class PaperPhysicalScanTelemetry {
     private final MetricsPort metrics;
     private boolean saturated;
+    private long scanFailures;
 
     PaperPhysicalScanTelemetry(MetricsPort metrics) {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -58,13 +60,30 @@ final class PaperPhysicalScanTelemetry {
         boolean periodic = request.periodicChunkKey() != null;
         long started = System.nanoTime();
         try {
-            request.run(plugin, listener);
-        } finally {
-            metrics.recordDurationNanos(
-                    periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
-                    System.nanoTime() - started);
+            boolean scanned = request.run(plugin, listener);
             metrics.increment(periodic
-                    ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
+                    ? (scanned ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped")
+                    : (scanned ? "tracking.scan_event_completed" : "tracking.scan_event_skipped"));
+        } catch (RuntimeException failure) {
+            metrics.increment(periodic
+                    ? "tracking.scan_periodic_failed" : "tracking.scan_event_failed");
+            scanFailures++;
+            if (scanFailures == 1L || scanFailures % 100L == 0L) {
+                plugin.getLogger().log(Level.WARNING,
+                        "LoreItems queued scan failed for " + request.source()
+                                + "; prior durable evidence retained, current scan incomplete.",
+                        failure);
+            }
+        } finally {
+            recordElapsed(request, periodic, System.nanoTime() - started);
         }
+    }
+
+    private void recordElapsed(PaperTrackingScanRequest request, boolean periodic, long elapsed) {
+        metrics.recordDurationNanos(
+                periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos", elapsed);
+        metrics.setGauge(periodic ? "tracking.scan_periodic_peak_nanos"
+                : request.playerId() != null ? "tracking.scan_player_peak_nanos"
+                : "tracking.scan_chunk_peak_nanos", elapsed);
     }
 }
