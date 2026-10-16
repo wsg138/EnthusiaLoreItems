@@ -201,24 +201,29 @@ class PaperPhysicalTrackingQueueCoalescingTest {
     }
 
     @Test
-    void oneTickDrainCapturesEventAndRoutineCostWithoutChangingAdmissions() {
-        World world = server.addSimpleWorld("world");
+    void boundedDrainsCaptureEventAndRoutineCostWithoutChangingAdmissions() {
         listener.enqueue(PaperTrackingScanRequest.player(
                 UUID.randomUUID(), true, "player-join"));
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
+        // A nonexistent world makes the periodic outcome deterministically skipped.
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false,
+                new PaperTrackingScanRequest.ChunkReference(UUID.randomUUID(), 0, 0),
                 TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
 
-        listener.drain();
+        // The 2 ms time budget may end a tick after one request. Do not require
+        // both requests to complete in a single drain under a slow CI host.
+        for (int turn = 0; turn < 4 && listener.queuedScanCount() > 0; turn++) {
+            listener.drain();
+        }
 
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
-        assertEquals(0L, metrics.snapshot().scanEventCompleted(),
-                "A missing player is not a successfully verified inventory");
-        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted(),
-                "MockBukkit does not prove a full accessible chunk scan");
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
+        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
