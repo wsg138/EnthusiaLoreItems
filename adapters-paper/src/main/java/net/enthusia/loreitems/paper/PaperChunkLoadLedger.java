@@ -43,8 +43,12 @@ final class PaperChunkLoadLedger {
         if (present != null && present.state != State.INACCESSIBLE) {
             return 0L;
         }
-        // A fresh generation must not inherit a stale retry from an inaccessible one.
-        retry.remove(key);
+        // A fresh generation must not inherit stale retry or tracked verification
+        // keys from an inaccessible older generation.
+        if (present != null) {
+            retry.remove(key);
+            tracked.remove(key);
+        }
         Entry entry = new Entry(++nextGeneration);
         loaded.put(key, entry);
         return entry.generation;
@@ -75,6 +79,11 @@ final class PaperChunkLoadLedger {
         }
         if (!accessible) {
             entry.state = State.INACCESSIBLE;
+            // The inaccessible generation cannot be verified on a future tick.
+            // A new naturally loaded generation must explicitly register again.
+            retry.remove(pending.key());
+            tracked.remove(pending.key());
+            entry.observedTracked = false;
         } else if (complete) {
             entry.state = State.COMPLETE;
             entry.lastVerifiedTick = tick;
@@ -176,6 +185,10 @@ final class PaperChunkLoadLedger {
 
     int pendingRetryCount() {
         return retry.size();
+    }
+
+    int pendingTrackedCount() {
+        return tracked.size();
     }
 
     void clear() {
