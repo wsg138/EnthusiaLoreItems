@@ -252,7 +252,7 @@ class PaperPhysicalTrackingQueueCoalescingTest {
 
         for (int i = 1; i < 1_200; i++) {
             listener.observeNaturalChunkLoad(
-                    new PaperTrackingScanRequest.ChunkReference(world.getUID(), i, 0),
+                    PaperChunkLoadLedger.key(world.getUID(), i, 0),
                     "chunk-load");
         }
         assertEquals(128, listener.queuedScanCount());

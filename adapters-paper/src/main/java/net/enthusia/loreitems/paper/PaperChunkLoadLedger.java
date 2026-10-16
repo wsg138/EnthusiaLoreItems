@@ -153,7 +153,8 @@ final class PaperChunkLoadLedger {
 
     Pending nextTrackedDue(long tick, long cadence) {
         int candidates = Math.min(32, tracked.size());
-        while (candidates-- > 0) {
+        Pending due = null;
+        for (int attempt = 0; attempt < candidates && due == null; attempt++) {
             PaperTrackingScanRequest.ChunkReference key = tracked.removeFirst();
             Entry entry = loaded.get(key);
             if (entry == null || !entry.observedTracked) {
@@ -163,10 +164,10 @@ final class PaperChunkLoadLedger {
             if (entry.state == State.COMPLETE
                     && tick - entry.lastVerifiedTick >= cadence) {
                 entry.state = State.DIRTY;
-                return new Pending(key, entry.generation);
+                due = new Pending(key, entry.generation);
             }
         }
-        return null;
+        return due;
     }
 
     int dirtyCount() {

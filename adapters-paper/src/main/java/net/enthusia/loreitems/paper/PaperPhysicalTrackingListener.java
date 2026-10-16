@@ -47,6 +47,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int QUEUE_MULTIPLIER = 32;
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
+    private static final long SCAN_DIAGNOSTICS_INTERVAL_TICKS = 20L;
     private static final long MAX_DRAIN_NANOS = 2_000_000L;
 
     private final Plugin plugin;
@@ -315,7 +316,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             }
             if (System.nanoTime() - start >= MAX_DRAIN_NANOS) break;
         }
-        if (tick % 20L == 0L) {
+        if (tick % SCAN_DIAGNOSTICS_INTERVAL_TICKS == 0L) {
             PaperChunkLoadLedger.Pending due = chunkLedger.nextTrackedDue(
                     tick, TRACKED_RECONCILIATION_TICKS);
             if (due != null) enqueueNatural(due, "tracked-loaded-chunk");
@@ -357,8 +358,15 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private void restoreRejectedScans() {
         int capacity = maxQueuedScans();
+        restoreDeferredOnlinePlayers(capacity);
+        restoreDirtyChunkScans(capacity);
+    }
+
+    private void restoreDeferredOnlinePlayers(int capacity) {
         int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
-        while (slots-- > 0 && !deferredOnlinePlayers.isEmpty()) {
+        for (int attempt = 0;
+                attempt < slots && !deferredOnlinePlayers.isEmpty();
+                attempt++) {
             UUID playerId = deferredOnlinePlayers.iterator().next();
             deferredOnlinePlayers.remove(playerId);
             if (plugin.getServer().getPlayer(playerId) != null
@@ -368,10 +376,15 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 return;
             }
         }
-        slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
-        while (slots-- > 0) {
+    }
+
+    private void restoreDirtyChunkScans(int capacity) {
+        int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
+        for (int attempt = 0; attempt < slots; attempt++) {
             PaperChunkLoadLedger.Pending pending = chunkLedger.nextDirty(tick);
-            if (pending == null) break;
+            if (pending == null) {
+                break;
+            }
             World world = plugin.getServer().getWorld(pending.key().worldId());
             if (world == null || !world.isChunkLoaded(pending.key().x(), pending.key().z())) {
                 chunkLedger.complete(pending, false, false, tick);
@@ -388,23 +401,36 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     boolean enqueue(PaperTrackingScanRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closed || !periodicChunkKeys.tryRegister(request, metrics)) return false;
+        if (closed || !periodicChunkKeys.tryRegister(request, metrics)) {
+            return false;
+        }
         int maximum = maxQueuedScans();
-        if (scans.size() >= maximum
-                && (scans.size() > maximum || !scanAdmission.makeRoomFor(request))) {
-            periodicChunkKeys.release(request);
-            scanTelemetry.reject(request);
-            scanTelemetry.saturated(plugin.getLogger());
-            if (request.playerId() != null
-                    && plugin.getServer().getPlayer(request.playerId()) != null) {
-                deferredOnlinePlayers.add(request.playerId());
-            }
+        if (!admitOrRejectAtCapacity(request, maximum)) {
             return false;
         }
         scans.add(request);
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
-        if (scans.size() == maximum) scanTelemetry.saturated(plugin.getLogger());
+        if (scans.size() == maximum) {
+            scanTelemetry.saturated(plugin.getLogger());
+        }
         return true;
+    }
+
+    private boolean admitOrRejectAtCapacity(PaperTrackingScanRequest request, int maximum) {
+        if (scans.size() < maximum) {
+            return true;
+        }
+        if (scans.size() == maximum && scanAdmission.makeRoomFor(request)) {
+            return true;
+        }
+        periodicChunkKeys.release(request);
+        scanTelemetry.reject(request);
+        scanTelemetry.saturated(plugin.getLogger());
+        if (request.playerId() != null
+                && plugin.getServer().getPlayer(request.playerId()) != null) {
+            deferredOnlinePlayers.add(request.playerId());
+        }
+        return false;
     }
 
     int queuedScanCount() {
