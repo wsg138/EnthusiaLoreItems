@@ -220,10 +220,10 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
+        // #93's TrackingMetrics projection lacks explicit skipped counters;
+        // inaccessibility must never be counted as a completed scan.
         assertEquals(0L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanEventSkipped());
         assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicSkipped());
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
