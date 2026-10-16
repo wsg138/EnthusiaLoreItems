@@ -16,7 +16,6 @@ import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import org.bukkit.Chunk;
 import org.bukkit.World;
-import org.bukkit.block.BlockState;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -39,7 +38,6 @@ import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -59,6 +57,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperTrackingCoordinator coordinator;
     private final PaperPhysicalInventoryScanner scanner;
     private final PaperPhysicalEntityScanner entityScanner;
+    private final PaperChunkContainerReconciler chunkContainers;
     private final PaperHopperMoveObservation hopperMoves;
     private final PaperDeferredMainThreadActions deferredActions;
     private final PaperBlockInventoryTracking blockInventoryTracking;
@@ -90,6 +89,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 plugin, useCaseSupplier, budgetSupplier, metrics);
         this.scanner = new PaperPhysicalInventoryScanner(coordinator);
         this.entityScanner = new PaperPhysicalEntityScanner(scanner);
+        this.chunkContainers = new PaperChunkContainerReconciler(scanner);
         this.deferredActions = new PaperDeferredMainThreadActions(
                 plugin,
                 "Could not schedule lore-item tracking during shutdown.");
@@ -487,8 +487,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             TrackingObservationUseCase.Presence presence,
             String source) {
         PaperScanLimit limit = new PaperScanLimit(MAX_ITEMS_PER_SCAN);
-        scanChunkEntities(chunk, presence, source, limit);
-        scanChunkContainers(chunk, presence, source, limit);
+        entityScanner.scan(List.of(chunk.getEntities()), presence, source, limit);
+        chunkContainers.scan(chunk, presence, source, limit);
         if (!limit.hasRemaining()) {
             metrics.increment("tracking.scan_truncated");
             plugin.getLogger().fine(
@@ -496,52 +496,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             return false;
         }
         return true;
-    }
-
-    private void scanChunkEntities(
-            Chunk chunk,
-            TrackingObservationUseCase.Presence presence,
-            String source,
-            PaperScanLimit limit) {
-        entityScanner.scan(List.of(chunk.getEntities()), presence, source, limit);
-    }
-
-    private void scanChunkContainers(
-            Chunk chunk,
-            TrackingObservationUseCase.Presence presence,
-            String source,
-            PaperScanLimit limit) {
-        Set<String> scannedInventories = new HashSet<>();
-        for (BlockState state : chunk.getTileEntities(false)) {
-            if (!limit.hasRemaining()) {
-                return;
-            }
-            if (!(state instanceof InventoryHolder holder)) {
-                continue;
-            }
-            org.bukkit.inventory.Inventory inventory = holder.getInventory();
-            Optional<PaperPhysicalInventorySnapshot> snapshot =
-                    PaperPhysicalInventorySnapshot.capture(inventory);
-            if (snapshot.isEmpty()) {
-                continue;
-            }
-            PaperPhysicalInventorySnapshot reference = snapshot.orElseThrow();
-            String scanKey = reference.type().name() + ':' + reference.key();
-            if (!scannedInventories.add(scanKey)) {
-                continue;
-            }
-            if (!limit.tryConsume()) {
-                return;
-            }
-            scanner.scanInventory(
-                    inventory,
-                    reference.type(),
-                    reference.key(),
-                    presence,
-                    TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
-                    source + "-container",
-                    limit);
-        }
     }
 
     private void scheduleNextTick(Runnable action) {
