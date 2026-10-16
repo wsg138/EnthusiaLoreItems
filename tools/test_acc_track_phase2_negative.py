@@ -80,6 +80,30 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
             for name in invalid:
                 self.assertIsNone(pattern.fullmatch(name), name)
 
+
+    def test_checkpoint_paths_are_fixed_allowlisted_literals(self):
+        script = Path(__file__).resolve().parents[1] / (
+            "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
+        source = script.read_text(encoding="utf-8")
+        suffixes = ("", "-seam26", "-seam27", "-move", "-return")
+        hosts = {f"go-{axis}{suffix}" for axis in ("xminus2", "zminus2")
+                 for suffix in suffixes} | {"bot.stop"}
+        results = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
+                   for stage in ("deposited", "seam26", "seam27",
+                                 "moved", "returned")} | {"bot.ready"}
+        for mapping, expected in (("HOST_CHECKPOINT_FILES", hosts),
+                                  ("CLIENT_RESULT_FILES", results)):
+            found = re.search(
+                rf"const {mapping} = Object\.freeze\(\{{(.*?)\n\}}\)",
+                source, re.DOTALL)
+            self.assertIsNotNone(found, mapping)
+            entries = re.findall(r"'([^']+)': ROOT \+ '/([^']+)'",
+                                 found.group(1))
+            self.assertEqual(len(expected), len(entries))
+            self.assertEqual({(name, name) for name in expected}, set(entries))
+            self.assertIn(f"Object.hasOwn({mapping}, name)", source)
+        self.assertNotIn("ROOT + '/' + name", source)
+
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")
         self.projection("slot:26", 4)
