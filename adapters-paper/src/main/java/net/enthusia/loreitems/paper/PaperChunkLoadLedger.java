@@ -95,22 +95,22 @@ final class PaperChunkLoadLedger {
 
     Pending nextDirty(long tick) {
         int attempts = Math.min(16, retry.size());
-        while (attempts-- > 0 && !retry.isEmpty()) {
+        Pending eligible = null;
+        while (attempts-- > 0 && !retry.isEmpty() && eligible == null) {
             var iterator = retry.entrySet().iterator();
             Pending pending = iterator.next().getValue();
             iterator.remove();
             Entry entry = current(pending);
-            if (entry == null || entry.state != State.DIRTY) {
-                continue;
+            if (entry != null && entry.state == State.DIRTY) {
+                if (tick < entry.nextRetryTick) {
+                    // Fair rotation without retaining another token.
+                    retry.put(pending.key(), pending);
+                } else {
+                    eligible = pending;
+                }
             }
-            if (tick < entry.nextRetryTick) {
-                // Fairly rotate an ineligible retry without retaining another token.
-                retry.put(pending.key(), pending);
-                continue;
-            }
-            return pending;
         }
-        return null;
+        return eligible;
     }
 
     void unload(PaperTrackingScanRequest.ChunkReference key) {
