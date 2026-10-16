@@ -98,6 +98,66 @@ class PaperChunkLoadLedgerTest {
     }
 
     @Test
+    void unloadedDirtyGenerationsNeverAccumulateStaleRetryTokens() {
+        PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
+        var key = PaperChunkLoadLedger.key(FIRST, -17, 16);
+        for (int i = 0; i < 5_000; i++) {
+            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+            ledger.markDirty(pending);
+            assertEquals(1, ledger.pendingRetryCount());
+            ledger.unload(key);
+            assertEquals(0, ledger.loadedCount());
+            assertEquals(0, ledger.pendingRetryCount(),
+                    "Unloaded chunk must release its generation's retry token");
+        }
+        assertNull(ledger.nextDirty(10_000));
+    }
+
+    @Test
+    void duplicateDirtyAdmissionsKeepOneTokenPerLoadedChunkAcrossReload() {
+        PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
+        var key = PaperChunkLoadLedger.key(FIRST, 0, 0);
+        var first = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+        for (int i = 0; i < 1_000; i++) {
+            ledger.markDirty(first);
+        }
+        assertEquals(1, ledger.loadedCount());
+        assertEquals(1, ledger.pendingRetryCount());
+
+        ledger.unload(key);
+        var replacement = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+        ledger.markDirty(replacement);
+        assertEquals(1, ledger.pendingRetryCount());
+        assertNotEquals(first, replacement);
+        assertEquals(replacement, ledger.nextDirty(10_000));
+        assertNull(ledger.nextDirty(10_000));
+        assertEquals(0, ledger.pendingRetryCount());
+    }
+
+    @Test
+    void throttledRetriesRotateFairlyWithoutGrowingTheQueue() {
+        PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
+        for (int i = 0; i < 20; i++) {
+            var key = PaperChunkLoadLedger.key(FIRST, i, 4);
+            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+            assertTrue(ledger.queued(pending));
+            assertTrue(ledger.begin(pending));
+            ledger.complete(pending, false, true, 10);
+        }
+        var eligibleKey = PaperChunkLoadLedger.key(SECOND, 50, 4);
+        var eligible = new PaperChunkLoadLedger.Pending(
+                eligibleKey, ledger.observeLoad(eligibleKey));
+        ledger.markDirty(eligible);
+        assertEquals(21, ledger.pendingRetryCount());
+        assertEquals(21, ledger.loadedCount());
+
+        assertNull(ledger.nextDirty(20));
+        assertEquals(21, ledger.pendingRetryCount());
+        assertEquals(eligible, ledger.nextDirty(20));
+        assertEquals(20, ledger.pendingRetryCount());
+    }
+
+    @Test
     void partialEvidenceCannotClaimCompletionAndIsThrottled() {
         PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
         var key = PaperChunkLoadLedger.key(FIRST, -2, 9);
