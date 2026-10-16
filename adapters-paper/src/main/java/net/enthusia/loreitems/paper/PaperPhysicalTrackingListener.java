@@ -1,7 +1,9 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
+import java.util.ArrayDeque;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,9 +49,8 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int MIN_BUDGET = 1;
     private static final int QUEUE_MULTIPLIER = 32;
     private static final int MAX_ITEMS_PER_SCAN = 256;
-    private static final long CHUNK_SEED_PERIOD_TICKS = 100L;
-    private static final Chunk[] EMPTY_CHUNKS = new Chunk[0];
-    private static final UUID NO_WORLD = new UUID(0L, 0L);
+    private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
+    private static final long MAX_DRAIN_NANOS = 2_000_000L;
 
     private final Plugin plugin;
     private final IntSupplier budgetSupplier;
@@ -64,15 +65,14 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperPhysicalScanQueue scans = new PaperPhysicalScanQueue();
     private final PaperPhysicalScanAdmission scanAdmission;
     private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
+    private final PaperChunkLoadLedger chunkLedger = new PaperChunkLoadLedger();
+    private final ArrayDeque<PaperTrackingScanRequest.ChunkReference> startupChunks = new ArrayDeque<>();
+    private final Set<UUID> deferredOnlinePlayers = new LinkedHashSet<>();
     private final Set<UUID> deathDrops = new HashSet<>();
     private final PaperPlayerScanCoalescer pendingPlayerScans;
 
     private BukkitTask scanTask;
-    private BukkitTask seedTask;
-    private int worldCursor;
-    private int chunkCursor;
-    private UUID seededWorldId = NO_WORLD;
-    private Chunk[] seededChunks = EMPTY_CHUNKS;
+    private long tick;
     private boolean closed;
 
     public PaperPhysicalTrackingListener(
@@ -111,11 +111,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         plugin.getServer().getOnlinePlayers().forEach(player ->
                 enqueue(PaperTrackingScanRequest.player(
                         player.getUniqueId(), true, "tracking-start")));
-        seedLoadedChunks();
+        captureStartupChunks();
         scanTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::drain, 1L, 1L);
-        seedTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::seedLoadedChunks, 1L, CHUNK_SEED_PERIOD_TICKS);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -247,14 +245,12 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChunkLoad(ChunkLoadEvent event) {
-        enqueue(PaperTrackingScanRequest.chunk(
-                event.getChunk(),
-                TrackingObservationUseCase.Presence.PRESENT,
-                "chunk-load"));
+        observeNaturalChunkLoad(PaperTrackingScanRequest.ChunkReference.capture(event.getChunk()), "chunk-load");
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onChunkUnload(ChunkUnloadEvent event) {
+        chunkLedger.unload(PaperTrackingScanRequest.ChunkReference.capture(event.getChunk()));
         scanChunk(
                 event.getChunk(),
                 TrackingObservationUseCase.Presence.LAST_CONFIRMED,
@@ -301,83 +297,132 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     }
 
     void drain() {
-        int budget = currentBudget();
-        for (int count = 0; count < budget; count++) {
+        long start = System.nanoTime();
+        tick++;
+        seedLoadedChunks();
+        restoreRejectedScans();
+        for (int n = 0, budget = currentBudget(); n < budget; n++) {
             PaperTrackingScanRequest request = scans.poll();
-            if (request == null) {
-                break;
-            }
+            if (request == null) break;
             periodicChunkKeys.release(request);
-            scanTelemetry.execute(request, plugin, this);
+            PaperChunkLoadLedger.Pending pending = token(request);
+            if (pending != null && !chunkLedger.begin(pending)) continue;
+            boolean complete = scanTelemetry.execute(request, plugin, this);
+            if (pending != null) {
+                World world = plugin.getServer().getWorld(pending.key().worldId());
+                boolean accessible = world != null && world.isChunkLoaded(pending.key().x(), pending.key().z());
+                chunkLedger.complete(pending, complete, accessible, tick);
+            }
+            if (System.nanoTime() - start >= MAX_DRAIN_NANOS) break;
+        }
+        if (tick % 20L == 0L) {
+            PaperChunkLoadLedger.Pending due = chunkLedger.nextTrackedDue(
+                    tick, TRACKED_RECONCILIATION_TICKS);
+            if (due != null) enqueueNatural(due, "tracked-loaded-chunk");
+            metrics.setGauge("tracking.scan_dirty_locations", chunkLedger.dirtyCount());
+            metrics.setGauge("tracking.scan_known_loaded", chunkLedger.loadedCount());
         }
         scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
+        metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - start);
+    }
+
+    private void captureStartupChunks() {
+        for (World world : plugin.getServer().getWorlds()) {
+            for (Chunk chunk : world.getLoadedChunks()) {
+                startupChunks.addLast(PaperTrackingScanRequest.ChunkReference.capture(chunk));
+            }
+        }
     }
 
     private void seedLoadedChunks() {
-        List<World> worlds = plugin.getServer().getWorlds();
-        if (worlds.isEmpty()) {
+        for (int n = 0, budget = currentBudget(); n < budget && !startupChunks.isEmpty(); n++) {
+            PaperTrackingScanRequest.ChunkReference key = startupChunks.removeFirst();
+            World world = plugin.getServer().getWorld(key.worldId());
+            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
+                observeNaturalChunkLoad(key, "startup-loaded-chunk");
+            }
+        }
+    }
+
+    void observeNaturalChunkLoad(PaperTrackingScanRequest.ChunkReference key, String source) {
+        long generation = chunkLedger.observeLoad(key);
+        if (generation == 0) {
+            metrics.increment("tracking.scan_chunk_coalesced");
             return;
         }
-        int budget = currentBudget();
-        int enqueued = 0;
-        int attempts = 0;
-        int maximumAttempts = Math.addExact(budget, worlds.size());
-        while (enqueued < budget && attempts < maximumAttempts) {
-            if (worldCursor >= worlds.size()) {
-                advanceSeedWorld(worlds.size());
+        enqueueNatural(new PaperChunkLoadLedger.Pending(key, generation), source);
+    }
+
+    /** Worker 3 index hook: only a known tracked loaded chunk is periodically rechecked. */
+    void markKnownTrackedChunk(UUID worldId, int x, int z) {
+        chunkLedger.observeTracked(PaperChunkLoadLedger.key(worldId, x, z));
+    }
+
+    void forgetKnownTrackedChunk(UUID worldId, int x, int z) {
+        chunkLedger.forgetTracked(PaperChunkLoadLedger.key(worldId, x, z));
+    }
+
+    private void enqueueNatural(PaperChunkLoadLedger.Pending pending, String source) {
+        PaperTrackingScanRequest request = PaperTrackingScanRequest.natural(
+                pending.key(), pending.generation(), source);
+        if (enqueue(request)) chunkLedger.queued(pending);
+        else {
+            chunkLedger.markDirty(pending);
+            metrics.increment("tracking.scan_dirty_admission");
+        }
+    }
+
+    private void restoreRejectedScans() {
+        int capacity = maxQueuedScans();
+        int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
+        while (slots-- > 0 && !deferredOnlinePlayers.isEmpty()) {
+            UUID playerId = deferredOnlinePlayers.iterator().next();
+            deferredOnlinePlayers.remove(playerId);
+            if (plugin.getServer().getPlayer(playerId) != null
+                    && !enqueue(PaperTrackingScanRequest.player(
+                            playerId, true, "player-scan-retry"))) {
+                deferredOnlinePlayers.add(playerId);
+                return;
             }
-            World world = worlds.get(worldCursor);
-            Chunk[] snapshot = loadedChunkSnapshot(world);
-            if (chunkCursor >= snapshot.length) {
-                advanceSeedWorld(worlds.size());
-                attempts++;
+        }
+        slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
+        while (slots-- > 0) {
+            PaperChunkLoadLedger.Pending pending = chunkLedger.nextDirty(tick);
+            if (pending == null) break;
+            World world = plugin.getServer().getWorld(pending.key().worldId());
+            if (world == null || !world.isChunkLoaded(pending.key().x(), pending.key().z())) {
+                chunkLedger.complete(pending, false, false, tick);
                 continue;
             }
-            enqueue(PaperTrackingScanRequest.chunk(
-                    snapshot[chunkCursor],
-                    TrackingObservationUseCase.Presence.PRESENT,
-                    "periodic-loaded-chunk"));
-            chunkCursor++;
-            enqueued++;
-            attempts++;
+            enqueueNatural(pending, "chunk-load-retry");
         }
     }
 
-    private Chunk[] loadedChunkSnapshot(World world) {
-        UUID worldId = world.getUID();
-        if (!worldId.equals(seededWorldId)) {
-            seededWorldId = worldId;
-            seededChunks = world.getLoadedChunks();
-        }
-        return seededChunks;
+    private static PaperChunkLoadLedger.Pending token(PaperTrackingScanRequest request) {
+        return request.generation() > 0L && request.chunk() != null
+                ? new PaperChunkLoadLedger.Pending(request.chunk(), request.generation()) : null;
     }
 
-    private void advanceSeedWorld(int worldCount) {
-        worldCursor = (worldCursor + 1) % worldCount;
-        chunkCursor = 0;
-        seededWorldId = NO_WORLD;
-        seededChunks = EMPTY_CHUNKS;
-    }
-
-    void enqueue(PaperTrackingScanRequest request) {
+    boolean enqueue(PaperTrackingScanRequest request) {
         Objects.requireNonNull(request, "request");
-        if (closed || !periodicChunkKeys.tryRegister(request, metrics)) {
-            return;
-        }
+        if (closed || !periodicChunkKeys.tryRegister(request, metrics)) return false;
         int maximum = maxQueuedScans();
         if (scans.size() >= maximum
                 && (scans.size() > maximum || !scanAdmission.makeRoomFor(request))) {
             periodicChunkKeys.release(request);
             scanTelemetry.reject(request);
             scanTelemetry.saturated(plugin.getLogger());
-            return;
+            if (request.playerId() != null
+                    && plugin.getServer().getPlayer(request.playerId()) != null) {
+                deferredOnlinePlayers.add(request.playerId());
+            }
+            return false;
         }
         scans.add(request);
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
-        if (scans.size() == maximum) {
-            scanTelemetry.saturated(plugin.getLogger());
-        }
+        if (scans.size() == maximum) scanTelemetry.saturated(plugin.getLogger());
+        return true;
     }
 
     int queuedScanCount() {
@@ -386,6 +431,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     int queuedPeriodicChunkCount() {
         return periodicChunkKeys.size();
+    }
+
+    int dirtyChunkCount() {
+        return chunkLedger.dirtyCount();
     }
 
     private void scanReference(
@@ -416,10 +465,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                         source)));
     }
 
-    void scanPlayer(UUID playerId, boolean unique, String source) {
+    boolean scanPlayer(UUID playerId, boolean unique, String source) {
         Player player = plugin.getServer().getPlayer(playerId);
         if (player == null) {
-            return;
+            return false;
         }
         if (unique) {
             scanner.scanPlayerUnique(player, source);
@@ -430,9 +479,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                     source);
         }
+        return true;
     }
 
-    void scanChunk(
+    boolean scanChunk(
             Chunk chunk,
             TrackingObservationUseCase.Presence presence,
             String source) {
@@ -443,7 +493,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             metrics.increment("tracking.scan_truncated");
             plugin.getLogger().fine(
                     "Lore-item chunk scan reached its bounded item limit for " + source + '.');
+            return false;
         }
+        return true;
     }
 
     private void scanChunkEntities(
@@ -460,7 +512,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             String source,
             PaperScanLimit limit) {
         Set<String> scannedInventories = new HashSet<>();
-        for (BlockState state : chunk.getTileEntities()) {
+        for (BlockState state : chunk.getTileEntities(false)) {
             if (!limit.hasRemaining()) {
                 return;
             }
@@ -518,9 +570,9 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         if (scanTask != null) {
             scanTask.cancel();
         }
-        if (seedTask != null) {
-            seedTask.cancel();
-        }
+        startupChunks.clear();
+        chunkLedger.clear();
+        deferredOnlinePlayers.clear();
         deferredActions.close();
         pendingPlayerScans.clear();
         scans.clear();
