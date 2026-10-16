@@ -2,6 +2,7 @@ package net.enthusia.loreitems.paper;
 
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -19,7 +20,6 @@ final class PaperChunkLoadLedger {
     private static final class Entry {
         final long generation;
         State state = State.DIRTY;
-        boolean retryListed;
         boolean observedTracked;
         long lastVerifiedTick;
         long nextRetryTick;
@@ -30,7 +30,10 @@ final class PaperChunkLoadLedger {
     }
 
     private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded = new HashMap<>();
-    private final ArrayDeque<Pending> retry = new ArrayDeque<>();
+    // A keyed FIFO prevents stale generation tokens from accumulating on churn.
+    // Invariant: no more than one retry token per currently observed loaded chunk.
+    private final LinkedHashMap<PaperTrackingScanRequest.ChunkReference, Pending> retry =
+            new LinkedHashMap<>();
     private final ArrayDeque<PaperTrackingScanRequest.ChunkReference> tracked = new ArrayDeque<>();
     private long nextGeneration;
 
@@ -40,6 +43,8 @@ final class PaperChunkLoadLedger {
         if (present != null && present.state != State.INACCESSIBLE) {
             return 0L;
         }
+        // A fresh generation must not inherit a stale retry from an inaccessible one.
+        retry.remove(key);
         Entry entry = new Entry(++nextGeneration);
         loaded.put(key, entry);
         return entry.generation;
@@ -85,35 +90,33 @@ final class PaperChunkLoadLedger {
             return;
         }
         entry.state = State.DIRTY;
-        if (!entry.retryListed) {
-            retry.addLast(pending);
-            entry.retryListed = true;
-        }
+        retry.putIfAbsent(pending.key(), pending);
     }
 
     Pending nextDirty(long tick) {
         int attempts = Math.min(16, retry.size());
         while (attempts-- > 0 && !retry.isEmpty()) {
-            Pending pending = retry.removeFirst();
+            var iterator = retry.entrySet().iterator();
+            Pending pending = iterator.next().getValue();
+            iterator.remove();
             Entry entry = current(pending);
-            if (entry != null) {
-                entry.retryListed = false;
-                if (entry.state == State.DIRTY) {
-                    if (tick < entry.nextRetryTick) {
-                        retry.addLast(pending);
-                        entry.retryListed = true;
-                        continue;
-                    }
-                    return pending;
-                }
+            if (entry == null || entry.state != State.DIRTY) {
+                continue;
             }
+            if (tick < entry.nextRetryTick) {
+                // Fairly rotate an ineligible retry without retaining another token.
+                retry.put(pending.key(), pending);
+                continue;
+            }
+            return pending;
         }
         return null;
     }
 
     void unload(PaperTrackingScanRequest.ChunkReference key) {
         loaded.remove(key);
-        // Stale generation tokens are harmless and discarded before being queued.
+        // Promptly forget the obsolete generation; do not accumulate stale tokens.
+        retry.remove(key);
         tracked.remove(key);
     }
 
@@ -167,6 +170,10 @@ final class PaperChunkLoadLedger {
 
     int loadedCount() {
         return loaded.size();
+    }
+
+    int pendingRetryCount() {
+        return retry.size();
     }
 
     void clear() {
