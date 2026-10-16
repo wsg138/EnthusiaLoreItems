@@ -94,4 +94,44 @@ class TrackingMetricsTest {
         assertEquals(17L, snapshot.scanPeriodicNanos());
     }
 
+
+    @Test
+    void scanTailLatencyPeaksRemainMonotonicAcrossQueueViews() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.setGauge("tracking.scan_player_peak_nanos", 2_000_000L);
+        additional.setGauge("tracking.scan_player_peak_nanos", 1_000_000L);
+        metrics.setGauge("tracking.scan_chunk_peak_nanos", 11_000_000L);
+        additional.setGauge("tracking.scan_chunk_peak_nanos", -1L);
+        metrics.setGauge("tracking.scan_periodic_peak_nanos", 3_000_000L);
+        additional.setGauge("tracking.scan_drain_peak_nanos", 18_000_000L);
+        metrics.setGauge("tracking.scan_drain_peak_nanos", 5_000_000L);
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(2_000_000L, snapshot.scanPlayerPeakNanos());
+        assertEquals(11_000_000L, snapshot.scanChunkPeakNanos());
+        assertEquals(3_000_000L, snapshot.scanPeriodicPeakNanos());
+        assertEquals(18_000_000L, snapshot.scanDrainPeakNanos());
+    }
+
+    @Test
+    void recordsQueuedScanFailuresIndependentlyFromPersistenceFailures() {
+        TrackingMetrics metrics = new TrackingMetrics();
+        MetricsPort additional = metrics.additionalQueueView();
+        metrics.increment("tracking.scan_event_failed");
+        additional.increment("tracking.scan_periodic_failed");
+        additional.increment("tracking.scan_periodic_failed");
+        metrics.increment("tracking.scan_event_skipped");
+        additional.increment("tracking.scan_periodic_skipped");
+
+        TrackingMetrics.Snapshot snapshot = metrics.snapshot();
+        assertEquals(1L, snapshot.scanEventFailed());
+        assertEquals(2L, snapshot.scanPeriodicFailed());
+        assertEquals(1L, snapshot.scanEventSkipped());
+        assertEquals(1L, snapshot.scanPeriodicSkipped());
+        assertEquals(0L, snapshot.scanEventCompleted());
+        assertEquals(0L, snapshot.scanPeriodicCompleted());
+        assertEquals(0L, snapshot.failed(), "Persistence failures remain separate");
+    }
+
 }
