@@ -22,7 +22,11 @@ import org.bukkit.Material;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.ItemFrame;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryAction;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -217,6 +221,69 @@ class PaperUniqueAccessTrackingListenerTest {
                 display,
                 "test-display-duplicate");
 
+        assertReconciliation(observed);
+        listener.close();
+    }
+
+    @Test
+    void cursorLocationIsReportedPrecisely() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        player.setItemOnCursor(trackedItem());
+
+        listener.submitPlayer(player, false, "cursor-location");
+
+        assertEquals(1, observed.size());
+        TrackingObservationUseCase.Request request = observed.getFirst();
+        assertEquals(LocationDescriptor.Type.PLAYER_INVENTORY, request.location().type());
+        assertEquals("cursor", request.location().containerPath());
+        assertEquals(TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION, request.mode());
+        listener.close();
+    }
+
+    @Test
+    void inventoryClickReadsActualPostEventSlotInsteadOfOldCursorState() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        Inventory chest = server.createInventory(null, 9);
+        player.openInventory(chest);
+        player.setItemOnCursor(trackedItem());
+        InventoryClickEvent click = new InventoryClickEvent(
+                player.getOpenInventory(),
+                InventoryType.SlotType.CONTAINER,
+                0,
+                ClickType.LEFT,
+                InventoryAction.PLACE_ALL);
+
+        listener.onClick(click);
+        player.setItemOnCursor(ItemStack.empty());
+        player.getInventory().setItem(7, trackedItem());
+        server.getScheduler().performOneTick();
+
+        assertEquals(1, observed.size());
+        assertEquals("slot:7", observed.getFirst().location().containerPath());
+        assertEquals(TrackingObservationUseCase.EvidenceMode.AUTHORITATIVE_TRANSITION,
+                observed.getFirst().mode());
+        listener.close();
+    }
+
+    @Test
+    void cursorAndSlotDuplicateAreBothRetainedAsReconciliationEvidence() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperUniqueAccessTrackingListener listener = listener(recordingUseCase(observed));
+        PlayerMock player = server.addPlayer(PLAYER_NAME);
+        player.setItemOnCursor(trackedItem());
+        player.getInventory().setItem(7, trackedItem());
+
+        listener.submitPlayer(player, false, "cursor-slot-duplicate");
+
+        assertEquals(2, observed.size());
+        assertEquals(
+                java.util.Set.of("cursor", "slot:7"),
+                observed.stream().map(r -> r.location().containerPath())
+                        .collect(java.util.stream.Collectors.toSet()));
         assertReconciliation(observed);
         listener.close();
     }
