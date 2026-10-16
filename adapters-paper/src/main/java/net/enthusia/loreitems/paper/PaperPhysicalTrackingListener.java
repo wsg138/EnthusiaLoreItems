@@ -1,7 +1,6 @@
 package net.enthusia.loreitems.paper;
 
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
-import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,7 +64,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private final PaperPhysicalScanAdmission scanAdmission;
     private final PaperPeriodicChunkScanKeys periodicChunkKeys = new PaperPeriodicChunkScanKeys();
     private final PaperChunkLoadLedger chunkLedger = new PaperChunkLoadLedger();
-    private final ArrayDeque<PaperTrackingScanRequest.ChunkReference> startupChunks = new ArrayDeque<>();
+    private final PaperStartupChunkDiscovery startupDiscovery;
     private final Set<UUID> deferredOnlinePlayers = new LinkedHashSet<>();
     private final Set<UUID> deathDrops = new HashSet<>();
     private final PaperPlayerScanCoalescer pendingPlayerScans;
@@ -100,6 +99,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                 deferredActions, metrics, (id, source) -> scanPlayer(id, true, source));
         this.blockInventoryTracking = new PaperBlockInventoryTracking(
                 plugin, scanner, deferredActions, MAX_ITEMS_PER_SCAN);
+        this.startupDiscovery = new PaperStartupChunkDiscovery(plugin);
         currentBudget();
     }
 
@@ -111,7 +111,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         plugin.getServer().getOnlinePlayers().forEach(player ->
                 enqueue(PaperTrackingScanRequest.player(
                         player.getUniqueId(), true, "tracking-start")));
-        captureStartupChunks();
+        startupDiscovery.capture();
         scanTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::drain, 1L, 1L);
     }
@@ -299,7 +299,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     void drain() {
         long start = System.nanoTime();
         tick++;
-        seedLoadedChunks();
+        startupDiscovery.seed(currentBudget(), this::observeNaturalChunkLoad);
         restoreRejectedScans();
         for (int n = 0, budget = currentBudget(); n < budget; n++) {
             PaperTrackingScanRequest request = scans.poll();
@@ -325,24 +325,6 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         scanTelemetry.drained(scans.isEmpty(), plugin.getLogger());
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
         metrics.setGauge("tracking.scan_drain_peak_nanos", System.nanoTime() - start);
-    }
-
-    private void captureStartupChunks() {
-        for (World world : plugin.getServer().getWorlds()) {
-            for (Chunk chunk : world.getLoadedChunks()) {
-                startupChunks.addLast(PaperTrackingScanRequest.ChunkReference.capture(chunk));
-            }
-        }
-    }
-
-    private void seedLoadedChunks() {
-        for (int n = 0, budget = currentBudget(); n < budget && !startupChunks.isEmpty(); n++) {
-            PaperTrackingScanRequest.ChunkReference key = startupChunks.removeFirst();
-            World world = plugin.getServer().getWorld(key.worldId());
-            if (world != null && world.isChunkLoaded(key.x(), key.z())) {
-                observeNaturalChunkLoad(key, "startup-loaded-chunk");
-            }
-        }
     }
 
     void observeNaturalChunkLoad(PaperTrackingScanRequest.ChunkReference key, String source) {
@@ -524,7 +506,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         if (scanTask != null) {
             scanTask.cancel();
         }
-        startupChunks.clear();
+        startupDiscovery.clear();
         chunkLedger.clear();
         deferredOnlinePlayers.clear();
         deferredActions.close();
