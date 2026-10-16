@@ -96,7 +96,8 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
             found = re.search(
                 rf"const {mapping} = Object\.freeze\(\{{(.*?)\n\}}\)",
                 source, re.DOTALL)
-            self.assertIsNotNone(found, mapping)
+            if found is None:
+                raise AssertionError(f"missing fixed marker map: {mapping}")
             entries = re.findall(r"'([^']+)': ROOT \+ '/([^']+)'",
                                  found.group(1))
             self.assertEqual(len(expected), len(entries))
