@@ -94,9 +94,11 @@ final class PaperChunkLoadLedger {
     }
 
     Pending nextDirty(long tick) {
-        int attempts = Math.min(16, retry.size());
+        int maximumAttempts = Math.min(16, retry.size());
         Pending eligible = null;
-        while (attempts-- > 0 && !retry.isEmpty() && eligible == null) {
+        for (int attempt = 0;
+                attempt < maximumAttempts && !retry.isEmpty() && eligible == null;
+                attempt++) {
             var iterator = retry.entrySet().iterator();
             Pending pending = iterator.next().getValue();
             iterator.remove();
