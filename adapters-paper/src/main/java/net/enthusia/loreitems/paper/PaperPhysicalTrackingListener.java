@@ -358,11 +358,12 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
 
     private void restoreRejectedScans() {
         int capacity = maxQueuedScans();
-        restoreDeferredOnlinePlayers(capacity);
-        restoreDirtyChunkScans(capacity);
+        if (restoreDeferredOnlinePlayers(capacity)) {
+            restoreDirtyChunkScans(capacity);
+        }
     }
 
-    private void restoreDeferredOnlinePlayers(int capacity) {
+    private boolean restoreDeferredOnlinePlayers(int capacity) {
         int slots = Math.max(0, Math.min(currentBudget(), capacity - scans.size()));
         for (int attempt = 0;
                 attempt < slots && !deferredOnlinePlayers.isEmpty();
@@ -373,9 +374,10 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
                     && !enqueue(PaperTrackingScanRequest.player(
                             playerId, true, "player-scan-retry"))) {
                 deferredOnlinePlayers.add(playerId);
-                return;
+                return false;
             }
         }
+        return true;
     }
 
     private void restoreDirtyChunkScans(int capacity) {
@@ -410,9 +412,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
         }
         scans.add(request);
         scanTelemetry.updateDepth(scans.size(), periodicChunkKeys.size());
-        if (scans.size() == maximum) {
-            scanTelemetry.saturated(plugin.getLogger());
-        }
+        if (scans.size() == maximum) scanTelemetry.saturated(plugin.getLogger());
         return true;
     }
 
