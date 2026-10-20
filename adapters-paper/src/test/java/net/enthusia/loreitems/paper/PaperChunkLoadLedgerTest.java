@@ -199,7 +199,7 @@ class PaperChunkLoadLedgerTest {
         PaperChunkLoadLedger ledger = new PaperChunkLoadLedger();
         for (int i = 0; i < 20; i++) {
             var key = PaperChunkLoadLedger.key(FIRST, i, 4);
-            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+            var pending = observedPending(ledger, key);
             assertTrue(ledger.queued(pending));
             assertTrue(ledger.begin(pending));
             ledger.complete(pending, false, true, 10);
