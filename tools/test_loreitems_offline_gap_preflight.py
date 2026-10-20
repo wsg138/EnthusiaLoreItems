@@ -49,7 +49,7 @@ class OutagePreflightTest(unittest.TestCase):
             """)
 
     def insert(self, instance_id, state="CONFIRMED_NOW", when=BEFORE,
-               lifecycle="ACTIVE", anomalies=0, observation_id=1):
+               lifecycle="ACTIVE", anomalies=0, observation_id: int | None = 1):
         with sqlite3.connect(self.database) as connection:
             connection.execute(
                 "INSERT INTO lore_instances VALUES (?,?)", (instance_id, lifecycle)
