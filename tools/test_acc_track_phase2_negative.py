@@ -85,31 +85,35 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
         source = script.read_text(encoding="utf-8")
-        names = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
+        known = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
                  for stage in ("deposited", "seam26", "seam27",
-                               "moved", "returned")} | {"bot.ready"}
-
-        # The name is NEVER used to construct a filesystem path. Each
-        # selected async callback has its own literal target filename.
-        found = re.search(
-            r"var CLIENT_RESULT_ACTIONS = \{(.*?)\n\}", source, re.DOTALL)
-        if found is None:
-            raise AssertionError("missing literal-only result callback table")
-        entries = re.findall(
-            r"'([^']+)': function \(\) \{ return fs\.promises\.writeFile"
-            r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\) \}",
-            found.group(1),
-        )
-        self.assertEqual(len(names), len(entries))
-        self.assertEqual({(name, name) for name in names}, set(entries))
+                               "moved", "returned")}
+        names = set()
+        for axis in ("X", "Z"):
+            match = re.search(rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
+                              source, re.DOTALL)
+            if match is None:
+                raise AssertionError(f"missing fail-closed marker function: {axis}")
+            entries = re.findall(
+                r"case '([^']+)': return fs\.promises\.writeFile"
+                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+                match.group(1),
+            )
+            self.assertEqual(5, len(entries))
+            self.assertTrue(all(name == path for name, path in entries))
+            self.assertIn("default: return null", match.group(1))
+            names.update(name for name, _ in entries)
+        self.assertEqual(known, names)
         self.assertIn(
-            "Object.prototype.hasOwnProperty.call(CLIENT_RESULT_ACTIONS, name)",
+            "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
             source)
-        self.assertIn("await CLIENT_RESULT_ACTIONS[name]()", source)
-        self.assertIn("await fs.promises.readdir(ROOT)", source)
+        self.assertIn("fs.promises.readdir(ROOT)", source)
+        self.assertIn("return waitForCheckpoint(name, 0)", source)
+        self.assertIn("written = markX(name) || markZ(name)", source)
+        self.assertIn("if (!written) return Promise.reject", source)
         self.assertNotIn("ROOT + '/' + name", source)
-        self.assertNotIn("fs.existsSync(HOST_CHECKPOINT_FILES[name])", source)
-        self.assertNotIn("fs.writeFileSync(CLIENT_RESULT_FILES[name]", source)
+        self.assertNotIn("CLIENT_RESULT_ACTIONS", source)
+        self.assertNotIn("HOST_CHECKPOINT_FILES", source)
         self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
