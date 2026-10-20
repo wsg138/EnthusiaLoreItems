@@ -2,32 +2,40 @@
 'use strict'
 const fs = require('fs')
 const ROOT = '/tmp/acc-track-phase2'
-const HOST_CHECKPOINT_FILES = Object.freeze({
-  'go-xminus2': ROOT + '/go-xminus2',
-  'go-xminus2-seam26': ROOT + '/go-xminus2-seam26',
-  'go-xminus2-seam27': ROOT + '/go-xminus2-seam27',
-  'go-xminus2-move': ROOT + '/go-xminus2-move',
-  'go-xminus2-return': ROOT + '/go-xminus2-return',
-  'go-zminus2': ROOT + '/go-zminus2',
-  'go-zminus2-seam26': ROOT + '/go-zminus2-seam26',
-  'go-zminus2-seam27': ROOT + '/go-zminus2-seam27',
-  'go-zminus2-move': ROOT + '/go-zminus2-move',
-  'go-zminus2-return': ROOT + '/go-zminus2-return',
-  'bot.stop': ROOT + '/bot.stop'
-})
-const CLIENT_RESULT_FILES = Object.freeze({
-  'bot.ready': ROOT + '/bot.ready',
-  'xminus2-deposited': ROOT + '/xminus2-deposited',
-  'xminus2-seam26': ROOT + '/xminus2-seam26',
-  'xminus2-seam27': ROOT + '/xminus2-seam27',
-  'xminus2-moved': ROOT + '/xminus2-moved',
-  'xminus2-returned': ROOT + '/xminus2-returned',
-  'zminus2-deposited': ROOT + '/zminus2-deposited',
-  'zminus2-seam26': ROOT + '/zminus2-seam26',
-  'zminus2-seam27': ROOT + '/zminus2-seam27',
-  'zminus2-moved': ROOT + '/zminus2-moved',
-  'zminus2-returned': ROOT + '/zminus2-returned'
-})
+function hostCheckpointExists(name) {
+  switch (name) {
+    case 'go-xminus2': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2')
+    case 'go-xminus2-seam26': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-seam26')
+    case 'go-xminus2-seam27': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-seam27')
+    case 'go-xminus2-move': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-move')
+    case 'go-xminus2-return': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-return')
+    case 'go-zminus2': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2')
+    case 'go-zminus2-seam26': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-seam26')
+    case 'go-zminus2-seam27': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-seam27')
+    case 'go-zminus2-move': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-move')
+    case 'go-zminus2-return': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-return')
+    case 'bot.stop': return fs.existsSync('/tmp/acc-track-phase2/bot.stop')
+    default: throw new Error('unlisted acceptance host checkpoint')
+  }
+}
+
+function writeClientCheckpoint(name) {
+  switch (name) {
+    case 'bot.ready': return fs.writeFileSync('/tmp/acc-track-phase2/bot.ready', 'ok\\n')
+    case 'xminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-deposited', 'ok\\n')
+    case 'xminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam26', 'ok\\n')
+    case 'xminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam27', 'ok\\n')
+    case 'xminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-moved', 'ok\\n')
+    case 'xminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-returned', 'ok\\n')
+    case 'zminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-deposited', 'ok\\n')
+    case 'zminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam26', 'ok\\n')
+    case 'zminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam27', 'ok\\n')
+    case 'zminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-moved', 'ok\\n')
+    case 'zminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-returned', 'ok\\n')
+    default: throw new Error('unlisted acceptance result checkpoint')
+  }
+}
+
 const mineflayer = require('/tmp/acc-track-phase2/bot/node_modules/mineflayer')
 const Vec3 = require('/tmp/acc-track-phase2/bot/node_modules/vec3').Vec3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -42,11 +50,8 @@ async function waitFile(name) {
   if (!/^(go-(xminus2|zminus2)(-seam26|-seam27|-move|-return)?|bot\.stop)$/.test(name)) {
     throw new Error('invalid acceptance host checkpoint')
   }
-  if (!Object.hasOwn(HOST_CHECKPOINT_FILES, name)) {
-    throw new Error('unlisted acceptance host checkpoint')
-  }
   for (let count = 0; count < 2000; count++) {
-    if (fs.existsSync(HOST_CHECKPOINT_FILES[name])) return
+    if (hostCheckpointExists(name)) return
     if (fs.existsSync(ROOT + '/bot.stop')) throw new Error('host aborted ' + name)
     await sleep(100)
   }
@@ -57,10 +62,7 @@ function mark(name) {
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
-  if (!Object.hasOwn(CLIENT_RESULT_FILES, name)) {
-    throw new Error('unlisted acceptance result checkpoint')
-  }
-  fs.writeFileSync(CLIENT_RESULT_FILES[name], 'ok\n')
+  writeClientCheckpoint(name)
   log('MARK ' + name)
 }
 
