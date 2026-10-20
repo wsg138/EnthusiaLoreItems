@@ -3,6 +3,7 @@ package net.enthusia.loreitems.paper;
 import java.util.ArrayDeque;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -28,9 +29,10 @@ final class PaperChunkLoadLedger {
         }
     }
 
-    // The ledger is accessed only from the Paper server thread; preserve predictable iteration.
+    // This index is used only by main-thread ledger operations. Order is never
+    // relied on; tracked and retry each retain their own explicit FIFO.
     private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded =
-            new LinkedHashMap<>();
+            new ConcurrentHashMap<>();
     // A keyed FIFO prevents stale generation tokens from accumulating on churn.
     // Invariant: no more than one retry token per currently observed loaded chunk.
     private final LinkedHashMap<PaperTrackingScanRequest.ChunkReference, Pending> retry =
