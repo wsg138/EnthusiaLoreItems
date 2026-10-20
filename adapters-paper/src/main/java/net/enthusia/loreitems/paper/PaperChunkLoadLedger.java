@@ -1,9 +1,9 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -29,7 +29,10 @@ final class PaperChunkLoadLedger {
         }
     }
 
-    private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded = new HashMap<>();
+    // This index is used only by main-thread ledger operations. Order is never
+    // relied on; tracked and retry each retain their own explicit FIFO.
+    private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded =
+            new ConcurrentHashMap<>();
     // A keyed FIFO prevents stale generation tokens from accumulating on churn.
     // Invariant: no more than one retry token per currently observed loaded chunk.
     private final LinkedHashMap<PaperTrackingScanRequest.ChunkReference, Pending> retry =
@@ -153,7 +156,9 @@ final class PaperChunkLoadLedger {
 
     Pending nextTrackedDue(long tick, long cadence) {
         int candidates = Math.min(32, tracked.size());
-        while (candidates-- > 0) {
+        PaperTrackingScanRequest.ChunkReference dueKey = null;
+        long dueGeneration = 0L;
+        for (int attempt = 0; attempt < candidates && dueKey == null; attempt++) {
             PaperTrackingScanRequest.ChunkReference key = tracked.removeFirst();
             Entry entry = loaded.get(key);
             if (entry == null || !entry.observedTracked) {
@@ -163,10 +168,11 @@ final class PaperChunkLoadLedger {
             if (entry.state == State.COMPLETE
                     && tick - entry.lastVerifiedTick >= cadence) {
                 entry.state = State.DIRTY;
-                return new Pending(key, entry.generation);
+                dueKey = key;
+                dueGeneration = entry.generation;
             }
         }
-        return null;
+        return dueKey == null ? null : new Pending(dueKey, dueGeneration);
     }
 
     int dirtyCount() {
