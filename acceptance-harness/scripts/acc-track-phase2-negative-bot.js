@@ -2,38 +2,19 @@
 'use strict'
 const fs = require('fs')
 const ROOT = '/tmp/acc-track-phase2'
-function hostCheckpointExists(name) {
-  switch (name) {
-    case 'go-xminus2': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2')
-    case 'go-xminus2-seam26': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-seam26')
-    case 'go-xminus2-seam27': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-seam27')
-    case 'go-xminus2-move': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-move')
-    case 'go-xminus2-return': return fs.existsSync('/tmp/acc-track-phase2/go-xminus2-return')
-    case 'go-zminus2': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2')
-    case 'go-zminus2-seam26': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-seam26')
-    case 'go-zminus2-seam27': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-seam27')
-    case 'go-zminus2-move': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-move')
-    case 'go-zminus2-return': return fs.existsSync('/tmp/acc-track-phase2/go-zminus2-return')
-    case 'bot.stop': return fs.existsSync('/tmp/acc-track-phase2/bot.stop')
-    default: throw new Error('unlisted acceptance host checkpoint')
-  }
-}
-
-function writeClientCheckpoint(name) {
-  switch (name) {
-    case 'bot.ready': return fs.writeFileSync('/tmp/acc-track-phase2/bot.ready', 'ok\n')
-    case 'xminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
-    case 'xminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
-    case 'xminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
-    case 'xminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
-    case 'xminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
-    case 'zminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
-    case 'zminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
-    case 'zminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
-    case 'zminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
-    case 'zminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
-    default: throw new Error('unlisted acceptance result checkpoint')
-  }
+// Fixed callback targets: an untrusted marker name is never passed to fs.
+var CLIENT_RESULT_ACTIONS = {
+  'bot.ready': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n') },
+  'xminus2-deposited': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n') },
+  'xminus2-seam26': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n') },
+  'xminus2-seam27': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n') },
+  'xminus2-moved': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n') },
+  'xminus2-returned': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n') },
+  'zminus2-deposited': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n') },
+  'zminus2-seam26': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n') },
+  'zminus2-seam27': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n') },
+  'zminus2-moved': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n') },
+  'zminus2-returned': function () { return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n') }
 }
 
 const mineflayer = require('/tmp/acc-track-phase2/bot/node_modules/mineflayer')
@@ -51,18 +32,22 @@ async function waitFile(name) {
     throw new Error('invalid acceptance host checkpoint')
   }
   for (let count = 0; count < 2000; count++) {
-    if (hostCheckpointExists(name)) return
+    // Enumerating a fixed directory avoids constructing paths from host input.
+    if ((await fs.promises.readdir(ROOT)).indexOf(name) >= 0) return
     if (fs.existsSync(ROOT + '/bot.stop')) throw new Error('host aborted ' + name)
     await sleep(100)
   }
   throw new Error('timed out waiting for ' + name)
 }
 
-function mark(name) {
+async function mark(name) {
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
-  writeClientCheckpoint(name)
+  if (!Object.prototype.hasOwnProperty.call(CLIENT_RESULT_ACTIONS, name)) {
+    throw new Error('unlisted acceptance result checkpoint')
+  }
+  await CLIENT_RESULT_ACTIONS[name]()
   log('MARK ' + name)
 }
 
@@ -151,7 +136,7 @@ async function deposit(bot, spec) {
   if (bot.inventory.items().some(item => item.name === 'diamond_sword')) {
     throw new Error(spec.name + ' sword still in player inventory')
   }
-  mark(spec.name + '-deposited')
+  await mark(spec.name + '-deposited')
 }
 
 async function clickMove(bot, spec, from, to, resultName) {
@@ -168,7 +153,7 @@ async function clickMove(bot, spec, from, to, resultName) {
   }
   gui.close()
   await sleep(700)
-  mark(spec.name + '-' + resultName)
+  await mark(spec.name + '-' + resultName)
 }
 
 async function runCase(bot, spec) {
@@ -193,7 +178,7 @@ async function main() {
   bot.on('message', value => log('CHAT ' + value.toString()))
   bot.on('error', error => log('ERROR ' + error.message))
   await waitSpawn(bot)
-  mark('bot.ready')
+  await mark('bot.ready')
   await runCase(bot, {
     name: 'xminus2', approach: {x: -18, z: 8},
     floor: '-19 69 6 -14 69 10',
