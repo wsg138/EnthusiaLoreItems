@@ -6,6 +6,7 @@ after a period when LoreItems was absent and could not observe item movement.
 """
 import argparse
 from collections import Counter
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -40,11 +41,12 @@ def parse_disabled_since(value):
 
 def verify_schema(connection):
     for table, expected in REQUIRED_COLUMNS.items():
-        columns = {
-            row[1] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            ) for row in connection.execute(f"PRAGMA table_info({table})")
-        }
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if exists is None:
+            raise PreflightError(f"required table missing: {table}")
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         missing = expected - columns
         if missing:
             raise PreflightError(f"incompatible schema in {table}: {sorted(missing)}")
@@ -102,7 +104,7 @@ def report_from_snapshot(database, disabled_since):
     when = parse_disabled_since(disabled_since)
     cutoff_millis = int(when.timestamp() * 1000)
     uri = "file:" + quote(database.as_posix(), safe="/:") + "?mode=ro"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         verify_schema(connection)
