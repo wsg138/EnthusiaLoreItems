@@ -112,7 +112,7 @@ class PaperChunkLoadLedgerTest {
         long priorGeneration = 0L;
         for (int i = 0; i < 3_000; i++) {
             long tick = 7L + i * 1_201L;
-            var pending = new PaperChunkLoadLedger.Pending(key, ledger.observeLoad(key));
+            var pending = observedPending(ledger, key);
             assertNotEquals(priorGeneration, pending.generation());
             priorGeneration = pending.generation();
             assertTrue(ledger.queued(pending));

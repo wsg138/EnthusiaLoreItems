@@ -48,6 +48,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
     private static final int MAX_ITEMS_PER_SCAN = 256;
     private static final long TRACKED_RECONCILIATION_TICKS = 1_200L;
     private static final long SCAN_DIAGNOSTICS_INTERVAL_TICKS = 20L;
+    private static final long DIAGNOSTIC_PHASE_ZERO = 0L;
     private static final long MAX_DRAIN_NANOS = 2_000_000L;
 
     private final Plugin plugin;
@@ -316,7 +317,7 @@ public final class PaperPhysicalTrackingListener implements Listener, AutoClosea
             }
             if (System.nanoTime() - start >= MAX_DRAIN_NANOS) break;
         }
-        if (tick % SCAN_DIAGNOSTICS_INTERVAL_TICKS == 0L) {
+        if (tick % SCAN_DIAGNOSTICS_INTERVAL_TICKS == DIAGNOSTIC_PHASE_ZERO) {
             PaperChunkLoadLedger.Pending due = chunkLedger.nextTrackedDue(
                     tick, TRACKED_RECONCILIATION_TICKS);
             if (due != null) enqueueNatural(due, "tracked-loaded-chunk");

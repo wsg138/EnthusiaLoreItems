@@ -1,7 +1,6 @@
 package net.enthusia.loreitems.paper;
 
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -29,7 +28,9 @@ final class PaperChunkLoadLedger {
         }
     }
 
-    private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded = new HashMap<>();
+    // The ledger is accessed only from the Paper server thread; preserve predictable iteration.
+    private final Map<PaperTrackingScanRequest.ChunkReference, Entry> loaded =
+            new LinkedHashMap<>();
     // A keyed FIFO prevents stale generation tokens from accumulating on churn.
     // Invariant: no more than one retry token per currently observed loaded chunk.
     private final LinkedHashMap<PaperTrackingScanRequest.ChunkReference, Pending> retry =
@@ -153,8 +154,9 @@ final class PaperChunkLoadLedger {
 
     Pending nextTrackedDue(long tick, long cadence) {
         int candidates = Math.min(32, tracked.size());
-        Pending due = null;
-        for (int attempt = 0; attempt < candidates && due == null; attempt++) {
+        PaperTrackingScanRequest.ChunkReference dueKey = null;
+        long dueGeneration = 0L;
+        for (int attempt = 0; attempt < candidates && dueKey == null; attempt++) {
             PaperTrackingScanRequest.ChunkReference key = tracked.removeFirst();
             Entry entry = loaded.get(key);
             if (entry == null || !entry.observedTracked) {
@@ -164,10 +166,11 @@ final class PaperChunkLoadLedger {
             if (entry.state == State.COMPLETE
                     && tick - entry.lastVerifiedTick >= cadence) {
                 entry.state = State.DIRTY;
-                due = new Pending(key, entry.generation);
+                dueKey = key;
+                dueGeneration = entry.generation;
             }
         }
-        return due;
+        return dueKey == null ? null : new Pending(dueKey, dueGeneration);
     }
 
     int dirtyCount() {
