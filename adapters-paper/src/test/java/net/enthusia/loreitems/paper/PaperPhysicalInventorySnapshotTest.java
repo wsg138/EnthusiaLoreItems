@@ -39,6 +39,7 @@ class PaperPhysicalInventorySnapshotTest {
         AtomicInteger holderReads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
             case HOLDER_METHOD -> {
+                assertLiveHolderLookup(arguments);
                 holderReads.incrementAndGet();
                 yield holder;
             }
@@ -75,6 +76,7 @@ class PaperPhysicalInventorySnapshotTest {
         AtomicInteger holderReads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
             case HOLDER_METHOD -> {
+                assertLiveHolderLookup(arguments);
                 holderReads.incrementAndGet();
                 yield holder;
             }
@@ -103,6 +105,7 @@ class PaperPhysicalInventorySnapshotTest {
         PlayerInventory mainInventory = proxy(PlayerInventory.class,
                 (method, arguments) -> switch (method) {
                     case HOLDER_METHOD -> {
+                assertLiveHolderLookup(arguments);
                         mainHolderReads.incrementAndGet();
                         yield player;
                     }
@@ -121,6 +124,7 @@ class PaperPhysicalInventorySnapshotTest {
         Inventory enderInventory = proxy(Inventory.class, (method, arguments) ->
                 switch (method) {
                     case HOLDER_METHOD -> {
+                assertLiveHolderLookup(arguments);
                         enderHolderReads.incrementAndGet();
                         yield player;
                     }
@@ -141,6 +145,7 @@ class PaperPhysicalInventorySnapshotTest {
         AtomicInteger reads = new AtomicInteger();
         Inventory inventory = proxy(Inventory.class, (method, arguments) -> switch (method) {
             case HOLDER_METHOD -> {
+                assertLiveHolderLookup(arguments);
                 reads.incrementAndGet();
                 yield null;
             }
@@ -150,6 +155,11 @@ class PaperPhysicalInventorySnapshotTest {
         org.junit.jupiter.api.Assertions.assertTrue(
                 PaperPhysicalInventorySnapshot.capture(inventory).isEmpty());
         assertEquals(1, reads.get());
+    }
+
+    private static void assertLiveHolderLookup(Object[] arguments) {
+        assertEquals(1, arguments.length, "Use Paper's non-snapshot holder overload");
+        assertEquals(false, arguments[0], "Inventory holder must not snapshot block data");
     }
 
     private static <T> T proxy(Class<T> type, Invocation invocation) {

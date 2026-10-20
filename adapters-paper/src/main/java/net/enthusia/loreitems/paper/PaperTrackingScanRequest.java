@@ -45,18 +45,16 @@ record PaperTrackingScanRequest(
                 ? chunk : null;
     }
 
-    void run(Plugin plugin, PaperPhysicalTrackingListener listener) {
+    boolean run(Plugin plugin, PaperPhysicalTrackingListener listener) {
         if (playerId != null) {
-            listener.scanPlayer(playerId, unique, source);
-            return;
+            return listener.scanPlayer(playerId, unique, source);
         }
         World world = plugin.getServer().getWorld(chunk.worldId());
-        if (world != null && world.isChunkLoaded(chunk.x(), chunk.z())) {
-            listener.scanChunk(
-                    world.getChunkAt(chunk.x(), chunk.z()),
-                    presence,
-                    source);
+        if (world == null || !world.isChunkLoaded(chunk.x(), chunk.z())) {
+            return false;
         }
+        listener.scanChunk(world.getChunkAt(chunk.x(), chunk.z()), presence, source);
+        return true;
     }
 
     record ChunkReference(UUID worldId, int x, int z) {
