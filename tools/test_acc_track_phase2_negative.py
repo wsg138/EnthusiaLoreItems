@@ -96,13 +96,13 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
             ("writeClientCheckpoint", "writeFileSync", results),
         )
         for function, operation, expected in cases:
-            match = re.search(rf"function {function}\\(name\\) \\{{(.*?)\\n\\}}",
+            match = re.search(rf"function {function}\(name\) \{{(.*?)\n\}}",
                               source, re.DOTALL)
             if match is None:
                 raise AssertionError(f"missing fixed switch: {function}")
             entries = re.findall(
-                rf"case '([^']+)': return fs\\.{operation}"
-                r"\\('/tmp/acc-track-phase2/([^']+)'",
+                rf"case '([^']+)': return fs\.{operation}"
+                r"\('/tmp/acc-track-phase2/([^']+)'",
                 match.group(1),
             )
             self.assertEqual(len(expected), len(entries), function)
