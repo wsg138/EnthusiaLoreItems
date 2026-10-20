@@ -85,32 +85,31 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
         source = script.read_text(encoding="utf-8")
-        suffixes = ("", "-seam26", "-seam27", "-move", "-return")
-        hosts = {f"go-{axis}{suffix}" for axis in ("xminus2", "zminus2")
-                 for suffix in suffixes} | {"bot.stop"}
-        results = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
-                   for stage in ("deposited", "seam26", "seam27",
-                                 "moved", "returned")} | {"bot.ready"}
-        cases = (
-            ("hostCheckpointExists", "existsSync", hosts),
-            ("writeClientCheckpoint", "writeFileSync", results),
+        names = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
+                 for stage in ("deposited", "seam26", "seam27",
+                               "moved", "returned")} | {"bot.ready"}
+
+        # The name is NEVER used to construct a filesystem path. Each
+        # selected async callback has its own literal target filename.
+        found = re.search(
+            r"var CLIENT_RESULT_ACTIONS = \{(.*?)\n\}", source, re.DOTALL)
+        if found is None:
+            raise AssertionError("missing literal-only result callback table")
+        entries = re.findall(
+            r"'([^']+)': function \(\) \{ return fs\.promises\.writeFile"
+            r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\) \}",
+            found.group(1),
         )
-        for function, operation, expected in cases:
-            match = re.search(rf"function {function}\(name\) \{{(.*?)\n\}}",
-                              source, re.DOTALL)
-            if match is None:
-                raise AssertionError(f"missing fixed switch: {function}")
-            entries = re.findall(
-                rf"case '([^']+)': return fs\.{operation}"
-                r"\('/tmp/acc-track-phase2/([^']+)'",
-                match.group(1),
-            )
-            self.assertEqual(len(expected), len(entries), function)
-            self.assertEqual({(name, name) for name in expected}, set(entries))
-            self.assertIn("default: throw new Error(", match.group(1))
+        self.assertEqual(len(names), len(entries))
+        self.assertEqual({(name, name) for name in names}, set(entries))
+        self.assertIn(
+            "Object.prototype.hasOwnProperty.call(CLIENT_RESULT_ACTIONS, name)",
+            source)
+        self.assertIn("await CLIENT_RESULT_ACTIONS[name]()", source)
+        self.assertIn("await fs.promises.readdir(ROOT)", source)
         self.assertNotIn("ROOT + '/' + name", source)
-        self.assertNotIn("HOST_CHECKPOINT_FILES", source)
-        self.assertNotIn("CLIENT_RESULT_FILES", source)
+        self.assertNotIn("fs.existsSync(HOST_CHECKPOINT_FILES[name])", source)
+        self.assertNotIn("fs.writeFileSync(CLIENT_RESULT_FILES[name]", source)
         self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
