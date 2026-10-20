@@ -21,17 +21,17 @@ function hostCheckpointExists(name) {
 
 function writeClientCheckpoint(name) {
   switch (name) {
-    case 'bot.ready': return fs.writeFileSync('/tmp/acc-track-phase2/bot.ready', 'ok\\n')
-    case 'xminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-deposited', 'ok\\n')
-    case 'xminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam26', 'ok\\n')
-    case 'xminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam27', 'ok\\n')
-    case 'xminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-moved', 'ok\\n')
-    case 'xminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-returned', 'ok\\n')
-    case 'zminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-deposited', 'ok\\n')
-    case 'zminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam26', 'ok\\n')
-    case 'zminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam27', 'ok\\n')
-    case 'zminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-moved', 'ok\\n')
-    case 'zminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-returned', 'ok\\n')
+    case 'bot.ready': return fs.writeFileSync('/tmp/acc-track-phase2/bot.ready', 'ok\n')
+    case 'xminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
+    case 'xminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
+    case 'xminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
+    case 'xminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
+    case 'xminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
+    case 'zminus2-deposited': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
+    case 'zminus2-seam26': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
+    case 'zminus2-seam27': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
+    case 'zminus2-moved': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
+    case 'zminus2-returned': return fs.writeFileSync('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
     default: throw new Error('unlisted acceptance result checkpoint')
   }
 }
