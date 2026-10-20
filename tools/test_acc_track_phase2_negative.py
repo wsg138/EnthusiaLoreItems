@@ -91,19 +91,27 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         results = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
                    for stage in ("deposited", "seam26", "seam27",
                                  "moved", "returned")} | {"bot.ready"}
-        for mapping, expected in (("HOST_CHECKPOINT_FILES", hosts),
-                                  ("CLIENT_RESULT_FILES", results)):
-            found = re.search(
-                rf"const {mapping} = Object\.freeze\(\{{(.*?)\n\}}\)",
-                source, re.DOTALL)
-            if found is None:
-                raise AssertionError(f"missing fixed marker map: {mapping}")
-            entries = re.findall(r"'([^']+)': ROOT \+ '/([^']+)'",
-                                 found.group(1))
-            self.assertEqual(len(expected), len(entries))
+        cases = (
+            ("hostCheckpointExists", "existsSync", hosts),
+            ("writeClientCheckpoint", "writeFileSync", results),
+        )
+        for function, operation, expected in cases:
+            match = re.search(rf"function {function}\\(name\\) \\{{(.*?)\\n\\}}",
+                              source, re.DOTALL)
+            if match is None:
+                raise AssertionError(f"missing fixed switch: {function}")
+            entries = re.findall(
+                rf"case '([^']+)': return fs\\.{operation}"
+                r"\\('/tmp/acc-track-phase2/([^']+)'",
+                match.group(1),
+            )
+            self.assertEqual(len(expected), len(entries), function)
             self.assertEqual({(name, name) for name in expected}, set(entries))
-            self.assertIn(f"Object.hasOwn({mapping}, name)", source)
+            self.assertIn("default: throw new Error(", match.group(1))
         self.assertNotIn("ROOT + '/' + name", source)
+        self.assertNotIn("HOST_CHECKPOINT_FILES", source)
+        self.assertNotIn("CLIENT_RESULT_FILES", source)
+        self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")
