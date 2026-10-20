@@ -46,7 +46,9 @@ def verify_schema(connection):
         ).fetchone()
         if exists is None:
             raise PreflightError(f"required table missing: {table}")
-        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        columns = {row[0] for row in connection.execute(
+            "SELECT name FROM pragma_table_info(?)", (table,)
+        )}
         missing = expected - columns
         if missing:
             raise PreflightError(f"incompatible schema in {table}: {sorted(missing)}")
@@ -55,34 +57,40 @@ def verify_schema(connection):
         raise PreflightError("SQLite quick_check failed; refuse historical projections")
 
 
-def assess(row, cutoff_millis):
+def validate_projection(row):
     if row["last_observation_id"] is not None and row["proof_id"] is None:
         raise PreflightError("current state references a missing or mismatched observation")
     if row["state"] != "MISSING_UNRESOLVED" and row["last_observation_id"] is None:
         raise PreflightError("observed state has no historical observation identifier")
     if row["updated_at"] < 0:
         raise PreflightError("invalid negative current-state timestamp")
+
+
+def classify_projection(row):
     if row["lifecycle_state"] != "ACTIVE":
-        status = "INACTIVE_HISTORY_ONLY"
-    elif row["open_anomalies"]:
-        status = "ANOMALY_REVIEW"
-    elif row["state"] == "CONFIRMED_NOW":
-        status = "REVERIFY_PHYSICAL_LOCATION"
-    elif row["state"] == "LAST_CONFIRMED":
-        status = "HISTORICAL_LOCATION_ONLY"
-    elif row["state"] == "CONFLICTING":
-        status = "CONFLICT_REVIEW"
-    elif row["state"] == "MISSING_UNRESOLVED":
-        status = "UNRESOLVED"
-    elif row["state"] == "TERMINAL_VOID":
-        status = "TERMINAL_HISTORY_ONLY"
-    else:
-        raise PreflightError("unrecognized durable state")
+        return "INACTIVE_HISTORY_ONLY"
+    if row["open_anomalies"]:
+        return "ANOMALY_REVIEW"
+    states = {
+        "CONFIRMED_NOW": "REVERIFY_PHYSICAL_LOCATION",
+        "LAST_CONFIRMED": "HISTORICAL_LOCATION_ONLY",
+        "CONFLICTING": "CONFLICT_REVIEW",
+        "MISSING_UNRESOLVED": "UNRESOLVED",
+        "TERMINAL_VOID": "TERMINAL_HISTORY_ONLY",
+    }
+    try:
+        return states[row["state"]]
+    except KeyError as exc:
+        raise PreflightError("unrecognized durable state") from exc
+
+
+def assess(row, cutoff_millis):
+    validate_projection(row)
     return {
         "instance_id": row["instance_id"],
         "lifecycle_state": row["lifecycle_state"],
         "recorded_state": row["state"],
-        "assessment": status,
+        "assessment": classify_projection(row),
         "historical_location": {
             "type": row["location_type"],
             "key": row["location_key"],
