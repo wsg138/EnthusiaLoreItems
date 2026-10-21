@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.enthusia.loreitems.domain.LocationDescriptor;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
 import org.bukkit.World;
@@ -55,10 +56,13 @@ class PaperLiveInventoryReferenceTest {
             case "getInventory" -> current.get();
             default -> null;
         });
-        Block block = proxy(Block.class, (method, arguments) -> {
-            assertEquals("getState", method);
-            requireLiveAccess(arguments);
-            return container;
+        Block block = proxy(Block.class, (method, arguments) -> switch (method) {
+            case "getType" -> Material.HOPPER;
+            case "getState" -> {
+                requireLiveAccess(arguments);
+                yield container;
+            }
+            default -> throw new AssertionError("Unexpected block access: " + method);
         });
         World world = proxy(World.class, (method, arguments) -> switch (method) {
             case "isChunkLoaded" -> {
