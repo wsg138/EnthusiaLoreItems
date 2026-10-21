@@ -87,8 +87,9 @@ class PaperLeafScanBudgetTest {
 
     private static ItemStack[] leaves(int count, boolean poisonLast) {
         ItemStack[] items = new ItemStack[count];
+        ItemStack ordinary = ItemStack.of(Material.STONE);
         for (int slot = 0; slot < count; slot++) {
-            items[slot] = ItemStack.of(Material.STONE);
+            items[slot] = ordinary;
         }
         if (poisonLast) {
             items[count - 1] = new ItemStack(Material.DIAMOND) {
