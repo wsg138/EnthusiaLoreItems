@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 class PaperDoubleChestAvailabilityGuardTest {
     @Test
     void allFacingsAndBothHalvesIdentifyThePhysicalPartner() {
-        var guard = PaperDoubleChestAvailabilityGuard.class;
         assertEquals(new PaperDoubleChestAvailabilityGuard.Half(16, 0),
                 PaperDoubleChestAvailabilityGuard.partner(15, 0, BlockFace.NORTH,
                         Chest.Type.LEFT));
@@ -48,6 +47,20 @@ class PaperDoubleChestAvailabilityGuardTest {
                 0, 0, BlockFace.NORTH, Chest.Type.SINGLE));
         assertNull(PaperDoubleChestAvailabilityGuard.partner(
                 0, 0, BlockFace.UP, Chest.Type.LEFT));
+    }
+
+    @Test
+    void unrelatedInventoryNeverNeedsExtraBlockDataLookup() {
+        Block hopper = proxy(Block.class, (method, args) -> switch (method) {
+            case "getType" -> Material.HOPPER;
+            case "getBlockData" -> throw new AssertionError(
+                    "Ordinary hopper must not pay the chest geometry lookup cost");
+            default -> throw new UnsupportedOperationException(method);
+        });
+        World world = proxy(World.class, (method, args) -> {
+            throw new AssertionError("No partner chunk must be queried for a hopper");
+        });
+        assertTrue(PaperDoubleChestAvailabilityGuard.isAccessible(world, hopper));
     }
 
     @Test
