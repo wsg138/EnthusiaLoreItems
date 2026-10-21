@@ -71,12 +71,12 @@ class PaperLeafScanBudgetTest {
         PaperPhysicalInventoryScanner scanner = new PaperPhysicalInventoryScanner(coordinator);
         PaperScanLimit limit = new PaperScanLimit(BUDGET);
         ItemStack[] items = leaves(BUDGET + 1, true);
+        LocationDescriptor root = new LocationDescriptor(
+                LocationDescriptor.Type.BLOCK_CONTAINER, "world:0:70:0", "slot:0");
         for (int slot = 0; slot < items.length; slot++) {
             scanner.scanItemTree(
                     items[slot],
-                    new LocationDescriptor(
-                            LocationDescriptor.Type.BLOCK_CONTAINER,
-                            "world:0:70:0", "slot:" + slot),
+                    root,
                     TrackingObservationUseCase.Presence.PRESENT,
                     TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                     "bounded-root-test",
