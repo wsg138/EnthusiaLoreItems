@@ -33,7 +33,14 @@ final class PaperTrackedItemCollector {
             return;
         }
         for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
-            collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
+            ItemStack item = contents[index];
+            if (!scannable(item)) {
+                continue;
+            }
+            if (!limit.tryConsume()) {
+                return;
+            }
+            collectItem(item, type, key, prefix + index, observations, 0, limit);
         }
     }
 
@@ -46,6 +53,11 @@ final class PaperTrackedItemCollector {
             int depth,
             PaperScanLimit limit) {
         if (!limit.hasRemaining() || !scannable(item)) {
+            return;
+        }
+        // Root items are charged by collectArray or the single-item caller.
+        // Nested leaves must also consume bounded work, not just expansions.
+        if (depth > 0 && !limit.tryConsume()) {
             return;
         }
         collectIdentity(item, type, key, path, observations);
