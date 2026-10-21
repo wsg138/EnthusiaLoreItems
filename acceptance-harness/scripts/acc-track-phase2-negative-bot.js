@@ -49,7 +49,7 @@ function mark(name) {
   var writing = name === 'bot.ready'
     ? fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
     : name.startsWith('xminus2-') ? markX() : markZ()
-  return writing.then(function () { log('MARK ' + name) })
+  return writing.then(function () { log('MARK ' + name); return true })
 }
 
 async function waitSpawn(bot) {
