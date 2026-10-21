@@ -31,30 +31,24 @@ function mark(name) {
     if (name === 'xminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
     if (name === 'xminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
     if (name === 'xminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
-    if (name === 'xminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
-    return Promise.reject(new Error('unlisted acceptance result checkpoint'))
+    // Outer anchored validation proves this is the remaining permitted marker.
+    return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
   }
   function markZ() {
     if (name === 'zminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
     if (name === 'zminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
     if (name === 'zminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
     if (name === 'zminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
-    if (name === 'zminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
-    return Promise.reject(new Error('unlisted acceptance result checkpoint'))
+    // Outer anchored validation proves this is the remaining permitted marker.
+    return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
   }
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
-  var writing = null
-  if (name === 'bot.ready') {
-    writing = fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
-  } else if (name.startsWith('xminus2-')) {
-    writing = markX()
-  } else if (name.startsWith('zminus2-')) {
-    writing = markZ()
-  } else {
-    throw new Error('unlisted acceptance result checkpoint')
-  }
+  // The anchored validator permits exactly bot.ready and the two axis groups.
+  var writing = name === 'bot.ready'
+    ? fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
+    : name.startsWith('xminus2-') ? markX() : markZ()
   return writing.then(function () { log('MARK ' + name) })
 }
 
