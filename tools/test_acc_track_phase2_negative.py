@@ -65,7 +65,7 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
         source = script.read_text(encoding="utf-8")
-        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)\)", source)
+        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)", source)
         self.assertEqual(2, len(expressions))
         wait, mark = (re.compile(expression) for expression in expressions)
         samples = (
