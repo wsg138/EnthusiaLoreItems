@@ -9,6 +9,7 @@ from collections import Counter
 from contextlib import closing
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 import sqlite3
 from urllib.parse import quote
@@ -84,6 +85,33 @@ def classify_projection(row):
         raise PreflightError("unrecognized durable state") from exc
 
 
+# Classification only. These patterns do not authorize world-name-to-UUID mappings.
+_UUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+_XYZ = r"-?\d+:-?\d+:-?\d+"
+_LEGACY_BLOCK = re.compile(rf"[a-z0-9_.-]+:[a-z0-9_./-]+:{_XYZ}")
+_UUID_BLOCK = re.compile(rf"block-v2:{_UUID}:{_XYZ}")
+_UUID_CHEST = re.compile(rf"double-chest:{_UUID}:{_XYZ}\|{_XYZ}:left=[01]")
+
+
+def classify_location_key(location_type, location_key):
+    """Classify historical string format, never resolve a world or current item."""
+    if location_key is None:
+        return "NO_RECORDED_LOCATION"
+    if location_type not in ("BLOCK_CONTAINER", "NESTED_CONTAINER"):
+        return "NON_BLOCK_LOCATION"
+    key = location_key
+    if location_type == "NESTED_CONTAINER":
+        prefix = "root:BLOCK_CONTAINER:"
+        if not key.startswith(prefix):
+            return "UNRECOGNIZED_BLOCK_KEY"
+        key = key[len(prefix):]
+    if _UUID_BLOCK.fullmatch(key) or _UUID_CHEST.fullmatch(key):
+        return "UUID_FORMAT_HISTORY_ONLY"
+    if _LEGACY_BLOCK.fullmatch(key):
+        return "LEGACY_WORLD_NAME_NEEDS_PROOF"
+    return "UNRECOGNIZED_BLOCK_KEY"
+
+
 def assess(row, cutoff_millis):
     validate_projection(row)
     return {
@@ -91,6 +119,8 @@ def assess(row, cutoff_millis):
         "lifecycle_state": row["lifecycle_state"],
         "recorded_state": row["state"],
         "assessment": classify_projection(row),
+        "location_key_format": classify_location_key(
+            row["location_type"], row["location_key"]),
         "historical_location": {
             "type": row["location_type"],
             "key": row["location_key"],
@@ -144,6 +174,9 @@ def report_from_snapshot(database, disabled_since):
         "verified_current_locations": 0,
         "total_current_state_rows": len(items),
         "assessments": dict(sorted(Counter(item["assessment"] for item in items).items())),
+        "location_key_formats": dict(sorted(Counter(
+            item["location_key_format"] for item in items
+        ).items())),
         "items": items,
         "warning": (
             "Historical recorded locations are NOT verified after tracking downtime. "
