@@ -297,7 +297,7 @@ final class PaperPhysicalInventoryScanner {
             String prefix,
             ScanContext context,
             PaperScanLimit limit) {
-        for (int slot = 0; slot < contents.length; slot++) {
+        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
             scanSlot(contents[slot], type, key, prefix + slot, context, limit);
         }
     }
@@ -321,7 +321,7 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!limit.hasRemaining() || !scannable(item)) {
             return;
         }
         boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
@@ -368,7 +368,7 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         ItemStack[] nested = contentsOrEmpty(shulker.getInventory().getContents());
-        for (int slot = 0; slot < nested.length; slot++) {
+        for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
             scanItem(
                     nested[slot],
                     nestedLocation(parent, "shulker", slot),
@@ -388,7 +388,7 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         List<ItemStack> nested = bundle.getItems();
-        for (int index = 0; index < nested.size(); index++) {
+        for (int index = 0; index < nested.size() && limit.hasRemaining(); index++) {
             scanItem(
                     nested.get(index),
                     nestedLocation(parent, "bundle", index),
