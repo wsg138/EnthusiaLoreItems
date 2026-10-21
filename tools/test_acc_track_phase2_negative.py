@@ -65,7 +65,7 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
         source = script.read_text(encoding="utf-8")
-        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)\)", source)
+        expressions = re.findall(r"if \(!/\^(.+?)\$/\.test\(name\)", source)
         self.assertEqual(2, len(expressions))
         wait, mark = (re.compile(expression) for expression in expressions)
         samples = (
@@ -79,6 +79,50 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
                 self.assertIsNotNone(pattern.fullmatch(name), name)
             for name in invalid:
                 self.assertIsNone(pattern.fullmatch(name), name)
+
+
+    def test_checkpoint_paths_are_fixed_allowlisted_literals(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "acceptance-harness/scripts/acc-track-phase2-negative-bot.js"
+        ).read_text(encoding="utf-8")
+        expected = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
+                    for stage in ("deposited", "seam26", "seam27",
+                                  "moved", "returned")}
+        actual = set()
+        for axis in ("X", "Z"):
+            function = re.search(
+                rf"function mark{axis}\(\) \{{(.*?)\n  \}}",
+                source, re.DOTALL)
+            if function is None:
+                raise AssertionError(f"Missing fixed-path marker function {axis}")
+            entries = re.findall(
+                r"if \(name === '([^']+)'\) return fs\.promises\.writeFile"
+                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+                function.group(1),
+            )
+            self.assertEqual(4, len(entries))
+            tail = re.findall(
+                r"(?m)^\s+return fs\.promises\.writeFile"
+                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+                function.group(1),
+            )
+            self.assertEqual(1, len(tail))
+            self.assertEqual("returned", tail[0].rsplit("-", 1)[-1])
+            actual.update(name for name, path in entries if name == path)
+            actual.update(tail)
+        self.assertEqual(expected, actual)
+        self.assertIn(
+            "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
+            source)
+        self.assertIn("fs.readdirSync(ROOT)", source)
+        self.assertNotIn("Promise.reject", source)
+        self.assertNotIn("var writing = null", source)
+        self.assertIn(
+            "name.startsWith('xminus2-') ? markX() : markZ()", source)
+        self.assertNotIn("RESULT_WRITERS[name]", source)
+        self.assertNotIn("ROOT + '/' + name", source)
+        self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")

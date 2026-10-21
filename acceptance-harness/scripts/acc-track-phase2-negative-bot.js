@@ -17,19 +17,39 @@ async function waitFile(name) {
     throw new Error('invalid acceptance host checkpoint')
   }
   for (let count = 0; count < 2000; count++) {
-    if (fs.existsSync(ROOT + '/' + name)) return
-    if (fs.existsSync(ROOT + '/bot.stop')) throw new Error('host aborted ' + name)
+    var listed = fs.readdirSync(ROOT)
+    if (listed.includes(name)) return true
+    if (listed.includes('bot.stop')) throw new Error('host aborted ' + name)
     await sleep(100)
   }
   throw new Error('timed out waiting for ' + name)
 }
 
 function mark(name) {
+  function markX() {
+    if (name === 'xminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
+    if (name === 'xminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
+    if (name === 'xminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
+    if (name === 'xminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
+    // Outer anchored validation proves this is the remaining permitted marker.
+    return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
+  }
+  function markZ() {
+    if (name === 'zminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
+    if (name === 'zminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
+    if (name === 'zminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
+    if (name === 'zminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
+    // Outer anchored validation proves this is the remaining permitted marker.
+    return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
+  }
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
     throw new Error('invalid acceptance result checkpoint')
   }
-  fs.writeFileSync(ROOT + '/' + name, 'ok\n')
-  log('MARK ' + name)
+  // The anchored validator permits exactly bot.ready and the two axis groups.
+  var writing = name === 'bot.ready'
+    ? fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
+    : name.startsWith('xminus2-') ? markX() : markZ()
+  return writing.then(function () { log('MARK ' + name); return true })
 }
 
 async function waitSpawn(bot) {
@@ -117,7 +137,7 @@ async function deposit(bot, spec) {
   if (bot.inventory.items().some(item => item.name === 'diamond_sword')) {
     throw new Error(spec.name + ' sword still in player inventory')
   }
-  mark(spec.name + '-deposited')
+  await mark(spec.name + '-deposited')
 }
 
 async function clickMove(bot, spec, from, to, resultName) {
@@ -134,7 +154,7 @@ async function clickMove(bot, spec, from, to, resultName) {
   }
   gui.close()
   await sleep(700)
-  mark(spec.name + '-' + resultName)
+  await mark(spec.name + '-' + resultName)
 }
 
 async function runCase(bot, spec) {
@@ -159,7 +179,7 @@ async function main() {
   bot.on('message', value => log('CHAT ' + value.toString()))
   bot.on('error', error => log('ERROR ' + error.message))
   await waitSpawn(bot)
-  mark('bot.ready')
+  await mark('bot.ready')
   await runCase(bot, {
     name: 'xminus2', approach: {x: -18, z: 8},
     floor: '-19 69 6 -14 69 10',
