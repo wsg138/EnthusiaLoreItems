@@ -14,6 +14,11 @@ final class PaperDoubleChestAvailabilityGuard {
     static boolean isAccessible(World world, Block original) {
         Objects.requireNonNull(world, "world");
         Objects.requireNonNull(original, "original");
+        // Most inventory blocks are not chests; avoid reading their block data
+        // on the hot-path just to establish the absence of a partner half.
+        if (!original.getType().name().endsWith("CHEST")) {
+            return true;
+        }
         BlockData blockData = original.getBlockData();
         if (!(blockData instanceof Chest chest) || chest.getType() == Chest.Type.SINGLE) {
             return true;
