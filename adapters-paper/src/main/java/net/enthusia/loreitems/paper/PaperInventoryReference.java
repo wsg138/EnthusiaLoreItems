@@ -22,7 +22,7 @@ sealed interface PaperInventoryReference
     Optional<Inventory> resolve(Plugin plugin);
 
     static Optional<PaperInventoryReference> capture(Inventory inventory) {
-        return inventory == null ? Optional.empty() : capture(inventory, inventory.getHolder());
+        return inventory == null ? Optional.empty() : capture(inventory, inventory.getHolder(false));
     }
 
     /**
@@ -84,7 +84,8 @@ sealed interface PaperInventoryReference
             if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
                 return Optional.empty();
             }
-            BlockState state = world.getBlockAt(x, y, z).getState();
+            // Do not serialize the block entity; each resolution still uses the loaded live inventory.
+            BlockState state = world.getBlockAt(x, y, z).getState(false);
             return state instanceof InventoryHolder holder
                     ? Optional.of(holder.getInventory())
                     : Optional.empty();

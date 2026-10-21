@@ -32,8 +32,15 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length; index++) {
-            collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
+        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
+            ItemStack item = contents[index];
+            if (!scannable(item)) {
+                continue;
+            }
+            if (!limit.tryConsume()) {
+                return;
+            }
+            collectItem(item, type, key, prefix + index, observations, 0, limit);
         }
     }
 
@@ -45,21 +52,30 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!limit.hasRemaining() || !scannable(item)) {
+            return;
+        }
+        // Root items are charged by collectArray or the single-item caller.
+        // Nested leaves must also consume bounded work, not just expansions.
+        if (depth > 0 && !limit.tryConsume()) {
             return;
         }
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH) {
-            NestedEvidence evidence = nestedEvidenceWithIdentityEvidence(item);
-            if (evidence != null) {
-                collectNested(
-                        evidence,
-                        nestedLocationKey(type, key),
-                        path,
-                        observations,
-                        depth,
-                        limit);
+        if (depth >= MAX_NESTING_DEPTH) {
+            if (mightContainNestedItems(item)) {
+                limit.markTruncated();
             }
+            return;
+        }
+        NestedEvidence evidence = nestedEvidenceWithIdentityEvidence(item);
+        if (evidence != null) {
+            collectNested(
+                    evidence,
+                    nestedLocationKey(type, key),
+                    path,
+                    observations,
+                    depth,
+                    limit);
         }
     }
 
@@ -214,7 +230,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length; index++) {
+        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
             collectItem(
                     contents[index],
                     LocationDescriptor.Type.NESTED_CONTAINER,
@@ -226,7 +242,12 @@ final class PaperTrackedItemCollector {
         }
     }
 
-    /** Only shulker boxes and bundles can contain the nested items we inspect. */
+    /** When depth is exhausted, even unknown nested contents invalidate completeness. */
+    boolean mightContainNestedItems(ItemStack item) {
+        return scannable(item) && canHaveNestedContents(item.getType()) && item.hasItemMeta();
+    }
+
+    /** Only shulker boxes and bundles can contain nested items we inspect. */
     private static boolean canHaveNestedContents(Material material) {
         String name = material.name();
         return name.endsWith("SHULKER_BOX") || name.endsWith("BUNDLE");

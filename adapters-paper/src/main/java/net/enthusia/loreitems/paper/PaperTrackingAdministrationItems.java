@@ -133,9 +133,21 @@ final class PaperTrackingAdministrationItems {
                         + '/' + snapshot.scanPeriodicRejected(),
                 "Rejected event scans player / chunk: " + snapshot.scanPlayerRejected()
                         + '/' + snapshot.scanChunkRejected(),
+                "Queued scans completed event / periodic: "
+                        + snapshot.scanEventCompleted() + '/' + snapshot.scanPeriodicCompleted(),
+                "Queued scans failed event / periodic: "
+                        + snapshot.scanEventFailed() + '/' + snapshot.scanPeriodicFailed(),
+                "Inaccessible scans event / periodic: "
+                        + snapshot.scanEventSkipped() + '/' + snapshot.scanPeriodicSkipped(),
                 "Scan time event / periodic (ms): "
                         + snapshot.scanEventNanos() / 1_000_000L
                         + '/' + snapshot.scanPeriodicNanos() / 1_000_000L,
+                "Scan peak player / chunk (ms): "
+                        + snapshot.scanPlayerPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanChunkPeakNanos() / 1_000_000L,
+                "Scan peak periodic / drain (ms): "
+                        + snapshot.scanPeriodicPeakNanos() / 1_000_000L
+                        + '/' + snapshot.scanDrainPeakNanos() / 1_000_000L,
                 "Hopper move event / deferred counts: "
                         + snapshot.hopperMoveEvents() + '/' + snapshot.hopperMoveDeferred(),
                 "Hopper move event / deferred (ms): "

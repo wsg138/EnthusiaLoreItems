@@ -165,6 +165,11 @@ final class PaperPhysicalInventoryScanner {
         return collector.trackedIdentity(item);
     }
 
+    /** Includes malformed metadata and nested lore-item evidence, not only valid identities. */
+    boolean hasIdentityEvidence(ItemStack item) {
+        return collector.hasIdentityEvidence(item);
+    }
+
     Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collector.collectItem(
@@ -292,8 +297,15 @@ final class PaperPhysicalInventoryScanner {
             String prefix,
             ScanContext context,
             PaperScanLimit limit) {
-        for (int slot = 0; slot < contents.length; slot++) {
-            scanSlot(contents[slot], type, key, prefix + slot, context, limit);
+        for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
+            ItemStack item = contents[slot];
+            if (!scannable(item)) {
+                continue;
+            }
+            if (!limit.tryConsume()) {
+                return;
+            }
+            scanSlot(item, type, key, prefix + slot, context, limit);
         }
     }
 
@@ -316,10 +328,24 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!limit.hasRemaining() || !scannable(item)) {
             return;
         }
-        submitItem(item, location, context.presence(), context.mode(), context.source());
+        // Entity roots or move targets have already been charged by the
+        // caller; nested leaves need their own work unit.
+        if (depth > 0 && !limit.tryConsume()) {
+            return;
+        }
+        boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
+                && collector.mightContainNestedItems(item);
+        if (unvisitedNested) {
+            limit.markTruncated();
+        }
+        // Do not submit the depth-limited container itself as an authoritative
+        // transition before recording its possibly unvisited child evidence.
+        TrackingObservationUseCase.EvidenceMode mode =
+                safeModeAtDepth(context.mode(), unvisitedNested);
+        submitItem(item, location, context.presence(), mode, context.source());
         if (depth >= MAX_NESTING_DEPTH) {
             return;
         }
@@ -354,7 +380,7 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         ItemStack[] nested = contentsOrEmpty(shulker.getInventory().getContents());
-        for (int slot = 0; slot < nested.length; slot++) {
+        for (int slot = 0; slot < nested.length && limit.hasRemaining(); slot++) {
             scanItem(
                     nested[slot],
                     nestedLocation(parent, "shulker", slot),
@@ -374,7 +400,7 @@ final class PaperPhysicalInventoryScanner {
             return;
         }
         List<ItemStack> nested = bundle.getItems();
-        for (int index = 0; index < nested.size(); index++) {
+        for (int index = 0; index < nested.size() && limit.hasRemaining(); index++) {
             scanItem(
                     nested.get(index),
                     nestedLocation(parent, "bundle", index),
@@ -402,6 +428,13 @@ final class PaperPhysicalInventoryScanner {
 
     private static boolean scannable(ItemStack item) {
         return item != null && !item.getType().isAir();
+    }
+
+    /** A possibly unvisited nested child must not inherit authoritative proof mode. */
+    static TrackingObservationUseCase.EvidenceMode safeModeAtDepth(
+            TrackingObservationUseCase.EvidenceMode mode, boolean unvisitedNested) {
+        return unvisitedNested
+                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION : mode;
     }
 
     static LocationDescriptor nestedLocation(

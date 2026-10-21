@@ -18,10 +18,11 @@ record PaperPhysicalInventorySnapshot(
         if (inventory == null) {
             return Optional.empty();
         }
-        // CraftInventory.getHolder() can deserialize a block-state snapshot.
+        // CraftInventory.getHolder() can deserialize a block-state snapshot;
+        // the Paper overload with false returns a non-snapshot holder.
         // Capture it once and reuse it for both the reload-safe reference and
         // its durable location descriptor; never retain the Bukkit holder.
-        InventoryHolder holder = inventory.getHolder();
+        InventoryHolder holder = inventory.getHolder(false);
         Optional<PaperInventoryReference> reference =
                 PaperInventoryReference.capture(inventory, holder);
         if (reference.isEmpty()) {

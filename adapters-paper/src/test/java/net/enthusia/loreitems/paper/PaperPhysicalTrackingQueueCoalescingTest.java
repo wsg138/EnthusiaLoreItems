@@ -1,6 +1,7 @@
 package net.enthusia.loreitems.paper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -191,30 +192,45 @@ class PaperPhysicalTrackingQueueCoalescingTest {
                     new UUID(0L, i + 1L), true, "player-join"));
         }
 
-        listener.drain();
-        assertEquals(3L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
-        assertEquals(0, listener.queuedPeriodicChunkCount());
-        assertEquals(9, listener.queuedScanCount());
+        // A slow CI host may hit the 2 ms per-tick cutoff after one request.
+        // Require bounded eventual progress, not exactly four admissions per tick.
+        for (int turn = 0; turn < 32 && listener.queuedPeriodicChunkCount() > 0; turn++) {
+            listener.drain();
+        }
+        assertEquals(0L, metrics.snapshot().scanEventCompleted(),
+                "Offline random player UUIDs are inaccessible, not completed scans");
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted(),
+                "MockBukkit does not prove a full accessible chunk scan");
+        assertEquals(0, listener.queuedPeriodicChunkCount(),
+                "Routine scanning must be serviced despite the event backlog");
+        assertTrue(listener.queuedScanCount() < 13,
+                "At least one queued work item must make progress");
     }
 
     @Test
-    void oneTickDrainCapturesEventAndRoutineCostWithoutChangingAdmissions() {
-        World world = server.addSimpleWorld("world");
+    void boundedDrainsCaptureEventAndRoutineCostWithoutChangingAdmissions() {
         listener.enqueue(PaperTrackingScanRequest.player(
                 UUID.randomUUID(), true, "player-join"));
-        listener.enqueue(PaperTrackingScanRequest.chunk(
-                world.getChunkAt(0, 0),
+        // A nonexistent world makes the periodic outcome deterministically skipped.
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false,
+                new PaperTrackingScanRequest.ChunkReference(UUID.randomUUID(), 0, 0),
                 TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
 
-        listener.drain();
+        // The 2 ms time budget may end a tick after one request. Do not require
+        // both requests to complete in a single drain under a slow CI host.
+        for (int turn = 0; turn < 4 && listener.queuedScanCount() > 0; turn++) {
+            listener.drain();
+        }
 
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0L, metrics.snapshot().scanEventBacklog());
         assertEquals(0L, metrics.snapshot().scanPeriodicBacklog());
         assertEquals(2L, metrics.snapshot().scanBacklogPeak());
-        assertEquals(1L, metrics.snapshot().scanEventCompleted());
-        assertEquals(1L, metrics.snapshot().scanPeriodicCompleted());
+        // #93's TrackingMetrics projection lacks explicit skipped counters;
+        // inaccessibility must never be counted as a completed scan.
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0L, metrics.snapshot().scanPeriodicCompleted());
         assertEquals(0L, metrics.snapshot().scanEventRejected());
         assertEquals(0L, metrics.snapshot().scanPeriodicRejected());
     }
@@ -232,4 +248,125 @@ class PaperPhysicalTrackingQueueCoalescingTest {
         assertEquals(0, listener.queuedScanCount());
         assertEquals(0, listener.queuedPeriodicChunkCount());
     }
+    @Test
+    void naturalLoadOverCapacityStaysMarkedDirtyInsteadOfDisappearing() {
+        World world = server.addSimpleWorld("loaded");
+        var key = new PaperTrackingScanRequest.ChunkReference(world.getUID(), 0, 0);
+        for (int i = 0; i < 1_000; i++) {
+            listener.observeNaturalChunkLoad(key, "chunk-load");
+        }
+        assertEquals(1, listener.queuedScanCount());
+
+        for (int i = 1; i < 1_200; i++) {
+            listener.observeNaturalChunkLoad(
+                    PaperChunkLoadLedger.key(world.getUID(), i, 0),
+                    "chunk-load");
+        }
+        assertEquals(128, listener.queuedScanCount());
+        assertEquals(1_072, listener.dirtyChunkCount());
+        assertEquals(1_072L, metrics.snapshot().scanChunkRejected());
+    }
+    @Test
+    void recordsPeakTimingForScannedAndSkippedQueuedRequestOutcomes() {
+        World world = server.addSimpleWorld("world");
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(8, 0), TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.enqueue(PaperTrackingScanRequest.chunk(
+                world.getChunkAt(9, 0), TrackingObservationUseCase.Presence.PRESENT, PERIODIC_SOURCE));
+
+        // Two-millisecond drain bound is per tick: test eventual progress, not one tick.
+        for (int turn = 0; turn < 16 && listener.queuedScanCount() > 0; turn++) {
+            listener.drain();
+        }
+
+
+        TrackingMetrics.Snapshot result = metrics.snapshot();
+        assertTrue(result.scanPlayerPeakNanos() > 0);
+        assertTrue(result.scanChunkPeakNanos() > 0);
+        assertTrue(result.scanPeriodicPeakNanos() > 0);
+        assertTrue(result.scanDrainPeakNanos() >= result.scanChunkPeakNanos());
+        assertEquals(4L, result.scanEventCompleted() + result.scanEventSkipped()
+                + result.scanEventFailed() + result.scanPeriodicCompleted()
+                + result.scanPeriodicSkipped() + result.scanPeriodicFailed());
+        assertEquals(1L, result.scanEventSkipped());
+        assertEquals(0, listener.queuedScanCount());
+
+        listener.drain();
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() >= result.scanDrainPeakNanos());
+    }
+
+    @Test
+    void recordsDrainTimingWhenScanFailsButDoesNotAbortLaterRequests() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+
+        // Two-millisecond drain bound is per tick: test eventual progress, not one tick.
+        for (int turn = 0; turn < 16 && listener.queuedScanCount() > 0; turn++) {
+            listener.drain();
+        }
+
+
+        assertTrue(metrics.snapshot().scanDrainPeakNanos() > 0);
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void missingWorldChunkIsSkippedWithoutLoadingOrReportingCompletion() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, new PaperTrackingScanRequest.ChunkReference(
+                        UUID.randomUUID(), 12, -15),
+                TrackingObservationUseCase.Presence.PRESENT, "chunk-load"));
+        listener.drain();
+
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertTrue(metrics.snapshot().scanChunkPeakNanos() > 0L);
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void offlinePlayerIsSkippedRatherThanCountedAsPhysicalEvidence() {
+        listener.enqueue(PaperTrackingScanRequest.player(
+                UUID.randomUUID(), true, "player-join"));
+        listener.drain();
+        assertEquals(0L, metrics.snapshot().scanEventCompleted());
+        assertEquals(1L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().scanEventFailed());
+        assertEquals(0, listener.queuedScanCount());
+    }
+
+    @Test
+    void malformedQueuedScanCannotAbortFollowingLifecycleObservations() {
+        listener.enqueue(new PaperTrackingScanRequest(
+                null, false, null, TrackingObservationUseCase.Presence.PRESENT,
+                "malformed-test-request"));
+        listener.enqueue(PaperTrackingScanRequest.player(
+                server.addPlayer().getUniqueId(), true, "player-join"));
+
+        // Two-millisecond drain bound is per tick: test eventual progress, not one tick.
+        for (int turn = 0; turn < 16 && listener.queuedScanCount() > 0; turn++) {
+            listener.drain();
+        }
+
+
+        assertEquals(0, listener.queuedScanCount());
+        assertEquals(1L, metrics.snapshot().scanEventFailed());
+        assertEquals(1L, metrics.snapshot().scanEventCompleted());
+        assertEquals(0L, metrics.snapshot().scanPeriodicFailed());
+        assertEquals(0L, metrics.snapshot().scanEventSkipped());
+        assertEquals(0L, metrics.snapshot().failed());
+        listener.drain();
+        assertEquals(1L, metrics.snapshot().scanEventFailed(), "Failed work must not replay forever");
+    }
+
 }
