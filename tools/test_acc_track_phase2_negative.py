@@ -92,7 +92,7 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         actual = set()
         for axis in ("X", "Z"):
             function = re.search(
-                rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
+                rf"function mark{axis}\(\) \{{(.*?)\n  \}}",
                 source, re.DOTALL)
             if function is None:
                 raise AssertionError(f"Missing fixed-path marker function {axis}")
@@ -103,17 +103,15 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
             )
             self.assertEqual(5, len(entries))
             self.assertTrue(all(name == path for name, path in entries))
-            self.assertIn("return unknownMarker(name)", function.group(1))
+            self.assertIn("throw new Error('unlisted acceptance", function.group(1))
             actual.update(name for name, _ in entries)
         self.assertEqual(expected, actual)
         self.assertIn(
             "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
             source)
-        self.assertIn("function unknownMarker(name)", source)
-        self.assertIn("return unknownMarker(name)", source)
-        self.assertIn("fs.promises.readdir(ROOT)", source)
-        self.assertIn("writing = markX(name)", source)
-        self.assertIn("writing = markZ(name)", source)
+        self.assertIn("fs.readdirSync(ROOT)", source)
+        self.assertIn("writing = markX()", source)
+        self.assertIn("writing = markZ()", source)
         self.assertNotIn("RESULT_WRITERS[name]", source)
         self.assertNotIn("ROOT + '/' + name", source)
         self.assertNotIn("Object.freeze", source)
