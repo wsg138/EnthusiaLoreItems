@@ -1,0 +1,108 @@
+name: ACC Track Phase2 Real Negative Boundaries
+
+on:
+  pull_request:
+    branches:
+      - main
+      - test/sqlite-crosschunk-wal-failure-reopen-20261014
+      - test/acc-track-phase2-negative-20261015
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acc-track-phase2-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  genuine-paper-sqlite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
+      PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Fail-closed unit and syntax gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools -p test_acc_track_phase2_negative.py -v
+          node --check acceptance-harness/scripts/acc-track-phase2-negative-bot.js
+          bash -n acceptance-harness/scripts/acc-track-phase2-negative.sh
+
+      - name: Exact source plugin and harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :plugin:shadowJar :acceptance-harness:jar -PreleaseVersion=1.0.0-rc.1
+          ROOT=/tmp/acc-track-phase2
+          mkdir -p "$ROOT/server/plugins/EnthusiaLoreItems" "$ROOT/evidence" "$ROOT/bot"
+          PLUGIN_JAR="$(find plugin/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          HARNESS_JAR="$(find acceptance-harness/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n1)"
+          cp "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar"
+          cp "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar"
+          sha256sum "$PLUGIN_JAR" "$ROOT/server/plugins/EnthusiaLoreItems.jar" \
+            "$HARNESS_JAR" "$ROOT/server/plugins/WP05AcceptanceHarness.jar" \
+            > "$ROOT/evidence/jar-sha256.txt"
+          git rev-parse HEAD > "$ROOT/evidence/source-head.txt"
+          cat > "$ROOT/server/plugins/EnthusiaLoreItems/config.yml" <<'EOF'
+          database-busy-timeout-millis: 500
+          duplicate-warning-interval-seconds: 300
+          mutation-budget-per-tick: 16
+          shared-containers-allowed: true
+          EOF
+          cd "$ROOT/server"
+          curl -fsSL "$PAPER_URL" -o paper.jar
+          echo "$PAPER_SHA256  paper.jar" | sha256sum -c -
+          sha256sum paper.jar > "$ROOT/evidence/paper-sha256.txt"
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'EOF'
+          online-mode=false
+          enforce-secure-profile=false
+          spawn-protection=0
+          white-list=false
+          server-port=25565
+          view-distance=4
+          simulation-distance=4
+          motd=Phase2 disposable negative boundary acceptance
+          EOF
+          cd "$ROOT/bot"
+          npm init -y > /dev/null
+          npm install --save-exact mineflayer@4.35.0 > "$ROOT/evidence/npm-install.log" 2>&1
+          npm list --depth=0 > "$ROOT/evidence/npm-list.txt"
+
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Real player PDC movement and durable SQLite restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -version 2>&1 | tee /tmp/acc-track-phase2/evidence/java-version.txt
+          bash acceptance-harness/scripts/acc-track-phase2-negative.sh
+
+      - name: Upload original Paper, client and receipt evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: acc-track-phase2-${{ github.event.pull_request.head.sha }}
+          path: /tmp/acc-track-phase2/evidence
+          if-no-files-found: warn
+          retention-days: 30
