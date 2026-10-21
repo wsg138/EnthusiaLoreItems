@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from loreitems_offline_gap_preflight import (
-    PreflightError, parse_disabled_since, report_from_snapshot,
+    PreflightError, classify_location_key, parse_disabled_since, report_from_snapshot,
 )
 
 
@@ -30,7 +30,9 @@ class OutagePreflightTest(unittest.TestCase):
                 CREATE TABLE instance_observations (
                     observation_id INTEGER PRIMARY KEY,
                     instance_id TEXT NOT NULL,
-                    observed_at INTEGER NOT NULL
+                    observed_at INTEGER NOT NULL,
+                    location_type TEXT NOT NULL DEFAULT 'BLOCK_CONTAINER',
+                    location_key TEXT NOT NULL DEFAULT 'world:15:70:16'
                 );
                 CREATE TABLE instance_current_state (
                     instance_id TEXT PRIMARY KEY,
@@ -56,7 +58,8 @@ class OutagePreflightTest(unittest.TestCase):
             )
             if observation_id is not None:
                 connection.execute(
-                    "INSERT INTO instance_observations VALUES (?,?,?)",
+                    "INSERT INTO instance_observations "
+                    "(observation_id,instance_id,observed_at) VALUES (?,?,?)",
                     (observation_id, instance_id, when)
                 )
             location = state != "MISSING_UNRESOLVED"
@@ -75,6 +78,67 @@ class OutagePreflightTest(unittest.TestCase):
                     "INSERT INTO instance_anomalies VALUES (?,?)",
                     (instance_id, "OPEN"),
                 )
+
+    def test_legacy_vs_uuid_location_format_never_resolves_world_identity(self):
+        values = (
+            ("BLOCK_CONTAINER", "minecraft:overworld:-17:70:-16",
+             "LEGACY_WORLD_NAME_NEEDS_PROOF"),
+            ("NESTED_CONTAINER",
+             "root:BLOCK_CONTAINER:minecraft:overworld:-17:70:-16",
+             "LEGACY_WORLD_NAME_NEEDS_PROOF"),
+            ("BLOCK_CONTAINER",
+             "block-v2:11111111-1111-1111-1111-111111111111:-17:70:-16",
+             "UUID_FORMAT_HISTORY_ONLY"),
+            ("NESTED_CONTAINER",
+             "root:BLOCK_CONTAINER:double-chest:"
+             "11111111-1111-1111-1111-111111111111:-17:70:-16"
+             "|-16:70:-16:left=0",
+             "UUID_FORMAT_HISTORY_ONLY"),
+            ("BLOCK_CONTAINER", "block-v2:bad-world:0:70:0",
+             "UNRECOGNIZED_BLOCK_KEY"),
+            ("NESTED_CONTAINER", "minecraft:overworld:0:70:0",
+             "UNRECOGNIZED_BLOCK_KEY"),
+            ("PLAYER_INVENTORY", "player:1234", "NON_BLOCK_LOCATION"),
+            ("BLOCK_CONTAINER", None, "NO_RECORDED_LOCATION"),
+        )
+        for kind, key, expected in values:
+            with self.subTest(kind=kind, key=key):
+                self.assertEqual(expected, classify_location_key(kind, key))
+
+    def test_report_counts_legacy_keys_without_changing_current_state(self):
+        self.insert("item-a", observation_id=1)
+        result = report_from_snapshot(self.database, DISABLED)
+        self.assertEqual(
+            {"LEGACY_WORLD_NAME_NEEDS_PROOF": 1},
+            result["location_key_formats"],
+        )
+        self.assertEqual(
+            "LEGACY_WORLD_NAME_NEEDS_PROOF", result["items"][0]["location_key_format"]
+        )
+        self.assertEqual(0, result["verified_current_locations"])
+
+    def test_history_audit_includes_superseded_observations_without_mapping(self):
+        self.insert("item-a", observation_id=1)
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                "INSERT INTO instance_observations"
+                " (observation_id,instance_id,observed_at,location_type,location_key)"
+                " VALUES (?,?,?,?,?)",
+                (11, "item-a", AFTER, "BLOCK_CONTAINER",
+                 "block-v2:11111111-1111-1111-1111-111111111111:15:70:16"),
+            )
+        original_hash = hashlib.sha256(self.database.read_bytes()).hexdigest()
+        result = report_from_snapshot(self.database, DISABLED)
+        self.assertEqual({"LEGACY_WORLD_NAME_NEEDS_PROOF": 1},
+                         result["location_key_formats"])
+        self.assertEqual(2, result["historical_observation_rows"])
+        self.assertEqual(
+            {"LEGACY_WORLD_NAME_NEEDS_PROOF": 1, "UUID_FORMAT_HISTORY_ONLY": 1},
+            result["historical_observation_key_formats"],
+        )
+        self.assertEqual(0, result["verified_current_locations"])
+        self.assertEqual(original_hash,
+                         hashlib.sha256(self.database.read_bytes()).hexdigest())
 
     def test_historical_confirmed_is_never_verified_current(self):
         self.insert("item-a", observation_id=1)
