@@ -326,6 +326,9 @@ final class PaperPhysicalInventoryScanner {
         }
         submitItem(item, location, context.presence(), context.mode(), context.source());
         if (depth >= MAX_NESTING_DEPTH) {
+            if (collector.mightContainNestedItems(item)) {
+                limit.markTruncated();
+            }
             return;
         }
         PaperTrackedItemCollector.NestedEvidence evidence =
