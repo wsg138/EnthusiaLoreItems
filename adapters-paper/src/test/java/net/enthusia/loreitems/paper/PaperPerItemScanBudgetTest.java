@@ -29,6 +29,7 @@ import org.mockbukkit.mockbukkit.plugin.PluginMock;
 
 /** Root and nested ordinary leaves must respect the same scan work budget. */
 class PaperPerItemScanBudgetTest {
+    private static final String BLOCK_KEY = "world:12:65:12";
     private ServerMock server;
     private PluginMock plugin;
     private PaperTrackingCoordinator coordinator;
@@ -53,7 +54,7 @@ class PaperPerItemScanBudgetTest {
         ItemStack[] contents = ordinaryItems(257);
         PaperScanLimit limit = new PaperScanLimit(256);
         collector.collectArray(contents, LocationDescriptor.Type.BLOCK_CONTAINER,
-                "world:12:65:12", "slot:", new ConcurrentHashMap<>(), limit);
+                BLOCK_KEY, "slot:", new ConcurrentHashMap<>(), limit);
         assertFalse(limit.hasRemaining(),
                 "The 257th nonair root must fail closed instead of exceeding budget");
     }
@@ -63,7 +64,7 @@ class PaperPerItemScanBudgetTest {
         PaperScanLimit limit = new PaperScanLimit(54);
         new PaperTrackedItemCollector().collectArray(
                 ordinaryItems(54), LocationDescriptor.Type.BLOCK_CONTAINER,
-                "world:12:65:12", "slot:", new ConcurrentHashMap<>(), limit);
+                BLOCK_KEY, "slot:", new ConcurrentHashMap<>(), limit);
         assertTrue(limit.hasRemaining(), "Exactly 54 examined root slots are complete");
     }
 
@@ -80,14 +81,14 @@ class PaperPerItemScanBudgetTest {
 
         PaperScanLimit partial = new PaperScanLimit(40);
         scanner.scanInventory(inventory, LocationDescriptor.Type.BLOCK_CONTAINER,
-                "world:12:65:12", TrackingObservationUseCase.Presence.PRESENT,
+                BLOCK_KEY, TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "bounded-root-proof", partial);
         assertFalse(partial.hasRemaining(), "54 leaf items cannot fit in 40 work units");
 
         PaperScanLimit complete = new PaperScanLimit(54);
         scanner.scanInventory(inventory, LocationDescriptor.Type.BLOCK_CONTAINER,
-                "world:12:65:12", TrackingObservationUseCase.Presence.PRESENT,
+                BLOCK_KEY, TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "complete-root-proof", complete);
         assertTrue(complete.hasRemaining());
@@ -115,7 +116,7 @@ class PaperPerItemScanBudgetTest {
         PaperScanLimit collectorLimit = new PaperScanLimit(10);
         new PaperTrackedItemCollector().collectItem(
                 nestedShulker, LocationDescriptor.Type.BLOCK_CONTAINER,
-                "world:12:65:12", "slot:0", new ConcurrentHashMap<>(),
+                BLOCK_KEY, "slot:0", new ConcurrentHashMap<>(),
                 0, collectorLimit);
         assertFalse(collectorLimit.hasRemaining(),
                 "The collector must not skip 26 ordinary nested leaves for free");
@@ -129,7 +130,7 @@ class PaperPerItemScanBudgetTest {
         PaperScanLimit limit = new PaperScanLimit(10);
         scanner.scanItemTree(nestedShulker,
                 new LocationDescriptor(LocationDescriptor.Type.BLOCK_CONTAINER,
-                        "world:12:65:12", "slot:0"),
+                        BLOCK_KEY, "slot:0"),
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "nested-bounded", limit);
