@@ -119,7 +119,8 @@ class PaperPhysicalEntityScannerTest {
         World world = server.addSimpleWorld("world");
         Item first = world.dropItem(new Location(world, 4, 64, 7), trackedItem());
         Item second = world.dropItem(new Location(world, 5, 64, 7), trackedItem());
-        PaperScanLimit limit = new PaperScanLimit(1);
+        // One unit admits the entity; a second pays for its non-air stack PDC visit.
+        PaperScanLimit limit = new PaperScanLimit(2);
 
         scanner.scan(
                 List.of(first, second),
@@ -128,6 +129,25 @@ class PaperPhysicalEntityScannerTest {
                 limit);
 
         assertEquals(1, observed.size());
+        assertFalse(limit.hasRemaining());
+    }
+
+    @Test
+    void entityAdmissionWithoutStackVisitBudgetNeverAssertsPhysicalLocation() {
+        List<TrackingObservationUseCase.Request> observed = new CopyOnWriteArrayList<>();
+        PaperPhysicalEntityScanner scanner = scanner(observed);
+        World world = server.addSimpleWorld("world");
+        Item dropped = world.dropItem(new Location(world, 4, 64, 7), trackedItem());
+        PaperScanLimit limit = new PaperScanLimit(1);
+
+        scanner.scan(
+                List.of(dropped),
+                TrackingObservationUseCase.Presence.PRESENT,
+                "budgeted-entity-no-pdc",
+                limit);
+
+        assertTrue(observed.isEmpty(),
+                "Admitting the entity alone cannot prove its unvisited item identity");
         assertFalse(limit.hasRemaining());
     }
 
