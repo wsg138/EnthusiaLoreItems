@@ -30,7 +30,9 @@ class OutagePreflightTest(unittest.TestCase):
                 CREATE TABLE instance_observations (
                     observation_id INTEGER PRIMARY KEY,
                     instance_id TEXT NOT NULL,
-                    observed_at INTEGER NOT NULL
+                    observed_at INTEGER NOT NULL,
+                    location_type TEXT NOT NULL DEFAULT 'BLOCK_CONTAINER',
+                    location_key TEXT NOT NULL DEFAULT 'world:15:70:16'
                 );
                 CREATE TABLE instance_current_state (
                     instance_id TEXT PRIMARY KEY,
@@ -56,7 +58,8 @@ class OutagePreflightTest(unittest.TestCase):
             )
             if observation_id is not None:
                 connection.execute(
-                    "INSERT INTO instance_observations VALUES (?,?,?)",
+                    "INSERT INTO instance_observations "
+                    "(observation_id,instance_id,observed_at) VALUES (?,?,?)",
                     (observation_id, instance_id, when)
                 )
             location = state != "MISSING_UNRESOLVED"
@@ -113,6 +116,29 @@ class OutagePreflightTest(unittest.TestCase):
             "LEGACY_WORLD_NAME_NEEDS_PROOF", result["items"][0]["location_key_format"]
         )
         self.assertEqual(0, result["verified_current_locations"])
+
+    def test_history_audit_includes_superseded_observations_without_mapping(self):
+        self.insert("item-a", observation_id=1)
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                "INSERT INTO instance_observations"
+                " (observation_id,instance_id,observed_at,location_type,location_key)"
+                " VALUES (?,?,?,?,?)",
+                (11, "item-a", AFTER, "BLOCK_CONTAINER",
+                 "block-v2:11111111-1111-1111-1111-111111111111:15:70:16"),
+            )
+        original_hash = hashlib.sha256(self.database.read_bytes()).hexdigest()
+        result = report_from_snapshot(self.database, DISABLED)
+        self.assertEqual({"LEGACY_WORLD_NAME_NEEDS_PROOF": 1},
+                         result["location_key_formats"])
+        self.assertEqual(2, result["historical_observation_rows"])
+        self.assertEqual(
+            {"LEGACY_WORLD_NAME_NEEDS_PROOF": 1, "UUID_FORMAT_HISTORY_ONLY": 1},
+            result["historical_observation_key_formats"],
+        )
+        self.assertEqual(0, result["verified_current_locations"])
+        self.assertEqual(original_hash,
+                         hashlib.sha256(self.database.read_bytes()).hexdigest())
 
     def test_historical_confirmed_is_never_verified_current(self):
         self.insert("item-a", observation_id=1)
