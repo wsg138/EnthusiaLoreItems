@@ -5,11 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import net.enthusia.loreitems.application.LoreItemIdentity;
 import net.enthusia.loreitems.application.MetricsPort;
 import net.enthusia.loreitems.application.TrackingObservationUseCase;
 import net.enthusia.loreitems.domain.LocationDescriptor;
+import net.enthusia.loreitems.domain.LoreDefinitionId;
+import net.enthusia.loreitems.domain.LoreInstanceId;
+import net.enthusia.loreitems.domain.TemplateRevision;
 import org.bukkit.Material;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.inventory.Inventory;
@@ -89,12 +94,21 @@ class PaperPerItemScanBudgetTest {
     }
 
     @Test
-    void nestedOrdinaryLeavesAreBoundedRatherThanOnlyContainerExpansions() {
+    void nestedLeavesSpendBudgetBeforeReachingLateTrackedItem() {
         ItemStack nestedShulker = ItemStack.of(Material.SHULKER_BOX);
         BlockStateMeta meta = assertInstanceOf(
                 BlockStateMeta.class, nestedShulker.getItemMeta());
         ShulkerBox box = assertInstanceOf(ShulkerBox.class, meta.getBlockState());
-        box.getInventory().setContents(ordinaryItems(27));
+        ItemStack[] contents = ordinaryItems(27);
+        LoreItemIdentity identity = new LoreItemIdentity(
+                new LoreDefinitionId(
+                        UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new LoreInstanceId(
+                        UUID.fromString("22222222-2222-2222-2222-222222222222")),
+                new TemplateRevision(1));
+        contents[26] = new PaperItemIdentityCodec().writeIdentity(
+                ItemStack.of(Material.NETHER_STAR), identity);
+        box.getInventory().setContents(contents);
         meta.setBlockState(box);
         assertTrue(nestedShulker.setItemMeta(meta));
 
@@ -103,8 +117,9 @@ class PaperPerItemScanBudgetTest {
                 nestedShulker, LocationDescriptor.Type.BLOCK_CONTAINER,
                 "world:12:65:12", "slot:0", new ConcurrentHashMap<>(),
                 0, collectorLimit);
-        // A collector with no tracked nested evidence may legitimately skip
-        // descending. The authoritative physical scanner still must be bounded.
+        assertFalse(collectorLimit.hasRemaining(),
+                "The collector must not skip 26 ordinary nested leaves for free");
+
         coordinator = new PaperTrackingCoordinator(
                 plugin, () -> request -> CompletableFuture.completedFuture(
                         TrackingObservationUseCase.Result.of(
@@ -118,10 +133,8 @@ class PaperPerItemScanBudgetTest {
                 TrackingObservationUseCase.Presence.PRESENT,
                 TrackingObservationUseCase.EvidenceMode.RECONCILIATION,
                 "nested-bounded", limit);
-        // Ordinary nested stones without item PDC evidence are intentionally
-        // omitted by identity-aware scan; do not call this proof of full paging.
-        assertTrue(collectorLimit.hasRemaining());
-        assertTrue(limit.hasRemaining());
+        assertFalse(limit.hasRemaining(),
+                "Physical scanning must count ordinary nested leaves as bounded work");
     }
 
     private static ItemStack[] ordinaryItems(int count) {
