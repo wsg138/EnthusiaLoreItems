@@ -45,7 +45,7 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!scannable(item) || !limit.tryConsume()) {
             return;
         }
         collectIdentity(item, type, key, path, observations);

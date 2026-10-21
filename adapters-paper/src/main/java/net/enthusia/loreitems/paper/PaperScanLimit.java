@@ -15,15 +15,15 @@ final class PaperScanLimit {
         remaining = maximum;
     }
 
-    /** True unless a scannable root or nested-container expansion was refused by the budget. */
+    /** True unless an item visit or nested-container expansion exceeded the work budget. */
     boolean hasRemaining() {
         return !truncated;
     }
 
     /**
-     * Reserves one bounded work unit. Root items/entities and nested-container expansions spend
-     * units; ordinary nested leaf stacks do not, so dense container contents cannot starve later
-     * root locations while pathological root/entity counts and recursive nesting remain bounded.
+     * Reserves one bounded unit before every non-air stack visit and every nested-container
+     * expansion. An unvisited stack must never be interpreted as authoritative absence.
+     * Recursive metadata pre-probes need separate bounds/continuation before live release.
      */
     boolean tryConsume() {
         if (remaining <= EXHAUSTED) {

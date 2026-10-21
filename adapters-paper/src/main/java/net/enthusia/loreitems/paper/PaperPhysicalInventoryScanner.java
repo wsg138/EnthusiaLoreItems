@@ -321,7 +321,7 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!scannable(item) || !limit.tryConsume()) {
             return;
         }
         boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
