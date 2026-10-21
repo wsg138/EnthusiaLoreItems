@@ -2,26 +2,24 @@
 'use strict'
 const fs = require('fs')
 const ROOT = '/tmp/acc-track-phase2'
+/** @param {string} name */
 function markX(name) {
-  switch (name) {
-    case 'xminus2-deposited': return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
-    case 'xminus2-seam26': return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
-    case 'xminus2-seam27': return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
-    case 'xminus2-moved': return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
-    case 'xminus2-returned': return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
-    default: return null
-  }
+  if (name === 'xminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
+  if (name === 'xminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
+  if (name === 'xminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
+  if (name === 'xminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
+  if (name === 'xminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
+  throw new Error('unlisted xminus2 result checkpoint')
 }
 
+/** @param {string} name */
 function markZ(name) {
-  switch (name) {
-    case 'zminus2-deposited': return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
-    case 'zminus2-seam26': return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
-    case 'zminus2-seam27': return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
-    case 'zminus2-moved': return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
-    case 'zminus2-returned': return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
-    default: return null
-  }
+  if (name === 'zminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
+  if (name === 'zminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
+  if (name === 'zminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
+  if (name === 'zminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
+  if (name === 'zminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
+  throw new Error('unlisted zminus2 result checkpoint')
 }
 
 const mineflayer = require('/tmp/acc-track-phase2/bot/node_modules/mineflayer')
@@ -34,34 +32,33 @@ function log(line) {
   fs.appendFileSync(ROOT + '/evidence/bot.log', entry + '\n')
 }
 
-function waitFile(name) {
+async function waitFile(name) {
   if (!/^(go-(xminus2|zminus2)(-seam26|-seam27|-move|-return)?|bot\.stop)$/.test(name)) {
-    return Promise.reject(new Error('invalid acceptance host checkpoint'))
+    throw new Error('invalid acceptance host checkpoint')
   }
-  return waitForCheckpoint(name, 0)
+  for (let count = 0; count < 2000; count++) {
+    const listed = await fs.promises.readdir(ROOT)
+    if (listed.includes(name)) return
+    if (listed.includes('bot.stop')) throw new Error('host aborted ' + name)
+    await sleep(100)
+  }
+  throw new Error('timed out waiting for ' + name)
 }
 
-function waitForCheckpoint(name, count) {
-  if (count >= 2000) return Promise.reject(new Error('timed out waiting for ' + name))
-  return fs.promises.readdir(ROOT).then(function (listed) {
-    if (listed.indexOf(name) >= 0) return true
-    if (listed.indexOf('bot.stop') >= 0) throw new Error('host aborted ' + name)
-    return sleep(100).then(function () { return waitForCheckpoint(name, count + 1) })
-  })
-}
-
-function mark(name) {
+async function mark(name) {
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
-    return Promise.reject(new Error('invalid acceptance result checkpoint'))
+    throw new Error('invalid acceptance result checkpoint')
   }
-  var written
   if (name === 'bot.ready') {
-    written = fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
+    await fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
+  } else if (name.startsWith('xminus2-')) {
+    await markX(name)
+  } else if (name.startsWith('zminus2-')) {
+    await markZ(name)
   } else {
-    written = markX(name) || markZ(name)
+    throw new Error('unlisted acceptance result checkpoint')
   }
-  if (!written) return Promise.reject(new Error('unlisted acceptance result checkpoint'))
-  return written.then(function () { log('MARK ' + name); return true })
+  log('MARK ' + name)
 }
 
 async function waitSpawn(bot) {
