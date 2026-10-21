@@ -324,11 +324,18 @@ final class PaperPhysicalInventoryScanner {
         if (!scannable(item)) {
             return;
         }
-        submitItem(item, location, context.presence(), context.mode(), context.source());
+        boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
+                && collector.mightContainNestedItems(item);
+        if (unvisitedNested) {
+            limit.markTruncated();
+        }
+        // Do not submit the depth-limited container itself as an authoritative
+        // transition before recording its possibly unvisited child evidence.
+        TrackingObservationUseCase.EvidenceMode mode = unvisitedNested
+                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION
+                : context.mode();
+        submitItem(item, location, context.presence(), mode, context.source());
         if (depth >= MAX_NESTING_DEPTH) {
-            if (collector.mightContainNestedItems(item)) {
-                limit.markTruncated();
-            }
             return;
         }
         PaperTrackedItemCollector.NestedEvidence evidence =
