@@ -48,7 +48,7 @@ class PaperNestedDepthFailClosedTest {
     }
 
     @Test
-    void OrdinaryLeafAtMaximumDepthDoesNotInventTruncation() {
+    void ordinaryLeafAtMaximumDepthDoesNotInventTruncation() {
         PaperScanLimit limit = new PaperScanLimit(256);
         new PaperTrackedItemCollector().collectItem(
                 ItemStack.of(Material.STONE),
