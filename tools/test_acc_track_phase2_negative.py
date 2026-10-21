@@ -82,35 +82,35 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
 
 
     def test_checkpoint_paths_are_fixed_allowlisted_literals(self):
-        script = Path(__file__).resolve().parents[1] / (
-            "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
-        source = script.read_text(encoding="utf-8")
-        known = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
-                 for stage in ("deposited", "seam26", "seam27",
-                               "moved", "returned")}
-        names = set()
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "acceptance-harness/scripts/acc-track-phase2-negative-bot.js"
+        ).read_text(encoding="utf-8")
+        expected = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
+                    for stage in ("deposited", "seam26", "seam27",
+                                  "moved", "returned")}
+        actual = set()
         for axis in ("X", "Z"):
-            match = re.search(rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
-                              source, re.DOTALL)
-            if match is None:
-                raise AssertionError(f"missing fail-closed marker function: {axis}")
-            entries = re.findall(
-                r"case '([^']+)': return fs\.promises\.writeFile"
+            function = re.search(
+                rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
+                source, re.DOTALL)
+            self.assertIsNotNone(function, "fixed marker writer missing")
+            cases = re.findall(
+                r"if \(name === '([^']+)'\) return fs\.promises\.writeFile"
                 r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
-                match.group(1),
-            )
-            self.assertEqual(5, len(entries))
-            self.assertTrue(all(name == path for name, path in entries))
-            self.assertIn("default: return null", match.group(1))
-            names.update(name for name, _ in entries)
-        self.assertEqual(known, names)
+                function.group(1))
+            self.assertEqual(5, len(cases))
+            self.assertTrue(all(name == path for name, path in cases))
+            self.assertIn("throw new Error('unlisted", function.group(1))
+            actual.update(name for name, _ in cases)
+        self.assertEqual(expected, actual)
+        self.assertIn("fs.promises.readdir(ROOT)", source)
+        self.assertIn("if (listed.includes(name)) return", source)
+        self.assertIn("await markX(name)", source)
+        self.assertIn("await markZ(name)", source)
         self.assertIn(
             "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
             source)
-        self.assertIn("fs.promises.readdir(ROOT)", source)
-        self.assertIn("return waitForCheckpoint(name, 0)", source)
-        self.assertIn("written = markX(name) || markZ(name)", source)
-        self.assertIn("if (!written) return Promise.reject", source)
         self.assertNotIn("ROOT + '/' + name", source)
         self.assertNotIn("CLIENT_RESULT_ACTIONS", source)
         self.assertNotIn("HOST_CHECKPOINT_FILES", source)
