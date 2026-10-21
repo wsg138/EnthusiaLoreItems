@@ -1,5 +1,6 @@
 package net.enthusia.loreitems.paper;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -45,6 +46,24 @@ class PaperNestedDepthFailClosedTest {
 
         assertFalse(limit.hasRemaining(),
                 "Any unvisited nested-capable metadata at the depth cap invalidates completeness");
+    }
+
+    @Test
+    void unexaminedNestedEvidenceCannotInheritAuthoritativeMode() {
+        assertEquals(
+                net.enthusia.loreitems.application.TrackingObservationUseCase.EvidenceMode
+                        .RECONCILIATION,
+                PaperPhysicalInventoryScanner.safeModeAtDepth(
+                        net.enthusia.loreitems.application.TrackingObservationUseCase.EvidenceMode
+                                .AUTHORITATIVE_TRANSITION,
+                        true));
+        assertEquals(
+                net.enthusia.loreitems.application.TrackingObservationUseCase.EvidenceMode
+                        .AUTHORITATIVE_TRANSITION,
+                PaperPhysicalInventoryScanner.safeModeAtDepth(
+                        net.enthusia.loreitems.application.TrackingObservationUseCase.EvidenceMode
+                                .AUTHORITATIVE_TRANSITION,
+                        false));
     }
 
     @Test
