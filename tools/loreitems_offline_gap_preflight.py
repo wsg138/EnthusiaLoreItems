@@ -21,7 +21,9 @@ REQUIRED_COLUMNS = {
         "container_path", "last_observation_id", "state_revision", "updated_at",
     },
     "lore_instances": {"instance_id", "lifecycle_state"},
-    "instance_observations": {"observation_id", "instance_id", "observed_at"},
+    "instance_observations": {
+        "observation_id", "instance_id", "observed_at", "location_type", "location_key",
+    },
     "instance_anomalies": {"instance_id", "status"},
 }
 
@@ -168,6 +170,9 @@ def report_from_snapshot(database, disabled_since):
         ).fetchone()[0]
         if len(rows) != current_count:
             raise PreflightError("current-state row missing a matching lore instance")
+        history_locations = connection.execute(
+            "SELECT location_type, location_key FROM instance_observations"
+        ).fetchall()
     items = [assess(row, cutoff_millis) for row in rows]
     return {
         "source": "READ_ONLY_CONSISTENT_SQLITE_COPY",
@@ -178,6 +183,11 @@ def report_from_snapshot(database, disabled_since):
         "assessments": dict(sorted(Counter(item["assessment"] for item in items).items())),
         "location_key_formats": dict(sorted(Counter(
             item["location_key_format"] for item in items
+        ).items())),
+        "historical_observation_rows": len(history_locations),
+        "historical_observation_key_formats": dict(sorted(Counter(
+            classify_location_key(row["location_type"], row["location_key"])
+            for row in history_locations
         ).items())),
         "items": items,
         "warning": (
