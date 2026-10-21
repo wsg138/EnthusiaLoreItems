@@ -298,7 +298,14 @@ final class PaperPhysicalInventoryScanner {
             ScanContext context,
             PaperScanLimit limit) {
         for (int slot = 0; slot < contents.length && limit.hasRemaining(); slot++) {
-            scanSlot(contents[slot], type, key, prefix + slot, context, limit);
+            ItemStack item = contents[slot];
+            if (!scannable(item)) {
+                continue;
+            }
+            if (!limit.tryConsume()) {
+                return;
+            }
+            scanSlot(item, type, key, prefix + slot, context, limit);
         }
     }
 
@@ -322,6 +329,11 @@ final class PaperPhysicalInventoryScanner {
             int depth,
             PaperScanLimit limit) {
         if (!limit.hasRemaining() || !scannable(item)) {
+            return;
+        }
+        // Entity roots or move targets have already been charged by the
+        // caller; nested leaves need their own work unit.
+        if (depth > 0 && !limit.tryConsume()) {
             return;
         }
         boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
