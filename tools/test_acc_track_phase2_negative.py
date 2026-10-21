@@ -88,32 +88,25 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         expected = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
                     for stage in ("deposited", "seam26", "seam27",
-                                  "moved", "returned")}
-        actual = set()
-        for axis in ("X", "Z"):
-            function = re.search(
-                rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
-                source, re.DOTALL)
-            self.assertIsNotNone(function, "fixed marker writer missing")
-            cases = re.findall(
-                r"if \(name === '([^']+)'\) return fs\.promises\.writeFile"
-                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
-                function.group(1))
-            self.assertEqual(5, len(cases))
-            self.assertTrue(all(name == path for name, path in cases))
-            self.assertIn("throw new Error('unlisted", function.group(1))
-            actual.update(name for name, _ in cases)
-        self.assertEqual(expected, actual)
-        self.assertIn("fs.promises.readdir(ROOT)", source)
-        self.assertIn("if (listed.includes(name)) return", source)
-        self.assertIn("await markX(name)", source)
-        self.assertIn("await markZ(name)", source)
+                                  "moved", "returned")} | {"bot.ready"}
+        table = re.search(
+            r"const RESULT_WRITERS = \{(.*?)\n\}", source, re.DOTALL)
+        if table is None:
+            raise AssertionError("Missing fixed-path writer table")
+        entries = re.findall(
+            r"'([^']+)': \(\) => fs\.promises\.writeFile"
+            r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+            table.group(1),
+        )
+        self.assertEqual(len(expected), len(entries))
+        self.assertEqual({(name, name) for name in expected}, set(entries))
         self.assertIn(
-            "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
-            source)
+            "Object.prototype.hasOwnProperty.call(RESULT_WRITERS, name)", source)
+        self.assertIn("return RESULT_WRITERS[name]().then(", source)
+        self.assertIn("fs.promises.readdir(ROOT)", source)
         self.assertNotIn("ROOT + '/' + name", source)
-        self.assertNotIn("CLIENT_RESULT_ACTIONS", source)
         self.assertNotIn("HOST_CHECKPOINT_FILES", source)
+        self.assertNotIn("CLIENT_RESULT_ACTIONS", source)
         self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
