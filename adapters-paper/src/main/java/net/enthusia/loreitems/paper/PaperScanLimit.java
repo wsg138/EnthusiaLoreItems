@@ -37,4 +37,9 @@ final class PaperScanLimit {
     void consume() {
         tryConsume();
     }
+
+    /** A known unvisited subtree must never be considered fully observed. */
+    void markTruncated() {
+        truncated = true;
+    }
 }
