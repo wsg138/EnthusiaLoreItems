@@ -95,18 +95,24 @@ _UUID_BLOCK = re.compile(rf"block-v2:{_UUID}:{_XYZ}")
 _UUID_CHEST = re.compile(rf"double-chest:{_UUID}:{_XYZ}\|{_XYZ}:left=[01]")
 
 
+def normalized_block_key(location_type, key):
+    if location_type != "NESTED_CONTAINER":
+        return key
+    prefix = "root:BLOCK_CONTAINER:"
+    if not key.startswith(prefix):
+        return None
+    return key[len(prefix):]
+
+
 def classify_location_key(location_type, location_key):
     """Classify historical string format, never resolve a world or current item."""
     if location_key is None:
         return "NO_RECORDED_LOCATION"
     if location_type not in ("BLOCK_CONTAINER", "NESTED_CONTAINER"):
         return "NON_BLOCK_LOCATION"
-    key = location_key
-    if location_type == "NESTED_CONTAINER":
-        prefix = "root:BLOCK_CONTAINER:"
-        if not key.startswith(prefix):
-            return "UNRECOGNIZED_BLOCK_KEY"
-        key = key[len(prefix):]
+    key = normalized_block_key(location_type, location_key)
+    if key is None:
+        return "UNRECOGNIZED_BLOCK_KEY"
     if _UUID_BLOCK.fullmatch(key) or _UUID_CHEST.fullmatch(key):
         return "UUID_FORMAT_HISTORY_ONLY"
     if key.startswith(("block-v2:", "double-chest:")):
@@ -138,13 +144,8 @@ def assess(row, cutoff_millis):
     }
 
 
-def report_from_snapshot(database, disabled_since):
-    """Inspect an existing operator-prepared snapshot without changing its bytes."""
-    database = Path(database).resolve(strict=True)
-    if not database.is_file():
-        raise PreflightError("database must be an existing regular snapshot file")
-    when = parse_disabled_since(disabled_since)
-    cutoff_millis = int(when.timestamp() * 1000)
+def read_snapshot_rows(database):
+    """Read only an operator-prepared WAL-consistent copy, never live SQLite."""
     uri = "file:" + quote(database.as_posix(), safe="/:") + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
         connection.row_factory = sqlite3.Row
@@ -173,6 +174,17 @@ def report_from_snapshot(database, disabled_since):
         history_locations = connection.execute(
             "SELECT location_type, location_key FROM instance_observations"
         ).fetchall()
+    return rows, history_locations
+
+
+def report_from_snapshot(database, disabled_since):
+    """Inspect an existing operator-prepared snapshot without changing its bytes."""
+    database = Path(database).resolve(strict=True)
+    if not database.is_file():
+        raise PreflightError("database must be an existing regular snapshot file")
+    when = parse_disabled_since(disabled_since)
+    cutoff_millis = int(when.timestamp() * 1000)
+    rows, history_locations = read_snapshot_rows(database)
     items = [assess(row, cutoff_millis) for row in rows]
     return {
         "source": "READ_ONLY_CONSISTENT_SQLITE_COPY",
