@@ -88,25 +88,34 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         expected = {f"{axis}-{stage}" for axis in ("xminus2", "zminus2")
                     for stage in ("deposited", "seam26", "seam27",
-                                  "moved", "returned")} | {"bot.ready"}
-        table = re.search(
-            r"const RESULT_WRITERS = \{(.*?)\n\}", source, re.DOTALL)
-        if table is None:
-            raise AssertionError("Missing fixed-path writer table")
-        entries = re.findall(
-            r"'([^']+)': \(\) => fs\.promises\.writeFile"
-            r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
-            table.group(1),
-        )
-        self.assertEqual(len(expected), len(entries))
-        self.assertEqual({(name, name) for name in expected}, set(entries))
+                                  "moved", "returned")}
+        actual = set()
+        for axis in ("X", "Z"):
+            function = re.search(
+                rf"function mark{axis}\(name\) \{{(.*?)\n\}}",
+                source, re.DOTALL)
+            if function is None:
+                raise AssertionError(f"Missing fixed-path marker function {axis}")
+            entries = re.findall(
+                r"if \(name === '([^']+)'\) return fs\.promises\.writeFile"
+                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+                function.group(1),
+            )
+            self.assertEqual(5, len(entries))
+            self.assertTrue(all(name == path for name, path in entries))
+            self.assertIn("return unknownMarker(name)", function.group(1))
+            actual.update(name for name, _ in entries)
+        self.assertEqual(expected, actual)
         self.assertIn(
-            "Object.prototype.hasOwnProperty.call(RESULT_WRITERS, name)", source)
-        self.assertIn("return RESULT_WRITERS[name]().then(", source)
+            "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
+            source)
+        self.assertIn("function unknownMarker(name)", source)
+        self.assertIn("return unknownMarker(name)", source)
         self.assertIn("fs.promises.readdir(ROOT)", source)
+        self.assertIn("writing = markX(name)", source)
+        self.assertIn("writing = markZ(name)", source)
+        self.assertNotIn("RESULT_WRITERS[name]", source)
         self.assertNotIn("ROOT + '/' + name", source)
-        self.assertNotIn("HOST_CHECKPOINT_FILES", source)
-        self.assertNotIn("CLIENT_RESULT_ACTIONS", source)
         self.assertNotIn("Object.freeze", source)
 
     def test_seam_slot_evidence_requires_both_halves(self):
