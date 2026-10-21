@@ -103,7 +103,7 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
             )
             self.assertEqual(5, len(entries))
             self.assertTrue(all(name == path for name, path in entries))
-            self.assertIn("throw new Error('unlisted acceptance", function.group(1))
+            self.assertIn("return Promise.reject(new Error('unlisted acceptance", function.group(1))
             actual.update(name for name, _ in entries)
         self.assertEqual(expected, actual)
         self.assertIn(
