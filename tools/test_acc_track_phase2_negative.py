@@ -101,15 +101,23 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
                 r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
                 function.group(1),
             )
-            self.assertEqual(5, len(entries))
-            self.assertTrue(all(name == path for name, path in entries))
-            self.assertIn("return Promise.reject(new Error('unlisted acceptance", function.group(1))
-            actual.update(name for name, _ in entries)
+            self.assertEqual(4, len(entries))
+            tail = re.findall(
+                r"(?m)^\s+return fs\.promises\.writeFile"
+                r"\('/tmp/acc-track-phase2/([^']+)', 'ok\\n'\)",
+                function.group(1),
+            )
+            self.assertEqual(1, len(tail))
+            self.assertEqual("returned", tail[0].rsplit("-", 1)[-1])
+            actual.update(name for name, path in entries if name == path)
+            actual.update(tail)
         self.assertEqual(expected, actual)
         self.assertIn(
             "fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\\n')",
             source)
         self.assertIn("fs.readdirSync(ROOT)", source)
+        self.assertNotIn("Promise.reject", source)
+        self.assertNotIn("var writing = null", source)
         self.assertIn("writing = markX()", source)
         self.assertIn("writing = markZ()", source)
         self.assertNotIn("RESULT_WRITERS[name]", source)
