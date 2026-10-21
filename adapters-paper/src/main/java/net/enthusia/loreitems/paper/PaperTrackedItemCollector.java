@@ -49,17 +49,21 @@ final class PaperTrackedItemCollector {
             return;
         }
         collectIdentity(item, type, key, path, observations);
-        if (depth < MAX_NESTING_DEPTH) {
-            NestedEvidence evidence = nestedEvidenceWithIdentityEvidence(item);
-            if (evidence != null) {
-                collectNested(
-                        evidence,
-                        nestedLocationKey(type, key),
-                        path,
-                        observations,
-                        depth,
-                        limit);
+        if (depth >= MAX_NESTING_DEPTH) {
+            if (mightContainNestedItems(item)) {
+                limit.markTruncated();
             }
+            return;
+        }
+        NestedEvidence evidence = nestedEvidenceWithIdentityEvidence(item);
+        if (evidence != null) {
+            collectNested(
+                    evidence,
+                    nestedLocationKey(type, key),
+                    path,
+                    observations,
+                    depth,
+                    limit);
         }
     }
 
@@ -226,7 +230,12 @@ final class PaperTrackedItemCollector {
         }
     }
 
-    /** Only shulker boxes and bundles can contain the nested items we inspect. */
+    /** When depth is exhausted, even unknown nested contents invalidate completeness. */
+    boolean mightContainNestedItems(ItemStack item) {
+        return scannable(item) && canHaveNestedContents(item.getType()) && item.hasItemMeta();
+    }
+
+    /** Only shulker boxes and bundles can contain nested items we inspect. */
     private static boolean canHaveNestedContents(Material material) {
         String name = material.name();
         return name.endsWith("SHULKER_BOX") || name.endsWith("BUNDLE");

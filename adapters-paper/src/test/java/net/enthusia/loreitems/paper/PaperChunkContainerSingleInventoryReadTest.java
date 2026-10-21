@@ -72,7 +72,11 @@ class PaperChunkContainerSingleInventoryReadTest {
         Chunk chunk = (Chunk) Proxy.newProxyInstance(
                 Thread.currentThread().getContextClassLoader(), new Class<?>[] {Chunk.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
-                    case "getTileEntities" -> new BlockState[] {(BlockState) holder[0]};
+                    case "getTileEntities" -> {
+                        assertEquals(1, arguments.length, "Chunk must not capture full block-state snapshots");
+                        assertEquals(false, arguments[0], "Use Paper live block-state references");
+                        yield new BlockState[] {(BlockState) holder[0]};
+                    }
                     case "getEntities" -> new Entity[0];
                     default -> null;
                 });

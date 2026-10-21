@@ -22,7 +22,7 @@ sealed interface PaperInventoryReference
     Optional<Inventory> resolve(Plugin plugin);
 
     static Optional<PaperInventoryReference> capture(Inventory inventory) {
-        return inventory == null ? Optional.empty() : capture(inventory, inventory.getHolder());
+        return inventory == null ? Optional.empty() : capture(inventory, inventory.getHolder(false));
     }
 
     /**
@@ -84,7 +84,13 @@ sealed interface PaperInventoryReference
             if (world == null || !world.isChunkLoaded(x >> 4, z >> 4)) {
                 return Optional.empty();
             }
-            BlockState state = world.getBlockAt(x, y, z).getState();
+            // For a double chest, both naturally loaded halves must be present before
+            // the composite inventory is resolved. Never load a missing partner chunk.
+            org.bukkit.block.Block block = world.getBlockAt(x, y, z);
+            if (!PaperDoubleChestAvailabilityGuard.isAccessible(world, block)) {
+                return Optional.empty();
+            }
+            BlockState state = block.getState(false);
             return state instanceof InventoryHolder holder
                     ? Optional.of(holder.getInventory())
                     : Optional.empty();

@@ -165,6 +165,11 @@ final class PaperPhysicalInventoryScanner {
         return collector.trackedIdentity(item);
     }
 
+    /** Includes malformed metadata and nested lore-item evidence, not only valid identities. */
+    boolean hasIdentityEvidence(ItemStack item) {
+        return collector.hasIdentityEvidence(item);
+    }
+
     Set<LoreItemIdentity> trackedIdentities(ItemStack item) {
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         collector.collectItem(
@@ -319,7 +324,16 @@ final class PaperPhysicalInventoryScanner {
         if (!scannable(item)) {
             return;
         }
-        submitItem(item, location, context.presence(), context.mode(), context.source());
+        boolean unvisitedNested = depth >= MAX_NESTING_DEPTH
+                && collector.mightContainNestedItems(item);
+        if (unvisitedNested) {
+            limit.markTruncated();
+        }
+        // Do not submit the depth-limited container itself as an authoritative
+        // transition before recording its possibly unvisited child evidence.
+        TrackingObservationUseCase.EvidenceMode mode =
+                safeModeAtDepth(context.mode(), unvisitedNested);
+        submitItem(item, location, context.presence(), mode, context.source());
         if (depth >= MAX_NESTING_DEPTH) {
             return;
         }
@@ -402,6 +416,13 @@ final class PaperPhysicalInventoryScanner {
 
     private static boolean scannable(ItemStack item) {
         return item != null && !item.getType().isAir();
+    }
+
+    /** A possibly unvisited nested child must not inherit authoritative proof mode. */
+    static TrackingObservationUseCase.EvidenceMode safeModeAtDepth(
+            TrackingObservationUseCase.EvidenceMode mode, boolean unvisitedNested) {
+        return unvisitedNested
+                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION : mode;
     }
 
     static LocationDescriptor nestedLocation(
