@@ -2,31 +2,6 @@
 'use strict'
 const fs = require('fs')
 const ROOT = '/tmp/acc-track-phase2'
-/** @param {string} name */
-function unknownMarker(name) {
-  throw new Error('unlisted acceptance result checkpoint: ' + name)
-}
-
-/** @param {string} name */
-function markX(name) {
-  if (name === 'xminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
-  if (name === 'xminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
-  if (name === 'xminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
-  if (name === 'xminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
-  if (name === 'xminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
-  return unknownMarker(name)
-}
-
-/** @param {string} name */
-function markZ(name) {
-  if (name === 'zminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
-  if (name === 'zminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
-  if (name === 'zminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
-  if (name === 'zminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
-  if (name === 'zminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
-  return unknownMarker(name)
-}
-
 const mineflayer = require('/tmp/acc-track-phase2/bot/node_modules/mineflayer')
 const Vec3 = require('/tmp/acc-track-phase2/bot/node_modules/vec3').Vec3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -42,7 +17,7 @@ async function waitFile(name) {
     throw new Error('invalid acceptance host checkpoint')
   }
   for (let count = 0; count < 2000; count++) {
-    const listed = await fs.promises.readdir(ROOT)
+    var listed = fs.readdirSync(ROOT)
     if (listed.includes(name)) return
     if (listed.includes('bot.stop')) throw new Error('host aborted ' + name)
     await sleep(100)
@@ -50,20 +25,35 @@ async function waitFile(name) {
   throw new Error('timed out waiting for ' + name)
 }
 
-/** @param {string} name */
 function mark(name) {
+  function markX() {
+    if (name === 'xminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-deposited', 'ok\n')
+    if (name === 'xminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam26', 'ok\n')
+    if (name === 'xminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-seam27', 'ok\n')
+    if (name === 'xminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-moved', 'ok\n')
+    if (name === 'xminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/xminus2-returned', 'ok\n')
+    throw new Error('unlisted acceptance result checkpoint')
+  }
+  function markZ() {
+    if (name === 'zminus2-deposited') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-deposited', 'ok\n')
+    if (name === 'zminus2-seam26') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam26', 'ok\n')
+    if (name === 'zminus2-seam27') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-seam27', 'ok\n')
+    if (name === 'zminus2-moved') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-moved', 'ok\n')
+    if (name === 'zminus2-returned') return fs.promises.writeFile('/tmp/acc-track-phase2/zminus2-returned', 'ok\n')
+    throw new Error('unlisted acceptance result checkpoint')
+  }
   if (!/^(bot\.ready|(xminus2|zminus2)-(deposited|seam26|seam27|moved|returned))$/.test(name)) {
-    return unknownMarker(name)
+    throw new Error('invalid acceptance result checkpoint')
   }
   var writing
   if (name === 'bot.ready') {
     writing = fs.promises.writeFile('/tmp/acc-track-phase2/bot.ready', 'ok\n')
   } else if (name.startsWith('xminus2-')) {
-    writing = markX(name)
+    writing = markX()
   } else if (name.startsWith('zminus2-')) {
-    writing = markZ(name)
+    writing = markZ()
   } else {
-    return unknownMarker(name)
+    throw new Error('unlisted acceptance result checkpoint')
   }
   return writing.then(function () { log('MARK ' + name) })
 }
