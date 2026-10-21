@@ -41,7 +41,7 @@ class PaperLeafScanBudgetTest {
     }
 
     @Test
-    void 256OrdinaryLeavesRemainCompleteWithoutFalseTruncation() {
+    void ordinary256LeavesRemainCompleteWithoutFalseTruncation() {
         PaperScanLimit limit = new PaperScanLimit(BUDGET);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         new PaperTrackedItemCollector().collectArray(
@@ -52,7 +52,7 @@ class PaperLeafScanBudgetTest {
     }
 
     @Test
-    void 257thLeafMustNotBeDecodedOrClaimedCompleteByCollector() {
+    void leaf257MustNotBeDecodedOrClaimedCompleteByCollector() {
         PaperScanLimit limit = new PaperScanLimit(BUDGET);
         Map<LoreItemIdentity, List<LocationDescriptor>> observations = new ConcurrentHashMap<>();
         new PaperTrackedItemCollector().collectArray(
