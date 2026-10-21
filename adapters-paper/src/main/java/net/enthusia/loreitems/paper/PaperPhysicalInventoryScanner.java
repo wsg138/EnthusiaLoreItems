@@ -331,9 +331,8 @@ final class PaperPhysicalInventoryScanner {
         }
         // Do not submit the depth-limited container itself as an authoritative
         // transition before recording its possibly unvisited child evidence.
-        TrackingObservationUseCase.EvidenceMode mode = unvisitedNested
-                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION
-                : context.mode();
+        TrackingObservationUseCase.EvidenceMode mode =
+                safeModeAtDepth(context.mode(), unvisitedNested);
         submitItem(item, location, context.presence(), mode, context.source());
         if (depth >= MAX_NESTING_DEPTH) {
             return;
@@ -417,6 +416,13 @@ final class PaperPhysicalInventoryScanner {
 
     private static boolean scannable(ItemStack item) {
         return item != null && !item.getType().isAir();
+    }
+
+    /** A possibly unvisited nested child must not inherit authoritative proof mode. */
+    static TrackingObservationUseCase.EvidenceMode safeModeAtDepth(
+            TrackingObservationUseCase.EvidenceMode mode, boolean unvisitedNested) {
+        return unvisitedNested
+                ? TrackingObservationUseCase.EvidenceMode.RECONCILIATION : mode;
     }
 
     static LocationDescriptor nestedLocation(
