@@ -118,8 +118,8 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         self.assertIn("fs.readdirSync(ROOT)", source)
         self.assertNotIn("Promise.reject", source)
         self.assertNotIn("var writing = null", source)
-        self.assertIn("writing = markX()", source)
-        self.assertIn("writing = markZ()", source)
+        self.assertIn(
+            "name.startsWith('xminus2-') ? markX() : markZ()", source)
         self.assertNotIn("RESULT_WRITERS[name]", source)
         self.assertNotIn("ROOT + '/' + name", source)
         self.assertNotIn("Object.freeze", source)
