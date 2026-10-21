@@ -81,7 +81,8 @@ class PaperNestedDepthFailClosedTest {
         PaperScanLimit limit = new PaperScanLimit(3);
         assertTrue(limit.tryConsume());
         limit.markTruncated();
-        assertTrue(limit.tryConsume(), "Budget accounting is preserved");
+        assertFalse(limit.tryConsume(),
+                "A previously truncated scan must never grant another work reservation");
         assertFalse(limit.hasRemaining(), "Exhausting confidence is irreversible");
     }
 }

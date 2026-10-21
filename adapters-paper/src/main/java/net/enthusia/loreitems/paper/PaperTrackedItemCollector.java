@@ -32,7 +32,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length; index++) {
+        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
             collectItem(contents[index], type, key, prefix + index, observations, 0, limit);
         }
     }
@@ -45,7 +45,7 @@ final class PaperTrackedItemCollector {
             Map<LoreItemIdentity, List<LocationDescriptor>> observations,
             int depth,
             PaperScanLimit limit) {
-        if (!scannable(item)) {
+        if (!limit.hasRemaining() || !scannable(item)) {
             return;
         }
         collectIdentity(item, type, key, path, observations);
@@ -218,7 +218,7 @@ final class PaperTrackedItemCollector {
         if (contents == null) {
             return;
         }
-        for (int index = 0; index < contents.length; index++) {
+        for (int index = 0; index < contents.length && limit.hasRemaining(); index++) {
             collectItem(
                     contents[index],
                     LocationDescriptor.Type.NESTED_CONTAINER,
