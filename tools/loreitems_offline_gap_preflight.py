@@ -88,7 +88,7 @@ def classify_projection(row):
 # Classification only. These patterns do not authorize world-name-to-UUID mappings.
 _UUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _XYZ = r"-?\d+:-?\d+:-?\d+"
-_LEGACY_BLOCK = re.compile(rf"[a-z0-9_.-]+:[a-z0-9_./-]+:{_XYZ}")
+_LEGACY_BLOCK = re.compile(rf"(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+:{_XYZ}")
 _UUID_BLOCK = re.compile(rf"block-v2:{_UUID}:{_XYZ}")
 _UUID_CHEST = re.compile(rf"double-chest:{_UUID}:{_XYZ}\|{_XYZ}:left=[01]")
 
@@ -107,6 +107,8 @@ def classify_location_key(location_type, location_key):
         key = key[len(prefix):]
     if _UUID_BLOCK.fullmatch(key) or _UUID_CHEST.fullmatch(key):
         return "UUID_FORMAT_HISTORY_ONLY"
+    if key.startswith(("block-v2:", "double-chest:")):
+        return "UNRECOGNIZED_BLOCK_KEY"
     if _LEGACY_BLOCK.fullmatch(key):
         return "LEGACY_WORLD_NAME_NEEDS_PROOF"
     return "UNRECOGNIZED_BLOCK_KEY"
