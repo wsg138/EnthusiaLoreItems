@@ -16,10 +16,6 @@ KEY_Z = "double-chest:" + WORLD + ":8:70:-17|8:70:-16:left=1"
 
 class NegativeBoundaryVerifierTest(unittest.TestCase):
     def setUp(self):
-        # The synthetic fixture intentionally uses -17/-16 keys even when a
-        # real Paper matrix job verifies the zero/positive boundary instead.
-        self.previous_cases = GATE.CASES
-        GATE.CASES = GATE.CASES_BY_VARIANT["negative"]
         self.db = sqlite3.connect(":memory:")
         self.db.executescript("""
             CREATE TABLE lore_definitions(definition_id TEXT,lookup_key TEXT);
@@ -39,7 +35,13 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
-        GATE.CASES = self.previous_cases
+
+    def verify_fixture(self, stage, axis):
+        # Explicitly select the fixture's negative geometry without changing
+        # global verification behavior for the real Paper variant.
+        GATE.verify(
+            self.db, stage, axis, cases=GATE.CASES_BY_VARIANT["negative"]
+        )
 
     def projection(self, path, revision, key=KEY_X, state="CONFIRMED_NOW"):
         self.db.execute("DELETE FROM instance_current_state")
@@ -61,10 +63,10 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         self.projection("slot:0", 7)
 
     def test_deposit_and_real_ordered_return_structure(self):
-        GATE.verify(self.db, "deposit", "x")
+        self.verify_fixture("deposit", "x")
         self.full_chain()
-        GATE.verify(self.db, "return", "x")
-        GATE.verify(self.db, "restart", "x")
+        self.verify_fixture("return", "x")
+        self.verify_fixture("restart", "x")
 
     def test_six_geometry_variants_use_distinct_canonical_world_uuid_keys(self):
         expected = {
@@ -154,10 +156,10 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
     def test_seam_slot_evidence_requires_both_halves(self):
         self.receipt("slot:26")
         self.projection("slot:26", 4)
-        GATE.verify(self.db, "seam26", "x")
+        self.verify_fixture("seam26", "x")
         self.receipt("slot:27")
         self.projection("slot:27", 5)
-        GATE.verify(self.db, "seam27", "x")
+        self.verify_fixture("seam27", "x")
 
     def test_missing_seam_27_receipt_rejected(self):
         self.receipt("slot:26")
@@ -166,57 +168,57 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         self.receipt("slot:0")
         self.projection("slot:0", 7)
         with self.assertRaisesRegex(AssertionError, "ordered"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
 
     def test_missing_middle_receipt_rejected(self):
         self.receipt("slot:0")
         self.projection("slot:0", 7)
         with self.assertRaisesRegex(AssertionError, "insufficient|ordered"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
 
     def test_other_half_orientation_receipt_rejected(self):
         self.full_chain()
         self.receipt("slot:0", KEY_X.replace("left=0", "left=1"))
         with self.assertRaisesRegex(AssertionError, "second canonical"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
 
     def test_unconfirmed_live_state_and_wrong_coordinate_rejected(self):
         self.full_chain()
         self.projection("slot:0", 5, state="LAST_CONFIRMED")
         with self.assertRaisesRegex(AssertionError, "unsafe confidence"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
         self.projection("slot:0", 5, key=KEY_X.replace("-16", "-15"))
         with self.assertRaisesRegex(AssertionError, "invalid canonical"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
 
     def test_anomaly_duplicate_instance_and_missing_receipt_rejected(self):
         self.full_chain()
         self.db.execute("INSERT INTO instance_anomalies VALUES('i')")
         with self.assertRaisesRegex(AssertionError, "anomaly"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
         self.db.execute("DELETE FROM instance_anomalies")
         self.db.execute("INSERT INTO lore_instances VALUES('j','d')")
         self.db.execute("INSERT INTO instance_current_state VALUES(?,?,?,?,?,?)",
                         ("j", "CONFIRMED_NOW", "BLOCK_CONTAINER", KEY_X, "slot:0", 4))
         with self.assertRaisesRegex(AssertionError, "one tracked instance"):
-            GATE.verify(self.db, "return", "x")
+            self.verify_fixture("return", "x")
 
     def test_last_confirmed_requires_real_unload_receipt(self):
         self.full_chain()
         self.projection("slot:0", 6, state="LAST_CONFIRMED")
         with self.assertRaisesRegex(AssertionError, "LAST_CONFIRMED"):
-            GATE.verify(self.db, "restart", "x")
+            self.verify_fixture("restart", "x")
         self.receipt("slot:0", confidence="LAST_CONFIRMED")
-        GATE.verify(self.db, "restart", "x")
+        self.verify_fixture("restart", "x")
 
     def test_z_boundary_is_independent(self):
         self.full_chain()
         self.db.execute("UPDATE lore_definitions SET lookup_key='acc_phase2_zminus2'")
         with self.assertRaisesRegex(AssertionError, "invalid canonical"):
-            GATE.verify(self.db, "return", "z")
+            self.verify_fixture("return", "z")
         self.db.execute("UPDATE instance_current_state SET location_key=?", (KEY_Z,))
         self.db.execute("UPDATE instance_observations SET location_key=?", (KEY_Z,))
-        GATE.verify(self.db, "return", "z")
+        self.verify_fixture("return", "z")
 
     def test_exact_receipt_sequence_and_stage(self):
         self.assertFalse(GATE.is_subsequence(["slot:0", "slot:0"], ("slot:0", "slot:26")))
