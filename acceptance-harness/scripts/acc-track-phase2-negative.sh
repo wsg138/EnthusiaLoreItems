@@ -2,6 +2,11 @@
 # Disposable real Paper / real Mineflayer / SQLite. NEVER point at SMP data.
 set -euo pipefail
 
+BOUNDARY_VARIANT="${BOUNDARY_VARIANT:-negative}"
+case "$BOUNDARY_VARIANT" in
+  negative|zero|positive) ;;
+  *) echo "Invalid disposable cross-chunk boundary variant" >&2; exit 2 ;;
+esac
 ROOT=/tmp/acc-track-phase2
 SERVER="$ROOT/server"
 EVIDENCE="$ROOT/evidence"
@@ -170,5 +175,5 @@ fi
 
 stop_server
 trap - EXIT
-echo 'PASS phase2 real client X/Z -17|-16 durability on disposable Paper' \
+echo "PASS phase2 real client X/Z $BOUNDARY_VARIANT boundary durability on disposable Paper" \
   | tee -a "$EVIDENCE/case-results.txt"
