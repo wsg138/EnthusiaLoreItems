@@ -107,8 +107,9 @@ def validate_receipts(rows, key, stage, state):
     require_unloaded_receipt(rows, key, stage, state)
 
 
-def verify(db, stage, axis):
-    lookup, label, canonical = CASES[axis]
+def verify(db, stage, axis, cases=None):
+    selected_cases = CASES if cases is None else cases
+    lookup, label, canonical = selected_cases[axis]
     if stage in ("seam26", "seam27"):
         label = SEAM_CASES[axis]
     rows = read_projection(db, lookup)
