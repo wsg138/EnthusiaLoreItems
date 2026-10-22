@@ -1,18 +1,37 @@
 #!/usr/bin/env python3
 """Read-only durable evidence gate for disposable real-client X/Z -17|-16 cases."""
+import os
 import re
 import sqlite3
 import sys
 import time
 
 UUID = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
-CASES = {
-    "x": ("acc_phase2_xminus2", "ACC-TRACK-008",
-          re.compile(rf"double-chest:{UUID}:-17:70:8\|-16:70:8:left=[01]\Z")),
-    "z": ("acc_phase2_zminus2", "ACC-TRACK-009",
-          re.compile(rf"double-chest:{UUID}:8:70:-17\|8:70:-16:left=[01]\Z")),
+CASES_BY_VARIANT = {
+    "negative": {
+        "x": ("acc_phase2_xminus2", "ACC-TRACK-008",
+              re.compile(rf"double-chest:{UUID}:-17:70:8\|-16:70:8:left=[01]\Z")),
+        "z": ("acc_phase2_zminus2", "ACC-TRACK-009",
+              re.compile(rf"double-chest:{UUID}:8:70:-17\|8:70:-16:left=[01]\Z")),
+    },
+    "zero": {
+        "x": ("acc_phase2_xminus2", "ACC-TRACK-012",
+              re.compile(rf"double-chest:{UUID}:-1:70:8\|0:70:8:left=[01]\Z")),
+        "z": ("acc_phase2_zminus2", "ACC-TRACK-013",
+              re.compile(rf"double-chest:{UUID}:8:70:-1\|8:70:0:left=[01]\Z")),
+    },
+    "positive": {
+        "x": ("acc_phase2_xminus2", "ACC-TRACK-014",
+              re.compile(rf"double-chest:{UUID}:15:70:8\|16:70:8:left=[01]\Z")),
+        "z": ("acc_phase2_zminus2", "ACC-TRACK-015",
+              re.compile(rf"double-chest:{UUID}:8:70:15\|8:70:16:left=[01]\Z")),
+    },
 }
-SEAM_CASES = {"x": "ACC-TRACK-010", "z": "ACC-TRACK-011"}
+VARIANT = os.environ.get("BOUNDARY_VARIANT", "negative")
+if VARIANT not in CASES_BY_VARIANT:
+    raise SystemExit("invalid disposable BOUNDARY_VARIANT")
+CASES = CASES_BY_VARIANT[VARIANT]
+SEAM_CASES = {"x": "ACC-TRACK-SEAM-X", "z": "ACC-TRACK-SEAM-Z"}
 SEQUENCES = {"deposit": ("slot:0",),
              "seam26": ("slot:0", "slot:26"),
              "seam27": ("slot:0", "slot:26", "slot:27"),

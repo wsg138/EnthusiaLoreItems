@@ -180,16 +180,49 @@ async function main() {
   bot.on('error', error => log('ERROR ' + error.message))
   await waitSpawn(bot)
   await mark('bot.ready')
-  await runCase(bot, {
-    name: 'xminus2', approach: {x: -18, z: 8},
-    floor: '-19 69 6 -14 69 10',
-    first: {x: -17, z: 8}, second: {x: -16, z: 8}, facing: 'north'
-  })
-  await runCase(bot, {
-    name: 'zminus2', approach: {x: 7, z: -17},
-    floor: '6 69 -19 10 69 -14',
-    first: {x: 8, z: -17}, second: {x: 8, z: -16}, facing: 'east'
-  })
+  const variant = process.env.BOUNDARY_VARIANT || 'negative'
+  if (variant !== 'negative' && variant !== 'zero' && variant !== 'positive') {
+    throw new Error('invalid disposable boundary variant')
+  }
+  let crossX
+  let crossZ
+  if (variant === 'negative') {
+    crossX = {
+      name: 'xminus2', approach: {x: -18, z: 8},
+      floor: '-19 69 6 -14 69 10',
+      first: {x: -17, z: 8}, second: {x: -16, z: 8}, facing: 'north'
+    }
+    crossZ = {
+      name: 'zminus2', approach: {x: 7, z: -17},
+      floor: '6 69 -19 10 69 -14',
+      first: {x: 8, z: -17}, second: {x: 8, z: -16}, facing: 'east'
+    }
+  } else if (variant === 'zero') {
+    crossX = {
+      name: 'xminus2', approach: {x: -2, z: 8},
+      floor: '-3 69 6 2 69 10',
+      first: {x: -1, z: 8}, second: {x: 0, z: 8}, facing: 'north'
+    }
+    crossZ = {
+      name: 'zminus2', approach: {x: 7, z: -1},
+      floor: '6 69 -3 10 69 2',
+      first: {x: 8, z: -1}, second: {x: 8, z: 0}, facing: 'east'
+    }
+  } else {
+    crossX = {
+      name: 'xminus2', approach: {x: 14, z: 8},
+      floor: '13 69 6 18 69 10',
+      first: {x: 15, z: 8}, second: {x: 16, z: 8}, facing: 'north'
+    }
+    crossZ = {
+      name: 'zminus2', approach: {x: 7, z: 15},
+      floor: '6 69 13 10 69 18',
+      first: {x: 8, z: 15}, second: {x: 8, z: 16}, facing: 'east'
+    }
+  }
+  log('PHYSICAL_BOUNDARY_VARIANT ' + variant)
+  await runCase(bot, crossX)
+  await runCase(bot, crossZ)
   await waitFile('bot.stop')
   bot.quit('phase 2 paper acceptance complete')
 }

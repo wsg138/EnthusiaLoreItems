@@ -16,9 +16,14 @@ concurrency:
 
 jobs:
   genuine-paper-sqlite:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [negative, zero, positive]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      BOUNDARY_VARIANT: ${{ matrix.variant }}
       PAPER_URL: https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar
       PAPER_SHA256: e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8
 
@@ -102,7 +107,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: acc-track-phase2-${{ github.event.pull_request.head.sha }}
+          name: acc-track-phase2-${{ matrix.variant }}-${{ github.event.pull_request.head.sha }}
           path: /tmp/acc-track-phase2/evidence
           if-no-files-found: warn
           retention-days: 30

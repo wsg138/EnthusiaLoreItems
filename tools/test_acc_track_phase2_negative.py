@@ -61,6 +61,28 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
         GATE.verify(self.db, "return", "x")
         GATE.verify(self.db, "restart", "x")
 
+    def test_six_geometry_variants_use_distinct_canonical_world_uuid_keys(self):
+        expected = {
+            "negative": ("-17:70:8|-16:70:8", "8:70:-17|8:70:-16"),
+            "zero": ("-1:70:8|0:70:8", "8:70:-1|8:70:0"),
+            "positive": ("15:70:8|16:70:8", "8:70:15|8:70:16"),
+        }
+        self.assertEqual(expected.keys(), GATE.CASES_BY_VARIANT.keys())
+        for variant, (xcoords, zcoords) in expected.items():
+            with self.subTest(variant=variant):
+                cases = GATE.CASES_BY_VARIANT[variant]
+                self.assertEqual({"x", "z"}, set(cases))
+                for axis, coords in (("x", xcoords), ("z", zcoords)):
+                    lookup, label, matcher = cases[axis]
+                    self.assertEqual(f"acc_phase2_{axis}minus2", lookup)
+                    self.assertTrue(label.startswith("ACC-TRACK-"))
+                    self.assertIsNotNone(matcher.fullmatch(
+                        "double-chest:" + WORLD + ":" + coords + ":left=0"))
+                    self.assertIsNotNone(matcher.fullmatch(
+                        "double-chest:" + WORLD + ":" + coords + ":left=1"))
+                    self.assertIsNone(matcher.fullmatch(
+                        "double-chest:" + WORLD + ":" + coords + ":left=2"))
+
     def test_checkpoint_names_are_literal_and_bounded(self):
         script = Path(__file__).resolve().parents[1] / (
             "acceptance-harness/scripts/acc-track-phase2-negative-bot.js")
