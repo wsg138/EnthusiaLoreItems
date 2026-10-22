@@ -16,6 +16,10 @@ KEY_Z = "double-chest:" + WORLD + ":8:70:-17|8:70:-16:left=1"
 
 class NegativeBoundaryVerifierTest(unittest.TestCase):
     def setUp(self):
+        # The synthetic fixture intentionally uses -17/-16 keys even when a
+        # real Paper matrix job verifies the zero/positive boundary instead.
+        self.previous_cases = GATE.CASES
+        GATE.CASES = GATE.CASES_BY_VARIANT["negative"]
         self.db = sqlite3.connect(":memory:")
         self.db.executescript("""
             CREATE TABLE lore_definitions(definition_id TEXT,lookup_key TEXT);
@@ -35,6 +39,7 @@ class NegativeBoundaryVerifierTest(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+        GATE.CASES = self.previous_cases
 
     def projection(self, path, revision, key=KEY_X, state="CONFIRMED_NOW"):
         self.db.execute("DELETE FROM instance_current_state")
