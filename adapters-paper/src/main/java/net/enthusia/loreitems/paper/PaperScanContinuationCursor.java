@@ -233,9 +233,6 @@ final class PaperScanContinuationCursor {
                     || b.scanGeneration() != a.scanGeneration()) {
                 return false;
             }
-            if (b.inventoryVersion() < 0) {
-                return true;
-            }
             if (newer.stamp().inventoryVersion() < old.stamp().inventoryVersion()
                     || newer.stamp().dirtyEpoch() < old.stamp().dirtyEpoch()) {
                 return true;
