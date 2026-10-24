@@ -26,7 +26,7 @@ final class PaperScanLimit {
      * root locations while pathological root/entity counts and recursive nesting remain bounded.
      */
     boolean tryConsume() {
-        if (remaining <= EXHAUSTED) {
+        if (truncated || remaining <= EXHAUSTED) {
             truncated = true;
             return false;
         }
@@ -36,5 +36,10 @@ final class PaperScanLimit {
 
     void consume() {
         tryConsume();
+    }
+
+    /** A known unvisited subtree must never be considered fully observed. */
+    void markTruncated() {
+        truncated = true;
     }
 }

@@ -9,6 +9,7 @@ import org.bukkit.plugin.Plugin;
 final class PaperPhysicalScanTelemetry {
     private final MetricsPort metrics;
     private boolean saturated;
+    private long failures;
 
     PaperPhysicalScanTelemetry(MetricsPort metrics) {
         this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -51,20 +52,49 @@ final class PaperPhysicalScanTelemetry {
         }
     }
 
-    void execute(
+    boolean execute(
             PaperTrackingScanRequest request,
             Plugin plugin,
             PaperPhysicalTrackingListener listener) {
         boolean periodic = request.periodicChunkKey() != null;
         long started = System.nanoTime();
         try {
-            request.run(plugin, listener);
+            boolean complete = request.run(plugin, listener);
+            recordOutcome(periodic, complete);
+            return complete;
+        } catch (RuntimeException failure) {
+            recordFailure(plugin, request, periodic, failure);
+            return false;
         } finally {
-            metrics.recordDurationNanos(
-                    periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos",
-                    System.nanoTime() - started);
-            metrics.increment(periodic
-                    ? "tracking.scan_periodic_completed" : "tracking.scan_event_completed");
+            recordElapsed(request, periodic, System.nanoTime() - started);
         }
     }
+
+    private void recordOutcome(boolean periodic, boolean complete) {
+        metrics.increment(periodic
+                ? (complete ? "tracking.scan_periodic_completed" : "tracking.scan_periodic_skipped")
+                : (complete ? "tracking.scan_event_completed" : "tracking.scan_event_skipped"));
+    }
+
+    private void recordFailure(
+            Plugin plugin, PaperTrackingScanRequest request,
+            boolean periodic, RuntimeException failure) {
+        metrics.increment(periodic
+                ? "tracking.scan_periodic_failed" : "tracking.scan_event_failed");
+        failures++;
+        if (failures == 1 || failures % 100 == 0) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                    "Incomplete LoreItems scan: " + request.source(), failure);
+        }
+    }
+
+    private void recordElapsed(
+            PaperTrackingScanRequest request, boolean periodic, long elapsed) {
+        metrics.recordDurationNanos(
+                periodic ? "tracking.scan_periodic_nanos" : "tracking.scan_event_nanos", elapsed);
+        metrics.setGauge(periodic ? "tracking.scan_periodic_peak_nanos"
+                : request.playerId() != null ? "tracking.scan_player_peak_nanos"
+                : "tracking.scan_chunk_peak_nanos", elapsed);
+    }
+
 }
