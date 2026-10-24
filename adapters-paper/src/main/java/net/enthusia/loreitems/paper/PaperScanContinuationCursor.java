@@ -122,24 +122,33 @@ final class PaperScanContinuationCursor {
         if (cursor.complete()) {
             return new Outcome(State.REPLAYED, cursor);
         }
-        if (visited < 1 || visited > MAX_PAGE_VISITS
-                || cursor.visits() > MAX_TOTAL_VISITS - visited) {
+        checkVisitBound(cursor, visited);
+        List<Frame> next = List.copyOf(nextPath);
+        checkPageBoundary(cursor, observed.scope(), next, finished);
+        Cursor advanced = new Cursor(observed, next, cursor.visits() + visited,
+                cursor.pages() + 1, finished);
+        return new Outcome(finished ? State.COMPLETE : State.INCOMPLETE, advanced);
+    }
+
+    private static void checkVisitBound(Cursor cursor, int visits) {
+        if (visits < 1 || visits > MAX_PAGE_VISITS
+                || cursor.visits() > MAX_TOTAL_VISITS - visits) {
             throw new IllegalArgumentException("page visit bound");
         }
-        List<Frame> next = List.copyOf(nextPath);
+    }
+
+    private static void checkPageBoundary(
+            Cursor cursor, Scope scope, List<Frame> next, boolean finished) {
         if (finished) {
             if (!next.isEmpty()) {
                 throw new IllegalArgumentException("terminal page has next slot");
             }
-        } else {
-            validatePath(observed.scope(), next);
-            if (!forward(cursor.path(), next)) {
-                throw new IllegalArgumentException("page did not advance");
-            }
+            return;
         }
-        Cursor advanced = new Cursor(observed, next, cursor.visits() + visited,
-                cursor.pages() + 1, finished);
-        return new Outcome(finished ? State.COMPLETE : State.INCOMPLETE, advanced);
+        validatePath(scope, next);
+        if (!forward(cursor.path(), next)) {
+            throw new IllegalArgumentException("page did not advance");
+        }
     }
 
     private static void validatePath(Scope scope, List<Frame> path) {
@@ -191,7 +200,7 @@ final class PaperScanContinuationCursor {
     static final class FairRetries {
         private final int capacity;
         private final LinkedHashMap<SourceKey, Cursor> pending = new LinkedHashMap<>();
-        private boolean rediscoveryRequired;
+        private boolean rediscoveryPending;
         private long overflowSequence;
 
         FairRetries(int capacity) {
@@ -215,7 +224,7 @@ final class PaperScanContinuationCursor {
                 return Admission.UPDATED;
             }
             if (pending.size() >= capacity) {
-                rediscoveryRequired = true;
+                rediscoveryPending = true;
                 overflowSequence++;
                 return Admission.REDISCOVERY_REQUIRED;
             }
@@ -292,7 +301,7 @@ final class PaperScanContinuationCursor {
         }
 
         boolean rediscoveryRequired() {
-            return rediscoveryRequired;
+            return rediscoveryPending;
         }
 
         /** Capture before a complete natural-loaded rediscovery sweep begins. */
@@ -307,7 +316,7 @@ final class PaperScanContinuationCursor {
          */
         void reportFullRediscovery(long token, boolean allSourcesCoveredAndRetained) {
             if (allSourcesCoveredAndRetained && token == overflowSequence) {
-                rediscoveryRequired = false;
+                rediscoveryPending = false;
             }
         }
     }
