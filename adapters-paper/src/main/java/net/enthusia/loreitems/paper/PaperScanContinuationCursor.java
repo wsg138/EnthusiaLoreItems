@@ -222,27 +222,42 @@ final class PaperScanContinuationCursor {
         }
 
         private boolean stale(Cursor old, Cursor newer) {
-            Scope a = old.stamp().scope();
-            Scope b = newer.stamp().scope();
-            if (b.loadGeneration() < a.loadGeneration()
-                    || (b.loadGeneration() == a.loadGeneration()
-                        && b.scanGeneration() < a.scanGeneration())) {
+            if (olderGeneration(old, newer)) {
                 return true;
             }
-            if (b.loadGeneration() != a.loadGeneration()
-                    || b.scanGeneration() != a.scanGeneration()) {
+            if (newerGeneration(old, newer)) {
                 return false;
             }
-            if (newer.stamp().inventoryVersion() < old.stamp().inventoryVersion()
-                    || newer.stamp().dirtyEpoch() < old.stamp().dirtyEpoch()) {
+            if (olderRevision(old, newer)) {
                 return true;
             }
-            if (newer.stamp().equals(old.stamp())) {
-                return newer.visits() < old.visits()
-                        || newer.pages() < old.pages()
-                        || (old.complete() && !newer.complete());
-            }
-            return false;
+            return old.stamp().equals(newer.stamp()) && olderProgress(old, newer);
+        }
+
+        private boolean olderGeneration(Cursor old, Cursor newer) {
+            Scope a = old.stamp().scope();
+            Scope b = newer.stamp().scope();
+            return b.loadGeneration() < a.loadGeneration()
+                    || (b.loadGeneration() == a.loadGeneration()
+                    && b.scanGeneration() < a.scanGeneration());
+        }
+
+        private boolean newerGeneration(Cursor old, Cursor newer) {
+            Scope a = old.stamp().scope();
+            Scope b = newer.stamp().scope();
+            return b.loadGeneration() != a.loadGeneration()
+                    || b.scanGeneration() != a.scanGeneration();
+        }
+
+        private boolean olderRevision(Cursor old, Cursor newer) {
+            return newer.stamp().inventoryVersion() < old.stamp().inventoryVersion()
+                    || newer.stamp().dirtyEpoch() < old.stamp().dirtyEpoch();
+        }
+
+        private boolean olderProgress(Cursor old, Cursor newer) {
+            return newer.visits() < old.visits()
+                    || newer.pages() < old.pages()
+                    || (old.complete() && !newer.complete());
         }
 
         /** Round-robin peek; never loses work if the next admission fails. */
