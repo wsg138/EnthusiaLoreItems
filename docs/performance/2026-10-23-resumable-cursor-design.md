@@ -48,9 +48,12 @@ coverage do not prove same-tick physical safety or durable SQL acknowledgement.
   repeated queue saturation cannot silently remove a pending cursor.
   Older generation/version and out-of-order pages cannot clobber newer state.
   A full map sets a durable-in-process `rediscoveryRequired` flag; only
-  a verified full natural-loaded source discovery may clear it. This flag
-  needs an external full-sweep producer, and does not itself scan or persist
-  overflowed sources.
+  a verified full natural-loaded source discovery may clear it. The
+  `rediscoveryToken()` captured BEFORE the sweep must still match afterward;
+  an additional rejected admission increments that token and refuses the ACK.
+  The caller must prove every discovered source was covered and its pending
+  work retained. This flag needs an external full-sweep producer, and does
+  not itself scan or persist overflowed sources.
 
 ## Important trust and boundedness boundaries
 

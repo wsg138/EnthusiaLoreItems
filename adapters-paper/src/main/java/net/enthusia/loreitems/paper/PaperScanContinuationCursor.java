@@ -192,6 +192,7 @@ final class PaperScanContinuationCursor {
         private final int capacity;
         private final LinkedHashMap<SourceKey, Cursor> pending = new LinkedHashMap<>();
         private boolean rediscoveryRequired;
+        private long overflowSequence;
 
         FairRetries(int capacity) {
             if (capacity < 1 || capacity > MAX_ROOT_SLOTS) {
@@ -215,6 +216,7 @@ final class PaperScanContinuationCursor {
             }
             if (pending.size() >= capacity) {
                 rediscoveryRequired = true;
+                overflowSequence++;
                 return Admission.REDISCOVERY_REQUIRED;
             }
             pending.put(key, cursor);
@@ -293,9 +295,18 @@ final class PaperScanContinuationCursor {
             return rediscoveryRequired;
         }
 
-        /** A partial/failed global sweep must NOT clear a saturated dirty alarm. */
-        void reportFullRediscovery(boolean fullyVisitedNaturallyLoadedSources) {
-            if (fullyVisitedNaturallyLoadedSources) {
+        /** Capture before a complete natural-loaded rediscovery sweep begins. */
+        long rediscoveryToken() {
+            return overflowSequence;
+        }
+
+        /**
+         * An incomplete sweep or a failed admission during the sweep must not
+         * clear the global dirty obligation. The caller must prove all
+         * naturally loaded sources were visited and their work retained.
+         */
+        void reportFullRediscovery(long token, boolean allSourcesCoveredAndRetained) {
+            if (allSourcesCoveredAndRetained && token == overflowSequence) {
                 rediscoveryRequired = false;
             }
         }

@@ -189,9 +189,17 @@ class PaperScanContinuationCursorTest {
         assertEquals(2, retries.size());
         assertEquals(Admission.REDISCOVERY_REQUIRED, retries.offer(c));
         assertTrue(retries.rediscoveryRequired());
-        retries.reportFullRediscovery(false);
+        long token = retries.rediscoveryToken();
+        retries.reportFullRediscovery(token, false);
         assertTrue(retries.rediscoveryRequired());
-        retries.reportFullRediscovery(true);
+        assertEquals(Admission.REDISCOVERY_REQUIRED, retries.offer(c));
+        retries.reportFullRediscovery(token, true);
+        assertTrue(retries.rediscoveryRequired(), "New overflow invalidates old sweep proof");
+        Cursor doneA = completeOnePage(a.stamp());
+        assertEquals(Admission.UPDATED, retries.offer(doneA));
+        assertTrue(retries.acknowledge(doneA));
+        assertEquals(Admission.STORED, retries.offer(c));
+        retries.reportFullRediscovery(retries.rediscoveryToken(), true);
         assertFalse(retries.rediscoveryRequired());
     }
 
